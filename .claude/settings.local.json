@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss init -p)",
+      "Bash(npx tsc --init)",
+      "Bash(npx prisma:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(npm run build:*)",
+      "Bash(dir /s /a node_modules)",
+      "Bash(findstr:*)"
+    ]
+  }
+}
