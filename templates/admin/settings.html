@@ -1,0 +1,117 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Settings - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <h2 class="text-2xl font-bold text-gray-900">Settings</h2>
+
+    <!-- Message -->
+    <div id="message" class="hidden px-4 py-3 rounded-lg"></div>
+
+    <!-- Max Departments -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Maximum Departments Per Member</h3>
+        <p class="text-sm text-gray-600 mb-4">
+            Set the maximum number of departments a member can select.
+        </p>
+        <div class="flex items-center gap-4">
+            <input type="number" id="maxDepartments" min="1" max="20" value="3"
+                class="w-24 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <button onclick="saveMaxDepartments()"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                Save
+            </button>
+        </div>
+    </div>
+
+    <!-- Admin Password -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Admin Password</h3>
+        <p class="text-sm text-gray-600 mb-4">
+            Change the password required to access the admin panel.
+        </p>
+        <div class="flex items-center gap-4">
+            <input type="password" id="adminPassword" placeholder="Enter new password"
+                class="flex-1 max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <button onclick="savePassword()"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                Save
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/settings');
+        const settings = await response.json();
+
+        if (settings.maxDepartments) {
+            document.getElementById('maxDepartments').value = settings.maxDepartments;
+        }
+    } catch (error) {
+        console.error('Failed to load settings:', error);
+    }
+}
+
+function showMessage(text, isError = false) {
+    const msg = document.getElementById('message');
+    msg.textContent = text;
+    msg.className = `px-4 py-3 rounded-lg ${isError ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`;
+    msg.classList.remove('hidden');
+
+    setTimeout(() => {
+        msg.classList.add('hidden');
+    }, 3000);
+}
+
+async function saveMaxDepartments() {
+    const value = document.getElementById('maxDepartments').value;
+
+    if (!value || value < 1 || value > 20) {
+        showMessage('Please enter a valid number between 1 and 20', true);
+        return;
+    }
+
+    try {
+        await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'maxDepartments', value: value.toString() })
+        });
+        showMessage('Max departments updated successfully');
+    } catch (error) {
+        console.error('Failed to save setting:', error);
+        showMessage('Failed to save setting', true);
+    }
+}
+
+async function savePassword() {
+    const value = document.getElementById('adminPassword').value;
+
+    if (!value || value.length < 4) {
+        showMessage('Password must be at least 4 characters', true);
+        return;
+    }
+
+    try {
+        await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'adminPassword', value })
+        });
+        document.getElementById('adminPassword').value = '';
+        showMessage('Password updated successfully');
+    } catch (error) {
+        console.error('Failed to save password:', error);
+        showMessage('Failed to save password', true);
+    }
+}
+
+loadSettings();
+</script>
+{% endblock %}

@@ -1,17 +1,16 @@
-FROM node:20-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY prisma ./prisma/
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN npm ci
-RUN npx prisma generate
-
+# Copy application
 COPY . .
 
-RUN npm run build
+# Expose port
+EXPOSE 8000
 
-EXPOSE 3000
-
-CMD ["node", "scripts/start.js"]
+# Run with uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,193 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Departments - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Departments</h2>
+        <button onclick="toggleForm()" id="toggleBtn"
+            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            Add Department
+        </button>
+    </div>
+
+    <!-- Add/Edit Form -->
+    <div id="formSection" class="hidden bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4" id="formTitle">Add Department</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Department Name</label>
+                <input type="text" id="deptName" placeholder="Enter department name"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Category (optional)</label>
+                <select id="deptCategory"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">No Category</option>
+                </select>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="saveDepartment()"
+                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    Save
+                </button>
+                <button onclick="cancelEdit()"
+                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Departments Table -->
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="departmentsTable" class="divide-y divide-gray-200">
+                <tr>
+                    <td colspan="3" class="px-6 py-4 text-center text-gray-500">Loading...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let departments = [];
+let categories = [];
+let editingId = null;
+
+async function loadData() {
+    try {
+        const [deptRes, catRes] = await Promise.all([
+            fetch('/api/departments').then(r => r.json()),
+            fetch('/api/categories').then(r => r.json())
+        ]);
+
+        categories = catRes;
+
+        // Flatten departments
+        departments = [];
+        deptRes.categories.forEach(cat => {
+            cat.departments.forEach(dept => {
+                departments.push({ ...dept, categoryName: cat.name });
+            });
+        });
+        deptRes.uncategorized.forEach(dept => {
+            departments.push({ ...dept, categoryName: null });
+        });
+
+        renderTable();
+        renderCategoryOptions();
+    } catch (error) {
+        console.error('Failed to load data:', error);
+    }
+}
+
+function renderCategoryOptions() {
+    const select = document.getElementById('deptCategory');
+    select.innerHTML = '<option value="">No Category</option>' +
+        categories.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('');
+}
+
+function renderTable() {
+    const tbody = document.getElementById('departmentsTable');
+
+    if (departments.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-4 text-center text-gray-500">No departments yet.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = departments.map(dept => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 text-gray-900">${dept.name}</td>
+            <td class="px-6 py-4 text-gray-500">${dept.categoryName || 'Uncategorized'}</td>
+            <td class="px-6 py-4 text-right">
+                <button onclick="editDepartment(${dept.id}, '${dept.name}', ${dept.categoryId || 'null'})"
+                    class="text-blue-600 hover:text-blue-800 mr-3">Edit</button>
+                <button onclick="deleteDepartment(${dept.id})"
+                    class="text-red-600 hover:text-red-800">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function toggleForm() {
+    const form = document.getElementById('formSection');
+    form.classList.toggle('hidden');
+    if (!form.classList.contains('hidden') && !editingId) {
+        document.getElementById('deptName').value = '';
+        document.getElementById('deptCategory').value = '';
+        document.getElementById('formTitle').textContent = 'Add Department';
+    }
+}
+
+function editDepartment(id, name, categoryId) {
+    editingId = id;
+    document.getElementById('deptName').value = name;
+    document.getElementById('deptCategory').value = categoryId || '';
+    document.getElementById('formTitle').textContent = 'Edit Department';
+    document.getElementById('formSection').classList.remove('hidden');
+}
+
+function cancelEdit() {
+    editingId = null;
+    document.getElementById('formSection').classList.add('hidden');
+    document.getElementById('deptName').value = '';
+    document.getElementById('deptCategory').value = '';
+}
+
+async function saveDepartment() {
+    const name = document.getElementById('deptName').value.trim();
+    const categoryId = document.getElementById('deptCategory').value || null;
+
+    if (!name) {
+        alert('Please enter a department name');
+        return;
+    }
+
+    try {
+        const method = editingId ? 'PUT' : 'POST';
+        const body = editingId
+            ? { id: editingId, name, category_id: categoryId ? parseInt(categoryId) : null }
+            : { name, category_id: categoryId ? parseInt(categoryId) : null };
+
+        await fetch('/api/departments', {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        cancelEdit();
+        loadData();
+    } catch (error) {
+        console.error('Failed to save department:', error);
+        alert('Failed to save department');
+    }
+}
+
+async function deleteDepartment(id) {
+    if (!confirm('Are you sure you want to delete this department?')) return;
+
+    try {
+        await fetch(`/api/departments?id=${id}`, { method: 'DELETE' });
+        loadData();
+    } catch (error) {
+        console.error('Failed to delete department:', error);
+        alert('Failed to delete department');
+    }
+}
+
+loadData();
+</script>
+{% endblock %}

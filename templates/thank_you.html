@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Thank You - Department Selection{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl p-8 max-w-md w-full text-center">
+        <!-- Success Icon -->
+        <div class="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 flex items-center justify-center">
+            <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+            </svg>
+        </div>
+
+        <!-- Thank You Message -->
+        <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-4">
+            Thank You!
+        </h1>
+
+        <p class="text-gray-600 mb-6">
+            Your department selection has been submitted successfully. We appreciate your willingness to serve!
+        </p>
+
+        <!-- Info Box -->
+        <div class="bg-indigo-50 rounded-xl p-4 mb-6">
+            <p class="text-sm text-indigo-700">
+                A church leader will follow up with you regarding your selected departments.
+            </p>
+        </div>
+
+        <!-- Back Button -->
+        <a href="/"
+            class="inline-block w-full py-3 px-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all">
+            Submit Another Response
+        </a>
+    </div>
+</div>
+{% endblock %}

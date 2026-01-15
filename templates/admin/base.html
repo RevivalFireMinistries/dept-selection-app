@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-3">
+                    {% if request.url.path != '/admin' %}
+                    <a href="/admin" class="text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                        <span class="text-sm">Back</span>
+                    </a>
+                    {% endif %}
+                    <h1 class="text-xl font-bold text-gray-900">Admin Panel</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/" class="text-blue-600 hover:text-blue-700 text-sm font-medium">View Form</a>
+                    <a href="/admin/logout" class="text-gray-500 hover:text-gray-700 text-sm">Logout</a>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-1 overflow-x-auto pb-2 -mb-px">
+                <a href="/admin" class="nav-tab {% if request.url.path == '/admin' %}active{% endif %}">Dashboard</a>
+                <a href="/admin/submissions" class="nav-tab {% if request.url.path == '/admin/submissions' %}active{% endif %}">Submissions</a>
+                <a href="/admin/departments" class="nav-tab {% if request.url.path == '/admin/departments' %}active{% endif %}">Departments</a>
+                <a href="/admin/categories" class="nav-tab {% if request.url.path == '/admin/categories' %}active{% endif %}">Categories</a>
+                <a href="/admin/settings" class="nav-tab {% if request.url.path == '/admin/settings' %}active{% endif %}">Settings</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto px-4 py-6">
+        {% block admin_content %}{% endblock %}
+    </main>
+</div>
+
+<style>
+    .nav-tab {
+        @apply px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap;
+    }
+    .nav-tab.active {
+        @apply bg-blue-600 text-white hover:bg-blue-700;
+    }
+</style>
+{% endblock %}
