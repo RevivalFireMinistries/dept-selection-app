@@ -232,6 +232,129 @@ def purge_all_members(db: Session = Depends(get_db)):
     return {"success": True, "deleted": count}
 
 
+@router.get("/members/lookup")
+def lookup_member_by_phone(phone: str = Query(...), db: Session = Depends(get_db)):
+    """Lookup a member by phone number"""
+    # Normalize phone - remove spaces and common formatting
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+
+    # Try exact match first
+    member = db.query(Member).filter(Member.phone == phone).first()
+
+    # Try normalized match
+    if not member:
+        members = db.query(Member).all()
+        for m in members:
+            m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+            if m_normalized == normalized:
+                member = m
+                break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    return {
+        "id": member.id,
+        "fullName": member.full_name,
+        "phone": member.phone
+    }
+
+
+@router.get("/members/{member_id}")
+def get_member_by_id(member_id: int, db: Session = Depends(get_db)):
+    """Get a single member by ID with their departments"""
+    member = db.query(Member).options(
+        joinedload(Member.departments).joinedload(MemberDepartment.department)
+    ).filter(Member.id == member_id).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    return {
+        "id": member.id,
+        "fullName": member.full_name,
+        "phone": member.phone,
+        "email": member.email,
+        "address": member.address,
+        "createdAt": member.created_at.isoformat() if member.created_at else None,
+        "departments": [
+            {
+                "id": md.id,
+                "departmentId": md.department_id,
+                "department": {
+                    "id": md.department.id,
+                    "name": md.department.name
+                }
+            }
+            for md in member.departments
+        ]
+    }
+
+
+@router.put("/members/{member_id}")
+def update_member(member_id: int, data: dict, db: Session = Depends(get_db)):
+    """Update a member's information and department selections"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Update basic info
+    if "full_name" in data:
+        member.full_name = data["full_name"]
+    if "email" in data:
+        member.email = data["email"]
+    if "address" in data:
+        member.address = data["address"]
+
+    # Update departments if provided
+    if "selected_departments" in data:
+        selected = data["selected_departments"]
+
+        # Validate max departments
+        max_setting = db.query(Settings).filter(Settings.key == "maxDepartments").first()
+        max_departments = int(max_setting.value) if max_setting else 3
+
+        if len(selected) > max_departments:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You can only select up to {max_departments} departments"
+            )
+
+        # Validate per-category limits
+        departments = db.query(Department).options(
+            joinedload(Department.category)
+        ).filter(Department.id.in_(selected)).all()
+
+        category_selections: Dict[int, list] = {}
+        for dept in departments:
+            if dept.category_id:
+                if dept.category_id not in category_selections:
+                    category_selections[dept.category_id] = []
+                category_selections[dept.category_id].append(dept.id)
+
+        for category_id, selected_dept_ids in category_selections.items():
+            category = db.query(Category).filter(Category.id == category_id).first()
+            max_allowed = category.max_selections if category else 1
+            if len(selected_dept_ids) > max_allowed:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"You can only select up to {max_allowed} department(s) from '{category.name}'"
+                )
+
+        # Delete existing department associations
+        db.query(MemberDepartment).filter(MemberDepartment.member_id == member_id).delete()
+
+        # Create new associations
+        for dept_id in selected:
+            md = MemberDepartment(member_id=member_id, department_id=dept_id)
+            db.add(md)
+
+    db.commit()
+
+    return {"success": True, "memberId": member_id}
+
+
 # ============ SETTINGS ============
 
 @router.get("/settings")

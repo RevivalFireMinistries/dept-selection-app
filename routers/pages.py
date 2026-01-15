@@ -21,9 +21,27 @@ def is_authenticated(request: Request) -> bool:
 # ============ PUBLIC ROUTES ============
 
 @router.get("/")
-async def home(request: Request):
-    """Public department selection form"""
+async def landing(request: Request):
+    """Landing page with tiles"""
+    return templates.TemplateResponse("landing.html", {"request": request})
+
+
+@router.get("/new")
+async def new_selection(request: Request):
+    """New department selection form"""
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@router.get("/update")
+async def update_lookup(request: Request):
+    """Update selection - phone lookup page"""
+    return templates.TemplateResponse("update.html", {"request": request})
+
+
+@router.get("/edit/{member_id}")
+async def edit_selection(request: Request, member_id: int):
+    """Edit existing selection form"""
+    return templates.TemplateResponse("edit.html", {"request": request})
 
 
 @router.get("/thank-you")

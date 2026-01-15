@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Update Selection - RFM Stellenbosch 2026{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
+    <!-- Header -->
+    <div class="sticky top-0 z-10 backdrop-blur-lg bg-white/70 shadow-sm">
+        <div class="max-w-md mx-auto px-4 py-4 sm:py-6">
+            <div class="flex items-center gap-3">
+                <a href="/" class="text-gray-500 hover:text-gray-700 p-1">
+                    <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </a>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                        Update Selection
+                    </h1>
+                    <p class="text-gray-600 text-xs sm:text-sm">RFM Stellenbosch 2026</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-md mx-auto px-4 py-4 sm:py-6">
+        <!-- Phone Lookup Form -->
+        <div id="lookupSection" class="bg-white rounded-2xl sm:rounded-3xl shadow-lg p-4 sm:p-6">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900">Find Your Submission</h3>
+            </div>
+
+            <p class="text-sm text-gray-600 mb-4">
+                Enter the phone number you used when submitting your department selection.
+            </p>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4"></div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input type="tel" id="phoneInput" placeholder="+263 77 123 4567"
+                        class="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all">
+                </div>
+
+                <button onclick="lookupMember()" id="lookupBtn"
+                    class="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98] transition-all">
+                    Find My Submission
+                </button>
+            </div>
+        </div>
+
+        <!-- Not Found Message -->
+        <div id="notFoundSection" class="hidden bg-white rounded-3xl shadow-lg p-6 text-center">
+            <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 flex items-center justify-center">
+                <svg class="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">No Submission Found</h3>
+            <p class="text-gray-600 mb-4">We couldn't find a submission with that phone number.</p>
+            <div class="flex gap-3 justify-center">
+                <button onclick="resetLookup()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                    Try Again
+                </button>
+                <a href="/new" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    New Submission
+                </a>
+            </div>
+        </div>
+
+        <!-- Found - Show Edit Form -->
+        <div id="editSection" class="hidden"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let memberId = null;
+let memberData = null;
+
+async function lookupMember() {
+    const phone = document.getElementById('phoneInput').value.trim();
+
+    if (!phone) {
+        showError('Please enter your phone number');
+        return;
+    }
+
+    const btn = document.getElementById('lookupBtn');
+    btn.disabled = true;
+    btn.textContent = 'Searching...';
+    hideError();
+
+    try {
+        const response = await fetch(`/api/members/lookup?phone=${encodeURIComponent(phone)}`);
+
+        if (response.status === 404) {
+            document.getElementById('lookupSection').classList.add('hidden');
+            document.getElementById('notFoundSection').classList.remove('hidden');
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error('Failed to lookup');
+        }
+
+        memberData = await response.json();
+        memberId = memberData.id;
+
+        // Redirect to edit page with member ID
+        window.location.href = `/edit/${memberId}`;
+
+    } catch (error) {
+        console.error('Lookup error:', error);
+        showError('Failed to search. Please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Find My Submission';
+    }
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
+}
+
+function hideError() {
+    document.getElementById('errorMessage').classList.add('hidden');
+}
+
+function resetLookup() {
+    document.getElementById('notFoundSection').classList.add('hidden');
+    document.getElementById('lookupSection').classList.remove('hidden');
+    document.getElementById('phoneInput').value = '';
+}
+
+// Allow Enter key to submit
+document.getElementById('phoneInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') lookupMember();
+});
+</script>
+{% endblock %}

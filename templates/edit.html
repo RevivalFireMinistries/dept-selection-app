@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Selection - RFM Stellenbosch 2026{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
+    <!-- Header -->
+    <div class="sticky top-0 z-10 backdrop-blur-lg bg-white/70 shadow-sm">
+        <div class="max-w-md mx-auto px-4 py-4 sm:py-6">
+            <div class="flex items-center gap-3">
+                <a href="/" class="text-gray-500 hover:text-gray-700 p-1">
+                    <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </a>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                        Edit Selection
+                    </h1>
+                    <p class="text-gray-600 text-xs sm:text-sm">RFM Stellenbosch 2026</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-md mx-auto px-4 py-4 sm:py-6 pb-28 sm:pb-32">
+        <!-- Loading State -->
+        <div id="loadingState" class="flex justify-center items-center py-12">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4"></div>
+
+        <!-- Form Content (hidden until loaded) -->
+        <div id="formContent" class="hidden space-y-6">
+            <!-- Info Banner -->
+            <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 sm:p-4">
+                <p class="text-xs sm:text-sm text-blue-700">
+                    <strong>Editing submission for:</strong> <span id="memberName"></span>
+                </p>
+            </div>
+
+            <!-- Personal Information -->
+            <div class="bg-white rounded-2xl sm:rounded-3xl shadow-lg shadow-gray-200/50 p-4 sm:p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-900">Personal Information</h3>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Full Name <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" id="fullName" placeholder="Enter your full name"
+                            class="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Phone Number <span class="text-red-500">*</span>
+                        </label>
+                        <input type="tel" id="phone" placeholder="+263 77 123 4567" readonly
+                            class="w-full px-4 py-3 bg-gray-200 border-0 rounded-xl text-gray-600 cursor-not-allowed">
+                        <p class="text-xs text-gray-500 mt-1">Phone number cannot be changed</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Email <span class="text-gray-400 text-xs">(optional)</span>
+                        </label>
+                        <input type="email" id="email" placeholder="your@email.com"
+                            class="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Address <span class="text-red-500">*</span>
+                        </label>
+                        <textarea id="address" rows="2" placeholder="Enter your address"
+                            class="w-full px-4 py-3 bg-gray-50 border-0 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Department Selection -->
+            <div class="bg-white rounded-2xl sm:rounded-3xl shadow-lg shadow-gray-200/50 p-4 sm:p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900">Select Departments</h3>
+                    </div>
+                    <span id="selectionCounter" class="px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-full">
+                        0/3
+                    </span>
+                </div>
+
+                <div class="text-sm text-gray-500 mb-4" id="selectionInfo">
+                    <!-- Dynamic rules will be inserted here by JS -->
+                </div>
+
+                <!-- Departments will be rendered here -->
+                <div id="departmentsContainer" class="space-y-6"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fixed Submit Button -->
+    <div class="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-lg border-t border-gray-200 p-3 sm:p-4">
+        <div class="max-w-md mx-auto">
+            <button id="submitBtn" onclick="handleUpdate()" disabled
+                class="w-full py-3 sm:py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl shadow-lg active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
+                Update Selection
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Get member ID from URL
+const pathParts = window.location.pathname.split('/');
+const memberId = pathParts[pathParts.length - 1];
+
+// State
+let categories = [];
+let uncategorized = [];
+let maxDepartments = 3;
+let selectedDepartments = [];
+let originalMember = null;
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    try {
+        const [deptRes, settingsRes, memberRes] = await Promise.all([
+            fetch('/api/departments').then(r => r.json()),
+            fetch('/api/settings').then(r => r.json()),
+            fetch(`/api/members/${memberId}`).then(r => {
+                if (!r.ok) throw new Error('Member not found');
+                return r.json();
+            })
+        ]);
+
+        categories = deptRes.categories || [];
+        uncategorized = deptRes.uncategorized || [];
+        maxDepartments = parseInt(settingsRes.maxDepartments) || 3;
+        originalMember = memberRes;
+
+        // Pre-fill form
+        document.getElementById('fullName').value = originalMember.fullName || '';
+        document.getElementById('phone').value = originalMember.phone || '';
+        document.getElementById('email').value = originalMember.email || '';
+        document.getElementById('address').value = originalMember.address || '';
+        document.getElementById('memberName').textContent = originalMember.fullName;
+
+        // Pre-select departments
+        selectedDepartments = originalMember.departments.map(d => d.departmentId);
+
+        // Update UI
+        updateCounter();
+        updateSelectionInfo();
+
+        // Hide loading, show form
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('formContent').classList.remove('hidden');
+
+        renderDepartments();
+        updateSubmitButton();
+    } catch (error) {
+        console.error('Failed to load data:', error);
+        showError('Failed to load your submission. Please go back and try again.');
+        document.getElementById('loadingState').classList.add('hidden');
+    }
+}
+
+function renderDepartments() {
+    const container = document.getElementById('departmentsContainer');
+    let html = '';
+
+    categories.forEach(category => {
+        const maxSel = category.maxSelections || 1;
+        const badgeText = maxSel === 1 ? 'pick one' : `pick up to ${maxSel}`;
+        const badgeColor = maxSel === 1 ? 'bg-amber-100 text-amber-700' : 'bg-purple-100 text-purple-700';
+
+        html += `
+            <div class="space-y-3">
+                <div class="flex items-center gap-2">
+                    <h4 class="font-medium text-gray-900">${category.name}</h4>
+                    <span class="px-2 py-0.5 ${badgeColor} text-xs rounded-full">${badgeText}</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    ${category.departments.map(dept => renderDepartmentButton(dept, category)).join('')}
+                </div>
+            </div>
+        `;
+    });
+
+    if (uncategorized.length > 0) {
+        html += `
+            <div class="space-y-3">
+                <div class="flex items-center gap-2">
+                    <h4 class="font-medium text-gray-900">Other Departments</h4>
+                    <span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">pick any</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    ${uncategorized.map(dept => renderDepartmentButton(dept, null)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderDepartmentButton(dept, category) {
+    const isSelected = selectedDepartments.includes(dept.id);
+
+    let isDisabled = false;
+    if (!isSelected) {
+        if (selectedDepartments.length >= maxDepartments) {
+            isDisabled = true;
+        } else if (category) {
+            const categoryDeptIds = category.departments.map(d => d.id);
+            const selectedInCategory = selectedDepartments.filter(id => categoryDeptIds.includes(id)).length;
+            if (selectedInCategory >= (category.maxSelections || 1)) {
+                isDisabled = true;
+            }
+        }
+    }
+
+    const baseClass = 'relative px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200';
+    const selectedClass = 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg scale-[1.02]';
+    const normalClass = 'bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-[0.98]';
+    const disabledClass = 'bg-gray-100 text-gray-400 cursor-not-allowed';
+
+    let className = baseClass + ' ';
+    if (isSelected) {
+        className += selectedClass;
+    } else if (isDisabled) {
+        className += disabledClass;
+    } else {
+        className += normalClass;
+    }
+
+    const categoryId = category ? category.id : 'null';
+
+    return `
+        <button
+            onclick="toggleDepartment(${dept.id}, ${categoryId})"
+            class="${className}"
+            ${isDisabled ? 'disabled' : ''}>
+            ${dept.name}
+            ${isSelected ? `
+                <svg class="absolute top-1 right-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                </svg>
+            ` : ''}
+        </button>
+    `;
+}
+
+function toggleDepartment(deptId, categoryId) {
+    const index = selectedDepartments.indexOf(deptId);
+
+    if (index > -1) {
+        selectedDepartments.splice(index, 1);
+    } else {
+        if (selectedDepartments.length >= maxDepartments) {
+            return;
+        }
+
+        if (categoryId !== null) {
+            const category = categories.find(c => c.id === categoryId);
+            if (category) {
+                const categoryDeptIds = category.departments.map(d => d.id);
+                const selectedInCategory = selectedDepartments.filter(id => categoryDeptIds.includes(id));
+                const maxAllowed = category.maxSelections || 1;
+
+                if (selectedInCategory.length >= maxAllowed) {
+                    const toRemove = selectedInCategory[0];
+                    const removeIndex = selectedDepartments.indexOf(toRemove);
+                    if (removeIndex > -1) {
+                        selectedDepartments.splice(removeIndex, 1);
+                    }
+                }
+            }
+        }
+
+        selectedDepartments.push(deptId);
+    }
+
+    updateCounter();
+    renderDepartments();
+    updateSubmitButton();
+}
+
+function updateCounter() {
+    const counter = document.getElementById('selectionCounter');
+    counter.textContent = `${selectedDepartments.length}/${maxDepartments}`;
+
+    if (selectedDepartments.length >= maxDepartments) {
+        counter.className = 'px-3 py-1 bg-amber-100 text-amber-700 text-sm font-medium rounded-full';
+    } else {
+        counter.className = 'px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-full';
+    }
+}
+
+function updateSelectionInfo() {
+    const infoDiv = document.getElementById('selectionInfo');
+
+    let html = `<p class="mb-2"><strong>You can select up to ${maxDepartments} department(s) in total.</strong></p>`;
+
+    if (categories.length > 0) {
+        html += '<ul class="list-disc list-inside space-y-1">';
+        categories.forEach(cat => {
+            const max = cat.maxSelections || 1;
+            html += `<li><strong>${cat.name}:</strong> up to ${max} selection${max > 1 ? 's' : ''}</li>`;
+        });
+        if (uncategorized.length > 0) {
+            html += `<li><strong>Other Departments:</strong> no limit</li>`;
+        }
+        html += '</ul>';
+    }
+
+    infoDiv.innerHTML = html;
+}
+
+function updateSubmitButton() {
+    const btn = document.getElementById('submitBtn');
+    const fullName = document.getElementById('fullName').value.trim();
+    const address = document.getElementById('address').value.trim();
+
+    btn.disabled = !fullName || !address || selectedDepartments.length === 0;
+}
+
+['fullName', 'address'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateSubmitButton);
+});
+
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
+}
+
+function hideError() {
+    document.getElementById('errorMessage').classList.add('hidden');
+}
+
+async function handleUpdate() {
+    hideError();
+
+    const fullName = document.getElementById('fullName').value.trim();
+    const email = document.getElementById('email').value.trim();
+    const address = document.getElementById('address').value.trim();
+
+    if (!fullName || !address) {
+        showError('Please fill in all required fields.');
+        return;
+    }
+
+    if (selectedDepartments.length === 0) {
+        showError('Please select at least one department.');
+        return;
+    }
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    try {
+        const response = await fetch(`/api/members/${memberId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                full_name: fullName,
+                email: email,
+                address: address,
+                selected_departments: selectedDepartments
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Update failed');
+        }
+
+        window.location.href = '/thank-you';
+    } catch (error) {
+        console.error('Update error:', error);
+        showError(error.message || 'Failed to update. Please try again.');
+        btn.disabled = false;
+        btn.textContent = 'Update Selection';
+    }
+}
+</script>
+{% endblock %}
