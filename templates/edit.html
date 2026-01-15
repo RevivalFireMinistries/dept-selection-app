@@ -66,7 +66,7 @@
                         <label class="block text-sm font-medium text-gray-700 mb-1">
                             Phone Number <span class="text-red-500">*</span>
                         </label>
-                        <input type="tel" id="phone" placeholder="+263 77 123 4567" readonly
+                        <input type="tel" id="phone" placeholder="0711234456" readonly
                             class="w-full px-4 py-3 bg-gray-200 border-0 rounded-xl text-gray-600 cursor-not-allowed">
                         <p class="text-xs text-gray-500 mt-1">Phone number cannot be changed</p>
                     </div>
@@ -399,7 +399,7 @@ async function handleUpdate() {
             throw new Error(data.detail || 'Update failed');
         }
 
-        window.location.href = '/thank-you';
+        window.location.href = '/?success=true';
     } catch (error) {
         console.error('Update error:', error);
         showError(error.message || 'Failed to update. Please try again.');

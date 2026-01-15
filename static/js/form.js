@@ -196,13 +196,19 @@ function updateSelectionInfo() {
     infoDiv.innerHTML = html;
 }
 
+function validatePhone(phone) {
+    // Remove spaces, dashes, and any non-digit characters
+    const digits = phone.replace(/\D/g, '');
+    return digits.length === 10;
+}
+
 function updateSubmitButton() {
     const btn = document.getElementById('submitBtn');
     const fullName = document.getElementById('fullName').value.trim();
     const phone = document.getElementById('phone').value.trim();
     const address = document.getElementById('address').value.trim();
 
-    btn.disabled = !fullName || !phone || !address || selectedDepartments.length === 0;
+    btn.disabled = !fullName || !phone || !validatePhone(phone) || !address || selectedDepartments.length === 0;
 }
 
 // Add input listeners for validation
@@ -231,6 +237,11 @@ async function handleSubmit() {
     // Validate
     if (!fullName || !phone || !address) {
         showError('Please fill in all required fields.');
+        return;
+    }
+
+    if (!validatePhone(phone)) {
+        showError('Phone number must be 10 digits (e.g., 0711234456).');
         return;
     }
 
@@ -263,8 +274,8 @@ async function handleSubmit() {
             throw new Error(data.detail || 'Submission failed');
         }
 
-        // Redirect to thank you page
-        window.location.href = '/thank-you';
+        // Redirect to home with success message
+        window.location.href = '/?success=true';
     } catch (error) {
         console.error('Submission error:', error);
         showError(error.message || 'Failed to submit. Please try again.');

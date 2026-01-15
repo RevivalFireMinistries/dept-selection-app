@@ -19,6 +19,12 @@ from schemas import (
 router = APIRouter()
 
 
+def validate_phone(phone: str) -> bool:
+    """Validate phone number is exactly 10 digits"""
+    digits = re.sub(r'\D', '', phone)
+    return len(digits) == 10
+
+
 # ============ DEPARTMENTS ============
 
 @router.get("/departments")
@@ -390,6 +396,10 @@ def submit_form(data: MemberSubmission, db: Session = Depends(get_db)):
     # Validate required fields
     if not data.full_name or not data.phone or not data.address:
         raise HTTPException(status_code=400, detail="Full name, phone, and address are required")
+
+    # Validate phone format (10 digits)
+    if not validate_phone(data.phone):
+        raise HTTPException(status_code=400, detail="Phone number must be 10 digits (e.g., 0711234456)")
 
     if not data.selected_departments or len(data.selected_departments) == 0:
         raise HTTPException(status_code=400, detail="Please select at least one department")
