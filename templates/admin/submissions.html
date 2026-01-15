@@ -6,7 +6,13 @@
 <div class="space-y-6">
     <div class="flex items-center justify-between">
         <h2 class="text-2xl font-bold text-gray-900">Submissions</h2>
-        <span class="text-gray-500" id="submissionCount">Loading...</span>
+        <div class="flex items-center gap-4">
+            <span class="text-gray-500" id="submissionCount">Loading...</span>
+            <button onclick="purgeAll()" id="purgeBtn"
+                class="hidden px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors">
+                Purge All
+            </button>
+        </div>
     </div>
 
     <!-- Loading State -->
@@ -37,12 +43,16 @@ async function loadSubmissions() {
 
         if (members.length === 0) {
             document.getElementById('emptyState').classList.remove('hidden');
+            document.getElementById('submissionsList').classList.add('hidden');
             document.getElementById('submissionCount').textContent = '0 submissions';
+            document.getElementById('purgeBtn').classList.add('hidden');
             return;
         }
 
+        document.getElementById('emptyState').classList.add('hidden');
         document.getElementById('submissionCount').textContent = `${members.length} submission(s)`;
         document.getElementById('submissionsList').classList.remove('hidden');
+        document.getElementById('purgeBtn').classList.remove('hidden');
 
         renderSubmissions();
     } catch (error) {
@@ -111,6 +121,22 @@ async function deleteMember(id) {
     } catch (error) {
         console.error('Failed to delete member:', error);
         alert('Failed to delete submission');
+    }
+}
+
+async function purgeAll() {
+    const count = members.length;
+    if (!confirm(`Are you sure you want to delete ALL ${count} submission(s)? This cannot be undone.`)) return;
+    if (!confirm('This will permanently delete all member data. Type "yes" mentally and click OK to confirm.')) return;
+
+    try {
+        const response = await fetch('/api/members/purge', { method: 'DELETE' });
+        const data = await response.json();
+        alert(`Successfully deleted ${data.deleted} submission(s).`);
+        loadSubmissions();
+    } catch (error) {
+        console.error('Failed to purge submissions:', error);
+        alert('Failed to purge submissions');
     }
 }
 

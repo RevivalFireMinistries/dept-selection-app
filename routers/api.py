@@ -206,8 +206,11 @@ def get_members(db: Session = Depends(get_db)):
 
 
 @router.delete("/members")
-def delete_member(id: int = Query(...), db: Session = Depends(get_db)):
-    """Delete a member"""
+def delete_member(id: int = Query(None), db: Session = Depends(get_db)):
+    """Delete a member or all members if id=all"""
+    if id is None:
+        raise HTTPException(status_code=400, detail="Member ID is required")
+
     member = db.query(Member).filter(Member.id == id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
@@ -216,6 +219,17 @@ def delete_member(id: int = Query(...), db: Session = Depends(get_db)):
     db.commit()
 
     return {"success": True}
+
+
+@router.delete("/members/purge")
+def purge_all_members(db: Session = Depends(get_db)):
+    """Delete all member submissions"""
+    count = db.query(Member).count()
+    db.query(MemberDepartment).delete()
+    db.query(Member).delete()
+    db.commit()
+
+    return {"success": True, "deleted": count}
 
 
 # ============ SETTINGS ============

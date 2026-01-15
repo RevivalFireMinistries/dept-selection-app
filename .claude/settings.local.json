@@ -9,7 +9,8 @@
       "Bash(npx ts-node:*)",
       "Bash(npm run build:*)",
       "Bash(dir /s /a node_modules)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(git add:*)"
     ]
   }
 }
