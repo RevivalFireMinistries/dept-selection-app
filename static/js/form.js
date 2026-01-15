@@ -19,8 +19,8 @@ async function loadData() {
         maxDepartments = parseInt(settingsRes.maxDepartments) || 3;
 
         // Update UI
-        document.getElementById('maxDeptDisplay').textContent = maxDepartments;
         updateCounter();
+        updateSelectionInfo();
 
         // Hide loading, show form
         document.getElementById('loadingState').classList.add('hidden');
@@ -174,6 +174,26 @@ function updateCounter() {
     } else {
         counter.className = 'px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-full';
     }
+}
+
+function updateSelectionInfo() {
+    const infoDiv = document.getElementById('selectionInfo');
+
+    let html = `<p class="mb-2"><strong>You can select up to ${maxDepartments} department(s) in total.</strong></p>`;
+
+    if (categories.length > 0) {
+        html += '<ul class="list-disc list-inside space-y-1">';
+        categories.forEach(cat => {
+            const max = cat.maxSelections || 1;
+            html += `<li><strong>${cat.name}:</strong> up to ${max} selection${max > 1 ? 's' : ''}</li>`;
+        });
+        if (uncategorized.length > 0) {
+            html += `<li><strong>Other Departments:</strong> no limit</li>`;
+        }
+        html += '</ul>';
+    }
+
+    infoDiv.innerHTML = html;
 }
 
 function updateSubmitButton() {
