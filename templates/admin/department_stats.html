@@ -1,0 +1,98 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Department Stats - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <!-- Header with Back Button -->
+    <div class="flex items-center gap-4">
+        <a href="/admin" class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+        </a>
+        <div>
+            <h2 class="text-2xl font-bold text-gray-900">Members per Department</h2>
+            <p class="text-sm text-gray-500">Click on a department to view its members</p>
+        </div>
+    </div>
+
+    <!-- Department Stats -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <div id="deptStatsContainer" class="space-y-6">
+            <div class="flex justify-center py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDeptStats() {
+    try {
+        const response = await fetch('/api/stats/departments');
+        const stats = await response.json();
+        renderDeptStats(stats);
+    } catch (error) {
+        console.error('Failed to load stats:', error);
+        document.getElementById('deptStatsContainer').innerHTML = `
+            <p class="text-red-500 text-center">Failed to load department stats.</p>
+        `;
+    }
+}
+
+function renderDeptStats(stats) {
+    const container = document.getElementById('deptStatsContainer');
+    let html = '';
+
+    // Render categorized departments
+    stats.categories.forEach(cat => {
+        html += `
+            <div class="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
+                <h4 class="font-semibold text-gray-800 mb-3">${cat.name}</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    ${cat.departments.map(dept => `
+                        <a href="/admin/department/${dept.id}" class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 hover:bg-indigo-50 hover:shadow-md transition-all">
+                            <span class="text-sm font-medium text-gray-700">${dept.name}</span>
+                            <span class="px-2.5 py-1 bg-indigo-100 text-indigo-700 text-sm font-semibold rounded-full">${dept.memberCount}</span>
+                        </a>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    });
+
+    // Render uncategorized departments
+    if (stats.uncategorized.length > 0) {
+        html += `
+            <div class="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
+                <h4 class="font-semibold text-gray-800 mb-3">Other Departments</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    ${stats.uncategorized.map(dept => `
+                        <a href="/admin/department/${dept.id}" class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 hover:bg-indigo-50 hover:shadow-md transition-all">
+                            <span class="text-sm font-medium text-gray-700">${dept.name}</span>
+                            <span class="px-2.5 py-1 bg-indigo-100 text-indigo-700 text-sm font-semibold rounded-full">${dept.memberCount}</span>
+                        </a>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (!html) {
+        html = `
+            <div class="text-center py-8">
+                <p class="text-gray-500">No departments found. Add departments first.</p>
+                <a href="/admin/departments" class="mt-2 inline-block text-indigo-600 hover:underline">Manage Departments</a>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+loadDeptStats();
+</script>
+{% endblock %}
