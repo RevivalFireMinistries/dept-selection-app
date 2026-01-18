@@ -554,6 +554,41 @@ def get_department_stats(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/stats/departments/{department_id}")
+def get_department_members(department_id: int, db: Session = Depends(get_db)):
+    """Get all members who selected a specific department"""
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    # Get members who selected this department
+    member_depts = db.query(MemberDepartment).filter(
+        MemberDepartment.department_id == department_id
+    ).all()
+
+    member_ids = [md.member_id for md in member_depts]
+    members = db.query(Member).filter(Member.id.in_(member_ids)).order_by(Member.full_name).all()
+
+    return {
+        "department": {
+            "id": department.id,
+            "name": department.name,
+            "categoryId": department.category_id
+        },
+        "members": [
+            {
+                "id": m.id,
+                "fullName": m.full_name,
+                "phone": m.phone,
+                "email": m.email,
+                "address": m.address
+            }
+            for m in members
+        ],
+        "totalCount": len(members)
+    }
+
+
 # ============ EXPORT ============
 
 def sanitize_sheet_name(name: str) -> str:

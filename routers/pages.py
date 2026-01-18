@@ -98,6 +98,14 @@ async def admin_dashboard(request: Request):
     return templates.TemplateResponse("admin/dashboard.html", {"request": request})
 
 
+@router.get("/admin/department/{department_id}")
+async def admin_department_detail(request: Request, department_id: int):
+    """Admin department detail - view members"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/department_detail.html", {"request": request})
+
+
 @router.get("/admin/submissions")
 async def admin_submissions(request: Request):
     """Admin submissions list"""
