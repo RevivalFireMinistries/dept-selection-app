@@ -51,6 +51,16 @@
         </div>
     </div>
 
+    <!-- Department Stats -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Members per Department</h3>
+        <div id="deptStatsContainer" class="space-y-4">
+            <div class="flex justify-center py-4">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Export Section -->
     <div class="bg-white rounded-xl shadow p-6">
         <h3 class="text-lg font-semibold text-gray-900 mb-4">Export Reports</h3>
@@ -91,10 +101,11 @@
 <script>
 async function loadStats() {
     try {
-        const [members, departments, categories] = await Promise.all([
+        const [members, departments, categories, deptStats] = await Promise.all([
             fetch('/api/members').then(r => r.json()),
             fetch('/api/departments').then(r => r.json()),
-            fetch('/api/categories').then(r => r.json())
+            fetch('/api/categories').then(r => r.json()),
+            fetch('/api/stats/departments').then(r => r.json())
         ]);
 
         document.getElementById('totalSubmissions').textContent = members.length;
@@ -103,9 +114,57 @@ async function loadStats() {
         document.getElementById('totalDepartments').textContent = deptCount;
 
         document.getElementById('totalCategories').textContent = categories.length;
+
+        // Render department stats
+        renderDeptStats(deptStats);
     } catch (error) {
         console.error('Failed to load stats:', error);
     }
+}
+
+function renderDeptStats(stats) {
+    const container = document.getElementById('deptStatsContainer');
+    let html = '';
+
+    // Render categorized departments
+    stats.categories.forEach(cat => {
+        html += `
+            <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                <h4 class="font-medium text-gray-700 mb-2">${cat.name}</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    ${cat.departments.map(dept => `
+                        <div class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                            <span class="text-sm text-gray-700">${dept.name}</span>
+                            <span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">${dept.memberCount}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    });
+
+    // Render uncategorized departments
+    if (stats.uncategorized.length > 0) {
+        html += `
+            <div class="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                <h4 class="font-medium text-gray-700 mb-2">Other Departments</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    ${stats.uncategorized.map(dept => `
+                        <div class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                            <span class="text-sm text-gray-700">${dept.name}</span>
+                            <span class="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">${dept.memberCount}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (!html) {
+        html = '<p class="text-gray-500 text-sm">No departments found. Add departments first.</p>';
+    }
+
+    container.innerHTML = html;
 }
 
 function downloadExport(type) {

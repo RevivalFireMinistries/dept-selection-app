@@ -504,6 +504,56 @@ def seed_database(db: Session = Depends(get_db)):
     return {"message": "Database seeded successfully", "seeded": True}
 
 
+# ============ STATS ============
+
+@router.get("/stats/departments")
+def get_department_stats(db: Session = Depends(get_db)):
+    """Get member count per department, grouped by category"""
+    # Get all departments with their member counts
+    departments = db.query(Department).options(
+        joinedload(Department.category)
+    ).all()
+
+    # Count members per department
+    dept_counts = {}
+    member_depts = db.query(MemberDepartment).all()
+    for md in member_depts:
+        dept_counts[md.department_id] = dept_counts.get(md.department_id, 0) + 1
+
+    # Group by category
+    categories_data = {}
+    uncategorized = []
+
+    for dept in departments:
+        count = dept_counts.get(dept.id, 0)
+        dept_info = {
+            "id": dept.id,
+            "name": dept.name,
+            "memberCount": count
+        }
+
+        if dept.category_id:
+            if dept.category_id not in categories_data:
+                categories_data[dept.category_id] = {
+                    "id": dept.category.id,
+                    "name": dept.category.name,
+                    "departments": []
+                }
+            categories_data[dept.category_id]["departments"].append(dept_info)
+        else:
+            uncategorized.append(dept_info)
+
+    # Sort departments by member count (descending)
+    for cat_id in categories_data:
+        categories_data[cat_id]["departments"].sort(key=lambda x: x["memberCount"], reverse=True)
+    uncategorized.sort(key=lambda x: x["memberCount"], reverse=True)
+
+    return {
+        "categories": list(categories_data.values()),
+        "uncategorized": uncategorized
+    }
+
+
 # ============ EXPORT ============
 
 def sanitize_sheet_name(name: str) -> str:
