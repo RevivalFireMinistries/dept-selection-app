@@ -11,11 +11,17 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 ADMIN_COOKIE_NAME = "admin_session"
+DESK_COOKIE_NAME = "desk_session"
 
 
 def is_authenticated(request: Request) -> bool:
     """Check if user has valid admin session cookie"""
     return request.cookies.get(ADMIN_COOKIE_NAME) == "authenticated"
+
+
+def is_desk_authenticated(request: Request) -> bool:
+    """Check if user has valid desk session cookie"""
+    return request.cookies.get(DESK_COOKIE_NAME) == "authenticated"
 
 
 # ============ PUBLIC ROUTES ============
@@ -144,3 +150,67 @@ async def admin_settings(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
     return templates.TemplateResponse("admin/settings.html", {"request": request})
+
+
+# ============ DESK ROUTES ============
+
+@router.get("/desk/login")
+async def desk_login_page(request: Request):
+    """Desk login page"""
+    if is_desk_authenticated(request):
+        return RedirectResponse(url="/desk", status_code=302)
+    return templates.TemplateResponse("desk/login.html", {"request": request, "error": None})
+
+
+@router.post("/desk/login")
+async def desk_login(
+    request: Request,
+    response: Response,
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Process desk login"""
+    setting = db.query(Settings).filter(Settings.key == "deskPassword").first()
+    correct_password = setting.value if setting else "desk123"
+
+    if password == correct_password:
+        response = RedirectResponse(url="/desk", status_code=302)
+        response.set_cookie(key=DESK_COOKIE_NAME, value="authenticated", httponly=True)
+        return response
+    else:
+        return templates.TemplateResponse(
+            "desk/login.html",
+            {"request": request, "error": "Invalid password"}
+        )
+
+
+@router.get("/desk/logout")
+async def desk_logout():
+    """Log out desk user"""
+    response = RedirectResponse(url="/desk/login", status_code=302)
+    response.delete_cookie(key=DESK_COOKIE_NAME)
+    return response
+
+
+@router.get("/desk")
+async def desk_dashboard(request: Request):
+    """Desk dashboard - search and new submissions"""
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login", status_code=302)
+    return templates.TemplateResponse("desk/dashboard.html", {"request": request})
+
+
+@router.get("/desk/new")
+async def desk_new_submission(request: Request):
+    """Desk new submission form"""
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login", status_code=302)
+    return templates.TemplateResponse("desk/new.html", {"request": request})
+
+
+@router.get("/desk/member/{member_id}")
+async def desk_member_edit(request: Request, member_id: int):
+    """Desk member edit page"""
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login", status_code=302)
+    return templates.TemplateResponse("desk/member.html", {"request": request})

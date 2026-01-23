@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 bg-teal-100 rounded-full flex items-center justify-center">
+                        <svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                        </svg>
+                    </div>
+                    <h1 class="text-xl font-bold text-gray-900">Info Desk</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/" class="text-teal-600 hover:text-teal-700 text-sm font-medium">Public Form</a>
+                    <a href="/desk/logout" class="text-gray-500 hover:text-gray-700 text-sm">Logout</a>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex gap-1 overflow-x-auto pb-2 -mb-px">
+                <a href="/desk" class="desk-tab {% if request.url.path == '/desk' %}active{% endif %}">Search Members</a>
+                <a href="/desk/new" class="desk-tab {% if request.url.path == '/desk/new' %}active{% endif %}">New Submission</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto px-4 py-6">
+        {% block desk_content %}{% endblock %}
+    </main>
+</div>
+
+<style>
+    .desk-tab {
+        @apply px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap;
+    }
+    .desk-tab.active {
+        @apply bg-teal-600 text-white hover:bg-teal-700;
+    }
+</style>
+{% endblock %}

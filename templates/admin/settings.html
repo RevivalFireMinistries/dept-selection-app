@@ -34,11 +34,30 @@
         <div class="flex items-center gap-4">
             <input type="password" id="adminPassword" placeholder="Enter new password"
                 class="flex-1 max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            <button onclick="savePassword()"
+            <button onclick="savePassword('adminPassword')"
                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                 Save
             </button>
         </div>
+    </div>
+
+    <!-- Info Desk Password -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Info Desk Password</h3>
+        <p class="text-sm text-gray-600 mb-4">
+            Change the password for the info desk panel. Info desk staff can search members, create new submissions, and edit existing selections.
+        </p>
+        <div class="flex items-center gap-4">
+            <input type="password" id="deskPassword" placeholder="Enter new password"
+                class="flex-1 max-w-xs px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <button onclick="savePassword('deskPassword')"
+                class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+                Save
+            </button>
+        </div>
+        <p class="text-sm text-gray-500 mt-3">
+            <a href="/desk" target="_blank" class="text-teal-600 hover:underline">Open Info Desk Panel</a>
+        </p>
     </div>
 </div>
 {% endblock %}
@@ -90,22 +109,24 @@ async function saveMaxDepartments() {
     }
 }
 
-async function savePassword() {
-    const value = document.getElementById('adminPassword').value;
+async function savePassword(key) {
+    const value = document.getElementById(key).value;
 
     if (!value || value.length < 4) {
         showMessage('Password must be at least 4 characters', true);
         return;
     }
 
+    const label = key === 'adminPassword' ? 'Admin' : 'Info Desk';
+
     try {
         await fetch('/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: 'adminPassword', value })
+            body: JSON.stringify({ key, value })
         });
-        document.getElementById('adminPassword').value = '';
-        showMessage('Password updated successfully');
+        document.getElementById(key).value = '';
+        showMessage(`${label} password updated successfully`);
     } catch (error) {
         console.error('Failed to save password:', error);
         showMessage('Failed to save password', true);

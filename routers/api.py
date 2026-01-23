@@ -473,6 +473,7 @@ def seed_database(db: Session = Depends(get_db)):
     # Create default settings
     db.add(Settings(key="maxDepartments", value="3"))
     db.add(Settings(key="adminPassword", value="admin123"))
+    db.add(Settings(key="deskPassword", value="desk123"))
 
     # Create categories with departments
     music = Category(name="Music Ministry")
