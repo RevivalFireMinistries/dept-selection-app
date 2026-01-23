@@ -96,37 +96,11 @@
             <div id="departmentsContainer" class="space-y-6"></div>
         </div>
 
-        <!-- Action Buttons -->
-        <div class="flex gap-4">
-            <button id="submitBtn" onclick="handleUpdate()" disabled
-                class="flex-1 py-4 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                Save Changes
-            </button>
-            <button onclick="confirmDelete()"
-                class="px-6 py-4 bg-red-50 text-red-600 font-semibold rounded-xl hover:bg-red-100 transition-colors">
-                Delete
-            </button>
-        </div>
-    </div>
-
-    <!-- Delete Confirmation Modal -->
-    <div id="deleteModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete Submission?</h3>
-            <p class="text-gray-600 mb-6">
-                This will permanently delete this member's submission. This action cannot be undone.
-            </p>
-            <div class="flex gap-3">
-                <button onclick="closeDeleteModal()"
-                    class="flex-1 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors">
-                    Cancel
-                </button>
-                <button onclick="handleDelete()"
-                    class="flex-1 py-3 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors">
-                    Delete
-                </button>
-            </div>
-        </div>
+        <!-- Action Button -->
+        <button id="submitBtn" onclick="handleUpdate()" disabled
+            class="w-full py-4 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            Save Changes
+        </button>
     </div>
 </div>
 {% endblock %}
@@ -419,31 +393,5 @@ async function handleUpdate() {
     }
 }
 
-function confirmDelete() {
-    document.getElementById('deleteModal').classList.remove('hidden');
-}
-
-function closeDeleteModal() {
-    document.getElementById('deleteModal').classList.add('hidden');
-}
-
-async function handleDelete() {
-    try {
-        const response = await fetch(`/api/members?id=${memberId}`, {
-            method: 'DELETE'
-        });
-
-        if (!response.ok) {
-            throw new Error('Delete failed');
-        }
-
-        // Redirect to search
-        window.location.href = '/desk';
-    } catch (error) {
-        console.error('Delete error:', error);
-        closeDeleteModal();
-        showError('Failed to delete member. Please try again.');
-    }
-}
 </script>
 {% endblock %}
