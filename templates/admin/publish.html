@@ -1,0 +1,255 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Publish Results - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <h2 class="text-2xl font-bold text-gray-900">Publish Results</h2>
+
+    <!-- Status Card -->
+    <div id="statusCard" class="bg-white rounded-xl shadow p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900">Publication Status</h3>
+                <p id="statusText" class="text-gray-500 mt-1">Loading...</p>
+                <p id="publishedAt" class="text-sm text-gray-400 mt-1 hidden"></p>
+            </div>
+            <div id="statusBadge" class="px-4 py-2 rounded-full text-sm font-medium">
+                Loading...
+            </div>
+        </div>
+
+        <div id="actions" class="mt-6 flex gap-4 hidden">
+            <button id="previewBtn" onclick="showPreview()"
+                class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                Preview Results
+            </button>
+            <button id="publishBtn" onclick="confirmPublish()"
+                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                Publish Results
+            </button>
+            <button id="unpublishBtn" onclick="confirmUnpublish()"
+                class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors hidden">
+                Unpublish Results
+            </button>
+        </div>
+    </div>
+
+    <!-- Warning Card -->
+    <div id="warningCard" class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 hidden">
+        <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-yellow-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <div>
+                <p class="font-medium text-yellow-800">Pending approvals detected</p>
+                <p class="text-sm text-yellow-700 mt-1">
+                    There are <span id="pendingCount" class="font-semibold">0</span> selections still pending review.
+                    <a href="/admin/approvals" class="underline hover:no-underline">Review approvals</a>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow p-4">
+            <p class="text-sm text-gray-500">Total Members</p>
+            <p class="text-2xl font-bold text-gray-900" id="totalMembers">0</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+            <p class="text-sm text-gray-500">Approved Assignments</p>
+            <p class="text-2xl font-bold text-green-600" id="totalApproved">0</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+            <p class="text-sm text-gray-500">Pending Review</p>
+            <p class="text-2xl font-bold text-yellow-600" id="totalPending">0</p>
+        </div>
+    </div>
+
+    <!-- Preview Section -->
+    <div id="previewSection" class="bg-white rounded-xl shadow p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">Preview: What Members Will See</h3>
+            <button onclick="hidePreview()" class="text-gray-500 hover:text-gray-700">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div id="previewList" class="space-y-3 max-h-96 overflow-y-auto"></div>
+    </div>
+</div>
+
+<!-- Publish Confirmation Modal -->
+<div id="publishModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">Publish Results?</h3>
+        <p class="text-gray-600 mb-6">
+            This will make approved department selections visible to all members when they look up their results.
+        </p>
+        <div class="flex gap-3">
+            <button onclick="closePublishModal()"
+                class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+            <button onclick="doPublish()"
+                class="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Publish</button>
+        </div>
+    </div>
+</div>
+
+<!-- Unpublish Confirmation Modal -->
+<div id="unpublishModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">Unpublish Results?</h3>
+        <p class="text-gray-600 mb-6">
+            This will hide results from members. They will see "Results not yet available" when looking up.
+        </p>
+        <div class="flex gap-3">
+            <button onclick="closeUnpublishModal()"
+                class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+            <button onclick="doUnpublish()"
+                class="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Unpublish</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let isPublished = false;
+let previewData = null;
+
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    try {
+        const [settingsRes, previewRes] = await Promise.all([
+            fetch('/api/settings').then(r => r.json()),
+            fetch('/api/admin/preview').then(r => r.json())
+        ]);
+
+        isPublished = settingsRes.resultsPublished === 'true';
+        previewData = previewRes;
+
+        updateUI(settingsRes);
+    } catch (error) {
+        console.error('Failed to load data:', error);
+    }
+}
+
+function updateUI(settings) {
+    const statusBadge = document.getElementById('statusBadge');
+    const statusText = document.getElementById('statusText');
+    const publishedAt = document.getElementById('publishedAt');
+    const publishBtn = document.getElementById('publishBtn');
+    const unpublishBtn = document.getElementById('unpublishBtn');
+    const actions = document.getElementById('actions');
+    const warningCard = document.getElementById('warningCard');
+
+    actions.classList.remove('hidden');
+
+    if (isPublished) {
+        statusBadge.textContent = 'Published';
+        statusBadge.className = 'px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-700';
+        statusText.textContent = 'Results are visible to members';
+
+        if (settings.publishedAt) {
+            const date = new Date(settings.publishedAt);
+            publishedAt.textContent = `Published on ${date.toLocaleDateString('en-ZA', {
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            })}`;
+            publishedAt.classList.remove('hidden');
+        }
+
+        publishBtn.classList.add('hidden');
+        unpublishBtn.classList.remove('hidden');
+    } else {
+        statusBadge.textContent = 'Not Published';
+        statusBadge.className = 'px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700';
+        statusText.textContent = 'Results are hidden from members';
+        publishedAt.classList.add('hidden');
+
+        publishBtn.classList.remove('hidden');
+        unpublishBtn.classList.add('hidden');
+    }
+
+    // Update stats
+    document.getElementById('totalMembers').textContent = previewData.total_members;
+    document.getElementById('totalApproved').textContent = previewData.total_approved_assignments;
+    document.getElementById('totalPending').textContent = previewData.pending_count;
+
+    // Show warning if pending
+    if (previewData.pending_count > 0) {
+        document.getElementById('pendingCount').textContent = previewData.pending_count;
+        warningCard.classList.remove('hidden');
+    } else {
+        warningCard.classList.add('hidden');
+    }
+}
+
+function showPreview() {
+    const container = document.getElementById('previewList');
+
+    if (previewData.members_preview.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">No approved selections to show.</p>';
+    } else {
+        container.innerHTML = previewData.members_preview.map(m => `
+            <div class="p-3 bg-gray-50 rounded-lg">
+                <p class="font-medium text-gray-900">${m.full_name}</p>
+                <p class="text-sm text-gray-500">${m.phone}</p>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    ${m.approved_departments.map(d => `
+                        <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">${d}</span>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    document.getElementById('previewSection').classList.remove('hidden');
+}
+
+function hidePreview() {
+    document.getElementById('previewSection').classList.add('hidden');
+}
+
+function confirmPublish() {
+    document.getElementById('publishModal').classList.remove('hidden');
+}
+
+function closePublishModal() {
+    document.getElementById('publishModal').classList.add('hidden');
+}
+
+async function doPublish() {
+    try {
+        await fetch('/api/admin/publish', { method: 'POST' });
+        closePublishModal();
+        await loadData();
+    } catch (error) {
+        console.error('Failed to publish:', error);
+        alert('Failed to publish results');
+    }
+}
+
+function confirmUnpublish() {
+    document.getElementById('unpublishModal').classList.remove('hidden');
+}
+
+function closeUnpublishModal() {
+    document.getElementById('unpublishModal').classList.add('hidden');
+}
+
+async function doUnpublish() {
+    try {
+        await fetch('/api/admin/unpublish', { method: 'POST' });
+        closeUnpublishModal();
+        await loadData();
+    } catch (error) {
+        console.error('Failed to unpublish:', error);
+        alert('Failed to unpublish results');
+    }
+}
+</script>
+{% endblock %}

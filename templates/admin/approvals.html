@@ -1,0 +1,419 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Approvals - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Review Approvals</h2>
+        <button onclick="bulkApprove()" id="bulkApproveBtn"
+            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+            Approve All Pending
+        </button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-3 gap-4">
+        <div class="bg-yellow-50 rounded-xl p-4">
+            <p class="text-sm text-yellow-600 font-medium">Pending</p>
+            <p class="text-2xl font-bold text-yellow-700" id="pendingCount">0</p>
+        </div>
+        <div class="bg-green-50 rounded-xl p-4">
+            <p class="text-sm text-green-600 font-medium">Approved</p>
+            <p class="text-2xl font-bold text-green-700" id="approvedCount">0</p>
+        </div>
+        <div class="bg-red-50 rounded-xl p-4">
+            <p class="text-sm text-red-600 font-medium">Rejected</p>
+            <p class="text-2xl font-bold text-red-700" id="rejectedCount">0</p>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="flex gap-2">
+        <button onclick="setFilter('all')" class="filter-tab active" data-filter="all">All</button>
+        <button onclick="setFilter('pending')" class="filter-tab" data-filter="pending">Pending</button>
+        <button onclick="setFilter('approved')" class="filter-tab" data-filter="approved">Approved</button>
+        <button onclick="setFilter('rejected')" class="filter-tab" data-filter="rejected">Rejected</button>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="flex justify-center py-12">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+    </div>
+
+    <!-- Members List -->
+    <div id="membersList" class="hidden space-y-4"></div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="hidden text-center py-12 text-gray-500">
+        No submissions found.
+    </div>
+</div>
+
+<!-- Reject Modal -->
+<div id="rejectModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Reject Selection</h3>
+        <textarea id="rejectNote" rows="3" placeholder="Reason for rejection (optional)"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 resize-none mb-4"></textarea>
+        <div class="flex gap-3">
+            <button onclick="closeRejectModal()"
+                class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+            <button onclick="confirmReject()"
+                class="flex-1 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Reject</button>
+        </div>
+    </div>
+</div>
+
+<!-- Replace Modal -->
+<div id="replaceModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Replace Department</h3>
+        <p class="text-sm text-gray-600 mb-4">Select a department to replace the current selection:</p>
+        <select id="replaceDepartment"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-4">
+            <option value="">Select department...</option>
+        </select>
+        <textarea id="replaceNote" rows="2" placeholder="Note (optional)"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none mb-4"></textarea>
+        <div class="flex gap-3">
+            <button onclick="closeReplaceModal()"
+                class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+            <button onclick="confirmReplace()"
+                class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Replace</button>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Modal -->
+<div id="assignModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Assign Additional Department</h3>
+        <select id="assignDepartment"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-4">
+            <option value="">Select department...</option>
+        </select>
+        <textarea id="assignNote" rows="2" placeholder="Note (optional)"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none mb-4"></textarea>
+        <div class="flex gap-3">
+            <button onclick="closeAssignModal()"
+                class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+            <button onclick="confirmAssign()"
+                class="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Assign</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .filter-tab {
+        @apply px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition-colors;
+    }
+    .filter-tab.active {
+        @apply bg-blue-600 text-white hover:bg-blue-700;
+    }
+    .status-badge {
+        @apply px-2 py-1 text-xs font-medium rounded-full;
+    }
+    .status-pending { @apply bg-yellow-100 text-yellow-700; }
+    .status-approved { @apply bg-green-100 text-green-700; }
+    .status-rejected { @apply bg-red-100 text-red-700; }
+    .source-badge {
+        @apply px-2 py-0.5 text-xs rounded;
+    }
+    .source-member { @apply bg-blue-100 text-blue-700; }
+    .source-admin { @apply bg-purple-100 text-purple-700; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let members = [];
+let departments = [];
+let currentFilter = 'all';
+let currentMdId = null;
+let currentMemberId = null;
+
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    try {
+        const [reviewsRes, deptsRes] = await Promise.all([
+            fetch('/api/admin/reviews').then(r => r.json()),
+            fetch('/api/departments').then(r => r.json())
+        ]);
+
+        members = reviewsRes;
+
+        // Flatten departments
+        departments = [];
+        (deptsRes.categories || []).forEach(cat => {
+            cat.departments.forEach(d => {
+                departments.push({ ...d, categoryName: cat.name });
+            });
+        });
+        (deptsRes.uncategorized || []).forEach(d => {
+            departments.push({ ...d, categoryName: null });
+        });
+
+        populateDepartmentSelects();
+        updateStats();
+        renderMembers();
+
+        document.getElementById('loading').classList.add('hidden');
+    } catch (error) {
+        console.error('Failed to load data:', error);
+    }
+}
+
+function populateDepartmentSelects() {
+    const options = departments.map(d =>
+        `<option value="${d.id}">${d.name}${d.categoryName ? ' (' + d.categoryName + ')' : ''}</option>`
+    ).join('');
+
+    document.getElementById('replaceDepartment').innerHTML = '<option value="">Select department...</option>' + options;
+    document.getElementById('assignDepartment').innerHTML = '<option value="">Select department...</option>' + options;
+}
+
+function updateStats() {
+    let pending = 0, approved = 0, rejected = 0;
+    members.forEach(m => {
+        m.selections.forEach(s => {
+            if (s.status === 'pending') pending++;
+            else if (s.status === 'approved') approved++;
+            else if (s.status === 'rejected') rejected++;
+        });
+    });
+
+    document.getElementById('pendingCount').textContent = pending;
+    document.getElementById('approvedCount').textContent = approved;
+    document.getElementById('rejectedCount').textContent = rejected;
+
+    document.getElementById('bulkApproveBtn').disabled = pending === 0;
+    document.getElementById('bulkApproveBtn').classList.toggle('opacity-50', pending === 0);
+}
+
+function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.filter === filter);
+    });
+    renderMembers();
+}
+
+function renderMembers() {
+    const container = document.getElementById('membersList');
+    const emptyState = document.getElementById('emptyState');
+
+    // Filter members based on whether they have matching selections
+    const filteredMembers = members.filter(m => {
+        if (currentFilter === 'all') return true;
+        return m.selections.some(s => s.status === currentFilter);
+    });
+
+    if (filteredMembers.length === 0) {
+        container.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+
+    container.innerHTML = filteredMembers.map(m => {
+        const filteredSelections = currentFilter === 'all'
+            ? m.selections
+            : m.selections.filter(s => s.status === currentFilter);
+
+        return `
+            <div class="bg-white rounded-xl shadow p-6">
+                <div class="flex items-start justify-between mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">${m.full_name}</h3>
+                        <p class="text-sm text-gray-500">${m.phone} ${m.email ? '| ' + m.email : ''}</p>
+                    </div>
+                    <button onclick="openAssignModal(${m.id})"
+                        class="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200">
+                        + Add Department
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    ${filteredSelections.map(s => `
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <div>
+                                    <p class="font-medium text-gray-900">${s.department_name}</p>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        ${s.category_name ? `<span class="text-xs text-gray-500">${s.category_name}</span>` : ''}
+                                        <span class="source-badge source-${s.source}">${s.source}</span>
+                                        <span class="status-badge status-${s.status}">${s.status}</span>
+                                    </div>
+                                    ${s.admin_note ? `<p class="text-xs text-gray-500 mt-1">${s.admin_note}</p>` : ''}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                ${s.status === 'pending' ? `
+                                    <button onclick="approveSelection(${s.id})"
+                                        class="px-3 py-1 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200">
+                                        Approve
+                                    </button>
+                                    <button onclick="openRejectModal(${s.id})"
+                                        class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200">
+                                        Reject
+                                    </button>
+                                    <button onclick="openReplaceModal(${s.id})"
+                                        class="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                        Replace
+                                    </button>
+                                ` : s.status === 'approved' ? `
+                                    <button onclick="openRejectModal(${s.id})"
+                                        class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200">
+                                        Reject
+                                    </button>
+                                ` : `
+                                    <button onclick="approveSelection(${s.id})"
+                                        class="px-3 py-1 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200">
+                                        Approve
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function approveSelection(mdId) {
+    try {
+        await fetch(`/api/admin/reviews/${mdId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'approved' })
+        });
+        await loadData();
+    } catch (error) {
+        console.error('Failed to approve:', error);
+    }
+}
+
+function openRejectModal(mdId) {
+    currentMdId = mdId;
+    document.getElementById('rejectNote').value = '';
+    document.getElementById('rejectModal').classList.remove('hidden');
+}
+
+function closeRejectModal() {
+    document.getElementById('rejectModal').classList.add('hidden');
+    currentMdId = null;
+}
+
+async function confirmReject() {
+    if (!currentMdId) return;
+
+    try {
+        await fetch(`/api/admin/reviews/${currentMdId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: 'rejected',
+                admin_note: document.getElementById('rejectNote').value || null
+            })
+        });
+        closeRejectModal();
+        await loadData();
+    } catch (error) {
+        console.error('Failed to reject:', error);
+    }
+}
+
+function openReplaceModal(mdId) {
+    currentMdId = mdId;
+    document.getElementById('replaceDepartment').value = '';
+    document.getElementById('replaceNote').value = '';
+    document.getElementById('replaceModal').classList.remove('hidden');
+}
+
+function closeReplaceModal() {
+    document.getElementById('replaceModal').classList.add('hidden');
+    currentMdId = null;
+}
+
+async function confirmReplace() {
+    if (!currentMdId) return;
+
+    const newDeptId = document.getElementById('replaceDepartment').value;
+    if (!newDeptId) {
+        alert('Please select a department');
+        return;
+    }
+
+    try {
+        await fetch(`/api/admin/reviews/${currentMdId}/replace`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                new_department_id: parseInt(newDeptId),
+                admin_note: document.getElementById('replaceNote').value || null
+            })
+        });
+        closeReplaceModal();
+        await loadData();
+    } catch (error) {
+        console.error('Failed to replace:', error);
+    }
+}
+
+function openAssignModal(memberId) {
+    currentMemberId = memberId;
+    document.getElementById('assignDepartment').value = '';
+    document.getElementById('assignNote').value = '';
+    document.getElementById('assignModal').classList.remove('hidden');
+}
+
+function closeAssignModal() {
+    document.getElementById('assignModal').classList.add('hidden');
+    currentMemberId = null;
+}
+
+async function confirmAssign() {
+    if (!currentMemberId) return;
+
+    const deptId = document.getElementById('assignDepartment').value;
+    if (!deptId) {
+        alert('Please select a department');
+        return;
+    }
+
+    try {
+        await fetch(`/api/admin/members/${currentMemberId}/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                department_id: parseInt(deptId),
+                admin_note: document.getElementById('assignNote').value || null
+            })
+        });
+        closeAssignModal();
+        await loadData();
+    } catch (error) {
+        console.error('Failed to assign:', error);
+        alert('Failed to assign department. It may already be assigned.');
+    }
+}
+
+async function bulkApprove() {
+    if (!confirm('Approve all pending selections?')) return;
+
+    try {
+        const res = await fetch('/api/admin/reviews/bulk-approve', { method: 'POST' });
+        const data = await res.json();
+        alert(`${data.approved_count} selections approved`);
+        await loadData();
+    } catch (error) {
+        console.error('Failed to bulk approve:', error);
+    }
+}
+</script>
+{% endblock %}

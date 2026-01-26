@@ -1,0 +1,329 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Appeals - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Manage Appeals</h2>
+    </div>
+
+    <!-- Appeal Window Control -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900">Appeal Window</h3>
+                <p class="text-sm text-gray-500 mt-1">
+                    When open, members can submit appeals for their approved department selections.
+                </p>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="windowStatus" class="text-sm font-medium">Loading...</span>
+                <button id="toggleBtn" onclick="toggleAppealWindow()"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors">
+                    <span class="sr-only">Toggle appeal window</span>
+                    <span id="toggleKnob" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-3 gap-4">
+        <div class="bg-yellow-50 rounded-xl p-4">
+            <p class="text-sm text-yellow-600 font-medium">Pending</p>
+            <p class="text-2xl font-bold text-yellow-700" id="pendingCount">0</p>
+        </div>
+        <div class="bg-green-50 rounded-xl p-4">
+            <p class="text-sm text-green-600 font-medium">Approved</p>
+            <p class="text-2xl font-bold text-green-700" id="approvedCount">0</p>
+        </div>
+        <div class="bg-red-50 rounded-xl p-4">
+            <p class="text-sm text-red-600 font-medium">Rejected</p>
+            <p class="text-2xl font-bold text-red-700" id="rejectedCount">0</p>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="flex gap-2">
+        <button onclick="setFilter('all')" class="filter-tab active" data-filter="all">All</button>
+        <button onclick="setFilter('pending')" class="filter-tab" data-filter="pending">Pending</button>
+        <button onclick="setFilter('approved')" class="filter-tab" data-filter="approved">Approved</button>
+        <button onclick="setFilter('rejected')" class="filter-tab" data-filter="rejected">Rejected</button>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="flex justify-center py-12">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+    </div>
+
+    <!-- Appeals List -->
+    <div id="appealsList" class="hidden space-y-4"></div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="hidden text-center py-12 text-gray-500">
+        No appeals found.
+    </div>
+</div>
+
+<!-- Resolve Modal -->
+<div id="resolveModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Resolve Appeal</h3>
+
+        <div id="appealDetails" class="bg-gray-50 rounded-lg p-4 mb-4 text-sm">
+            <!-- Filled by JS -->
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Decision</label>
+            <div class="flex gap-4">
+                <label class="flex items-center gap-2">
+                    <input type="radio" name="decision" value="approved" class="text-green-600">
+                    <span class="text-green-700">Approve</span>
+                </label>
+                <label class="flex items-center gap-2">
+                    <input type="radio" name="decision" value="rejected" class="text-red-600">
+                    <span class="text-red-700">Reject</span>
+                </label>
+            </div>
+        </div>
+
+        <textarea id="adminResponse" rows="3" placeholder="Response to member (optional)"
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none mb-4"></textarea>
+
+        <div class="flex gap-3">
+            <button onclick="closeResolveModal()"
+                class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+            <button onclick="submitResolve()"
+                class="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Submit</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .filter-tab {
+        @apply px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition-colors;
+    }
+    .filter-tab.active {
+        @apply bg-blue-600 text-white hover:bg-blue-700;
+    }
+    .status-badge {
+        @apply px-2 py-1 text-xs font-medium rounded-full;
+    }
+    .status-pending { @apply bg-yellow-100 text-yellow-700; }
+    .status-approved { @apply bg-green-100 text-green-700; }
+    .status-rejected { @apply bg-red-100 text-red-700; }
+
+    #toggleBtn.open {
+        @apply bg-green-600;
+    }
+    #toggleBtn.closed {
+        @apply bg-gray-300;
+    }
+    #toggleBtn.open #toggleKnob {
+        transform: translateX(1.25rem);
+    }
+    #toggleBtn.closed #toggleKnob {
+        transform: translateX(0.25rem);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let appeals = [];
+let currentFilter = 'all';
+let currentAppealId = null;
+let appealWindowOpen = false;
+
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    try {
+        const [appealsRes, settingsRes] = await Promise.all([
+            fetch('/api/admin/appeals').then(r => r.json()),
+            fetch('/api/settings').then(r => r.json())
+        ]);
+
+        appeals = appealsRes;
+        appealWindowOpen = settingsRes.appealWindowOpen === 'true';
+
+        updateWindowStatus();
+        updateStats();
+        renderAppeals();
+
+        document.getElementById('loading').classList.add('hidden');
+    } catch (error) {
+        console.error('Failed to load data:', error);
+    }
+}
+
+function updateWindowStatus() {
+    const btn = document.getElementById('toggleBtn');
+    const status = document.getElementById('windowStatus');
+
+    if (appealWindowOpen) {
+        btn.className = 'open relative inline-flex h-6 w-11 items-center rounded-full transition-colors bg-green-600';
+        status.textContent = 'Open';
+        status.className = 'text-sm font-medium text-green-600';
+    } else {
+        btn.className = 'closed relative inline-flex h-6 w-11 items-center rounded-full transition-colors bg-gray-300';
+        status.textContent = 'Closed';
+        status.className = 'text-sm font-medium text-gray-500';
+    }
+}
+
+async function toggleAppealWindow() {
+    try {
+        await fetch(`/api/admin/appeals/window?open=${!appealWindowOpen}`, { method: 'POST' });
+        appealWindowOpen = !appealWindowOpen;
+        updateWindowStatus();
+    } catch (error) {
+        console.error('Failed to toggle appeal window:', error);
+    }
+}
+
+function updateStats() {
+    const pending = appeals.filter(a => a.status === 'pending').length;
+    const approved = appeals.filter(a => a.status === 'approved').length;
+    const rejected = appeals.filter(a => a.status === 'rejected').length;
+
+    document.getElementById('pendingCount').textContent = pending;
+    document.getElementById('approvedCount').textContent = approved;
+    document.getElementById('rejectedCount').textContent = rejected;
+}
+
+function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.filter === filter);
+    });
+    renderAppeals();
+}
+
+function renderAppeals() {
+    const container = document.getElementById('appealsList');
+    const emptyState = document.getElementById('emptyState');
+
+    const filtered = currentFilter === 'all'
+        ? appeals
+        : appeals.filter(a => a.status === currentFilter);
+
+    if (filtered.length === 0) {
+        container.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+
+    container.innerHTML = filtered.map(a => `
+        <div class="bg-white rounded-xl shadow p-6">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">${a.member_name}</h3>
+                    <p class="text-sm text-gray-500">${a.member_phone}</p>
+                </div>
+                <span class="status-badge status-${a.status}">${a.status}</span>
+            </div>
+
+            <div class="mt-4 space-y-2">
+                ${a.unwanted_department_name ? `
+                    <p class="text-sm">
+                        <span class="text-red-600 font-medium">Doesn't want:</span>
+                        ${a.unwanted_department_name}
+                    </p>
+                ` : ''}
+                ${a.wanted_department_name ? `
+                    <p class="text-sm">
+                        <span class="text-green-600 font-medium">Wants:</span>
+                        ${a.wanted_department_name}
+                    </p>
+                ` : ''}
+                ${a.reason ? `
+                    <p class="text-sm text-gray-600">
+                        <span class="font-medium">Reason:</span> ${a.reason}
+                    </p>
+                ` : ''}
+            </div>
+
+            ${a.admin_response ? `
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <p class="text-sm text-blue-800">
+                        <span class="font-medium">Admin response:</span> ${a.admin_response}
+                    </p>
+                </div>
+            ` : ''}
+
+            <div class="mt-4 flex items-center justify-between">
+                <p class="text-xs text-gray-400">
+                    Submitted: ${new Date(a.created_at).toLocaleDateString('en-ZA', {
+                        year: 'numeric', month: 'short', day: 'numeric'
+                    })}
+                    ${a.resolved_at ? ` | Resolved: ${new Date(a.resolved_at).toLocaleDateString('en-ZA', {
+                        year: 'numeric', month: 'short', day: 'numeric'
+                    })}` : ''}
+                </p>
+                ${a.status === 'pending' ? `
+                    <button onclick="openResolveModal(${a.id})"
+                        class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
+                        Resolve
+                    </button>
+                ` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function openResolveModal(appealId) {
+    currentAppealId = appealId;
+    const appeal = appeals.find(a => a.id === appealId);
+
+    document.getElementById('appealDetails').innerHTML = `
+        <p><strong>${appeal.member_name}</strong></p>
+        ${appeal.unwanted_department_name ? `<p class="text-red-600">Doesn't want: ${appeal.unwanted_department_name}</p>` : ''}
+        ${appeal.wanted_department_name ? `<p class="text-green-600">Wants: ${appeal.wanted_department_name}</p>` : ''}
+        ${appeal.reason ? `<p class="text-gray-600">Reason: ${appeal.reason}</p>` : ''}
+    `;
+
+    document.getElementById('adminResponse').value = '';
+    document.querySelectorAll('input[name="decision"]').forEach(r => r.checked = false);
+
+    document.getElementById('resolveModal').classList.remove('hidden');
+}
+
+function closeResolveModal() {
+    document.getElementById('resolveModal').classList.add('hidden');
+    currentAppealId = null;
+}
+
+async function submitResolve() {
+    if (!currentAppealId) return;
+
+    const decision = document.querySelector('input[name="decision"]:checked');
+    if (!decision) {
+        alert('Please select a decision');
+        return;
+    }
+
+    try {
+        await fetch(`/api/admin/appeals/${currentAppealId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: decision.value,
+                admin_response: document.getElementById('adminResponse').value || null
+            })
+        });
+
+        closeResolveModal();
+        await loadData();
+    } catch (error) {
+        console.error('Failed to resolve appeal:', error);
+        alert('Failed to resolve appeal');
+    }
+}
+</script>
+{% endblock %}

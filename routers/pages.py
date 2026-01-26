@@ -214,3 +214,43 @@ async def desk_member_edit(request: Request, member_id: int):
     if not is_desk_authenticated(request):
         return RedirectResponse(url="/desk/login", status_code=302)
     return templates.TemplateResponse("desk/member.html", {"request": request})
+
+
+# ============ ADMIN APPROVAL ROUTES ============
+
+@router.get("/admin/approvals")
+async def admin_approvals(request: Request):
+    """Admin approvals management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/approvals.html", {"request": request})
+
+
+@router.get("/admin/publish")
+async def admin_publish(request: Request):
+    """Admin publish management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/publish.html", {"request": request})
+
+
+@router.get("/admin/appeals")
+async def admin_appeals(request: Request):
+    """Admin appeals management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/appeals.html", {"request": request})
+
+
+# ============ MEMBER RESULTS ROUTES ============
+
+@router.get("/results")
+async def member_results(request: Request):
+    """Member results lookup page"""
+    return templates.TemplateResponse("results.html", {"request": request})
+
+
+@router.get("/appeal")
+async def submit_appeal_page(request: Request):
+    """Appeal submission page"""
+    return templates.TemplateResponse("appeal.html", {"request": request})

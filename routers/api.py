@@ -8,12 +8,14 @@ from datetime import datetime
 import re
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
     MemberSubmission, MemberResponse,
-    SettingUpdate, DepartmentsGroupedResponse
+    SettingUpdate, DepartmentsGroupedResponse,
+    ReviewStatusUpdate, ReplaceDepartmentRequest, AssignDepartmentRequest,
+    AppealCreate, AppealResolve
 )
 
 router = APIRouter()
@@ -474,6 +476,10 @@ def seed_database(db: Session = Depends(get_db)):
     db.add(Settings(key="maxDepartments", value="3"))
     db.add(Settings(key="adminPassword", value="admin123"))
     db.add(Settings(key="deskPassword", value="desk123"))
+    db.add(Settings(key="resultsPublished", value="false"))
+    db.add(Settings(key="publishedAt", value=""))
+    db.add(Settings(key="appealWindowOpen", value="false"))
+    db.add(Settings(key="selectionYear", value="2026"))
 
     # Create categories with departments
     music = Category(name="Music Ministry")
@@ -601,13 +607,18 @@ def sanitize_sheet_name(name: str) -> str:
 
 
 @router.get("/export")
-def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
-    """Export data to Excel file"""
+def export_data(
+    type: str = Query("department"),
+    approved_only: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Export data to Excel file. Use approved_only=true to export only approved selections."""
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     today = datetime.now().strftime("%Y-%m-%d")
+    suffix = "-approved" if approved_only else ""
 
     if type == "member":
         # Export by member
@@ -636,7 +647,12 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
             ws.cell(row=row, column=4, value=member.address)
             ws.cell(row=row, column=5, value=member.created_at.strftime("%Y-%m-%d %H:%M") if member.created_at else "")
 
-            member_dept_ids = {md.department_id for md in member.departments}
+            # Filter by status if approved_only
+            if approved_only:
+                member_dept_ids = {md.department_id for md in member.departments if md.status == "approved"}
+            else:
+                member_dept_ids = {md.department_id for md in member.departments}
+
             for i, dept_id in enumerate(dept_ids):
                 ws.cell(row=row, column=6 + i, value="Yes" if dept_id in member_dept_ids else "")
 
@@ -650,11 +666,17 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
         ws_summary.cell(row=1, column=2, value="Member Count")
 
         for row, dept in enumerate(all_departments, 2):
-            count = db.query(MemberDepartment).filter(MemberDepartment.department_id == dept.id).count()
+            if approved_only:
+                count = db.query(MemberDepartment).filter(
+                    MemberDepartment.department_id == dept.id,
+                    MemberDepartment.status == "approved"
+                ).count()
+            else:
+                count = db.query(MemberDepartment).filter(MemberDepartment.department_id == dept.id).count()
             ws_summary.cell(row=row, column=1, value=dept.name)
             ws_summary.cell(row=row, column=2, value=count)
 
-        filename = f"members-report-{today}.xlsx"
+        filename = f"members-report{suffix}-{today}.xlsx"
 
     else:
         # Export by department
@@ -671,12 +693,21 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
         ws.cell(row=1, column=3, value="Member Count")
 
         for row, dept in enumerate(departments, 2):
+            if approved_only:
+                filtered_mds = [md for md in dept.member_departments if md.status == "approved"]
+            else:
+                filtered_mds = dept.member_departments
             ws.cell(row=row, column=1, value=dept.name)
             ws.cell(row=row, column=2, value=dept.category.name if dept.category else "Uncategorized")
-            ws.cell(row=row, column=3, value=len(dept.member_departments))
+            ws.cell(row=row, column=3, value=len(filtered_mds))
 
         # One sheet per department
         for dept in departments:
+            if approved_only:
+                filtered_mds = [md for md in dept.member_departments if md.status == "approved"]
+            else:
+                filtered_mds = dept.member_departments
+
             sheet_name = sanitize_sheet_name(dept.name)
             ws_dept = wb.create_sheet(sheet_name)
 
@@ -686,7 +717,7 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
             ws_dept.cell(row=2, column=1, value="Category:")
             ws_dept.cell(row=2, column=2, value=dept.category.name if dept.category else "Uncategorized")
             ws_dept.cell(row=3, column=1, value="Total Members:")
-            ws_dept.cell(row=3, column=2, value=len(dept.member_departments))
+            ws_dept.cell(row=3, column=2, value=len(filtered_mds))
 
             # Column headers
             ws_dept.cell(row=5, column=1, value="Full Name")
@@ -696,7 +727,7 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
             ws_dept.cell(row=5, column=5, value="Submitted On")
 
             # Members
-            for row, md in enumerate(dept.member_departments, 6):
+            for row, md in enumerate(filtered_mds, 6):
                 ws_dept.cell(row=row, column=1, value=md.member.full_name)
                 ws_dept.cell(row=row, column=2, value=md.member.phone)
                 ws_dept.cell(row=row, column=3, value=md.member.email)
@@ -707,7 +738,7 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
             for col in range(1, 6):
                 ws_dept.column_dimensions[get_column_letter(col)].width = 20
 
-        filename = f"departments-report-{today}.xlsx"
+        filename = f"departments-report{suffix}-{today}.xlsx"
 
     # Save to BytesIO
     output = BytesIO()
@@ -719,3 +750,437 @@ def export_data(type: str = Query("department"), db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+# ============ ADMIN APPROVAL ENDPOINTS ============
+
+@router.get("/admin/reviews")
+def get_all_reviews(db: Session = Depends(get_db)):
+    """Get all members with their department selections for review"""
+    members = db.query(Member).options(
+        joinedload(Member.departments).joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).order_by(Member.created_at.desc()).all()
+
+    result = []
+    for m in members:
+        selections = []
+        for md in m.departments:
+            selections.append({
+                "id": md.id,
+                "member_id": md.member_id,
+                "department_id": md.department_id,
+                "department_name": md.department.name,
+                "category_name": md.department.category.name if md.department.category else None,
+                "source": md.source or "member",
+                "status": md.status or "pending",
+                "admin_note": md.admin_note,
+                "created_at": md.created_at.isoformat() if md.created_at else None,
+                "status_changed_at": md.status_changed_at.isoformat() if md.status_changed_at else None,
+                "replaced_by_id": md.replaced_by_id
+            })
+
+        result.append({
+            "id": m.id,
+            "full_name": m.full_name,
+            "phone": m.phone,
+            "email": m.email,
+            "address": m.address,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+            "selections": selections
+        })
+
+    return result
+
+
+@router.put("/admin/reviews/{member_department_id}")
+def update_review_status(
+    member_department_id: int,
+    data: ReviewStatusUpdate,
+    db: Session = Depends(get_db)
+):
+    """Approve or reject a single department selection"""
+    md = db.query(MemberDepartment).filter(MemberDepartment.id == member_department_id).first()
+    if not md:
+        raise HTTPException(status_code=404, detail="Selection not found")
+
+    if data.status not in ["approved", "rejected"]:
+        raise HTTPException(status_code=400, detail="Status must be 'approved' or 'rejected'")
+
+    md.status = data.status
+    md.admin_note = data.admin_note
+    md.status_changed_at = datetime.now()
+    db.commit()
+
+    return {"success": True, "id": member_department_id, "status": data.status}
+
+
+@router.post("/admin/reviews/{member_department_id}/replace")
+def replace_department(
+    member_department_id: int,
+    data: ReplaceDepartmentRequest,
+    db: Session = Depends(get_db)
+):
+    """Replace a selection with a different department (reject original, create admin-assigned)"""
+    md = db.query(MemberDepartment).filter(MemberDepartment.id == member_department_id).first()
+    if not md:
+        raise HTTPException(status_code=404, detail="Selection not found")
+
+    # Check new department exists
+    new_dept = db.query(Department).filter(Department.id == data.new_department_id).first()
+    if not new_dept:
+        raise HTTPException(status_code=404, detail="New department not found")
+
+    # Reject the original
+    md.status = "rejected"
+    md.admin_note = data.admin_note or f"Replaced with {new_dept.name}"
+    md.status_changed_at = datetime.now()
+
+    # Create new admin-assigned selection
+    new_md = MemberDepartment(
+        member_id=md.member_id,
+        department_id=data.new_department_id,
+        source="admin",
+        status="approved",
+        admin_note=f"Replacement for {md.department.name}",
+        status_changed_at=datetime.now()
+    )
+    db.add(new_md)
+    db.flush()
+
+    # Link original to replacement
+    md.replaced_by_id = new_md.id
+    db.commit()
+
+    return {"success": True, "original_id": member_department_id, "new_id": new_md.id}
+
+
+@router.post("/admin/members/{member_id}/assign")
+def assign_department(
+    member_id: int,
+    data: AssignDepartmentRequest,
+    db: Session = Depends(get_db)
+):
+    """Admin assigns an additional department to a member"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    dept = db.query(Department).filter(Department.id == data.department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    # Check if already assigned
+    existing = db.query(MemberDepartment).filter(
+        MemberDepartment.member_id == member_id,
+        MemberDepartment.department_id == data.department_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Department already assigned to this member")
+
+    # Create admin-assigned selection
+    md = MemberDepartment(
+        member_id=member_id,
+        department_id=data.department_id,
+        source="admin",
+        status="approved",
+        admin_note=data.admin_note,
+        status_changed_at=datetime.now()
+    )
+    db.add(md)
+    db.commit()
+    db.refresh(md)
+
+    return {"success": True, "id": md.id}
+
+
+@router.post("/admin/reviews/bulk-approve")
+def bulk_approve_pending(db: Session = Depends(get_db)):
+    """Approve all pending selections"""
+    count = db.query(MemberDepartment).filter(
+        MemberDepartment.status == "pending"
+    ).update({
+        MemberDepartment.status: "approved",
+        MemberDepartment.status_changed_at: datetime.now()
+    })
+    db.commit()
+
+    return {"success": True, "approved_count": count}
+
+
+# ============ PUBLISH ENDPOINTS ============
+
+@router.get("/admin/preview")
+def preview_publish(db: Session = Depends(get_db)):
+    """Preview what members will see after publishing"""
+    members = db.query(Member).options(
+        joinedload(Member.departments).joinedload(MemberDepartment.department)
+    ).all()
+
+    pending_count = db.query(MemberDepartment).filter(MemberDepartment.status == "pending").count()
+    total_approved = db.query(MemberDepartment).filter(MemberDepartment.status == "approved").count()
+
+    members_preview = []
+    for m in members:
+        approved_depts = [
+            md.department.name
+            for md in m.departments
+            if md.status == "approved"
+        ]
+        if approved_depts:
+            members_preview.append({
+                "id": m.id,
+                "full_name": m.full_name,
+                "phone": m.phone,
+                "approved_departments": approved_depts
+            })
+
+    return {
+        "total_members": len(members_preview),
+        "total_approved_assignments": total_approved,
+        "pending_count": pending_count,
+        "members_preview": members_preview
+    }
+
+
+@router.post("/admin/publish")
+def publish_results(db: Session = Depends(get_db)):
+    """Publish results - make approved selections visible to members"""
+    now = datetime.now().isoformat()
+
+    # Update resultsPublished setting
+    setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
+    if setting:
+        setting.value = "true"
+    else:
+        db.add(Settings(key="resultsPublished", value="true"))
+
+    # Update publishedAt
+    pub_setting = db.query(Settings).filter(Settings.key == "publishedAt").first()
+    if pub_setting:
+        pub_setting.value = now
+    else:
+        db.add(Settings(key="publishedAt", value=now))
+
+    db.commit()
+
+    return {"success": True, "published_at": now}
+
+
+@router.post("/admin/unpublish")
+def unpublish_results(db: Session = Depends(get_db)):
+    """Unpublish results - hide from members"""
+    setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
+    if setting:
+        setting.value = "false"
+    db.commit()
+
+    return {"success": True}
+
+
+# ============ MEMBER RESULTS ENDPOINT ============
+
+@router.get("/results")
+def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
+    """Lookup approved departments by phone number (public endpoint)"""
+    # Check if results are published
+    pub_setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
+    is_published = pub_setting and pub_setting.value == "true"
+
+    if not is_published:
+        return {
+            "published": False,
+            "message": "Results are not yet available. Please check back later."
+        }
+
+    # Normalize phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+
+    # Find member
+    member = None
+    members = db.query(Member).all()
+    for m in members:
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        return {
+            "published": True,
+            "message": "No submission found for this phone number."
+        }
+
+    # Get approved departments
+    member_depts = db.query(MemberDepartment).options(
+        joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).filter(
+        MemberDepartment.member_id == member.id,
+        MemberDepartment.status == "approved"
+    ).all()
+
+    approved_departments = [
+        {
+            "id": md.department.id,
+            "name": md.department.name,
+            "category_name": md.department.category.name if md.department.category else None
+        }
+        for md in member_depts
+    ]
+
+    # Check appeal window
+    appeal_setting = db.query(Settings).filter(Settings.key == "appealWindowOpen").first()
+    appeal_open = appeal_setting and appeal_setting.value == "true"
+
+    # Get year
+    year_setting = db.query(Settings).filter(Settings.key == "selectionYear").first()
+    year = year_setting.value if year_setting else "2026"
+
+    return {
+        "published": True,
+        "year": year,
+        "member_name": member.full_name,
+        "member_id": member.id,
+        "approved_departments": approved_departments,
+        "appeal_window_open": appeal_open
+    }
+
+
+# ============ APPEAL ENDPOINTS ============
+
+@router.post("/appeals")
+def submit_appeal(data: AppealCreate, db: Session = Depends(get_db)):
+    """Submit an appeal (public endpoint)"""
+    # Check results are published
+    pub_setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
+    if not pub_setting or pub_setting.value != "true":
+        raise HTTPException(status_code=400, detail="Results are not yet published")
+
+    # Check appeal window is open
+    appeal_setting = db.query(Settings).filter(Settings.key == "appealWindowOpen").first()
+    if not appeal_setting or appeal_setting.value != "true":
+        raise HTTPException(status_code=400, detail="Appeal window is currently closed")
+
+    # Find member by phone
+    normalized = data.phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    members = db.query(Member).all()
+    for m in members:
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == data.phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Create appeal
+    appeal = Appeal(
+        member_id=member.id,
+        unwanted_department_id=data.unwanted_department_id,
+        wanted_department_id=data.wanted_department_id,
+        reason=data.reason,
+        status="pending"
+    )
+    db.add(appeal)
+    db.commit()
+    db.refresh(appeal)
+
+    return {"success": True, "appeal_id": appeal.id}
+
+
+@router.get("/admin/appeals")
+def get_all_appeals(db: Session = Depends(get_db)):
+    """Get all appeals for admin review"""
+    appeals = db.query(Appeal).options(
+        joinedload(Appeal.member),
+        joinedload(Appeal.unwanted_department),
+        joinedload(Appeal.wanted_department)
+    ).order_by(Appeal.created_at.desc()).all()
+
+    return [
+        {
+            "id": a.id,
+            "member_id": a.member_id,
+            "member_name": a.member.full_name,
+            "member_phone": a.member.phone,
+            "unwanted_department_id": a.unwanted_department_id,
+            "unwanted_department_name": a.unwanted_department.name if a.unwanted_department else None,
+            "wanted_department_id": a.wanted_department_id,
+            "wanted_department_name": a.wanted_department.name if a.wanted_department else None,
+            "reason": a.reason,
+            "status": a.status,
+            "admin_response": a.admin_response,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None
+        }
+        for a in appeals
+    ]
+
+
+@router.put("/admin/appeals/{appeal_id}")
+def resolve_appeal(
+    appeal_id: int,
+    data: AppealResolve,
+    db: Session = Depends(get_db)
+):
+    """Resolve an appeal (approve or reject)"""
+    appeal = db.query(Appeal).filter(Appeal.id == appeal_id).first()
+    if not appeal:
+        raise HTTPException(status_code=404, detail="Appeal not found")
+
+    if data.status not in ["approved", "rejected"]:
+        raise HTTPException(status_code=400, detail="Status must be 'approved' or 'rejected'")
+
+    appeal.status = data.status
+    appeal.admin_response = data.admin_response
+    appeal.resolved_at = datetime.now()
+
+    # If approved, update the member's departments
+    if data.status == "approved":
+        # Remove unwanted department if specified
+        if appeal.unwanted_department_id:
+            md = db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == appeal.member_id,
+                MemberDepartment.department_id == appeal.unwanted_department_id,
+                MemberDepartment.status == "approved"
+            ).first()
+            if md:
+                md.status = "rejected"
+                md.admin_note = "Removed via approved appeal"
+                md.status_changed_at = datetime.now()
+
+        # Add wanted department if specified
+        if appeal.wanted_department_id:
+            # Check not already assigned
+            existing = db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == appeal.member_id,
+                MemberDepartment.department_id == appeal.wanted_department_id
+            ).first()
+            if not existing:
+                new_md = MemberDepartment(
+                    member_id=appeal.member_id,
+                    department_id=appeal.wanted_department_id,
+                    source="admin",
+                    status="approved",
+                    admin_note="Added via approved appeal",
+                    status_changed_at=datetime.now()
+                )
+                db.add(new_md)
+
+    db.commit()
+
+    return {"success": True, "appeal_id": appeal_id, "status": data.status}
+
+
+@router.post("/admin/appeals/window")
+def toggle_appeal_window(open: bool = Query(...), db: Session = Depends(get_db)):
+    """Open or close the appeal window"""
+    setting = db.query(Settings).filter(Settings.key == "appealWindowOpen").first()
+    if setting:
+        setting.value = "true" if open else "false"
+    else:
+        db.add(Settings(key="appealWindowOpen", value="true" if open else "false"))
+
+    db.commit()
+
+    return {"success": True, "appeal_window_open": open}

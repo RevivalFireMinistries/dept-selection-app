@@ -38,6 +38,7 @@ class Member(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
+    appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")
 
 
 class MemberDepartment(Base):
@@ -48,12 +49,49 @@ class MemberDepartment(Base):
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Approval workflow fields
+    source = Column(String, nullable=False, default="member")  # "member" or "admin"
+    status = Column(String, nullable=False, default="pending")  # "pending", "approved", "rejected"
+    replaced_by_id = Column(Integer, ForeignKey("member_departments.id"), nullable=True)
+    admin_note = Column(String, nullable=True)
+    status_changed_at = Column(DateTime(timezone=True), nullable=True)
+
     member = relationship("Member", back_populates="departments")
     department = relationship("Department", back_populates="member_departments")
+    replaced_by = relationship("MemberDepartment", remote_side=[id], foreign_keys=[replaced_by_id])
 
     __table_args__ = (
         UniqueConstraint("member_id", "department_id", name="unique_member_department"),
     )
+
+
+class Appeal(Base):
+    __tablename__ = "appeals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False)
+
+    # What they're appealing against (department they don't want)
+    unwanted_department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True)
+
+    # What they want instead
+    wanted_department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True)
+
+    # Member's reason for appeal
+    reason = Column(String, nullable=True)
+
+    # Status: "pending", "approved", "rejected"
+    status = Column(String, nullable=False, default="pending")
+
+    # Admin response
+    admin_response = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+    member = relationship("Member", back_populates="appeals")
+    unwanted_department = relationship("Department", foreign_keys=[unwanted_department_id])
+    wanted_department = relationship("Department", foreign_keys=[wanted_department_id])
 
 
 class Settings(Base):
