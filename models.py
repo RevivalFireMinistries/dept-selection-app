@@ -49,9 +49,9 @@ class MemberDepartment(Base):
     department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Approval workflow fields
-    source = Column(String, nullable=False, default="member")  # "member" or "admin"
-    status = Column(String, nullable=False, default="pending")  # "pending", "approved", "rejected"
+    # Approval workflow fields (nullable with server defaults for migration compatibility)
+    source = Column(String, nullable=True, server_default="member")  # "member" or "admin"
+    status = Column(String, nullable=True, server_default="pending")  # "pending", "approved", "rejected"
     replaced_by_id = Column(Integer, ForeignKey("member_departments.id"), nullable=True)
     admin_note = Column(String, nullable=True)
     status_changed_at = Column(DateTime(timezone=True), nullable=True)

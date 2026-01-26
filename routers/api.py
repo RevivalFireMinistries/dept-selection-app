@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import Optional, Dict, Any
 from io import BytesIO
 from datetime import datetime
@@ -895,13 +895,13 @@ def assign_department(
 
 @router.post("/admin/reviews/bulk-approve")
 def bulk_approve_pending(db: Session = Depends(get_db)):
-    """Approve all pending selections"""
+    """Approve all pending selections (including null status from before workflow)"""
     count = db.query(MemberDepartment).filter(
-        MemberDepartment.status == "pending"
+        or_(MemberDepartment.status == "pending", MemberDepartment.status.is_(None))
     ).update({
         MemberDepartment.status: "approved",
         MemberDepartment.status_changed_at: datetime.now()
-    })
+    }, synchronize_session='fetch')
     db.commit()
 
     return {"success": True, "approved_count": count}
@@ -916,7 +916,10 @@ def preview_publish(db: Session = Depends(get_db)):
         joinedload(Member.departments).joinedload(MemberDepartment.department)
     ).all()
 
-    pending_count = db.query(MemberDepartment).filter(MemberDepartment.status == "pending").count()
+    # Include null status as "pending" (for records created before approval workflow)
+    pending_count = db.query(MemberDepartment).filter(
+        or_(MemberDepartment.status == "pending", MemberDepartment.status.is_(None))
+    ).count()
     total_approved = db.query(MemberDepartment).filter(MemberDepartment.status == "approved").count()
 
     members_preview = []
