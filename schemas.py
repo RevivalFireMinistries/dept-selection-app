@@ -148,6 +148,7 @@ class MemberReviewResponse(BaseModel):
 # Appeal schemas
 class AppealCreate(BaseModel):
     phone: str
+    member_id: Optional[int] = None  # Optional: specify member directly (for info desk with families)
     unwanted_department_id: Optional[int] = None
     wanted_department_id: Optional[int] = None
     reason: Optional[str] = None

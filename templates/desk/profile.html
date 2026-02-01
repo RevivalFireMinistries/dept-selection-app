@@ -1,0 +1,374 @@
+{% extends "desk/base.html" %}
+
+{% block title %}Info Desk - Member Profile{% endblock %}
+
+{% block desk_content %}
+<div class="max-w-2xl mx-auto space-y-6">
+    <!-- Back Link -->
+    <a href="/desk" class="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+        </svg>
+        Back to Search
+    </a>
+
+    <h2 class="text-2xl font-bold text-gray-900">Member Profile</h2>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="flex justify-center items-center py-12">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+    </div>
+
+    <!-- Error Message -->
+    <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl"></div>
+
+    <!-- Profile Content -->
+    <div id="profileContent" class="hidden space-y-6">
+        <!-- Member Info Banner -->
+        <div class="bg-teal-50 border border-teal-200 rounded-xl p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-lg font-semibold text-teal-900" id="memberName"></p>
+                    <p class="text-sm text-teal-700" id="memberPhone"></p>
+                    <p class="text-sm text-teal-600" id="memberEmail"></p>
+                </div>
+                <a id="editLink" href="#" class="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700">
+                    Edit Details
+                </a>
+            </div>
+        </div>
+
+        <!-- Publish Status -->
+        <div id="publishStatus" class="bg-gray-100 rounded-xl p-4 text-center text-gray-600">
+            Loading status...
+        </div>
+
+        <!-- Approved Departments -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Approved Departments</h3>
+            <div id="approvedList" class="space-y-2"></div>
+            <div id="noApproved" class="hidden text-center py-4 text-gray-500">
+                No departments have been approved for this member.
+            </div>
+        </div>
+
+        <!-- Pending Departments -->
+        <div id="pendingSection" class="hidden bg-yellow-50 rounded-xl p-6">
+            <h3 class="text-lg font-semibold text-yellow-800 mb-3">Pending Review</h3>
+            <div id="pendingList" class="space-y-2"></div>
+        </div>
+
+        <!-- Rejected Departments -->
+        <div id="rejectedSection" class="hidden bg-red-50 rounded-xl p-6">
+            <h3 class="text-lg font-semibold text-red-800 mb-3">Not Approved</h3>
+            <div id="rejectedList" class="space-y-2"></div>
+        </div>
+
+        <!-- Existing Appeals -->
+        <div id="appealsSection" class="hidden bg-amber-50 rounded-xl p-6">
+            <h3 class="text-lg font-semibold text-amber-800 mb-3">Appeals</h3>
+            <div id="appealsList" class="space-y-2"></div>
+        </div>
+
+        <!-- Lodge Appeal Button -->
+        <div id="appealAction" class="hidden">
+            <button onclick="openAppealModal()"
+                class="w-full py-3 bg-amber-600 text-white font-semibold rounded-xl hover:bg-amber-700 transition-colors">
+                Lodge Appeal on Member's Behalf
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Appeal Modal -->
+<div id="appealModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Lodge Appeal</h3>
+            <p class="text-sm text-gray-600 mb-4">Submitting appeal on behalf of: <strong id="appealMemberName"></strong></p>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Department to remove/change
+                    </label>
+                    <select id="appealDept" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500">
+                        <option value="">-- Select department --</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Department they want instead <span class="text-gray-400">(optional)</span>
+                    </label>
+                    <select id="wantedDept" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500">
+                        <option value="">-- Select department --</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Reason for appeal
+                    </label>
+                    <textarea id="appealReason" rows="3" placeholder="Explain why member is appealing..."
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                </div>
+
+                <div id="appealError" class="hidden text-sm text-red-600"></div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button onclick="closeAppealModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="submitAppeal()" id="submitAppealBtn" class="flex-1 py-3 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700">
+                    Submit Appeal
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Get member ID from URL
+const pathParts = window.location.pathname.split('/');
+const memberId = pathParts[pathParts.length - 2]; // /desk/member/{id}/profile
+
+let memberData = null;
+let allDepartments = [];
+let isPublished = false;
+let appealWindowOpen = false;
+
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    try {
+        const [memberRes, deptsRes, settingsRes] = await Promise.all([
+            fetch(`/api/members/${memberId}`).then(r => {
+                if (!r.ok) throw new Error('Member not found');
+                return r.json();
+            }),
+            fetch('/api/departments').then(r => r.json()),
+            fetch('/api/settings').then(r => r.json())
+        ]);
+
+        memberData = memberRes;
+        isPublished = settingsRes.resultsPublished === 'true';
+        appealWindowOpen = settingsRes.appealWindowOpen === 'true';
+
+        // Flatten departments
+        allDepartments = [];
+        (deptsRes.categories || []).forEach(cat => {
+            cat.departments.forEach(d => {
+                allDepartments.push({ ...d, categoryName: cat.name });
+            });
+        });
+        (deptsRes.uncategorized || []).forEach(d => {
+            allDepartments.push({ ...d, categoryName: null });
+        });
+
+        // Fill in member info
+        document.getElementById('memberName').textContent = memberData.fullName;
+        document.getElementById('memberPhone').textContent = memberData.phone;
+        document.getElementById('memberEmail').textContent = memberData.email || 'No email';
+        document.getElementById('editLink').href = `/desk/member/${memberId}`;
+
+        // Publish status
+        const statusDiv = document.getElementById('publishStatus');
+        if (isPublished) {
+            if (appealWindowOpen) {
+                statusDiv.className = 'bg-amber-100 border border-amber-200 rounded-xl p-4 text-center text-amber-800';
+                statusDiv.textContent = 'Results Published - Appeal Window Open';
+            } else {
+                statusDiv.className = 'bg-green-100 border border-green-200 rounded-xl p-4 text-center text-green-800';
+                statusDiv.textContent = 'Results Published - Final';
+            }
+        } else {
+            statusDiv.className = 'bg-yellow-100 border border-yellow-200 rounded-xl p-4 text-center text-yellow-800';
+            statusDiv.textContent = 'Results Not Yet Published';
+        }
+
+        // Show appeal button if window is open
+        if (appealWindowOpen) {
+            document.getElementById('appealAction').classList.remove('hidden');
+        }
+
+        // Fetch department details with status
+        await loadDepartmentStatus();
+
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('profileContent').classList.remove('hidden');
+
+    } catch (error) {
+        console.error('Failed to load data:', error);
+        showError('Failed to load member data. The member may have been deleted.');
+        document.getElementById('loadingState').classList.add('hidden');
+    }
+}
+
+async function loadDepartmentStatus() {
+    // Fetch member's department selections with status via admin reviews API
+    try {
+        const reviewsRes = await fetch('/api/admin/reviews').then(r => r.json());
+        const memberReview = reviewsRes.find(r => r.id === parseInt(memberId));
+
+        if (!memberReview) {
+            document.getElementById('noApproved').classList.remove('hidden');
+            return;
+        }
+
+        const selections = memberReview.selections || [];
+
+        // Group by status
+        const approved = selections.filter(s => s.status === 'approved');
+        const pending = selections.filter(s => s.status === 'pending' || !s.status);
+        const rejected = selections.filter(s => s.status === 'rejected');
+
+        // Render approved
+        const approvedList = document.getElementById('approvedList');
+        if (approved.length > 0) {
+            approvedList.innerHTML = approved.map(s => `
+                <div class="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                    <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div class="flex-1">
+                        <p class="font-medium text-gray-900">${s.department_name}</p>
+                        ${s.category_name ? `<p class="text-xs text-gray-500">${s.category_name}</p>` : ''}
+                    </div>
+                    ${s.source === 'admin' ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Admin Added</span>` : ''}
+                </div>
+            `).join('');
+            document.getElementById('noApproved').classList.add('hidden');
+        } else {
+            document.getElementById('noApproved').classList.remove('hidden');
+        }
+
+        // Render pending
+        if (pending.length > 0) {
+            document.getElementById('pendingSection').classList.remove('hidden');
+            document.getElementById('pendingList').innerHTML = pending.map(s => `
+                <div class="flex items-center gap-2 p-2 bg-white rounded-lg">
+                    <svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-sm text-gray-700">${s.department_name}</span>
+                </div>
+            `).join('');
+        }
+
+        // Render rejected
+        if (rejected.length > 0) {
+            document.getElementById('rejectedSection').classList.remove('hidden');
+            document.getElementById('rejectedList').innerHTML = rejected.map(s => `
+                <div class="flex items-center gap-2 p-2 bg-white rounded-lg">
+                    <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <span class="text-sm text-gray-700">${s.department_name}</span>
+                    ${s.admin_note ? `<span class="text-xs text-red-500 italic ml-2">${s.admin_note}</span>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Store approved for appeals modal
+        memberData.approvedSelections = approved;
+
+    } catch (error) {
+        console.error('Failed to load department status:', error);
+    }
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
+}
+
+function openAppealModal() {
+    document.getElementById('appealModal').classList.remove('hidden');
+    document.getElementById('appealMemberName').textContent = memberData.fullName;
+
+    // Populate dropdowns
+    const appealDept = document.getElementById('appealDept');
+    const wantedDept = document.getElementById('wantedDept');
+
+    appealDept.innerHTML = '<option value="">-- Select department --</option>';
+    wantedDept.innerHTML = '<option value="">-- Select department --</option>';
+
+    // Appeal: approved departments
+    (memberData.approvedSelections || []).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.department_id;
+        opt.textContent = s.department_name + (s.category_name ? ` (${s.category_name})` : '');
+        appealDept.appendChild(opt);
+    });
+
+    // Wanted: all departments not already approved
+    const approvedIds = new Set((memberData.approvedSelections || []).map(s => s.department_id));
+    allDepartments.filter(d => !approvedIds.has(d.id)).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.name + (d.categoryName ? ` (${d.categoryName})` : '');
+        wantedDept.appendChild(opt);
+    });
+}
+
+function closeAppealModal() {
+    document.getElementById('appealModal').classList.add('hidden');
+    document.getElementById('appealError').classList.add('hidden');
+    document.getElementById('appealReason').value = '';
+}
+
+async function submitAppeal() {
+    const unwantedId = document.getElementById('appealDept').value;
+    const wantedId = document.getElementById('wantedDept').value;
+    const reason = document.getElementById('appealReason').value.trim();
+    const errorDiv = document.getElementById('appealError');
+
+    if (!unwantedId && !wantedId && !reason) {
+        errorDiv.textContent = 'Please specify what to change or provide a reason.';
+        errorDiv.classList.remove('hidden');
+        return;
+    }
+
+    const btn = document.getElementById('submitAppealBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+        const response = await fetch('/api/appeals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                phone: memberData.phone,
+                member_id: parseInt(memberId),
+                unwanted_department_id: unwantedId ? parseInt(unwantedId) : null,
+                wanted_department_id: wantedId ? parseInt(wantedId) : null,
+                reason: reason ? `[Submitted by Info Desk] ${reason}` : '[Submitted by Info Desk]'
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Failed to submit appeal');
+        }
+
+        closeAppealModal();
+        alert('Appeal has been submitted successfully.');
+        location.reload();
+
+    } catch (error) {
+        console.error('Appeal error:', error);
+        errorDiv.textContent = error.message || 'Failed to submit appeal.';
+        errorDiv.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Submit Appeal';
+    }
+}
+</script>
+{% endblock %}

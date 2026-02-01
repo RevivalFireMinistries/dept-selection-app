@@ -138,19 +138,25 @@ function searchMembers() {
     // Show results
     const container = document.getElementById('resultsContainer');
     container.innerHTML = results.map(member => `
-        <a href="/desk/member/${member.id}"
-           class="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-            <div class="flex items-center justify-between">
+        <div class="p-4 bg-gray-50 rounded-lg">
+            <div class="flex items-center justify-between mb-3">
                 <div>
                     <p class="font-medium text-gray-900">${member.fullName}</p>
                     <p class="text-sm text-gray-500">${member.phone} ${member.email ? '• ' + member.email : ''}</p>
                     <p class="text-xs text-gray-400 mt-1">${member.departments.length} department(s) selected</p>
                 </div>
-                <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                </svg>
             </div>
-        </a>
+            <div class="flex gap-2">
+                <a href="/desk/member/${member.id}/profile"
+                   class="flex-1 py-2 px-3 bg-teal-600 text-white text-sm font-medium text-center rounded-lg hover:bg-teal-700">
+                    View Profile
+                </a>
+                <a href="/desk/member/${member.id}"
+                   class="flex-1 py-2 px-3 bg-gray-200 text-gray-700 text-sm font-medium text-center rounded-lg hover:bg-gray-300">
+                    Edit Selection
+                </a>
+            </div>
+        </div>
     `).join('');
 
     document.getElementById('searchResults').classList.remove('hidden');

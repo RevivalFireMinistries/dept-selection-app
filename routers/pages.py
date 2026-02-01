@@ -244,9 +244,15 @@ async def admin_appeals(request: Request):
 
 # ============ MEMBER RESULTS ROUTES ============
 
+@router.get("/portal")
+async def member_portal(request: Request):
+    """Member portal - view results, update, appeal"""
+    return templates.TemplateResponse("portal.html", {"request": request})
+
+
 @router.get("/results")
 async def member_results(request: Request):
-    """Member results lookup page"""
+    """Member results lookup page (legacy - redirects to portal)"""
     return templates.TemplateResponse("results.html", {"request": request})
 
 
@@ -254,3 +260,13 @@ async def member_results(request: Request):
 async def submit_appeal_page(request: Request):
     """Appeal submission page"""
     return templates.TemplateResponse("appeal.html", {"request": request})
+
+
+# ============ DESK MEMBER PROFILE ROUTE ============
+
+@router.get("/desk/member/{member_id}/profile")
+async def desk_member_profile(request: Request, member_id: int):
+    """Desk view of member's approved profile and appeals"""
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login", status_code=302)
+    return templates.TemplateResponse("desk/profile.html", {"request": request})

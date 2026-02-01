@@ -984,51 +984,10 @@ def unpublish_results(db: Session = Depends(get_db)):
 
 @router.get("/results")
 def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
-    """Lookup approved departments by phone number (public endpoint)"""
+    """Lookup results by phone number - returns all members with that phone (for families)"""
     # Check if results are published
     pub_setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
     is_published = pub_setting and pub_setting.value == "true"
-
-    if not is_published:
-        return {
-            "published": False,
-            "message": "Results are not yet available. Please check back later."
-        }
-
-    # Normalize phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-
-    # Find member
-    member = None
-    members = db.query(Member).all()
-    for m in members:
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            member = m
-            break
-
-    if not member:
-        return {
-            "published": True,
-            "message": "No submission found for this phone number."
-        }
-
-    # Get approved departments
-    member_depts = db.query(MemberDepartment).options(
-        joinedload(MemberDepartment.department).joinedload(Department.category)
-    ).filter(
-        MemberDepartment.member_id == member.id,
-        MemberDepartment.status == "approved"
-    ).all()
-
-    approved_departments = [
-        {
-            "id": md.department.id,
-            "name": md.department.name,
-            "category_name": md.department.category.name if md.department.category else None
-        }
-        for md in member_depts
-    ]
 
     # Check appeal window
     appeal_setting = db.query(Settings).filter(Settings.key == "appealWindowOpen").first()
@@ -1038,14 +997,106 @@ def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
     year_setting = db.query(Settings).filter(Settings.key == "selectionYear").first()
     year = year_setting.value if year_setting else "2026"
 
+    # Normalize phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+
+    # Find ALL members with this phone number (family members)
+    all_members = db.query(Member).options(
+        joinedload(Member.departments).joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).all()
+
+    matching_members = []
+    for m in all_members:
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            matching_members.append(m)
+
+    if not matching_members:
+        return {
+            "published": is_published,
+            "appeal_window_open": appeal_open,
+            "year": year,
+            "members": [],
+            "message": "No submission found for this phone number."
+        }
+
+    # Build member data with all their selections
+    members_data = []
+    for member in matching_members:
+        # Get all department selections with full status info
+        selections = []
+        for md in member.departments:
+            selections.append({
+                "id": md.id,
+                "department_id": md.department.id,
+                "department_name": md.department.name,
+                "category_name": md.department.category.name if md.department.category else None,
+                "status": md.status or "pending",
+                "source": md.source or "member",  # "member" or "admin"
+                "admin_note": md.admin_note,
+                "created_at": md.created_at.isoformat() if md.created_at else None
+            })
+
+        # Separate by status for convenience
+        approved = [s for s in selections if s["status"] == "approved"]
+        pending = [s for s in selections if s["status"] == "pending" or s["status"] is None]
+        rejected = [s for s in selections if s["status"] == "rejected"]
+
+        # Check for admin-added departments that haven't been accepted (source=admin)
+        admin_added = [s for s in selections if s["source"] == "admin"]
+
+        members_data.append({
+            "id": member.id,
+            "full_name": member.full_name,
+            "email": member.email,
+            "all_selections": selections,
+            "approved_departments": approved,
+            "pending_departments": pending,
+            "rejected_departments": rejected,
+            "admin_added_departments": admin_added
+        })
+
     return {
-        "published": True,
+        "published": is_published,
+        "appeal_window_open": appeal_open,
         "year": year,
-        "member_name": member.full_name,
-        "member_id": member.id,
-        "approved_departments": approved_departments,
-        "appeal_window_open": appeal_open
+        "members": members_data,
+        "is_family": len(members_data) > 1
     }
+
+
+@router.post("/results/accept/{member_department_id}")
+def accept_admin_assignment(
+    member_department_id: int,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Member accepts an admin-added department assignment"""
+    # Find the member department
+    md = db.query(MemberDepartment).options(
+        joinedload(MemberDepartment.member)
+    ).filter(MemberDepartment.id == member_department_id).first()
+
+    if not md:
+        raise HTTPException(status_code=404, detail="Selection not found")
+
+    # Verify phone matches
+    normalized_input = phone.strip().replace(" ", "").replace("-", "")
+    normalized_member = md.member.phone.strip().replace(" ", "").replace("-", "")
+
+    if normalized_input != normalized_member:
+        raise HTTPException(status_code=403, detail="Phone number does not match")
+
+    # Only allow accepting admin-added departments
+    if md.source != "admin":
+        raise HTTPException(status_code=400, detail="This selection was not added by admin")
+
+    # Mark as accepted by updating source to "accepted" or adding a note
+    md.admin_note = (md.admin_note or "") + " [Accepted by member]"
+    md.status_changed_at = datetime.now()
+    db.commit()
+
+    return {"success": True, "message": "Department assignment accepted"}
 
 
 # ============ APPEAL ENDPOINTS ============
@@ -1063,15 +1114,25 @@ def submit_appeal(data: AppealCreate, db: Session = Depends(get_db)):
     if not appeal_setting or appeal_setting.value != "true":
         raise HTTPException(status_code=400, detail="Appeal window is currently closed")
 
-    # Find member by phone
-    normalized = data.phone.strip().replace(" ", "").replace("-", "")
+    # Find member - by ID if provided (for families/info desk), otherwise by phone
     member = None
-    members = db.query(Member).all()
-    for m in members:
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == data.phone:
-            member = m
-            break
+    if data.member_id:
+        member = db.query(Member).filter(Member.id == data.member_id).first()
+        # Verify phone matches for security
+        if member:
+            normalized_input = data.phone.strip().replace(" ", "").replace("-", "")
+            normalized_member = member.phone.strip().replace(" ", "").replace("-", "")
+            if normalized_input != normalized_member:
+                raise HTTPException(status_code=403, detail="Phone number does not match member")
+    else:
+        # Find member by phone only
+        normalized = data.phone.strip().replace(" ", "").replace("-", "")
+        members = db.query(Member).all()
+        for m in members:
+            m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+            if m_normalized == normalized or m.phone == data.phone:
+                member = m
+                break
 
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
