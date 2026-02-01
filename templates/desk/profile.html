@@ -229,22 +229,40 @@ async function loadDepartmentStatus() {
         // Render approved
         const approvedList = document.getElementById('approvedList');
         if (approved.length > 0) {
-            approvedList.innerHTML = approved.map(s => `
-                <div class="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-                    <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                    </svg>
-                    <div class="flex-1">
-                        <p class="font-medium text-gray-900">${s.department_name}</p>
-                        ${s.category_name ? `<p class="text-xs text-gray-500">${s.category_name}</p>` : ''}
+            approvedList.innerHTML = approved.map(s => {
+                const isAdminAdded = s.source === 'admin';
+                const bgColor = isAdminAdded ? 'bg-blue-50 border border-blue-200' : 'bg-green-50';
+
+                return `
+                <div class="${bgColor} rounded-lg p-3">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5 ${isAdminAdded ? 'text-blue-600' : 'text-green-600'} flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            ${isAdminAdded ?
+                                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>' :
+                                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>'
+                            }
+                        </svg>
+                        <div class="flex-1">
+                            <p class="font-medium text-gray-900">${s.department_name}</p>
+                            ${s.category_name ? `<p class="text-xs text-gray-500">${s.category_name}</p>` : ''}
+                            ${isAdminAdded ? `<p class="text-xs text-blue-600 font-medium">Added by Admin</p>` : ''}
+                        </div>
                     </div>
-                    ${s.source === 'admin' ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">Admin Added</span>` : ''}
+                    ${appealWindowOpen ? `
+                        <button onclick="openAppealForDept(${s.department_id}, '${s.department_name.replace(/'/g, "\\'")}', ${isAdminAdded})"
+                            class="w-full mt-2 py-2 ${isAdminAdded ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-amber-100 hover:bg-amber-200 text-amber-700'} text-sm font-medium rounded-lg transition-colors">
+                            ${isAdminAdded ? 'Appeal This Assignment' : 'Lodge Appeal'}
+                        </button>
+                    ` : ''}
                 </div>
-            `).join('');
+            `}).join('');
             document.getElementById('noApproved').classList.add('hidden');
         } else {
             document.getElementById('noApproved').classList.remove('hidden');
         }
+
+        // Also store pending (admin-added) for appeals
+        memberData.pendingAdminAdded = pending.filter(s => s.source === 'admin');
 
         // Render pending
         if (pending.length > 0) {
@@ -287,7 +305,19 @@ function showError(message) {
     errorDiv.classList.remove('hidden');
 }
 
-function openAppealModal() {
+function openAppealForDept(deptId, deptName, isAdminAdded) {
+    openAppealModal(deptId);
+
+    // Update modal title for admin-added
+    const modalTitle = document.querySelector('#appealModal h3');
+    if (isAdminAdded) {
+        modalTitle.innerHTML = `Appeal Admin Assignment`;
+    } else {
+        modalTitle.innerHTML = `Lodge Appeal`;
+    }
+}
+
+function openAppealModal(preselectedDeptId = null) {
     document.getElementById('appealModal').classList.remove('hidden');
     document.getElementById('appealMemberName').textContent = memberData.fullName;
 
@@ -298,17 +328,28 @@ function openAppealModal() {
     appealDept.innerHTML = '<option value="">-- Select department --</option>';
     wantedDept.innerHTML = '<option value="">-- Select department --</option>';
 
-    // Appeal: approved departments
-    (memberData.approvedSelections || []).forEach(s => {
+    // Appeal: approved departments AND pending admin-added
+    const appealable = [
+        ...(memberData.approvedSelections || []),
+        ...(memberData.pendingAdminAdded || [])
+    ];
+
+    appealable.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.department_id;
-        opt.textContent = s.department_name + (s.category_name ? ` (${s.category_name})` : '');
+        const isAdminAdded = s.source === 'admin';
+        opt.textContent = s.department_name + (s.category_name ? ` (${s.category_name})` : '') + (isAdminAdded ? ' [Admin Added]' : '');
         appealDept.appendChild(opt);
     });
 
-    // Wanted: all departments not already approved
-    const approvedIds = new Set((memberData.approvedSelections || []).map(s => s.department_id));
-    allDepartments.filter(d => !approvedIds.has(d.id)).forEach(d => {
+    // Pre-select if specified
+    if (preselectedDeptId) {
+        appealDept.value = preselectedDeptId;
+    }
+
+    // Wanted: all departments not already assigned
+    const assignedIds = new Set(appealable.map(s => s.department_id));
+    allDepartments.filter(d => !assignedIds.has(d.id)).forEach(d => {
         const opt = document.createElement('option');
         opt.value = d.id;
         opt.textContent = d.name + (d.categoryName ? ` (${d.categoryName})` : '');
