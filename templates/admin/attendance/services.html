@@ -1,0 +1,273 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Manage Services - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-2xl font-bold text-gray-900">Service Times</h2>
+            <p class="text-gray-600 mt-1">Manage recurring church services</p>
+        </div>
+        <button onclick="openAddModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            Add Service
+        </button>
+    </div>
+
+    <!-- Services List -->
+    <div class="bg-white rounded-xl shadow overflow-hidden">
+        <div id="servicesContainer" class="divide-y divide-gray-200">
+            <div class="p-8 text-center text-gray-500">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                Loading services...
+            </div>
+        </div>
+    </div>
+
+    <!-- Attendance Quick Links -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <a href="/admin/attendance/checkin" class="flex items-center gap-3 p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors">
+                <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="font-medium text-gray-900">Mark Attendance</p>
+                    <p class="text-sm text-gray-500">Check in members</p>
+                </div>
+            </a>
+            <a href="/admin/attendance/reports" class="flex items-center gap-3 p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
+                <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                    <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="font-medium text-gray-900">View Reports</p>
+                    <p class="text-sm text-gray-500">Attendance statistics</p>
+                </div>
+            </a>
+            <a href="/admin/visitors" class="flex items-center gap-3 p-4 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors">
+                <div class="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                    <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="font-medium text-gray-900">First-Timers</p>
+                    <p class="text-sm text-gray-500">Manage visitors</p>
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Service Modal -->
+<div id="serviceModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 id="modalTitle" class="text-lg font-semibold text-gray-900 mb-4">Add Service</h3>
+        <form id="serviceForm" onsubmit="saveService(event)">
+            <input type="hidden" id="serviceId">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Service Name</label>
+                    <input type="text" id="serviceName" required placeholder="e.g., Sunday First Service"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Day of Week</label>
+                    <select id="serviceDayOfWeek" required
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="0">Monday</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6" selected>Sunday</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                    <input type="time" id="serviceTime" required
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="serviceActive" checked class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <label for="serviceActive" class="text-sm text-gray-700">Active</label>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button type="button" onclick="closeModal()" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+document.addEventListener('DOMContentLoaded', loadServices);
+
+async function loadServices() {
+    try {
+        const response = await fetch('/api/services?active_only=false');
+        const services = await response.json();
+        renderServices(services);
+    } catch (error) {
+        console.error('Failed to load services:', error);
+        document.getElementById('servicesContainer').innerHTML = `
+            <div class="p-8 text-center text-red-500">Failed to load services</div>
+        `;
+    }
+}
+
+function renderServices(services) {
+    const container = document.getElementById('servicesContainer');
+
+    if (services.length === 0) {
+        container.innerHTML = `
+            <div class="p-8 text-center text-gray-500">
+                <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <p>No services configured yet.</p>
+                <p class="text-sm mt-1">Click "Add Service" to create your first service.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = services.map(service => `
+        <div class="p-4 flex items-center justify-between ${!service.is_active ? 'bg-gray-50' : ''}">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-lg ${service.is_active ? 'bg-blue-100' : 'bg-gray-200'} flex items-center justify-center">
+                    <svg class="w-6 h-6 ${service.is_active ? 'text-blue-600' : 'text-gray-400'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <p class="font-medium text-gray-900 ${!service.is_active ? 'line-through' : ''}">${service.name}</p>
+                    <p class="text-sm text-gray-500">${dayNames[service.day_of_week]} at ${formatTime(service.start_time)}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                ${!service.is_active ? '<span class="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded-full">Inactive</span>' : ''}
+                <button onclick="editService(${JSON.stringify(service).replace(/"/g, '&quot;')})"
+                    class="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                    </svg>
+                </button>
+                <button onclick="deleteService(${service.id}, '${service.name}')"
+                    class="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function formatTime(timeStr) {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+}
+
+function openAddModal() {
+    document.getElementById('modalTitle').textContent = 'Add Service';
+    document.getElementById('serviceId').value = '';
+    document.getElementById('serviceName').value = '';
+    document.getElementById('serviceDayOfWeek').value = '6';
+    document.getElementById('serviceTime').value = '08:00';
+    document.getElementById('serviceActive').checked = true;
+    document.getElementById('serviceModal').classList.remove('hidden');
+    document.getElementById('serviceModal').classList.add('flex');
+}
+
+function editService(service) {
+    document.getElementById('modalTitle').textContent = 'Edit Service';
+    document.getElementById('serviceId').value = service.id;
+    document.getElementById('serviceName').value = service.name;
+    document.getElementById('serviceDayOfWeek').value = service.day_of_week;
+    document.getElementById('serviceTime').value = service.start_time.substring(0, 5);
+    document.getElementById('serviceActive').checked = service.is_active;
+    document.getElementById('serviceModal').classList.remove('hidden');
+    document.getElementById('serviceModal').classList.add('flex');
+}
+
+function closeModal() {
+    document.getElementById('serviceModal').classList.add('hidden');
+    document.getElementById('serviceModal').classList.remove('flex');
+}
+
+async function saveService(event) {
+    event.preventDefault();
+
+    const id = document.getElementById('serviceId').value;
+    const data = {
+        name: document.getElementById('serviceName').value,
+        day_of_week: parseInt(document.getElementById('serviceDayOfWeek').value),
+        start_time: document.getElementById('serviceTime').value + ':00',
+        is_active: document.getElementById('serviceActive').checked
+    };
+
+    try {
+        const url = id ? `/api/services/${id}` : '/api/services';
+        const method = id ? 'PUT' : 'POST';
+
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            closeModal();
+            loadServices();
+        } else {
+            const error = await response.json();
+            alert(error.detail || 'Failed to save service');
+        }
+    } catch (error) {
+        alert('Failed to save service');
+    }
+}
+
+async function deleteService(id, name) {
+    if (!confirm(`Are you sure you want to delete "${name}"? This will also delete all attendance records for this service.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/services/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            loadServices();
+        } else {
+            alert('Failed to delete service');
+        }
+    } catch (error) {
+        alert('Failed to delete service');
+    }
+}
+
+// Close modal on backdrop click
+document.getElementById('serviceModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeModal();
+});
+</script>
+{% endblock %}

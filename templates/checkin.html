@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}Check-In - RFM Stellenbosch{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-teal-600 to-cyan-700 flex flex-col">
+    <!-- Header -->
+    <header class="p-4 text-center">
+        <h1 class="text-white text-xl font-bold">RFM Stellenbosch</h1>
+        <p class="text-teal-100 text-sm">Service Check-In</p>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex items-center justify-center px-4 py-8">
+        <div class="w-full max-w-md">
+            <!-- Check-in Card -->
+            <div id="checkinCard" class="bg-white rounded-2xl shadow-xl p-8">
+                <div class="text-center mb-8">
+                    <div class="w-16 h-16 mx-auto mb-4 bg-teal-100 rounded-full flex items-center justify-center">
+                        <svg class="w-8 h-8 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-900">Check-In</h2>
+                    <p class="text-gray-600 mt-1">Enter your phone number to check in</p>
+                </div>
+
+                <!-- Phone Input -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                    <input type="tel" id="phoneInput" maxlength="10"
+                        class="w-full px-4 py-4 border-2 border-gray-200 rounded-xl text-center text-2xl tracking-widest focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                        placeholder="0771234567" inputmode="numeric"
+                        onkeyup="handleKeyup(event)">
+                </div>
+
+                <!-- Service Selection -->
+                <div id="serviceSelection" class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Service</label>
+                    <div id="serviceButtons" class="space-y-2">
+                        <div class="animate-pulse bg-gray-100 h-14 rounded-xl"></div>
+                    </div>
+                </div>
+
+                <!-- Check-in Button -->
+                <button onclick="checkIn()" id="checkinBtn"
+                    class="w-full py-4 bg-teal-600 text-white text-lg font-semibold rounded-xl hover:bg-teal-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed">
+                    Check In
+                </button>
+
+                <p class="text-center text-sm text-gray-500 mt-4">
+                    First time? <a href="/" class="text-teal-600 font-medium hover:underline">Register here</a>
+                </p>
+            </div>
+
+            <!-- Success Card (hidden by default) -->
+            <div id="successCard" class="bg-white rounded-2xl shadow-xl p-8 hidden">
+                <div class="text-center">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                        <svg class="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-2xl font-bold text-gray-900 mb-2">Welcome!</h2>
+                    <p id="successName" class="text-xl text-teal-600 font-semibold mb-1"></p>
+                    <p id="successService" class="text-gray-600 mb-6"></p>
+                    <p class="text-sm text-gray-500 mb-6">You're all checked in. Enjoy the service!</p>
+                    <button onclick="resetForm()" class="w-full py-3 border-2 border-teal-600 text-teal-600 rounded-xl font-medium hover:bg-teal-50">
+                        Check In Another Person
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error Card (hidden by default) -->
+            <div id="errorCard" class="bg-white rounded-2xl shadow-xl p-8 hidden">
+                <div class="text-center">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                        <svg class="w-12 h-12 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-xl font-bold text-gray-900 mb-2">Unable to Check In</h2>
+                    <p id="errorMessage" class="text-gray-600 mb-6"></p>
+                    <button onclick="resetForm()" class="w-full py-3 bg-teal-600 text-white rounded-xl font-medium hover:bg-teal-700">
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="p-4 text-center">
+        <a href="/" class="text-teal-100 text-sm hover:text-white">Back to Home</a>
+    </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedServiceId = null;
+
+document.addEventListener('DOMContentLoaded', loadTodaysServices);
+
+async function loadTodaysServices() {
+    try {
+        const response = await fetch('/api/service-instances/today');
+        const services = await response.json();
+        renderServices(services);
+    } catch (error) {
+        document.getElementById('serviceButtons').innerHTML = `
+            <p class="text-red-500 text-center py-4">Unable to load services</p>
+        `;
+    }
+}
+
+function renderServices(services) {
+    const container = document.getElementById('serviceButtons');
+
+    if (services.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">No services available for check-in today</p>';
+        document.getElementById('checkinBtn').disabled = true;
+        return;
+    }
+
+    container.innerHTML = services.map((instance, index) => `
+        <button onclick="selectService(${instance.id}, this)"
+            class="service-btn w-full p-4 border-2 rounded-xl text-left transition-all ${index === 0 ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300'}"
+            data-id="${instance.id}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="font-semibold text-gray-900">${instance.service.name}</p>
+                    <p class="text-sm text-gray-500">${formatTime(instance.service.start_time)}</p>
+                </div>
+                <div class="w-6 h-6 rounded-full border-2 flex items-center justify-center ${index === 0 ? 'border-teal-500 bg-teal-500' : 'border-gray-300'}">
+                    ${index === 0 ? '<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                </div>
+            </div>
+        </button>
+    `).join('');
+
+    // Auto-select first service
+    if (services.length > 0) {
+        selectedServiceId = services[0].id;
+    }
+}
+
+function selectService(serviceId, button) {
+    selectedServiceId = serviceId;
+
+    // Update all buttons
+    document.querySelectorAll('.service-btn').forEach(btn => {
+        const isSelected = btn.dataset.id == serviceId;
+        btn.classList.toggle('border-teal-500', isSelected);
+        btn.classList.toggle('bg-teal-50', isSelected);
+        btn.classList.toggle('border-gray-200', !isSelected);
+
+        const circle = btn.querySelector('div:last-child');
+        circle.classList.toggle('border-teal-500', isSelected);
+        circle.classList.toggle('bg-teal-500', isSelected);
+        circle.classList.toggle('border-gray-300', !isSelected);
+        circle.innerHTML = isSelected ?
+            '<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : '';
+    });
+}
+
+function formatTime(timeStr) {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+}
+
+function handleKeyup(event) {
+    if (event.key === 'Enter') checkIn();
+}
+
+async function checkIn() {
+    const phone = document.getElementById('phoneInput').value.trim();
+
+    if (!phone || phone.length < 10) {
+        showError('Please enter a valid 10-digit phone number');
+        return;
+    }
+
+    if (!selectedServiceId) {
+        showError('Please select a service');
+        return;
+    }
+
+    const btn = document.getElementById('checkinBtn');
+    btn.disabled = true;
+    btn.textContent = 'Checking in...';
+
+    try {
+        const response = await fetch('/api/checkin/phone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                phone: phone,
+                service_instance_id: selectedServiceId
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showSuccess(result.member_name, result.service_name);
+        } else {
+            showError(result.message);
+        }
+    } catch (error) {
+        showError('Unable to check in. Please try again.');
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Check In';
+}
+
+function showSuccess(name, service) {
+    document.getElementById('successName').textContent = name;
+    document.getElementById('successService').textContent = `Checked in to ${service}`;
+
+    document.getElementById('checkinCard').classList.add('hidden');
+    document.getElementById('errorCard').classList.add('hidden');
+    document.getElementById('successCard').classList.remove('hidden');
+}
+
+function showError(message) {
+    document.getElementById('errorMessage').textContent = message;
+
+    document.getElementById('checkinCard').classList.add('hidden');
+    document.getElementById('successCard').classList.add('hidden');
+    document.getElementById('errorCard').classList.remove('hidden');
+}
+
+function resetForm() {
+    document.getElementById('phoneInput').value = '';
+
+    document.getElementById('checkinCard').classList.remove('hidden');
+    document.getElementById('successCard').classList.add('hidden');
+    document.getElementById('errorCard').classList.add('hidden');
+
+    // Reload services
+    loadTodaysServices();
+}
+</script>
+{% endblock %}

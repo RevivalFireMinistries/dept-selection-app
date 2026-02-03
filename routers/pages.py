@@ -270,3 +270,69 @@ async def desk_member_profile(request: Request, member_id: int):
     if not is_desk_authenticated(request):
         return RedirectResponse(url="/desk/login", status_code=302)
     return templates.TemplateResponse("desk/profile.html", {"request": request})
+
+
+# ============ ADMIN ATTENDANCE ROUTES ============
+
+@router.get("/admin/attendance/services")
+async def admin_attendance_services(request: Request):
+    """Admin service management page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/attendance/services.html", {"request": request})
+
+
+@router.get("/admin/attendance/checkin")
+async def admin_attendance_checkin(request: Request):
+    """Admin attendance check-in page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/attendance/checkin.html", {"request": request})
+
+
+@router.get("/admin/attendance/reports")
+async def admin_attendance_reports(request: Request):
+    """Admin attendance reports page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/attendance/reports.html", {"request": request})
+
+
+@router.get("/admin/visitors")
+async def admin_visitors(request: Request):
+    """Admin visitors management page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/visitors.html", {"request": request})
+
+
+# ============ DESK CHECK-IN ROUTES ============
+
+@router.get("/desk/checkin")
+async def desk_checkin(request: Request):
+    """Desk check-in page"""
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login", status_code=302)
+    return templates.TemplateResponse("desk/checkin.html", {"request": request})
+
+
+@router.get("/desk/first-timer")
+async def desk_first_timer(request: Request):
+    """Desk first-timer registration page"""
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login", status_code=302)
+    return templates.TemplateResponse("desk/first-timer.html", {"request": request})
+
+
+# ============ PUBLIC CHECK-IN ROUTES ============
+
+@router.get("/checkin")
+async def public_checkin(request: Request):
+    """Public self check-in page"""
+    return templates.TemplateResponse("checkin.html", {"request": request})
+
+
+@router.get("/my-qr")
+async def member_qr_code(request: Request):
+    """Member QR code lookup page"""
+    return templates.TemplateResponse("my-qr.html", {"request": request})

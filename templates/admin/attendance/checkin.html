@@ -1,0 +1,314 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Mark Attendance - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-2xl font-bold text-gray-900">Mark Attendance</h2>
+            <p class="text-gray-600 mt-1">Check in members for today's services</p>
+        </div>
+    </div>
+
+    <!-- Service Selection -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-sm font-medium text-gray-700 mb-3">Select Service</h3>
+        <div id="servicesContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div class="animate-pulse bg-gray-100 h-20 rounded-lg"></div>
+        </div>
+        <p id="noServicesMsg" class="text-gray-500 text-center py-4 hidden">No services scheduled for today</p>
+    </div>
+
+    <!-- Check-in Section (shown when service selected) -->
+    <div id="checkinSection" class="hidden space-y-6">
+        <!-- Selected Service Info -->
+        <div class="bg-green-50 border border-green-200 rounded-xl p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-green-600 font-medium">Currently checking in for:</p>
+                    <p id="selectedServiceName" class="text-lg font-semibold text-green-800"></p>
+                </div>
+                <div class="text-right">
+                    <p class="text-2xl font-bold text-green-700" id="attendanceCount">0</p>
+                    <p class="text-sm text-green-600">checked in</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Member Search -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Search Members</h3>
+            <div class="flex gap-4">
+                <div class="flex-1">
+                    <input type="text" id="memberSearch" placeholder="Search by name or phone..."
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        onkeyup="handleSearchKeyup(event)">
+                </div>
+                <button onclick="searchMembers()" class="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                    Search
+                </button>
+            </div>
+
+            <!-- Search Results -->
+            <div id="searchResults" class="mt-4 hidden">
+                <h4 class="text-sm font-medium text-gray-700 mb-2">Results</h4>
+                <div id="searchResultsContainer" class="space-y-2 max-h-80 overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- Current Attendance List -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Checked In</h3>
+                <button onclick="loadAttendance()" class="text-sm text-green-600 hover:text-green-700">
+                    Refresh
+                </button>
+            </div>
+            <div id="attendanceList" class="space-y-2">
+                <p class="text-gray-500 text-center py-4">No one checked in yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedServiceInstance = null;
+let allMembers = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadTodaysServices();
+    loadAllMembers();
+});
+
+async function loadAllMembers() {
+    try {
+        const response = await fetch('/api/members');
+        allMembers = await response.json();
+    } catch (error) {
+        console.error('Failed to load members:', error);
+    }
+}
+
+async function loadTodaysServices() {
+    try {
+        const response = await fetch('/api/service-instances/today');
+        const instances = await response.json();
+        renderServiceButtons(instances);
+    } catch (error) {
+        console.error('Failed to load services:', error);
+        document.getElementById('servicesContainer').innerHTML = `
+            <p class="text-red-500 col-span-full text-center">Failed to load services</p>
+        `;
+    }
+}
+
+function renderServiceButtons(instances) {
+    const container = document.getElementById('servicesContainer');
+
+    if (instances.length === 0) {
+        container.innerHTML = '';
+        document.getElementById('noServicesMsg').classList.remove('hidden');
+        return;
+    }
+
+    container.innerHTML = instances.map(instance => `
+        <button onclick="selectService(${JSON.stringify(instance).replace(/"/g, '&quot;')})"
+            class="service-btn p-4 border-2 rounded-lg text-left transition-all hover:border-green-500 hover:bg-green-50"
+            data-instance-id="${instance.id}">
+            <p class="font-medium text-gray-900">${instance.service.name}</p>
+            <p class="text-sm text-gray-500">${formatTime(instance.service.start_time)}</p>
+            <p class="text-sm text-green-600 mt-1">${instance.attendance_count || 0} checked in</p>
+        </button>
+    `).join('');
+}
+
+function formatTime(timeStr) {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+}
+
+function selectService(instance) {
+    selectedServiceInstance = instance;
+
+    // Update UI
+    document.querySelectorAll('.service-btn').forEach(btn => {
+        btn.classList.remove('border-green-500', 'bg-green-50');
+        btn.classList.add('border-gray-200');
+    });
+
+    const selectedBtn = document.querySelector(`[data-instance-id="${instance.id}"]`);
+    if (selectedBtn) {
+        selectedBtn.classList.add('border-green-500', 'bg-green-50');
+        selectedBtn.classList.remove('border-gray-200');
+    }
+
+    document.getElementById('selectedServiceName').textContent = instance.service.name;
+    document.getElementById('attendanceCount').textContent = instance.attendance_count || 0;
+    document.getElementById('checkinSection').classList.remove('hidden');
+
+    loadAttendance();
+}
+
+function handleSearchKeyup(event) {
+    if (event.key === 'Enter') searchMembers();
+}
+
+function searchMembers() {
+    const query = document.getElementById('memberSearch').value.trim().toLowerCase();
+    if (!query) {
+        document.getElementById('searchResults').classList.add('hidden');
+        return;
+    }
+
+    const results = allMembers.filter(m =>
+        m.fullName.toLowerCase().includes(query) ||
+        m.phone.includes(query)
+    ).slice(0, 20);
+
+    const container = document.getElementById('searchResultsContainer');
+
+    if (results.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">No members found</p>';
+    } else {
+        container.innerHTML = results.map(member => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div>
+                    <p class="font-medium text-gray-900">${member.fullName}</p>
+                    <p class="text-sm text-gray-500">${member.phone}</p>
+                </div>
+                <button onclick="checkInMember(${member.id}, '${member.fullName}')"
+                    class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                    Check In
+                </button>
+            </div>
+        `).join('');
+    }
+
+    document.getElementById('searchResults').classList.remove('hidden');
+}
+
+async function checkInMember(memberId, memberName) {
+    if (!selectedServiceInstance) {
+        alert('Please select a service first');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/service-instances/${selectedServiceInstance.id}/attendance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                member_id: memberId,
+                check_in_method: 'admin'
+            })
+        });
+
+        if (response.ok) {
+            // Update count
+            const count = parseInt(document.getElementById('attendanceCount').textContent) + 1;
+            document.getElementById('attendanceCount').textContent = count;
+
+            // Show success feedback
+            showToast(`${memberName} checked in!`, 'success');
+
+            // Clear search
+            document.getElementById('memberSearch').value = '';
+            document.getElementById('searchResults').classList.add('hidden');
+
+            // Reload attendance list
+            loadAttendance();
+        } else {
+            const error = await response.json();
+            showToast(error.detail || 'Check-in failed', 'error');
+        }
+    } catch (error) {
+        showToast('Check-in failed', 'error');
+    }
+}
+
+async function loadAttendance() {
+    if (!selectedServiceInstance) return;
+
+    try {
+        const response = await fetch(`/api/service-instances/${selectedServiceInstance.id}/attendance`);
+        const attendance = await response.json();
+
+        const container = document.getElementById('attendanceList');
+
+        if (attendance.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 text-center py-4">No one checked in yet</p>';
+            return;
+        }
+
+        container.innerHTML = attendance.map(record => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="font-medium text-gray-900">${record.member_name || record.visitor_name}</p>
+                        <p class="text-xs text-gray-500">
+                            ${formatDateTime(record.check_in_time)}
+                            <span class="ml-2 px-1.5 py-0.5 bg-gray-200 rounded text-gray-600">${record.check_in_method}</span>
+                        </p>
+                    </div>
+                </div>
+                <button onclick="removeAttendance(${record.id})"
+                    class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+
+        document.getElementById('attendanceCount').textContent = attendance.length;
+    } catch (error) {
+        console.error('Failed to load attendance:', error);
+    }
+}
+
+function formatDateTime(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function removeAttendance(attendanceId) {
+    if (!confirm('Remove this check-in?')) return;
+
+    try {
+        const response = await fetch(`/api/attendance/${attendanceId}`, { method: 'DELETE' });
+        if (response.ok) {
+            loadAttendance();
+            showToast('Check-in removed', 'info');
+        }
+    } catch (error) {
+        showToast('Failed to remove', 'error');
+    }
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white z-50 transition-opacity ${
+        type === 'success' ? 'bg-green-600' :
+        type === 'error' ? 'bg-red-600' : 'bg-gray-700'
+    }`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+</script>
+{% endblock %}

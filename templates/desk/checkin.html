@@ -1,0 +1,472 @@
+{% extends "desk/base.html" %}
+
+{% block title %}Check-In - Info Desk{% endblock %}
+
+{% block desk_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-2xl font-bold text-gray-900">Service Check-In</h2>
+            <p class="text-gray-600 mt-1">Check in members for today's services</p>
+        </div>
+        <a href="/desk/first-timer" class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors">
+            Register First-Timer
+        </a>
+    </div>
+
+    <!-- Service Selection -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-sm font-medium text-gray-700 mb-3">Select Service</h3>
+        <div id="servicesContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="animate-pulse bg-gray-100 h-20 rounded-lg"></div>
+        </div>
+        <p id="noServicesMsg" class="text-gray-500 text-center py-4 hidden">No services scheduled for today</p>
+    </div>
+
+    <!-- Check-in Interface (shown when service selected) -->
+    <div id="checkinSection" class="hidden space-y-6">
+        <!-- Service Info Bar -->
+        <div class="bg-teal-50 border border-teal-200 rounded-xl p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-teal-600 font-medium">Checking in for:</p>
+                    <p id="selectedServiceName" class="text-xl font-bold text-teal-800"></p>
+                </div>
+                <div class="text-right">
+                    <p class="text-3xl font-bold text-teal-700" id="attendanceCount">0</p>
+                    <p class="text-sm text-teal-600">checked in</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Check-in Methods Tabs -->
+        <div class="bg-white rounded-xl shadow overflow-hidden">
+            <div class="flex border-b border-gray-200">
+                <button onclick="showTab('search')" class="checkin-tab active flex-1 py-4 text-center font-medium" data-tab="search">
+                    <svg class="w-5 h-5 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    Search
+                </button>
+                <button onclick="showTab('qr')" class="checkin-tab flex-1 py-4 text-center font-medium" data-tab="qr">
+                    <svg class="w-5 h-5 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
+                    </svg>
+                    Scan QR
+                </button>
+                <button onclick="showTab('phone')" class="checkin-tab flex-1 py-4 text-center font-medium" data-tab="phone">
+                    <svg class="w-5 h-5 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+                    </svg>
+                    Phone
+                </button>
+            </div>
+
+            <!-- Search Tab -->
+            <div id="searchTab" class="p-6">
+                <div class="flex gap-4">
+                    <input type="text" id="memberSearch" placeholder="Search by name or phone..."
+                        class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-lg"
+                        onkeyup="handleSearchKeyup(event)">
+                    <button onclick="searchMembers()" class="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+                        Search
+                    </button>
+                </div>
+                <div id="searchResults" class="mt-4 hidden">
+                    <div id="searchResultsContainer" class="space-y-2 max-h-64 overflow-y-auto"></div>
+                </div>
+            </div>
+
+            <!-- QR Tab -->
+            <div id="qrTab" class="p-6 hidden">
+                <div id="qrScanner" class="relative">
+                    <div id="qrVideo" class="w-full max-w-md mx-auto aspect-square bg-gray-900 rounded-xl overflow-hidden"></div>
+                    <p class="text-center text-gray-500 mt-4">Position QR code in the camera view</p>
+                    <button onclick="startQRScanner()" id="startScanBtn" class="mt-4 w-full max-w-md mx-auto block px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700">
+                        Start Camera
+                    </button>
+                    <button onclick="stopQRScanner()" id="stopScanBtn" class="mt-4 w-full max-w-md mx-auto hidden px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+                        Stop Camera
+                    </button>
+                </div>
+            </div>
+
+            <!-- Phone Tab -->
+            <div id="phoneTab" class="p-6 hidden">
+                <div class="max-w-md mx-auto">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Enter Phone Number</label>
+                    <input type="tel" id="phoneInput" placeholder="0771234567"
+                        class="w-full px-4 py-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-2xl text-center tracking-wider"
+                        maxlength="10" onkeyup="handlePhoneKeyup(event)">
+                    <button onclick="phoneCheckin()" class="w-full mt-4 px-6 py-4 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-lg font-medium">
+                        Check In
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Check-ins -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Recent Check-ins</h3>
+                <button onclick="loadAttendance()" class="text-sm text-teal-600 hover:text-teal-700">Refresh</button>
+            </div>
+            <div id="recentCheckins" class="space-y-2 max-h-64 overflow-y-auto">
+                <p class="text-gray-500 text-center py-4">No check-ins yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success Animation Overlay -->
+<div id="successOverlay" class="fixed inset-0 bg-teal-600 bg-opacity-90 hidden items-center justify-center z-50">
+    <div class="text-center text-white">
+        <div class="w-24 h-24 mx-auto mb-4 bg-white rounded-full flex items-center justify-center">
+            <svg class="w-16 h-16 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+            </svg>
+        </div>
+        <p class="text-2xl font-bold" id="successName">Welcome!</p>
+        <p class="text-lg opacity-90" id="successService"></p>
+    </div>
+</div>
+
+<style>
+    .checkin-tab {
+        @apply text-gray-500 hover:bg-gray-50 transition-colors;
+    }
+    .checkin-tab.active {
+        @apply text-teal-600 bg-teal-50 border-b-2 border-teal-600;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+let selectedServiceInstance = null;
+let allMembers = [];
+let html5QrCode = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadTodaysServices();
+    loadAllMembers();
+});
+
+async function loadAllMembers() {
+    try {
+        const response = await fetch('/api/members');
+        allMembers = await response.json();
+    } catch (error) {
+        console.error('Failed to load members:', error);
+    }
+}
+
+async function loadTodaysServices() {
+    try {
+        const response = await fetch('/api/service-instances/today');
+        const instances = await response.json();
+        renderServiceButtons(instances);
+    } catch (error) {
+        document.getElementById('servicesContainer').innerHTML = `
+            <p class="text-red-500 col-span-full text-center">Failed to load services</p>
+        `;
+    }
+}
+
+function renderServiceButtons(instances) {
+    const container = document.getElementById('servicesContainer');
+
+    if (instances.length === 0) {
+        container.innerHTML = '';
+        document.getElementById('noServicesMsg').classList.remove('hidden');
+        return;
+    }
+
+    container.innerHTML = instances.map(instance => `
+        <button onclick="selectService(${JSON.stringify(instance).replace(/"/g, '&quot;')})"
+            class="service-btn p-4 border-2 border-gray-200 rounded-xl text-left transition-all hover:border-teal-500 hover:bg-teal-50"
+            data-instance-id="${instance.id}">
+            <p class="font-semibold text-gray-900 text-lg">${instance.service.name}</p>
+            <p class="text-sm text-gray-500">${formatTime(instance.service.start_time)}</p>
+            <p class="text-sm text-teal-600 mt-1 font-medium">${instance.attendance_count || 0} checked in</p>
+        </button>
+    `).join('');
+}
+
+function formatTime(timeStr) {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+}
+
+function selectService(instance) {
+    selectedServiceInstance = instance;
+
+    document.querySelectorAll('.service-btn').forEach(btn => {
+        btn.classList.remove('border-teal-500', 'bg-teal-50');
+        btn.classList.add('border-gray-200');
+    });
+
+    const selectedBtn = document.querySelector(`[data-instance-id="${instance.id}"]`);
+    if (selectedBtn) {
+        selectedBtn.classList.add('border-teal-500', 'bg-teal-50');
+        selectedBtn.classList.remove('border-gray-200');
+    }
+
+    document.getElementById('selectedServiceName').textContent = instance.service.name;
+    document.getElementById('attendanceCount').textContent = instance.attendance_count || 0;
+    document.getElementById('checkinSection').classList.remove('hidden');
+
+    loadAttendance();
+}
+
+function showTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.checkin-tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.dataset.tab === tabName) tab.classList.add('active');
+    });
+
+    // Show/hide tab content
+    document.getElementById('searchTab').classList.toggle('hidden', tabName !== 'search');
+    document.getElementById('qrTab').classList.toggle('hidden', tabName !== 'qr');
+    document.getElementById('phoneTab').classList.toggle('hidden', tabName !== 'phone');
+
+    // Stop QR scanner if switching away
+    if (tabName !== 'qr' && html5QrCode) {
+        stopQRScanner();
+    }
+}
+
+function handleSearchKeyup(event) {
+    if (event.key === 'Enter') searchMembers();
+}
+
+function searchMembers() {
+    const query = document.getElementById('memberSearch').value.trim().toLowerCase();
+    if (!query) {
+        document.getElementById('searchResults').classList.add('hidden');
+        return;
+    }
+
+    const results = allMembers.filter(m =>
+        m.fullName.toLowerCase().includes(query) || m.phone.includes(query)
+    ).slice(0, 10);
+
+    const container = document.getElementById('searchResultsContainer');
+
+    if (results.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-4">No members found</p>';
+    } else {
+        container.innerHTML = results.map(member => `
+            <button onclick="checkInMember(${member.id}, '${member.fullName}')"
+                class="w-full flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-teal-50 transition-colors">
+                <div class="text-left">
+                    <p class="font-medium text-gray-900">${member.fullName}</p>
+                    <p class="text-sm text-gray-500">${member.phone}</p>
+                </div>
+                <span class="px-4 py-2 bg-teal-600 text-white rounded-lg">Check In</span>
+            </button>
+        `).join('');
+    }
+
+    document.getElementById('searchResults').classList.remove('hidden');
+}
+
+async function checkInMember(memberId, memberName) {
+    if (!selectedServiceInstance) {
+        alert('Please select a service first');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/service-instances/${selectedServiceInstance.id}/attendance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member_id: memberId, check_in_method: 'admin' })
+        });
+
+        if (response.ok) {
+            showSuccessAnimation(memberName);
+            document.getElementById('memberSearch').value = '';
+            document.getElementById('searchResults').classList.add('hidden');
+            loadAttendance();
+            updateCount(1);
+        } else {
+            const error = await response.json();
+            alert(error.detail || 'Check-in failed');
+        }
+    } catch (error) {
+        alert('Check-in failed');
+    }
+}
+
+function handlePhoneKeyup(event) {
+    if (event.key === 'Enter') phoneCheckin();
+}
+
+async function phoneCheckin() {
+    const phone = document.getElementById('phoneInput').value.trim();
+    if (!phone || phone.length < 10) {
+        alert('Please enter a valid 10-digit phone number');
+        return;
+    }
+
+    if (!selectedServiceInstance) {
+        alert('Please select a service first');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/checkin/phone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                phone: phone,
+                service_instance_id: selectedServiceInstance.id
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showSuccessAnimation(result.member_name);
+            document.getElementById('phoneInput').value = '';
+            loadAttendance();
+            updateCount(1);
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        alert('Check-in failed');
+    }
+}
+
+// QR Scanner functions
+async function startQRScanner() {
+    try {
+        html5QrCode = new Html5Qrcode("qrVideo");
+        await html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            onQRCodeScanned,
+            () => {}
+        );
+        document.getElementById('startScanBtn').classList.add('hidden');
+        document.getElementById('stopScanBtn').classList.remove('hidden');
+    } catch (err) {
+        alert('Could not start camera. Please check permissions.');
+    }
+}
+
+async function stopQRScanner() {
+    if (html5QrCode) {
+        try {
+            await html5QrCode.stop();
+        } catch (e) {}
+        html5QrCode = null;
+    }
+    document.getElementById('startScanBtn').classList.remove('hidden');
+    document.getElementById('stopScanBtn').classList.add('hidden');
+}
+
+async function onQRCodeScanned(decodedText) {
+    if (!selectedServiceInstance) return;
+
+    // Stop scanning temporarily
+    await stopQRScanner();
+
+    // Parse QR code (format: "checkin:uuid")
+    let qrCode = decodedText;
+    if (decodedText.startsWith('checkin:')) {
+        qrCode = decodedText.substring(8);
+    }
+
+    try {
+        const response = await fetch('/api/checkin/qr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                qr_code: qrCode,
+                service_instance_id: selectedServiceInstance.id
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showSuccessAnimation(result.member_name);
+            loadAttendance();
+            updateCount(1);
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        alert('Check-in failed');
+    }
+
+    // Restart scanner after delay
+    setTimeout(startQRScanner, 2000);
+}
+
+async function loadAttendance() {
+    if (!selectedServiceInstance) return;
+
+    try {
+        const response = await fetch(`/api/service-instances/${selectedServiceInstance.id}/attendance`);
+        const attendance = await response.json();
+
+        const container = document.getElementById('recentCheckins');
+
+        if (attendance.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 text-center py-4">No check-ins yet</p>';
+            return;
+        }
+
+        container.innerHTML = attendance.slice(0, 20).map(record => `
+            <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <div class="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="font-medium text-gray-900 truncate">${record.member_name || record.visitor_name}</p>
+                    <p class="text-xs text-gray-500">${formatDateTime(record.check_in_time)} via ${record.check_in_method}</p>
+                </div>
+            </div>
+        `).join('');
+
+        document.getElementById('attendanceCount').textContent = attendance.length;
+    } catch (error) {
+        console.error('Failed to load attendance:', error);
+    }
+}
+
+function formatDateTime(dateStr) {
+    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function updateCount(delta) {
+    const countEl = document.getElementById('attendanceCount');
+    countEl.textContent = parseInt(countEl.textContent) + delta;
+}
+
+function showSuccessAnimation(name) {
+    document.getElementById('successName').textContent = `Welcome, ${name}!`;
+    document.getElementById('successService').textContent = selectedServiceInstance.service.name;
+
+    const overlay = document.getElementById('successOverlay');
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+
+    setTimeout(() => {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+    }, 2000);
+}
+</script>
+{% endblock %}

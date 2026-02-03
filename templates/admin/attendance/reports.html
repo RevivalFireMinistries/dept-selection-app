@@ -1,0 +1,313 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Attendance Reports - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div>
+        <h2 class="text-2xl font-bold text-gray-900">Attendance Reports</h2>
+        <p class="text-gray-600 mt-1">View attendance statistics and trends</p>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-sm font-medium text-gray-700 mb-3">Date Range</h3>
+        <div class="flex flex-wrap items-end gap-4">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">Start Date</label>
+                <input type="date" id="startDate"
+                    class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">End Date</label>
+                <input type="date" id="endDate"
+                    class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">Service (Optional)</label>
+                <select id="serviceFilter"
+                    class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">All Services</option>
+                </select>
+            </div>
+            <button onclick="loadReport()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                Generate Report
+            </button>
+        </div>
+
+        <!-- Quick Date Filters -->
+        <div class="flex gap-2 mt-4">
+            <button onclick="setDateRange('week')" class="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Last 7 days</button>
+            <button onclick="setDateRange('month')" class="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Last 30 days</button>
+            <button onclick="setDateRange('quarter')" class="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Last 90 days</button>
+            <button onclick="setDateRange('year')" class="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Last year</button>
+        </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div id="reportStats" class="grid grid-cols-2 md:grid-cols-4 gap-4 hidden">
+        <div class="bg-white rounded-xl shadow p-6">
+            <p class="text-sm text-gray-500">Total Services</p>
+            <p class="text-3xl font-bold text-gray-900" id="statTotalServices">0</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-6">
+            <p class="text-sm text-gray-500">Total Attendance</p>
+            <p class="text-3xl font-bold text-blue-600" id="statTotalAttendance">0</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-6">
+            <p class="text-sm text-gray-500">Average per Service</p>
+            <p class="text-3xl font-bold text-green-600" id="statAverage">0</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-6">
+            <p class="text-sm text-gray-500">First-time Visitors</p>
+            <p class="text-3xl font-bold text-amber-600" id="statVisitors">0</p>
+        </div>
+    </div>
+
+    <!-- Attendance by Service -->
+    <div id="byServiceSection" class="bg-white rounded-xl shadow p-6 hidden">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Attendance by Service</h3>
+        <div id="byServiceChart" class="space-y-3"></div>
+    </div>
+
+    <!-- Attendance Trend -->
+    <div id="trendSection" class="bg-white rounded-xl shadow p-6 hidden">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Attendance Trend</h3>
+        <div id="trendChart" class="h-64 flex items-end justify-around gap-2"></div>
+    </div>
+
+    <!-- Recent Services Table -->
+    <div id="recentServicesSection" class="bg-white rounded-xl shadow hidden">
+        <div class="p-6 border-b border-gray-200">
+            <h3 class="text-lg font-semibold text-gray-900">Service History</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Service</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Members</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Visitors</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    </tr>
+                </thead>
+                <tbody id="serviceHistoryTable" class="divide-y divide-gray-200"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- No Data Message -->
+    <div id="noDataMessage" class="bg-gray-50 rounded-xl p-12 text-center hidden">
+        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+        </svg>
+        <p class="text-gray-600 font-medium">No attendance data found</p>
+        <p class="text-sm text-gray-500 mt-1">Try adjusting the date range or service filter</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadServices();
+    setDateRange('month');
+});
+
+async function loadServices() {
+    try {
+        const response = await fetch('/api/services?active_only=false');
+        const services = await response.json();
+
+        const select = document.getElementById('serviceFilter');
+        services.forEach(service => {
+            const option = document.createElement('option');
+            option.value = service.id;
+            option.textContent = service.name;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Failed to load services:', error);
+    }
+}
+
+function setDateRange(range) {
+    const endDate = new Date();
+    let startDate = new Date();
+
+    switch(range) {
+        case 'week':
+            startDate.setDate(endDate.getDate() - 7);
+            break;
+        case 'month':
+            startDate.setDate(endDate.getDate() - 30);
+            break;
+        case 'quarter':
+            startDate.setDate(endDate.getDate() - 90);
+            break;
+        case 'year':
+            startDate.setFullYear(endDate.getFullYear() - 1);
+            break;
+    }
+
+    document.getElementById('startDate').value = startDate.toISOString().split('T')[0];
+    document.getElementById('endDate').value = endDate.toISOString().split('T')[0];
+
+    loadReport();
+}
+
+async function loadReport() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    const serviceId = document.getElementById('serviceFilter').value;
+
+    if (!startDate || !endDate) {
+        alert('Please select a date range');
+        return;
+    }
+
+    try {
+        let url = `/api/attendance/report?start_date=${startDate}&end_date=${endDate}`;
+        if (serviceId) url += `&service_id=${serviceId}`;
+
+        const response = await fetch(url);
+        const report = await response.json();
+
+        displayReport(report);
+    } catch (error) {
+        console.error('Failed to load report:', error);
+        alert('Failed to load report');
+    }
+}
+
+function displayReport(report) {
+    // Hide no data message initially
+    document.getElementById('noDataMessage').classList.add('hidden');
+
+    if (report.total_services === 0) {
+        document.getElementById('reportStats').classList.add('hidden');
+        document.getElementById('byServiceSection').classList.add('hidden');
+        document.getElementById('trendSection').classList.add('hidden');
+        document.getElementById('recentServicesSection').classList.add('hidden');
+        document.getElementById('noDataMessage').classList.remove('hidden');
+        return;
+    }
+
+    // Show stats
+    document.getElementById('reportStats').classList.remove('hidden');
+    document.getElementById('statTotalServices').textContent = report.total_services;
+    document.getElementById('statTotalAttendance').textContent = report.total_attendance;
+    document.getElementById('statAverage').textContent = report.average_attendance;
+    document.getElementById('statVisitors').textContent = report.visitor_attendance;
+
+    // Show by service chart
+    displayByServiceChart(report.by_service);
+
+    // Show trend chart
+    displayTrendChart(report.by_date);
+
+    // Show service history (we'd need to fetch instances separately for detailed table)
+    document.getElementById('recentServicesSection').classList.remove('hidden');
+    loadServiceHistory();
+}
+
+function displayByServiceChart(byService) {
+    const container = document.getElementById('byServiceChart');
+    const services = Object.entries(byService);
+
+    if (services.length === 0) {
+        document.getElementById('byServiceSection').classList.add('hidden');
+        return;
+    }
+
+    document.getElementById('byServiceSection').classList.remove('hidden');
+
+    const maxTotal = Math.max(...services.map(([_, data]) => data.total));
+
+    container.innerHTML = services.map(([name, data]) => {
+        const percentage = maxTotal > 0 ? (data.total / maxTotal) * 100 : 0;
+        const average = data.count > 0 ? Math.round(data.total / data.count) : 0;
+
+        return `
+            <div class="flex items-center gap-4">
+                <div class="w-32 text-sm text-gray-600 truncate" title="${name}">${name}</div>
+                <div class="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden">
+                    <div class="bg-blue-600 h-full rounded-full transition-all" style="width: ${percentage}%"></div>
+                </div>
+                <div class="w-20 text-right">
+                    <span class="font-semibold text-gray-900">${data.total}</span>
+                    <span class="text-sm text-gray-500">(avg ${average})</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function displayTrendChart(byDate) {
+    const container = document.getElementById('trendChart');
+    const dates = Object.entries(byDate).slice(-14); // Last 14 days
+
+    if (dates.length === 0) {
+        document.getElementById('trendSection').classList.add('hidden');
+        return;
+    }
+
+    document.getElementById('trendSection').classList.remove('hidden');
+
+    const maxValue = Math.max(...dates.map(([_, count]) => count));
+
+    container.innerHTML = dates.map(([date, count]) => {
+        const height = maxValue > 0 ? (count / maxValue) * 100 : 0;
+        const dateObj = new Date(date);
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+
+        return `
+            <div class="flex flex-col items-center gap-1 flex-1">
+                <span class="text-sm font-medium text-gray-900">${count}</span>
+                <div class="w-full bg-gray-100 rounded-t-lg" style="height: 200px;">
+                    <div class="w-full bg-blue-600 rounded-t-lg" style="height: ${height}%; margin-top: ${100 - height}%"></div>
+                </div>
+                <span class="text-xs text-gray-500">${dayName}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+async function loadServiceHistory() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    const serviceId = document.getElementById('serviceFilter').value;
+
+    try {
+        let url = `/api/service-instances?start_date=${startDate}&end_date=${endDate}`;
+        if (serviceId) url += `&service_id=${serviceId}`;
+
+        const response = await fetch(url);
+        const instances = await response.json();
+
+        const tbody = document.getElementById('serviceHistoryTable');
+        tbody.innerHTML = instances.map(instance => `
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 text-sm text-gray-900">${formatDate(instance.date)}</td>
+                <td class="px-6 py-4 text-sm text-gray-900">${instance.service?.name || 'Unknown'}</td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right">${instance.attendance_count || 0}</td>
+                <td class="px-6 py-4 text-sm text-gray-500 text-right">-</td>
+                <td class="px-6 py-4 text-sm font-medium text-gray-900 text-right">${instance.attendance_count || 0}</td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load service history:', error);
+    }
+}
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+    });
+}
+</script>
+{% endblock %}
