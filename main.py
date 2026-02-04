@@ -51,6 +51,19 @@ def run_migrations():
             conn.commit()
             print("Migration: Created appeals table")
 
+        # Add hod_member_id to departments table
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'departments' AND column_name = 'hod_member_id'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE departments
+                ADD COLUMN IF NOT EXISTS hod_member_id INTEGER REFERENCES members(id) ON DELETE SET NULL
+            """))
+            conn.commit()
+            print("Migration: Added hod_member_id column to departments")
+
         # Add new settings if they don't exist
         new_settings = [
             ('resultsPublished', 'false'),

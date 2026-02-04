@@ -21,9 +21,11 @@ class Department(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    hod_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     category = relationship("Category", back_populates="departments")
+    hod = relationship("Member", foreign_keys=[hod_member_id])
     member_departments = relationship("MemberDepartment", back_populates="department", cascade="all, delete-orphan")
 
 

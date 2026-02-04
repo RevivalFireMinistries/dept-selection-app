@@ -48,15 +48,38 @@
                 <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">HOD</th>
                     <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
             </thead>
             <tbody id="departmentsTable" class="divide-y divide-gray-200">
                 <tr>
-                    <td colspan="3" class="px-6 py-4 text-center text-gray-500">Loading...</td>
+                    <td colspan="4" class="px-6 py-4 text-center text-gray-500">Loading...</td>
                 </tr>
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- HOD Assignment Modal -->
+<div id="hodModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full">
+        <div class="p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-1">Assign HOD</h3>
+            <p class="text-sm text-gray-500 mb-4">Search for a member to assign as Head of Department for <strong id="hodDeptName"></strong></p>
+            <input type="text" id="hodSearch" placeholder="Search by name or phone..."
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-3"
+                oninput="filterHodMembers()">
+            <div id="hodMemberList" class="max-h-60 overflow-y-auto space-y-1">
+                <p class="text-sm text-gray-400 text-center py-4">Type to search members...</p>
+            </div>
+            <div class="flex justify-end mt-4">
+                <button onclick="closeHodModal()"
+                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -65,16 +88,20 @@
 <script>
 let departments = [];
 let categories = [];
+let allMembers = [];
 let editingId = null;
+let hodDeptId = null;
 
 async function loadData() {
     try {
-        const [deptRes, catRes] = await Promise.all([
+        const [deptRes, catRes, membersRes] = await Promise.all([
             fetch('/api/departments').then(r => r.json()),
-            fetch('/api/categories').then(r => r.json())
+            fetch('/api/categories').then(r => r.json()),
+            fetch('/api/members').then(r => r.json())
         ]);
 
         categories = catRes;
+        allMembers = membersRes;
 
         // Flatten departments
         departments = [];
@@ -104,22 +131,30 @@ function renderTable() {
     const tbody = document.getElementById('departmentsTable');
 
     if (departments.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-4 text-center text-gray-500">No departments yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-4 text-center text-gray-500">No departments yet.</td></tr>';
         return;
     }
 
-    tbody.innerHTML = departments.map(dept => `
+    tbody.innerHTML = departments.map(dept => {
+        const hodHtml = dept.hod
+            ? `<span class="text-gray-900">${dept.hod.fullName}</span>
+               <button onclick="removeHod(${dept.id})" class="ml-2 text-red-500 hover:text-red-700 text-xs" title="Remove HOD">&times;</button>`
+            : `<button onclick="openHodModal(${dept.id}, '${dept.name.replace(/'/g, "\\'")}')"
+                class="text-blue-600 hover:text-blue-800 text-sm">Set HOD</button>`;
+
+        return `
         <tr class="hover:bg-gray-50">
             <td class="px-6 py-4 text-gray-900">${dept.name}</td>
             <td class="px-6 py-4 text-gray-500">${dept.categoryName || 'Uncategorized'}</td>
+            <td class="px-6 py-4">${hodHtml}</td>
             <td class="px-6 py-4 text-right">
-                <button onclick="editDepartment(${dept.id}, '${dept.name}', ${dept.categoryId || 'null'})"
+                <button onclick="editDepartment(${dept.id}, '${dept.name.replace(/'/g, "\\'")}', ${dept.categoryId || 'null'})"
                     class="text-blue-600 hover:text-blue-800 mr-3">Edit</button>
                 <button onclick="deleteDepartment(${dept.id})"
                     class="text-red-600 hover:text-red-800">Delete</button>
             </td>
         </tr>
-    `).join('');
+    `}).join('');
 }
 
 function toggleForm() {
@@ -185,6 +220,99 @@ async function deleteDepartment(id) {
     } catch (error) {
         console.error('Failed to delete department:', error);
         alert('Failed to delete department');
+    }
+}
+
+// ============ HOD FUNCTIONS ============
+
+function openHodModal(deptId, deptName) {
+    hodDeptId = deptId;
+    document.getElementById('hodDeptName').textContent = deptName;
+    document.getElementById('hodSearch').value = '';
+    document.getElementById('hodMemberList').innerHTML =
+        '<p class="text-sm text-gray-400 text-center py-4">Type to search members...</p>';
+    document.getElementById('hodModal').classList.remove('hidden');
+    document.getElementById('hodSearch').focus();
+}
+
+function closeHodModal() {
+    document.getElementById('hodModal').classList.add('hidden');
+    hodDeptId = null;
+}
+
+function filterHodMembers() {
+    const query = document.getElementById('hodSearch').value.trim().toLowerCase();
+    const list = document.getElementById('hodMemberList');
+
+    if (query.length < 2) {
+        list.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Type at least 2 characters...</p>';
+        return;
+    }
+
+    const filtered = allMembers.filter(m =>
+        m.fullName.toLowerCase().includes(query) ||
+        m.phone.includes(query)
+    ).slice(0, 20);
+
+    if (filtered.length === 0) {
+        list.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">No members found.</p>';
+        return;
+    }
+
+    list.innerHTML = filtered.map(m => `
+        <button onclick="assignHod(${m.id}, '${m.fullName.replace(/'/g, "\\'")}')"
+            class="w-full text-left px-3 py-2 rounded-lg hover:bg-blue-50 flex items-center justify-between group">
+            <div>
+                <p class="text-sm font-medium text-gray-900">${m.fullName}</p>
+                <p class="text-xs text-gray-500">${m.phone}</p>
+            </div>
+            <span class="text-xs text-blue-600 opacity-0 group-hover:opacity-100">Select</span>
+        </button>
+    `).join('');
+}
+
+async function assignHod(memberId, memberName) {
+    if (!hodDeptId) return;
+
+    try {
+        const res = await fetch(`/api/admin/departments/${hodDeptId}/set-hod`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member_id: memberId })
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            alert(data.detail || 'Failed to assign HOD');
+            return;
+        }
+
+        closeHodModal();
+        loadData();
+    } catch (error) {
+        console.error('Failed to assign HOD:', error);
+        alert('Failed to assign HOD');
+    }
+}
+
+async function removeHod(deptId) {
+    if (!confirm('Remove HOD from this department?')) return;
+
+    try {
+        const res = await fetch(`/api/admin/departments/${deptId}/remove-hod`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            alert(data.detail || 'Failed to remove HOD');
+            return;
+        }
+
+        loadData();
+    } catch (error) {
+        console.error('Failed to remove HOD:', error);
+        alert('Failed to remove HOD');
     }
 }
 

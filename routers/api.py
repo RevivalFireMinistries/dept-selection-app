@@ -15,7 +15,8 @@ from schemas import (
     MemberSubmission, MemberResponse,
     SettingUpdate, DepartmentsGroupedResponse,
     ReviewStatusUpdate, ReplaceDepartmentRequest, AssignDepartmentRequest,
-    AppealCreate, AppealResolve
+    AppealCreate, AppealResolve,
+    SetHODRequest
 )
 
 router = APIRouter()
@@ -33,12 +34,22 @@ def validate_phone(phone: str) -> bool:
 def get_departments(db: Session = Depends(get_db)):
     """Get all departments grouped by category"""
     categories = db.query(Category).options(
-        joinedload(Category.departments)
+        joinedload(Category.departments).joinedload(Department.hod)
     ).order_by(Category.name).all()
 
-    uncategorized = db.query(Department).filter(
+    uncategorized = db.query(Department).options(
+        joinedload(Department.hod)
+    ).filter(
         Department.category_id == None
     ).order_by(Department.name).all()
+
+    def dept_dict(d):
+        result = {"id": d.id, "name": d.name, "categoryId": d.category_id}
+        if d.hod:
+            result["hod"] = {"id": d.hod.id, "fullName": d.hod.full_name, "phone": d.hod.phone}
+        else:
+            result["hod"] = None
+        return result
 
     return {
         "categories": [
@@ -48,14 +59,14 @@ def get_departments(db: Session = Depends(get_db)):
                 "maxSelections": cat.max_selections,
                 "createdAt": cat.created_at.isoformat() if cat.created_at else None,
                 "departments": [
-                    {"id": d.id, "name": d.name, "categoryId": d.category_id}
+                    dept_dict(d)
                     for d in sorted(cat.departments, key=lambda x: x.name)
                 ]
             }
             for cat in categories
         ],
         "uncategorized": [
-            {"id": d.id, "name": d.name, "categoryId": None}
+            dept_dict(d)
             for d in uncategorized
         ]
     }
@@ -1248,3 +1259,124 @@ def toggle_appeal_window(open: bool = Query(...), db: Session = Depends(get_db))
     db.commit()
 
     return {"success": True, "appeal_window_open": open}
+
+
+# ============ HOD ENDPOINTS ============
+
+@router.post("/admin/departments/{department_id}/set-hod")
+def set_department_hod(
+    department_id: int,
+    data: SetHODRequest,
+    db: Session = Depends(get_db)
+):
+    """Assign a member as Head of Department"""
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    member = db.query(Member).filter(Member.id == data.member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    department.hod_member_id = member.id
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "HOD assigned",
+        "department": department.name,
+        "hod_name": member.full_name
+    }
+
+
+@router.delete("/admin/departments/{department_id}/remove-hod")
+def remove_department_hod(
+    department_id: int,
+    db: Session = Depends(get_db)
+):
+    """Remove the HOD assignment from a department"""
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    department.hod_member_id = None
+    db.commit()
+
+    return {"success": True, "message": "HOD removed"}
+
+
+@router.get("/hod/departments")
+def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
+    """Get departments where this member is HOD, with member lists and statuses"""
+    # Normalize phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+
+    # Find the member by phone
+    all_members = db.query(Member).all()
+    hod_member = None
+    for m in all_members:
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            hod_member = m
+            break
+
+    if not hod_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Find departments where this member is HOD
+    departments = db.query(Department).options(
+        joinedload(Department.category),
+        joinedload(Department.member_departments).joinedload(MemberDepartment.member)
+    ).filter(Department.hod_member_id == hod_member.id).order_by(Department.name).all()
+
+    if not departments:
+        return {
+            "hod_name": hod_member.full_name,
+            "departments": []
+        }
+
+    dept_views = []
+    for dept in departments:
+        members_list = []
+        approved_count = 0
+        pending_count = 0
+        rejected_count = 0
+
+        for md in dept.member_departments:
+            status = md.status or "pending"
+            if status == "approved":
+                approved_count += 1
+            elif status == "rejected":
+                rejected_count += 1
+            else:
+                pending_count += 1
+
+            members_list.append({
+                "id": md.member.id,
+                "full_name": md.member.full_name,
+                "phone": md.member.phone,
+                "email": md.member.email,
+                "status": status,
+                "source": md.source or "member",
+                "created_at": md.created_at.isoformat() if md.created_at else None
+            })
+
+        # Sort members: pending first, then approved, then rejected
+        status_order = {"pending": 0, "approved": 1, "rejected": 2}
+        members_list.sort(key=lambda x: (status_order.get(x["status"], 3), x["full_name"]))
+
+        dept_views.append({
+            "id": dept.id,
+            "name": dept.name,
+            "category_name": dept.category.name if dept.category else None,
+            "members": members_list,
+            "total_members": len(members_list),
+            "approved_count": approved_count,
+            "pending_count": pending_count,
+            "rejected_count": rejected_count
+        })
+
+    return {
+        "hod_name": hod_member.full_name,
+        "departments": dept_views
+    }

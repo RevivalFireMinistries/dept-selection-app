@@ -53,10 +53,19 @@ class CategoryInDepartment(BaseModel):
     class Config:
         from_attributes = True
 
+class HODInfo(BaseModel):
+    id: int
+    full_name: str
+    phone: str
+
+    class Config:
+        from_attributes = True
+
 class DepartmentResponse(DepartmentBase):
     id: int
     created_at: datetime
     category: Optional[CategoryInDepartment] = None
+    hod: Optional[HODInfo] = None
 
     class Config:
         from_attributes = True
@@ -200,3 +209,32 @@ class PublishPreviewResponse(BaseModel):
     total_approved_assignments: int
     pending_count: int
     members_preview: List[MemberPreview] = []
+
+
+# ============ HOD SCHEMAS ============
+
+class SetHODRequest(BaseModel):
+    member_id: int
+
+class HODDepartmentMember(BaseModel):
+    id: int
+    full_name: str
+    phone: str
+    email: str
+    status: str
+    source: str
+    created_at: datetime
+
+class HODDepartmentView(BaseModel):
+    id: int
+    name: str
+    category_name: Optional[str] = None
+    members: List[HODDepartmentMember] = []
+    total_members: int = 0
+    approved_count: int = 0
+    pending_count: int = 0
+    rejected_count: int = 0
+
+class HODDashboardResponse(BaseModel):
+    hod_name: str
+    departments: List[HODDepartmentView] = []
