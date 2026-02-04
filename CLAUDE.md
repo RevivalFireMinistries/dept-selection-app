@@ -1,6 +1,6 @@
-# RFM Stellenbosch Department Selection App
+# RFM Stellenbosch Church Management System
 
-A mobile-friendly web app for church members to select departments they want to serve in, with admin approval workflow, publishing system, and appeals management.
+A mobile-friendly web app for church management: department selection with approval workflows, attendance tracking, member directory, and cell group management.
 
 ## Tech Stack
 
@@ -8,6 +8,8 @@ A mobile-friendly web app for church members to select departments they want to 
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **Templates**: Jinja2 with Tailwind CSS
 - **Excel Export**: openpyxl library
+- **QR Codes**: qrcode + Pillow libraries
+- **QR Scanning**: html5-qrcode (JS, CDN)
 - **Hosting**: Railway
 
 ## Project Structure
@@ -15,11 +17,15 @@ A mobile-friendly web app for church members to select departments they want to 
 ```
 ├── main.py                      # FastAPI app entry point with migrations
 ├── database.py                  # SQLAlchemy connection setup
-├── models.py                    # Database models
+├── models.py                    # Database models (dept selection + church mgmt)
 ├── schemas.py                   # Pydantic schemas for validation
+├── requirements.txt             # Python dependencies
 ├── routers/
-│   ├── api.py                   # All API endpoints
-│   └── pages.py                 # HTML page routes
+│   ├── api.py                   # Department selection API endpoints
+│   ├── pages.py                 # HTML page routes
+│   ├── attendance.py            # Attendance tracking & check-in API
+│   ├── cells.py                 # Cell group management API
+│   └── directory.py             # Member directory & profile API
 ├── templates/
 │   ├── base.html                # Base template with Tailwind
 │   ├── landing.html             # Home page with login/register
@@ -29,8 +35,10 @@ A mobile-friendly web app for church members to select departments they want to 
 │   ├── portal.html              # Member portal (results/appeals)
 │   ├── appeal.html              # Appeal submission form
 │   ├── results.html             # Legacy results lookup
+│   ├── checkin.html             # Public self check-in page
+│   ├── my-qr.html               # Member QR code lookup/download
 │   ├── admin/
-│   │   ├── base.html            # Admin layout with navigation
+│   │   ├── base.html            # Admin layout with navigation tabs
 │   │   ├── login.html           # Admin login
 │   │   ├── dashboard.html       # Stats, quick actions, exports
 │   │   ├── submissions.html     # View all submissions
@@ -40,104 +48,160 @@ A mobile-friendly web app for church members to select departments they want to 
 │   │   ├── approvals.html       # Review/approve selections
 │   │   ├── publish.html         # Publish/unpublish results
 │   │   ├── appeals.html         # Manage member appeals
+│   │   ├── visitors.html        # First-timer visitor management
 │   │   ├── department_stats.html
-│   │   └── department_detail.html
+│   │   ├── department_detail.html
+│   │   └── attendance/
+│   │       ├── services.html    # Manage recurring services
+│   │       ├── checkin.html     # Admin mark attendance
+│   │       └── reports.html     # Attendance reports & trends
 │   └── desk/
 │       ├── base.html            # Info desk layout
 │       ├── login.html           # Info desk login
 │       ├── dashboard.html       # Search members
 │       ├── new.html             # New submission for member
 │       ├── member.html          # Edit member selection
-│       └── profile.html         # View member profile/appeals
-└── static/                      # Static assets
+│       ├── profile.html         # View member profile/appeals
+│       ├── checkin.html         # Desk check-in (search/QR/phone)
+│       └── first-timer.html     # Register first-time visitor
+├── static/
+│   └── uploads/photos/          # Member photo uploads
 ```
 
 ## Key Features
 
-### Member Features
+### Department Selection (complete)
 1. **Department Selection**: Select up to N departments (configurable)
-2. **Category Limits**: Categories can restrict selections (e.g., pick 1 from Music Ministry)
+2. **Category Limits**: Categories restrict selections (e.g., pick 1 from Music)
 3. **Phone Login**: Existing members login with phone number
-4. **Family Support**: Multiple members can share same phone (profile selector)
+4. **Family Support**: Multiple members share same phone (profile selector)
 5. **Member Portal**: View approved departments, pending status, rejections
-6. **Appeals**: Submit appeals for approved/admin-added departments when window is open
+6. **Appeals**: Submit appeals for approved/admin-added departments
+7. **Approval Workflow**: Admin approve/reject/replace each selection
+8. **Publishing**: Preview and publish results to members
+9. **Excel Exports**: Export by department or by member
 
-### Admin Features
-1. **Approval Workflow**: Approve/reject each department selection per member
-2. **Replace/Add Departments**: Admin can replace a selection or add additional assignments
-3. **Bulk Approve**: Approve all pending selections at once
-4. **Publishing**: Preview and publish results (makes them visible to members)
-5. **Appeal Management**: Open/close appeal window, resolve appeals
-6. **Excel Exports**: Export by department or by member, with approved-only filter
-7. **Department Stats**: View member counts per department
+### Attendance Tracking (Phase 1-2 complete, see "Remaining Work" below)
+1. **Service Management**: Define recurring services (day + time)
+2. **Service Instances**: Auto-created for today's services
+3. **Admin Check-in**: Search members, mark attendance
+4. **Desk Check-in**: Search, QR scan, or phone lookup
+5. **Public Self Check-in**: Members check in with phone at `/checkin`
+6. **QR Code Check-in**: Members get QR at `/my-qr`, scan at desk
+7. **QR Image Generation**: PNG QR codes via `qrcode` + `Pillow`
+8. **First-Timer Registration**: Register visitors, optionally check in
+9. **Visitor Management**: Track visitors, convert to members
+10. **Attendance Reports**: Date range, by-service, trend charts
 
-### Info Desk Features
-1. **Search Members**: Find by phone or name
-2. **New Submissions**: Register members who can't access the form
-3. **Edit Selections**: Modify existing member choices
-4. **View Profiles**: See member's approved departments
-5. **Lodge Appeals**: Submit appeals on behalf of members
+### Member Directory (API complete, UI pending)
+1. **Enhanced Profiles**: Photo, birthday, anniversary, gender, occupation, etc.
+2. **Profile Photo Upload**: Upload/delete member photos
+3. **Paginated Directory**: Browse members with search
+4. **Birthday/Anniversary Reports**: Filter by month
+5. **Membership Stats**: Gender, marital status breakdowns
 
-## Database Schema
+### Cell Groups (API complete, UI pending)
+1. **Group Management**: Create groups with leaders and meeting details
+2. **Memberships**: Add/remove members, assign roles
+3. **Meeting Records**: Log meetings with topic, notes, offering
+4. **Meeting Attendance**: Track who attended each meeting
+5. **Cell Leader Portal**: Leaders view their groups and meetings
 
-### Models
-- **Category**: Groups departments with max selection limit
-- **Department**: Ministry/service area (optionally in category)
-- **Member**: Person with name, phone, email, address
-- **MemberDepartment**: Selection with approval status
-  - `status`: "pending", "approved", "rejected"
-  - `source`: "member" or "admin" (who made the selection)
-  - `replaced_by_id`: Links to replacement if admin changed it
-  - `admin_note`: Rejection reason or notes
-- **Appeal**: Member's request to change approved departments
-  - `unwanted_department_id`: Department they don't want
-  - `wanted_department_id`: Department they want instead
-  - `reason`: Explanation
-  - `status`: "pending", "approved", "rejected"
-- **Settings**: Key-value configuration store
+## Database Models
 
-### Key Settings
-- `maxDepartments`: Maximum selections per member (default: 3)
-- `adminPassword`: Admin panel password
-- `deskPassword`: Info desk password
-- `resultsPublished`: "true"/"false" - controls member visibility
-- `appealWindowOpen`: "true"/"false" - allows appeals
-- `selectionYear`: Current selection year (e.g., "2026")
+### Department Selection Models
+- **Category** - Groups departments, max_selections per category
+- **Department** - Ministry area (optional category)
+- **Member** - Person with enhanced profile fields (see below)
+- **MemberDepartment** - Selection with status/source/admin_note
+- **Appeal** - Department appeal with reason/status
+- **Settings** - Key-value config store
+
+### Church Management Models (new)
+- **Service** - Recurring service (name, day_of_week, start_time, is_active)
+- **ServiceInstance** - Specific occurrence (service_id, date, notes, is_cancelled)
+- **Attendance** - Check-in record (service_instance, member/visitor, method, time)
+- **Visitor** - First-timer (name, phone, first_visit_date, converted_to_member_id)
+- **MemberQRCode** - QR code for check-in (member_id, uuid code, is_active)
+- **CellGroup** - Small group (name, meeting details, leader_id, assistant_id)
+- **CellGroupMembership** - Member in group (role, joined_at, is_active)
+- **CellMeeting** - Meeting record (date, topic, notes, offering_amount)
+- **CellMeetingAttendance** - Meeting attendance (member or visitor)
+
+### Member Enhanced Fields
+- photo_url, birthday, anniversary, gender, marital_status
+- occupation, emergency_contact_name, emergency_contact_phone
+- member_since, is_active, updated_at
 
 ## API Endpoints
 
-### Public
-- `GET /api/departments` - List all departments grouped by category
+### Department Selection (routers/api.py)
+- `GET /api/departments` - List departments grouped by category
 - `POST /api/members` - Submit new selection
-- `GET /api/results?phone=XXX` - Get member results (all family members)
-- `POST /api/results/accept/{id}?phone=XXX` - Accept admin-added department
+- `GET /api/results?phone=XXX` - Get member results
 - `POST /api/appeals` - Submit appeal
+- `GET /api/admin/reviews` - All members with status
+- `PUT /api/admin/reviews/{id}` - Approve/reject
+- `POST /api/admin/reviews/{id}/replace` - Replace department
+- `POST /api/admin/members/{id}/assign` - Add department
+- `POST /api/admin/reviews/bulk-approve` - Bulk approve
+- `POST /api/admin/publish` / `POST /api/admin/unpublish`
+- `GET /api/export?type=department|member&approved_only=true`
 
-### Admin
-- `GET /api/admin/reviews` - All members with selection status
-- `PUT /api/admin/reviews/{id}` - Approve/reject selection
-- `POST /api/admin/reviews/{id}/replace` - Replace with different department
-- `POST /api/admin/members/{id}/assign` - Add department to member
-- `POST /api/admin/reviews/bulk-approve` - Approve all pending
-- `GET /api/admin/preview` - Preview published state
-- `POST /api/admin/publish` - Publish results
-- `POST /api/admin/unpublish` - Hide results
-- `GET /api/admin/appeals` - List all appeals
-- `PUT /api/admin/appeals/{id}` - Resolve appeal
-- `POST /api/admin/appeals/window?open=true/false` - Toggle appeal window
-- `GET /api/export?type=department|member&approved_only=true` - Excel export
+### Attendance (routers/attendance.py)
+- `GET/POST /api/services` - Manage recurring services
+- `GET/PUT/DELETE /api/services/{id}`
+- `GET/POST /api/service-instances` - Service occurrences
+- `GET /api/service-instances/today` - Today's services (auto-create)
+- `GET/POST /api/service-instances/{id}/attendance` - Attendance records
+- `DELETE /api/attendance/{id}` - Remove check-in
+- `POST /api/checkin/phone` - Self check-in by phone
+- `POST /api/checkin/qr` - QR code check-in
+- `GET/POST /api/visitors` - Manage visitors
+- `POST /api/visitors/{id}/convert` - Convert visitor to member
+- `GET /api/members/{id}/qr` - Get/create QR code data
+- `GET /api/members/{id}/qr/image` - Generate QR code PNG
+- `POST /api/members/{id}/qr/regenerate` - New QR code
+- `GET /api/attendance/report?start_date=&end_date=` - Reports
+
+### Directory (routers/directory.py)
+- `GET /api/directory?page=&page_size=` - Paginated member list
+- `GET /api/directory/search?q=` - Search members
+- `GET/PUT /api/members/{id}/profile` - Member profile
+- `POST /api/members/{id}/photo` - Upload photo
+- `DELETE /api/members/{id}/photo` - Remove photo
+- `GET /api/reports/birthdays?month=` - Birthday report
+- `GET /api/reports/anniversaries?month=` - Anniversary report
+- `GET /api/reports/new-members?start_date=&end_date=`
+- `GET /api/reports/membership-stats`
+
+### Cell Groups (routers/cells.py)
+- `GET/POST /api/cell-groups` - List/create groups
+- `GET/PUT/DELETE /api/cell-groups/{id}`
+- `GET/POST /api/cell-groups/{id}/members` - Group members
+- `PUT/DELETE /api/cell-groups/{id}/members/{member_id}`
+- `GET/POST /api/cell-groups/{id}/meetings` - Group meetings
+- `GET/PUT/DELETE /api/cell-meetings/{id}`
+- `GET/POST /api/cell-meetings/{id}/attendance`
+- `DELETE /api/cell-meeting-attendance/{id}`
+- `GET /api/cell-leader/my-groups?phone=` - Leader portal
+
+## Authentication
+
+### Admin Panel
+- URL: `/admin` | Password: `admin123` (change in Settings) | Cookie: `admin_session`
+
+### Info Desk
+- URL: `/desk` | Password: `desk123` | Cookie: `desk_session`
+
+### Member Portal
+- URL: `/portal?phone=XXXXXXXXXX` | Phone-based (10 digits, family selector)
 
 ## Local Development
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run development server
 uvicorn main:app --reload
-
-# Or with Python directly
-python main.py
 ```
 
 ## Environment Variables
@@ -145,52 +209,40 @@ python main.py
 - `DATABASE_URL` - PostgreSQL connection string
 - Or individual: `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGPORT`
 
-## Railway Deployment
+## Migrations
 
-1. Connect GitHub repository
-2. Add PostgreSQL database
-3. Deploy (auto-detects Python)
-4. Seed database: `curl -X POST https://your-app.railway.app/api/seed`
+All migrations run automatically on startup via `run_migrations()` in main.py. Uses raw SQL `ALTER TABLE` / `CREATE TABLE IF NOT EXISTS` for compatibility with existing data. New tables are also created by SQLAlchemy `create_all()`.
 
-## Authentication
+---
 
-### Admin Panel
-- URL: `/admin`
-- Default password: `admin123`
-- Cookie: `admin_session`
+## Remaining Work (feature/church-management-system branch)
 
-### Info Desk
-- URL: `/desk`
-- Default password: `desk123`
-- Cookie: `desk_session`
+### Completed
+- [x] Phase 1: Database models, schemas, API routers for attendance/cells/directory
+- [x] Phase 2: Attendance tracking UI (admin, desk, public check-in pages)
 
-### Member Portal
-- URL: `/portal?phone=XXXXXXXXXX`
-- Phone-based authentication (10 digits)
-- Family members share phone, select profile
+### Phase 3: Visitor Management Enhancements
+- [ ] Visitor follow-up tracking (contacted date, follow-up notes)
+- [ ] Visitor attendance history view
+- [ ] Mostly covered by `/admin/visitors` page already
 
-## User Flows
+### Phase 4: Member Directory UI
+- [ ] Admin directory browse page (`/admin/directory`)
+- [ ] Admin member profile edit page (`/admin/directory/member/{id}`)
+- [ ] Photo upload UI in profile page
+- [ ] Birthday/anniversary report pages
+- [ ] Add "Directory" tab to admin navigation
 
-### New Member
-1. Home → "New Member" → Fill form → Submit → Thank you
+### Phase 5: Cell Groups UI
+- [ ] Admin cell groups list page (`/admin/cells`)
+- [ ] Admin cell group detail page (`/admin/cells/{id}`)
+- [ ] Cell meeting recording UI
+- [ ] Cell meeting attendance UI
+- [ ] Cell leader authentication (phone-based, verify leader_id)
+- [ ] Cell leader dashboard (`/cell-leader`)
+- [ ] Cell leader group management page
+- [ ] Add "Cell Groups" tab to admin navigation
 
-### Existing Member
-1. Home → Enter phone → Portal
-2. View approved departments (provisional if appeals open)
-3. Appeal any department (especially admin-added)
-4. Update selection if needed
-
-### Admin Approval Flow
-1. Members submit selections (status: pending)
-2. Admin reviews in Approvals page
-3. Approve, reject, or replace each selection
-4. Preview final state in Publish page
-5. Publish results (members can now see)
-6. Open appeal window if desired
-7. Resolve appeals, close window
-
-### Info Desk Flow
-1. Login at `/desk`
-2. Search for member or create new
-3. View profile to see approved departments
-4. Lodge appeal on member's behalf if needed
+### Landing Page Updates
+- [ ] Add check-in link to landing page (`/checkin`)
+- [ ] Add QR code link to landing page (`/my-qr`)
