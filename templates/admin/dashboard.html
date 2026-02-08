@@ -11,6 +11,36 @@
         <!-- Filled by JS -->
     </div>
 
+    <!-- Meetings Section (Primary) -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">Upcoming Meetings</h3>
+                    <p class="text-sm text-gray-500">Meetings scheduled for all departments</p>
+                </div>
+            </div>
+            <button onclick="openCreateMeetingModal()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+                + New Meeting
+            </button>
+        </div>
+        <div id="meetingsList" class="space-y-3">
+            <p class="text-gray-400 text-sm py-4 text-center">Loading meetings...</p>
+        </div>
+        <div id="noMeetings" class="hidden text-center py-8">
+            <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <p class="text-gray-500">No upcoming meetings scheduled</p>
+            <button onclick="openCreateMeetingModal()" class="mt-3 text-indigo-600 hover:underline text-sm">Create the first meeting</button>
+        </div>
+    </div>
+
     <!-- Stats Grid -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="bg-white rounded-xl shadow p-4">
@@ -151,10 +181,79 @@
         </div>
     </div>
 </div>
+
+<!-- Create Meeting Modal -->
+<div id="createMeetingModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Create Meeting</h3>
+        <form id="createMeetingForm" onsubmit="createMeeting(event)">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                    <select id="meetingDepartment" required
+                            class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        <option value="">-- Select Department --</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Meeting Title *</label>
+                    <input type="text" id="meetingTitle" required placeholder="e.g., Weekly Practice"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                        <input type="date" id="meetingDate" required
+                               class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Time *</label>
+                        <select id="meetingTime" required
+                                class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            <option value="38-40">7:00 PM - 8:00 PM</option>
+                            <option value="38-42">7:00 PM - 9:00 PM</option>
+                            <option value="39-41">7:30 PM - 8:30 PM</option>
+                            <option value="40-42">8:00 PM - 9:00 PM</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input type="text" id="meetingLocation" placeholder="e.g., Church Hall"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="meetingDescription" rows="2" placeholder="Optional details..."
+                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button" onclick="closeCreateMeetingModal()"
+                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+                <button type="submit" id="createMeetingBtn"
+                        class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+let departments = [];
+
+function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+    return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 async function loadStats() {
     try {
         const [members, previewRes, appealsRes, settingsRes] = await Promise.all([
@@ -210,11 +309,161 @@ async function loadStats() {
     }
 }
 
+async function loadDepartments() {
+    try {
+        const res = await fetch('/api/departments');
+        const data = await res.json();
+        departments = [];
+        data.categories.forEach(cat => {
+            cat.departments.forEach(d => departments.push({ id: d.id, name: d.name }));
+        });
+        data.uncategorized.forEach(d => departments.push({ id: d.id, name: d.name }));
+        departments.sort((a, b) => a.name.localeCompare(b.name));
+
+        const select = document.getElementById('meetingDepartment');
+        select.innerHTML = '<option value="">-- Select Department --</option>';
+        departments.forEach(d => {
+            select.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+        });
+    } catch (err) {
+        console.error('Failed to load departments:', err);
+    }
+}
+
+async function loadMeetings() {
+    try {
+        const res = await fetch('/api/admin/meetings');
+        const data = await res.json();
+
+        const list = document.getElementById('meetingsList');
+        const noMeetings = document.getElementById('noMeetings');
+
+        // Filter to upcoming only
+        const today = new Date().toISOString().split('T')[0];
+        const upcoming = data.meetings.filter(m => m.meeting_date >= today).slice(0, 5);
+
+        if (upcoming.length === 0) {
+            list.classList.add('hidden');
+            noMeetings.classList.remove('hidden');
+            return;
+        }
+
+        noMeetings.classList.add('hidden');
+        list.classList.remove('hidden');
+
+        list.innerHTML = upcoming.map(m => `
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
+                <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="font-medium text-gray-900">${m.title}</span>
+                        <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">${m.department_name}</span>
+                    </div>
+                    <p class="text-sm text-gray-500">${m.location || 'No location set'}</p>
+                </div>
+                <div class="text-right">
+                    <p class="font-medium text-gray-900">${formatDate(m.meeting_date)}</p>
+                    <p class="text-sm text-gray-500">${m.start_time} - ${m.end_time}</p>
+                </div>
+                <button onclick="deleteMeeting(${m.id})" class="ml-4 text-red-500 hover:text-red-700 p-1" title="Delete">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+
+        if (data.total > 5) {
+            list.innerHTML += `
+                <a href="/admin/meetings" class="block text-center text-indigo-600 hover:underline text-sm py-2">
+                    View all ${data.total} meetings
+                </a>
+            `;
+        }
+    } catch (err) {
+        console.error('Failed to load meetings:', err);
+    }
+}
+
+function openCreateMeetingModal() {
+    // Set default date to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('meetingDate').value = today;
+    document.getElementById('meetingDate').min = today;
+    document.getElementById('meetingTitle').value = '';
+    document.getElementById('meetingLocation').value = '';
+    document.getElementById('meetingDescription').value = '';
+    document.getElementById('meetingDepartment').value = '';
+    document.getElementById('meetingTime').value = '38-40';
+
+    document.getElementById('createMeetingModal').classList.remove('hidden');
+    document.getElementById('createMeetingModal').classList.add('flex');
+}
+
+function closeCreateMeetingModal() {
+    document.getElementById('createMeetingModal').classList.add('hidden');
+    document.getElementById('createMeetingModal').classList.remove('flex');
+}
+
+async function createMeeting(e) {
+    e.preventDefault();
+    const btn = document.getElementById('createMeetingBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    const timeValue = document.getElementById('meetingTime').value;
+    const [startSlot, endSlot] = timeValue.split('-').map(Number);
+
+    const payload = {
+        department_id: parseInt(document.getElementById('meetingDepartment').value),
+        title: document.getElementById('meetingTitle').value,
+        description: document.getElementById('meetingDescription').value || null,
+        meeting_date: document.getElementById('meetingDate').value,
+        start_slot: startSlot,
+        end_slot: endSlot,
+        location: document.getElementById('meetingLocation').value || null,
+        meeting_link: null
+    };
+
+    try {
+        const res = await fetch('/api/admin/meetings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to create meeting');
+        }
+
+        closeCreateMeetingModal();
+        loadMeetings();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create';
+    }
+}
+
+async function deleteMeeting(id) {
+    if (!confirm('Delete this meeting?')) return;
+    try {
+        await fetch(`/api/admin/meetings/${id}`, { method: 'DELETE' });
+        loadMeetings();
+    } catch (err) {
+        alert('Failed to delete meeting');
+    }
+}
+
 function downloadExport(type, approvedOnly) {
     const url = `/api/export?type=${type}${approvedOnly ? '&approved_only=true' : ''}`;
     window.open(url, '_blank');
 }
 
+// Initialize
 loadStats();
+loadDepartments();
+loadMeetings();
 </script>
 {% endblock %}

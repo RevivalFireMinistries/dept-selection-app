@@ -2,184 +2,67 @@
 
 {% block title %}HOD Meetings - RFM Stellenbosch{% endblock %}
 
-{% block head %}
-<style>
-    .calendar-grid {
-        display: grid;
-        grid-template-columns: 60px repeat(7, 1fr);
-        gap: 1px;
-        background-color: #e5e7eb;
-    }
-    .calendar-header {
-        background-color: #1f2937;
-        color: white;
-        padding: 8px 4px;
-        text-align: center;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-    .time-label {
-        background-color: #f9fafb;
-        padding: 4px;
-        font-size: 0.65rem;
-        color: #6b7280;
-        text-align: right;
-        padding-right: 8px;
-    }
-    .slot {
-        background-color: white;
-        min-height: 24px;
-        cursor: pointer;
-        transition: background-color 0.15s;
-        position: relative;
-    }
-    .slot:hover:not(.unavailable):not(.booked) {
-        background-color: #dbeafe;
-    }
-    .slot.selected {
-        background-color: #3b82f6 !important;
-    }
-    .slot.selecting {
-        background-color: #93c5fd !important;
-    }
-    .slot.unavailable {
-        background-color: #fef2f2;
-        cursor: not-allowed;
-    }
-    .slot.booked {
-        background-color: #dcfce7;
-        cursor: pointer;
-    }
-    .slot.booked-other {
-        background-color: #fee2e2;
-    }
-    .meeting-block {
-        position: absolute;
-        left: 2px;
-        right: 2px;
-        background-color: #10b981;
-        color: white;
-        font-size: 0.6rem;
-        padding: 2px 4px;
-        border-radius: 2px;
-        overflow: hidden;
-        z-index: 10;
-    }
-</style>
-{% endblock %}
-
 {% block content %}
-<div class="max-w-7xl mx-auto px-4 py-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
-        <div>
-            <h1 class="text-2xl font-bold text-gray-900">Meeting Calendar</h1>
-            <p id="hodName" class="text-gray-600"></p>
-        </div>
-        <a href="/portal" class="text-blue-600 hover:underline text-sm">Back to Portal</a>
-    </div>
-
-    <!-- Phone Entry (if not in URL) -->
-    <div id="phoneEntry" class="bg-white rounded-lg shadow p-6 mb-6">
-        <h2 class="text-lg font-semibold mb-4">Enter Your Phone Number</h2>
-        <div class="flex gap-4">
-            <input type="tel" id="phoneInput" placeholder="0711234567"
-                   class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            <button onclick="loadHODData()"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                Continue
-            </button>
-        </div>
-        <p id="phoneError" class="text-red-500 text-sm mt-2 hidden"></p>
-    </div>
-
-    <!-- Main Content (hidden until authenticated) -->
-    <div id="mainContent" class="hidden">
-        <!-- Department Selector -->
-        <div class="bg-white rounded-lg shadow p-4 mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Select Department</label>
-            <select id="departmentSelect" onchange="loadCalendar()"
-                    class="w-full md:w-auto px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                <option value="">-- Select Department --</option>
-            </select>
+<div class="min-h-screen bg-gray-50">
+    <div class="max-w-2xl mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">My Meetings</h1>
+                <p id="hodName" class="text-gray-600 text-sm"></p>
+            </div>
+            <a href="/portal" class="text-indigo-600 hover:underline text-sm flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                Back to Portal
+            </a>
         </div>
 
-        <!-- Calendar Section -->
-        <div id="calendarSection" class="hidden">
-            <!-- Week Navigation -->
-            <div class="bg-white rounded-lg shadow p-4 mb-4">
-                <div class="flex items-center justify-between">
-                    <button onclick="changeWeek(-1)" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">
-                        &larr; Previous Week
-                    </button>
-                    <div class="text-center">
-                        <span id="weekLabel" class="font-semibold"></span>
-                    </div>
-                    <button onclick="changeWeek(1)" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">
-                        Next Week &rarr;
-                    </button>
-                </div>
+        <!-- Phone Entry (if not in URL) -->
+        <div id="phoneEntry" class="bg-white rounded-xl shadow p-6 mb-6">
+            <h2 class="text-lg font-semibold mb-4">Enter Your Phone Number</h2>
+            <div class="flex gap-3">
+                <input type="tel" id="phoneInput" placeholder="0711234567"
+                       class="flex-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <button onclick="loadHODData()"
+                        class="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium">
+                    Continue
+                </button>
             </div>
+            <p id="phoneError" class="text-red-500 text-sm mt-2 hidden"></p>
+        </div>
 
-            <!-- Calendar Grid -->
-            <div class="bg-white rounded-lg shadow overflow-hidden mb-6">
-                <div id="calendarGrid" class="calendar-grid">
-                    <!-- Populated by JS -->
-                </div>
-            </div>
-
-            <!-- Legend -->
-            <div class="flex flex-wrap gap-4 mb-6 text-sm">
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 bg-white border"></div>
-                    <span>Available</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 bg-green-100"></div>
-                    <span>Your Meeting</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 bg-red-50"></div>
-                    <span>Unavailable (Conflict)</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="w-4 h-4 bg-blue-500"></div>
-                    <span>Selected</span>
-                </div>
-            </div>
-
-            <!-- Instructions -->
-            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <p class="text-sm text-blue-800">
-                    <strong>How to book:</strong> Click on a slot to start selection, then click another slot to end.
-                    You can select multiple consecutive 30-minute slots. Then click "Create Meeting" to finalize.
-                </p>
-            </div>
-
-            <!-- Selection Actions -->
-            <div id="selectionActions" class="hidden bg-white rounded-lg shadow p-4 mb-6">
+        <!-- Main Content (hidden until authenticated) -->
+        <div id="mainContent" class="hidden space-y-6">
+            <!-- Quick Create Section -->
+            <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-5 text-white">
                 <div class="flex items-center justify-between">
                     <div>
-                        <span class="font-medium">Selected: </span>
-                        <span id="selectionInfo" class="text-blue-600"></span>
+                        <h3 class="font-semibold text-lg">Schedule a Meeting</h3>
+                        <p class="text-white/80 text-sm">For your department members</p>
                     </div>
-                    <div class="flex gap-2">
-                        <button onclick="clearSelection()" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">
-                            Clear
-                        </button>
-                        <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                            Create Meeting
-                        </button>
-                    </div>
+                    <button onclick="openCreateModal()" class="px-4 py-2 bg-white text-indigo-600 rounded-lg font-medium hover:bg-indigo-50 transition-colors">
+                        + New Meeting
+                    </button>
                 </div>
             </div>
-        </div>
 
-        <!-- Upcoming Meetings List -->
-        <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-lg font-semibold mb-4">Your Upcoming Meetings</h2>
-            <div id="meetingsList" class="space-y-3">
-                <p class="text-gray-500">Loading...</p>
+            <!-- Upcoming Meetings -->
+            <div class="bg-white rounded-xl shadow">
+                <div class="p-4 border-b border-gray-100">
+                    <h3 class="font-semibold text-gray-900">Upcoming Meetings</h3>
+                </div>
+                <div id="meetingsList" class="divide-y divide-gray-100">
+                    <p class="p-6 text-gray-500 text-center">Loading...</p>
+                </div>
+                <div id="noMeetings" class="hidden p-8 text-center">
+                    <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <p class="text-gray-500">No upcoming meetings</p>
+                    <button onclick="openCreateModal()" class="mt-3 text-indigo-600 hover:underline text-sm">Create your first meeting</button>
+                </div>
             </div>
         </div>
     </div>
@@ -187,41 +70,55 @@
 
 <!-- Create Meeting Modal -->
 <div id="createModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-semibold mb-4">Create Meeting</h3>
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Create Meeting</h3>
         <form id="createForm" onsubmit="createMeeting(event)">
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-                    <input type="text" id="meetingTitle" required
-                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                    <select id="meetingDepartment" required
+                            class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        <option value="">-- Select Department --</option>
+                    </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea id="meetingDescription" rows="2"
-                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input type="text" id="meetingTitle" required placeholder="e.g., Weekly Practice"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                        <input type="date" id="meetingDate" required
+                               class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Time *</label>
+                        <select id="meetingTime" required
+                                class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            <option value="38-40">7:00 PM - 8:00 PM</option>
+                            <option value="38-42">7:00 PM - 9:00 PM</option>
+                            <option value="39-41">7:30 PM - 8:30 PM</option>
+                            <option value="40-42">8:00 PM - 9:00 PM</option>
+                        </select>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
                     <input type="text" id="meetingLocation" placeholder="e.g., Church Hall"
-                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Meeting Link (Zoom/Teams)</label>
-                    <input type="url" id="meetingLink" placeholder="https://..."
-                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                </div>
-                <div class="bg-gray-50 p-3 rounded-lg">
-                    <p class="text-sm"><strong>Date:</strong> <span id="modalDate"></span></p>
-                    <p class="text-sm"><strong>Time:</strong> <span id="modalTime"></span></p>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="meetingDescription" rows="2" placeholder="Optional details..."
+                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"></textarea>
                 </div>
             </div>
             <div class="flex justify-end gap-3 mt-6">
                 <button type="button" onclick="closeCreateModal()"
-                        class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                    Create Meeting
-                </button>
+                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+                <button type="submit" id="createBtn"
+                        class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Create</button>
             </div>
         </form>
     </div>
@@ -229,75 +126,60 @@
 
 <!-- Edit Meeting Modal -->
 <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 class="text-lg font-semibold mb-4">Edit Meeting</h3>
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Edit Meeting</h3>
         <form id="editForm" onsubmit="updateMeeting(event)">
             <input type="hidden" id="editMeetingId">
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
                     <input type="text" id="editTitle" required
-                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea id="editDescription" rows="2"
-                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
                     <input type="text" id="editLocation"
-                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Meeting Link</label>
-                    <input type="url" id="editLink"
-                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="editDescription" rows="2"
+                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"></textarea>
                 </div>
             </div>
             <div class="flex justify-between mt-6">
                 <button type="button" onclick="deleteMeeting()"
-                        class="px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200">Delete</button>
+                        class="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200">Delete</button>
                 <div class="flex gap-3">
                     <button type="button" onclick="closeEditModal()"
-                            class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
-                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                        Save Changes
+                            class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                        Save
                     </button>
                 </div>
             </div>
         </form>
     </div>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
 let phone = '';
 let departments = [];
-let currentDeptId = null;
-let currentWeekDate = new Date();
-let calendarData = null;
-
-// Selection state
-let selectionStart = null;
-let selectionEnd = null;
-let selectedDate = null;
-
-// Slot time helpers
-function slotToTime(slot) {
-    const hours = Math.floor(slot / 2);
-    const mins = (slot % 2) * 30;
-    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-}
+let meetings = [];
 
 function formatDate(dateStr) {
     const d = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
     return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-// Check URL for phone parameter
 function init() {
     const params = new URLSearchParams(window.location.search);
     const urlPhone = params.get('phone');
@@ -330,13 +212,13 @@ async function loadHODData() {
         }
 
         departments = data.departments;
-        document.getElementById('hodName').textContent = `Welcome, ${data.hod_name}`;
+        document.getElementById('hodName').textContent = `HOD: ${data.hod_name}`;
 
         // Update URL
         window.history.replaceState({}, '', `/hod/meetings?phone=${phone}`);
 
         // Populate department select
-        const select = document.getElementById('departmentSelect');
+        const select = document.getElementById('meetingDepartment');
         select.innerHTML = '<option value="">-- Select Department --</option>';
         departments.forEach(dept => {
             select.innerHTML += `<option value="${dept.id}">${dept.name}</option>`;
@@ -346,199 +228,61 @@ async function loadHODData() {
         document.getElementById('phoneEntry').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
 
-        // Load meetings list
-        loadMeetingsList();
+        loadMeetings();
     } catch (err) {
         document.getElementById('phoneError').textContent = err.message;
         document.getElementById('phoneError').classList.remove('hidden');
     }
 }
 
-async function loadMeetingsList() {
-    const container = document.getElementById('meetingsList');
+async function loadMeetings() {
     try {
         const res = await fetch(`/api/hod/meetings?phone=${phone}`);
         const data = await res.json();
+        meetings = data.meetings;
 
-        if (data.meetings.length === 0) {
-            container.innerHTML = '<p class="text-gray-500">No upcoming meetings scheduled</p>';
+        const list = document.getElementById('meetingsList');
+        const noMeetings = document.getElementById('noMeetings');
+
+        if (meetings.length === 0) {
+            list.classList.add('hidden');
+            noMeetings.classList.remove('hidden');
             return;
         }
 
-        container.innerHTML = data.meetings.map(m => `
-            <div class="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer" onclick="openEditModal(${m.id})">
+        noMeetings.classList.add('hidden');
+        list.classList.remove('hidden');
+
+        list.innerHTML = meetings.map(m => `
+            <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="openEditModal(${m.id})">
                 <div class="flex justify-between items-start">
                     <div>
-                        <h3 class="font-medium">${m.title}</h3>
-                        <p class="text-sm text-gray-600">${m.department_name}</p>
+                        <h4 class="font-medium text-gray-900">${m.title}</h4>
+                        <p class="text-sm text-indigo-600">${m.department_name}</p>
+                        ${m.location ? `<p class="text-sm text-gray-500 mt-1">${m.location}</p>` : ''}
                     </div>
-                    <div class="text-right text-sm">
-                        <p class="font-medium">${formatDate(m.meeting_date)}</p>
-                        <p class="text-gray-600">${m.start_time} - ${m.end_time}</p>
+                    <div class="text-right">
+                        <p class="font-medium text-gray-900">${formatDate(m.meeting_date)}</p>
+                        <p class="text-sm text-gray-500">${m.start_time} - ${m.end_time}</p>
+                        <p class="text-xs text-gray-400 mt-1">${m.attending_count} attending</p>
                     </div>
                 </div>
-                ${m.location ? `<p class="text-sm text-gray-500 mt-2">Location: ${m.location}</p>` : ''}
-                <p class="text-xs text-gray-400 mt-2">RSVPs: ${m.attending_count} attending / ${m.rsvp_count} responded</p>
             </div>
         `).join('');
     } catch (err) {
-        container.innerHTML = '<p class="text-red-500">Failed to load meetings</p>';
+        console.error('Failed to load meetings:', err);
     }
 }
 
-async function loadCalendar() {
-    currentDeptId = parseInt(document.getElementById('departmentSelect').value);
-    if (!currentDeptId) {
-        document.getElementById('calendarSection').classList.add('hidden');
-        return;
-    }
-
-    document.getElementById('calendarSection').classList.remove('hidden');
-    clearSelection();
-
-    const weekDate = currentWeekDate.toISOString().split('T')[0];
-    try {
-        const res = await fetch(`/api/hod/calendar?phone=${phone}&department_id=${currentDeptId}&week_date=${weekDate}`);
-        calendarData = await res.json();
-        renderCalendar();
-    } catch (err) {
-        console.error('Failed to load calendar:', err);
-    }
-}
-
-function renderCalendar() {
-    if (!calendarData) return;
-
-    document.getElementById('weekLabel').textContent =
-        `${formatDate(calendarData.week_start)} - ${formatDate(calendarData.week_end)}`;
-
-    const grid = document.getElementById('calendarGrid');
-
-    // Header row
-    let html = '<div class="calendar-header">Time</div>';
-    calendarData.days.forEach(day => {
-        html += `<div class="calendar-header">${day.day_name}<br><span class="font-normal">${day.date.slice(5)}</span></div>`;
-    });
-
-    // Time slots (6 AM to 10 PM)
-    for (let slot = 12; slot < 44; slot++) {
-        // Time label
-        html += `<div class="time-label">${slotToTime(slot)}</div>`;
-
-        // Day cells
-        calendarData.days.forEach((day, dayIdx) => {
-            const slotData = day.slots.find(s => s.slot === slot);
-            let classes = 'slot';
-            let content = '';
-            let dataAttrs = `data-date="${day.date}" data-slot="${slot}"`;
-
-            if (slotData) {
-                if (slotData.meeting) {
-                    classes += ' booked';
-                    // Show meeting title on first slot
-                    if (slot === slotData.meeting.start_slot) {
-                        const duration = slotData.meeting.end_slot - slotData.meeting.start_slot;
-                        content = `<div class="meeting-block" style="height: ${duration * 24 - 2}px" onclick="openEditModal(${slotData.meeting.id})">${slotData.meeting.title}</div>`;
-                    }
-                } else if (!slotData.available) {
-                    classes += ' unavailable';
-                    dataAttrs += ` title="${slotData.conflict_reason || 'Unavailable'}"`;
-                }
-            }
-
-            html += `<div class="${classes}" ${dataAttrs}>${content}</div>`;
-        });
-    }
-
-    grid.innerHTML = html;
-
-    // Add click handlers
-    grid.querySelectorAll('.slot:not(.unavailable):not(.booked)').forEach(slot => {
-        slot.addEventListener('click', handleSlotClick);
-    });
-}
-
-function handleSlotClick(e) {
-    const slotEl = e.target.closest('.slot');
-    const slotDate = slotEl.dataset.date;
-    const slotNum = parseInt(slotEl.dataset.slot);
-
-    if (selectionStart === null) {
-        // Start new selection
-        selectionStart = slotNum;
-        selectedDate = slotDate;
-        slotEl.classList.add('selected');
-        updateSelectionUI();
-    } else if (selectedDate === slotDate && slotNum !== selectionStart) {
-        // Complete selection
-        selectionEnd = slotNum;
-        if (selectionEnd < selectionStart) {
-            [selectionStart, selectionEnd] = [selectionEnd, selectionStart];
-        }
-        selectionEnd += 1; // End is exclusive
-        highlightSelection();
-        updateSelectionUI();
-    } else {
-        // Start over
-        clearSelection();
-        selectionStart = slotNum;
-        selectedDate = slotDate;
-        slotEl.classList.add('selected');
-        updateSelectionUI();
-    }
-}
-
-function highlightSelection() {
-    document.querySelectorAll('.slot').forEach(slot => {
-        slot.classList.remove('selected', 'selecting');
-        if (slot.dataset.date === selectedDate) {
-            const slotNum = parseInt(slot.dataset.slot);
-            if (slotNum >= selectionStart && slotNum < selectionEnd) {
-                slot.classList.add('selected');
-            }
-        }
-    });
-}
-
-function clearSelection() {
-    selectionStart = null;
-    selectionEnd = null;
-    selectedDate = null;
-    document.querySelectorAll('.slot').forEach(s => s.classList.remove('selected', 'selecting'));
-    updateSelectionUI();
-}
-
-function updateSelectionUI() {
-    const actionsDiv = document.getElementById('selectionActions');
-    const infoSpan = document.getElementById('selectionInfo');
-
-    if (selectionStart !== null && selectionEnd !== null) {
-        actionsDiv.classList.remove('hidden');
-        infoSpan.textContent = `${formatDate(selectedDate)}, ${slotToTime(selectionStart)} - ${slotToTime(selectionEnd)}`;
-    } else if (selectionStart !== null) {
-        actionsDiv.classList.remove('hidden');
-        infoSpan.textContent = `${formatDate(selectedDate)}, ${slotToTime(selectionStart)} - Click another slot to set end time`;
-    } else {
-        actionsDiv.classList.add('hidden');
-    }
-}
-
-function changeWeek(delta) {
-    currentWeekDate.setDate(currentWeekDate.getDate() + (delta * 7));
-    loadCalendar();
-}
-
-// Create Modal
 function openCreateModal() {
-    if (selectionStart === null || selectionEnd === null) return;
-
-    document.getElementById('modalDate').textContent = formatDate(selectedDate);
-    document.getElementById('modalTime').textContent = `${slotToTime(selectionStart)} - ${slotToTime(selectionEnd)}`;
-
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('meetingDate').value = today;
+    document.getElementById('meetingDate').min = today;
     document.getElementById('meetingTitle').value = '';
-    document.getElementById('meetingDescription').value = '';
     document.getElementById('meetingLocation').value = '';
-    document.getElementById('meetingLink').value = '';
+    document.getElementById('meetingDescription').value = '';
+    document.getElementById('meetingDepartment').value = departments.length === 1 ? departments[0].id : '';
+    document.getElementById('meetingTime').value = '38-40';
 
     document.getElementById('createModal').classList.remove('hidden');
     document.getElementById('createModal').classList.add('flex');
@@ -551,16 +295,22 @@ function closeCreateModal() {
 
 async function createMeeting(e) {
     e.preventDefault();
+    const btn = document.getElementById('createBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    const timeValue = document.getElementById('meetingTime').value;
+    const [startSlot, endSlot] = timeValue.split('-').map(Number);
 
     const payload = {
-        department_id: currentDeptId,
+        department_id: parseInt(document.getElementById('meetingDepartment').value),
         title: document.getElementById('meetingTitle').value,
         description: document.getElementById('meetingDescription').value || null,
-        meeting_date: selectedDate,
-        start_slot: selectionStart,
-        end_slot: selectionEnd,
+        meeting_date: document.getElementById('meetingDate').value,
+        start_slot: startSlot,
+        end_slot: endSlot,
         location: document.getElementById('meetingLocation').value || null,
-        meeting_link: document.getElementById('meetingLink').value || null
+        meeting_link: null
     };
 
     try {
@@ -576,37 +326,28 @@ async function createMeeting(e) {
         }
 
         closeCreateModal();
-        clearSelection();
-        loadCalendar();
-        loadMeetingsList();
-        alert('Meeting created successfully!');
+        loadMeetings();
     } catch (err) {
         alert('Error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create';
     }
 }
 
-// Edit Modal
 let editingMeeting = null;
 
-async function openEditModal(meetingId) {
-    try {
-        const res = await fetch(`/api/hod/meetings?phone=${phone}`);
-        const data = await res.json();
-        editingMeeting = data.meetings.find(m => m.id === meetingId);
+function openEditModal(meetingId) {
+    editingMeeting = meetings.find(m => m.id === meetingId);
+    if (!editingMeeting) return;
 
-        if (!editingMeeting) return;
+    document.getElementById('editMeetingId').value = meetingId;
+    document.getElementById('editTitle').value = editingMeeting.title;
+    document.getElementById('editLocation').value = editingMeeting.location || '';
+    document.getElementById('editDescription').value = editingMeeting.description || '';
 
-        document.getElementById('editMeetingId').value = meetingId;
-        document.getElementById('editTitle').value = editingMeeting.title;
-        document.getElementById('editDescription').value = editingMeeting.description || '';
-        document.getElementById('editLocation').value = editingMeeting.location || '';
-        document.getElementById('editLink').value = editingMeeting.meeting_link || '';
-
-        document.getElementById('editModal').classList.remove('hidden');
-        document.getElementById('editModal').classList.add('flex');
-    } catch (err) {
-        console.error('Failed to load meeting:', err);
-    }
+    document.getElementById('editModal').classList.remove('hidden');
+    document.getElementById('editModal').classList.add('flex');
 }
 
 function closeEditModal() {
@@ -621,9 +362,8 @@ async function updateMeeting(e) {
 
     const payload = {
         title: document.getElementById('editTitle').value,
-        description: document.getElementById('editDescription').value || null,
         location: document.getElementById('editLocation').value || null,
-        meeting_link: document.getElementById('editLink').value || null
+        description: document.getElementById('editDescription').value || null
     };
 
     try {
@@ -639,8 +379,7 @@ async function updateMeeting(e) {
         }
 
         closeEditModal();
-        loadCalendar();
-        loadMeetingsList();
+        loadMeetings();
     } catch (err) {
         alert('Error: ' + err.message);
     }
@@ -662,14 +401,12 @@ async function deleteMeeting() {
         }
 
         closeEditModal();
-        loadCalendar();
-        loadMeetingsList();
+        loadMeetings();
     } catch (err) {
         alert('Error: ' + err.message);
     }
 }
 
-// Initialize on load
 init();
 </script>
 {% endblock %}

@@ -79,76 +79,62 @@
 
             <!-- Published Results Section -->
             <div id="publishedState" class="hidden space-y-4">
-                <!-- Provisional Notice -->
-                <div id="provisionalNotice" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-4">
-                    <div class="flex items-start gap-3">
-                        <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <div>
-                            <p class="text-sm font-medium text-amber-800">Provisional Approval</p>
-                            <p class="text-xs text-amber-700 mt-1">These placements are provisional while the appeal window is open. You may submit an appeal if you wish to request changes.</p>
-                        </div>
+                <!-- My Departments (Compact Menu Style) -->
+                <div class="bg-white rounded-2xl shadow-lg p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">My Departments</h3>
+                        <a href="#" id="updateLink" class="text-xs text-indigo-600 hover:underline">Edit</a>
+                    </div>
+                    <div id="approvedList" class="flex flex-wrap gap-2"></div>
+                    <div id="noApprovedMessage" class="hidden text-sm text-gray-500">
+                        No departments assigned yet.
+                    </div>
+                    <!-- Pending/Rejected inline -->
+                    <div id="pendingSection" class="hidden mt-3 pt-3 border-t border-gray-100">
+                        <p class="text-xs text-gray-500 mb-2">Pending review:</p>
+                        <div id="pendingList" class="flex flex-wrap gap-2"></div>
                     </div>
                 </div>
 
-                <!-- Approved Departments -->
-                <div class="bg-white rounded-2xl shadow-lg p-6">
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Your Approved Departments</h3>
-                    <div id="approvedList" class="space-y-3"></div>
-                    <div id="noApprovedMessage" class="hidden text-center py-4 text-gray-500">
-                        No departments have been approved yet.
-                    </div>
+                <!-- Provisional Notice (compact) -->
+                <div id="provisionalNotice" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p class="text-xs text-amber-800">
+                        <span class="font-medium">Appeal window open:</span> You can request changes to your assignments.
+                    </p>
                 </div>
 
                 <!-- Admin Added Departments (need acceptance) -->
-                <div id="adminAddedSection" class="hidden bg-blue-50 border border-blue-200 rounded-2xl p-6">
-                    <h3 class="text-base font-semibold text-blue-900 mb-2">Additional Assignments</h3>
-                    <p class="text-sm text-blue-700 mb-4">The following departments were assigned to you by an admin:</p>
-                    <div id="adminAddedList" class="space-y-3"></div>
+                <div id="adminAddedSection" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4">
+                    <p class="text-sm font-medium text-blue-900 mb-2">New assignments from admin:</p>
+                    <div id="adminAddedList" class="space-y-2"></div>
                 </div>
 
-                <!-- Pending Departments -->
-                <div id="pendingSection" class="hidden bg-gray-50 rounded-2xl p-6">
-                    <h3 class="text-base font-semibold text-gray-700 mb-3">Pending Review</h3>
-                    <div id="pendingList" class="space-y-2"></div>
-                </div>
-
-                <!-- Rejected Departments -->
-                <div id="rejectedSection" class="hidden bg-red-50 rounded-2xl p-6">
-                    <h3 class="text-base font-semibold text-red-800 mb-3">Not Approved</h3>
-                    <div id="rejectedList" class="space-y-2"></div>
-                </div>
-
-                <!-- Actions -->
-                <div class="space-y-3">
-                    <a href="#" id="updateLink" class="block bg-white rounded-xl shadow p-4 hover:shadow-lg transition-all">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                </svg>
-                            </div>
-                            <div>
-                                <p class="font-medium text-gray-900">Update My Selection</p>
-                                <p class="text-xs text-gray-500">Change your department preferences</p>
-                            </div>
-                        </div>
-                    </a>
+                <!-- Rejected Departments (compact) -->
+                <div id="rejectedSection" class="hidden bg-red-50 rounded-xl p-3">
+                    <p class="text-xs text-red-700 mb-2">Not approved:</p>
+                    <div id="rejectedList" class="flex flex-wrap gap-2"></div>
                 </div>
             </div>
 
-            <!-- Upcoming Meetings Section -->
+            <!-- Upcoming Meetings Section (PRIMARY) -->
             <div id="meetingsSection" class="hidden bg-white rounded-2xl shadow-lg p-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-lg font-semibold text-gray-900">Upcoming Meetings</h3>
-                    <a href="#" id="hodMeetingsLink" class="hidden text-sm text-indigo-600 hover:underline">Manage Meetings</a>
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        <h3 class="text-lg font-semibold text-gray-900">Upcoming Meetings</h3>
+                    </div>
+                    <a href="#" id="hodMeetingsLink" class="hidden text-sm text-indigo-600 hover:underline">Manage</a>
                 </div>
                 <div id="meetingsList" class="space-y-3">
                     <p class="text-gray-500 text-sm">Loading meetings...</p>
                 </div>
-                <div id="noMeetingsMessage" class="hidden text-center py-4 text-gray-500 text-sm">
-                    No upcoming meetings scheduled for your departments.
+                <div id="noMeetingsMessage" class="hidden text-center py-6">
+                    <svg class="w-10 h-10 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <p class="text-gray-500 text-sm">No upcoming meetings</p>
                 </div>
             </div>
 
@@ -333,9 +319,6 @@ function selectMember(member) {
     document.getElementById('memberName').textContent = member.full_name;
     document.getElementById('memberPhone').textContent = phone;
 
-    // Update links
-    document.getElementById('updateLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
-
     if (allData.published) {
         document.getElementById('publishedState').classList.remove('hidden');
         document.getElementById('notPublishedState').classList.add('hidden');
@@ -361,48 +344,31 @@ function selectMember(member) {
 function renderDepartments(member) {
     const canAppeal = allData.appeal_window_open;
 
-    // Approved departments
+    // Update link
+    document.getElementById('updateLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
+
+    // Approved departments - render as compact chips
     const approvedList = document.getElementById('approvedList');
     if (member.approved_departments.length > 0) {
         approvedList.innerHTML = member.approved_departments.map(d => {
             const isAdminAdded = d.source === 'admin';
-            const bgColor = isAdminAdded ? 'bg-blue-50 border border-blue-200' : 'bg-green-50';
-            const iconBg = isAdminAdded ? 'bg-blue-100' : 'bg-green-100';
-            const iconColor = isAdminAdded ? 'text-blue-600' : 'text-green-600';
-
+            const bgClass = isAdminAdded ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
+            const appealBtn = canAppeal ? `
+                <button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', ${isAdminAdded})"
+                    class="ml-1 text-amber-600 hover:text-amber-800" title="Appeal">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+                    </svg>
+                </button>
+            ` : '';
             return `
-            <div class="${bgColor} rounded-xl p-3">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 ${iconBg} rounded-full flex items-center justify-center flex-shrink-0">
-                        ${isAdminAdded ? `
-                            <svg class="w-5 h-5 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                            </svg>
-                        ` : `
-                            <svg class="w-5 h-5 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                        `}
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <p class="font-medium text-gray-900">${d.department_name}</p>
-                        ${d.category_name ? `<p class="text-xs text-gray-500">${d.category_name}</p>` : ''}
-                        ${isAdminAdded ? `<p class="text-xs text-blue-600 font-medium mt-1">Added by Admin</p>` : ''}
-                    </div>
-                </div>
-                ${canAppeal ? `
-                    <div class="mt-3 pt-3 border-t ${isAdminAdded ? 'border-blue-200' : 'border-green-200'}">
-                        <button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', ${isAdminAdded})"
-                            class="w-full py-2 ${isAdminAdded ? 'bg-amber-500 hover:bg-amber-600' : 'bg-amber-100 hover:bg-amber-200 text-amber-700'} ${isAdminAdded ? 'text-white' : ''} text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                            </svg>
-                            ${isAdminAdded ? 'Appeal This Assignment' : 'Appeal'}
-                        </button>
-                    </div>
-                ` : ''}
-            </div>
-        `}).join('');
+                <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${bgClass}">
+                    ${d.department_name}
+                    ${isAdminAdded ? '<span class="ml-1 text-xs opacity-70">(Admin)</span>' : ''}
+                    ${appealBtn}
+                </span>
+            `;
+        }).join('');
         document.getElementById('noApprovedMessage').classList.add('hidden');
     } else {
         approvedList.innerHTML = '';
@@ -414,21 +380,16 @@ function renderDepartments(member) {
     if (adminAdded.length > 0) {
         document.getElementById('adminAddedSection').classList.remove('hidden');
         document.getElementById('adminAddedList').innerHTML = adminAdded.map(d => `
-            <div class="bg-white rounded-xl p-3 border border-blue-100">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <p class="font-medium text-gray-900">${d.department_name}</p>
-                        ${d.category_name ? `<p class="text-xs text-gray-500">${d.category_name}</p>` : ''}
-                    </div>
-                </div>
-                <div class="mt-3 flex gap-2">
+            <div class="flex items-center justify-between p-2 bg-white rounded-lg">
+                <span class="text-sm font-medium text-gray-900">${d.department_name}</span>
+                <div class="flex gap-2">
                     <button onclick="acceptAssignment(${d.id})"
-                        class="flex-1 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+                        class="px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700">
                         Accept
                     </button>
                     ${canAppeal ? `
                         <button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', true)"
-                            class="flex-1 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600">
+                            class="px-3 py-1 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600">
                             Appeal
                         </button>
                     ` : ''}
@@ -439,33 +400,32 @@ function renderDepartments(member) {
         document.getElementById('adminAddedSection').classList.add('hidden');
     }
 
-    // Pending departments
+    // Pending departments - compact chips
     if (member.pending_departments.length > 0) {
         document.getElementById('pendingSection').classList.remove('hidden');
         document.getElementById('pendingList').innerHTML = member.pending_departments.map(d => `
-            <div class="flex items-center gap-2 p-2 bg-white rounded-lg">
-                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                 </svg>
-                <span class="text-sm text-gray-700">${d.department_name}</span>
-                ${d.category_name ? `<span class="text-xs text-gray-400">(${d.category_name})</span>` : ''}
-            </div>
+                ${d.department_name}
+            </span>
         `).join('');
     } else {
         document.getElementById('pendingSection').classList.add('hidden');
     }
 
-    // Rejected departments
+    // Rejected departments - compact chips
     if (member.rejected_departments.length > 0) {
         document.getElementById('rejectedSection').classList.remove('hidden');
         document.getElementById('rejectedList').innerHTML = member.rejected_departments.map(d => `
-            <div class="flex items-center gap-2 p-2 bg-white rounded-lg">
-                <svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800"
+                ${d.admin_note ? `title="${d.admin_note}"` : ''}>
+                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
-                <span class="text-sm text-gray-700">${d.department_name}</span>
-                ${d.admin_note ? `<span class="text-xs text-red-500 italic ml-2">${d.admin_note}</span>` : ''}
-            </div>
+                ${d.department_name}
+            </span>
         `).join('');
     } else {
         document.getElementById('rejectedSection').classList.add('hidden');
