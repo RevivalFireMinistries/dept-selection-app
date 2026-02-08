@@ -1,0 +1,401 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Meetings - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Meeting Management</h2>
+        <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            + New Meeting
+        </button>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow p-4">
+        <div class="flex flex-wrap gap-4 items-end">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                <select id="filterDepartment" onchange="loadMeetings()"
+                        class="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Departments</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                <input type="date" id="filterFromDate" onchange="loadMeetings()"
+                       class="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                <input type="date" id="filterToDate" onchange="loadMeetings()"
+                       class="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button onclick="clearFilters()" class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+                Clear Filters
+            </button>
+        </div>
+    </div>
+
+    <!-- Meetings List -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Meeting</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date & Time</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created By</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">RSVPs</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="meetingsTableBody" class="bg-white divide-y divide-gray-200">
+                <tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <p id="meetingCount" class="text-sm text-gray-500"></p>
+</div>
+
+<!-- Create/Edit Modal -->
+<div id="meetingModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6">
+        <h3 id="modalTitle" class="text-lg font-semibold mb-4">Create Meeting</h3>
+        <form id="meetingForm" onsubmit="saveMeeting(event)">
+            <input type="hidden" id="meetingId">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
+                    <select id="meetingDepartment" required
+                            class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">-- Select Department --</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input type="text" id="meetingTitle" required
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="meetingDescription" rows="2"
+                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                        <input type="date" id="meetingDate" required
+                               class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Start Time *</label>
+                        <select id="meetingStartSlot" required
+                                class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Duration</label>
+                        <select id="meetingDuration"
+                                class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="1">30 minutes</option>
+                            <option value="2" selected>1 hour</option>
+                            <option value="3">1.5 hours</option>
+                            <option value="4">2 hours</option>
+                            <option value="6">3 hours</option>
+                        </select>
+                    </div>
+                    <div></div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input type="text" id="meetingLocation" placeholder="e.g., Church Hall"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Meeting Link</label>
+                    <input type="url" id="meetingLink" placeholder="https://..."
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button" onclick="closeModal()"
+                        class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RSVP Modal -->
+<div id="rsvpModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold mb-4">Meeting RSVPs</h3>
+        <div id="rsvpContent">Loading...</div>
+        <div class="flex justify-end mt-6">
+            <button onclick="closeRsvpModal()" class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let departments = [];
+
+function slotToTime(slot) {
+    const hours = Math.floor(slot / 2);
+    const mins = (slot % 2) * 30;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function formatDate(dateStr) {
+    return new Date(dateStr).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+async function init() {
+    // Load departments for filters and form
+    const res = await fetch('/api/departments');
+    const data = await res.json();
+
+    departments = [];
+    data.categories.forEach(cat => {
+        cat.departments.forEach(d => departments.push({ id: d.id, name: d.name }));
+    });
+    data.uncategorized.forEach(d => departments.push({ id: d.id, name: d.name }));
+    departments.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Populate filter dropdown
+    const filterSelect = document.getElementById('filterDepartment');
+    departments.forEach(d => {
+        filterSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+    });
+
+    // Populate form dropdown
+    const formSelect = document.getElementById('meetingDepartment');
+    departments.forEach(d => {
+        formSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
+    });
+
+    // Populate time slots (6 AM to 10 PM)
+    const startSlotSelect = document.getElementById('meetingStartSlot');
+    for (let slot = 12; slot < 44; slot++) {
+        startSlotSelect.innerHTML += `<option value="${slot}">${slotToTime(slot)}</option>`;
+    }
+
+    // Set default date to today
+    document.getElementById('meetingDate').value = new Date().toISOString().split('T')[0];
+
+    loadMeetings();
+}
+
+async function loadMeetings() {
+    const deptId = document.getElementById('filterDepartment').value;
+    const fromDate = document.getElementById('filterFromDate').value;
+    const toDate = document.getElementById('filterToDate').value;
+
+    let url = '/api/admin/meetings?';
+    if (deptId) url += `department_id=${deptId}&`;
+    if (fromDate) url += `from_date=${fromDate}&`;
+    if (toDate) url += `to_date=${toDate}&`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const tbody = document.getElementById('meetingsTableBody');
+
+    if (data.meetings.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">No meetings found</td></tr>';
+        document.getElementById('meetingCount').textContent = '';
+        return;
+    }
+
+    tbody.innerHTML = data.meetings.map(m => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4">
+                <div class="font-medium text-gray-900">${m.title}</div>
+                ${m.location ? `<div class="text-sm text-gray-500">${m.location}</div>` : ''}
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-900">${m.department_name}</td>
+            <td class="px-6 py-4 text-sm">
+                <div class="text-gray-900">${formatDate(m.meeting_date)}</div>
+                <div class="text-gray-500">${m.start_time} - ${m.end_time}</div>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">${m.created_by_name || 'Admin'}</td>
+            <td class="px-6 py-4">
+                <button onclick="viewRsvps(${m.id})" class="text-blue-600 hover:underline text-sm">
+                    ${m.attending_count}/${m.rsvp_count}
+                </button>
+            </td>
+            <td class="px-6 py-4 text-right">
+                <button onclick="editMeeting(${m.id})" class="text-blue-600 hover:underline text-sm mr-3">Edit</button>
+                <button onclick="deleteMeeting(${m.id})" class="text-red-600 hover:underline text-sm">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+
+    document.getElementById('meetingCount').textContent = `Showing ${data.total} meeting(s)`;
+}
+
+function clearFilters() {
+    document.getElementById('filterDepartment').value = '';
+    document.getElementById('filterFromDate').value = '';
+    document.getElementById('filterToDate').value = '';
+    loadMeetings();
+}
+
+// Modal functions
+function openCreateModal() {
+    document.getElementById('modalTitle').textContent = 'Create Meeting';
+    document.getElementById('meetingId').value = '';
+    document.getElementById('meetingForm').reset();
+    document.getElementById('meetingDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('meetingDuration').value = '2';
+    document.getElementById('meetingStartSlot').value = '18'; // 9 AM default
+
+    document.getElementById('meetingModal').classList.remove('hidden');
+    document.getElementById('meetingModal').classList.add('flex');
+}
+
+function closeModal() {
+    document.getElementById('meetingModal').classList.add('hidden');
+    document.getElementById('meetingModal').classList.remove('flex');
+}
+
+async function editMeeting(id) {
+    const res = await fetch('/api/admin/meetings');
+    const data = await res.json();
+    const meeting = data.meetings.find(m => m.id === id);
+    if (!meeting) return;
+
+    document.getElementById('modalTitle').textContent = 'Edit Meeting';
+    document.getElementById('meetingId').value = id;
+    document.getElementById('meetingDepartment').value = meeting.department_id;
+    document.getElementById('meetingTitle').value = meeting.title;
+    document.getElementById('meetingDescription').value = meeting.description || '';
+    document.getElementById('meetingDate').value = meeting.meeting_date;
+    document.getElementById('meetingStartSlot').value = meeting.start_slot;
+    document.getElementById('meetingDuration').value = meeting.end_slot - meeting.start_slot;
+    document.getElementById('meetingLocation').value = meeting.location || '';
+    document.getElementById('meetingLink').value = meeting.meeting_link || '';
+
+    document.getElementById('meetingModal').classList.remove('hidden');
+    document.getElementById('meetingModal').classList.add('flex');
+}
+
+async function saveMeeting(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('meetingId').value;
+    const startSlot = parseInt(document.getElementById('meetingStartSlot').value);
+    const duration = parseInt(document.getElementById('meetingDuration').value);
+
+    const payload = {
+        department_id: parseInt(document.getElementById('meetingDepartment').value),
+        title: document.getElementById('meetingTitle').value,
+        description: document.getElementById('meetingDescription').value || null,
+        meeting_date: document.getElementById('meetingDate').value,
+        start_slot: startSlot,
+        end_slot: startSlot + duration,
+        location: document.getElementById('meetingLocation').value || null,
+        meeting_link: document.getElementById('meetingLink').value || null
+    };
+
+    try {
+        let res;
+        if (id) {
+            res = await fetch(`/api/admin/meetings/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } else {
+            res = await fetch('/api/admin/meetings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to save meeting');
+        }
+
+        closeModal();
+        loadMeetings();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function deleteMeeting(id) {
+    if (!confirm('Are you sure you want to delete this meeting?')) return;
+
+    try {
+        const res = await fetch(`/api/admin/meetings/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+        loadMeetings();
+    } catch (err) {
+        alert('Error deleting meeting');
+    }
+}
+
+async function viewRsvps(id) {
+    const content = document.getElementById('rsvpContent');
+    content.innerHTML = 'Loading...';
+
+    document.getElementById('rsvpModal').classList.remove('hidden');
+    document.getElementById('rsvpModal').classList.add('flex');
+
+    try {
+        const res = await fetch(`/api/admin/meetings/${id}/rsvps`);
+        const data = await res.json();
+
+        if (data.rsvps.length === 0) {
+            content.innerHTML = '<p class="text-gray-500">No RSVPs yet</p>';
+            return;
+        }
+
+        content.innerHTML = `
+            <div class="mb-4">
+                <h4 class="font-medium">${data.meeting_title}</h4>
+                <p class="text-sm text-gray-500">${data.department_name}</p>
+                <p class="text-sm mt-2">
+                    <span class="text-green-600">${data.attending} attending</span> /
+                    <span class="text-red-600">${data.not_attending} not attending</span>
+                </p>
+            </div>
+            <div class="space-y-2 max-h-64 overflow-y-auto">
+                ${data.rsvps.map(r => `
+                    <div class="flex justify-between items-center py-2 border-b">
+                        <div>
+                            <div class="font-medium text-sm">${r.member_name}</div>
+                            <div class="text-xs text-gray-500">${r.member_phone}</div>
+                        </div>
+                        <span class="px-2 py-1 text-xs rounded ${r.response === 'attending' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+                            ${r.response === 'attending' ? 'Attending' : 'Not Attending'}
+                        </span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch (err) {
+        content.innerHTML = '<p class="text-red-500">Failed to load RSVPs</p>';
+    }
+}
+
+function closeRsvpModal() {
+    document.getElementById('rsvpModal').classList.add('hidden');
+    document.getElementById('rsvpModal').classList.remove('flex');
+}
+
+init();
+</script>
+{% endblock %}

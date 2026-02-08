@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, or_
-from typing import Optional, Dict, Any
+from sqlalchemy import func, or_, and_
+from typing import Optional, Dict, Any, List, Tuple
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import re
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -16,7 +16,8 @@ from schemas import (
     SettingUpdate, DepartmentsGroupedResponse,
     ReviewStatusUpdate, ReplaceDepartmentRequest, AssignDepartmentRequest,
     AppealCreate, AppealResolve,
-    SetHODRequest
+    SetHODRequest,
+    MeetingCreate, MeetingUpdate, RSVPRequest
 )
 
 router = APIRouter()
@@ -1379,4 +1380,700 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
     return {
         "hod_name": hod_member.full_name,
         "departments": dept_views
+    }
+
+
+# ============ MEETING ENDPOINTS ============
+
+def slot_to_time(slot: int) -> str:
+    """Convert slot number (0-47) to HH:MM format"""
+    hours = slot // 2
+    minutes = (slot % 2) * 30
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def get_week_dates(reference_date: date) -> Tuple[date, date]:
+    """Get Monday and Sunday of the week containing reference_date"""
+    # Get Monday of the week (weekday 0 = Monday)
+    monday = reference_date - timedelta(days=reference_date.weekday())
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+
+def check_slot_availability(
+    db: Session,
+    department_id: int,
+    meeting_date: date,
+    start_slot: int,
+    end_slot: int,
+    exclude_meeting_id: Optional[int] = None
+) -> Tuple[bool, Optional[str]]:
+    """Check if time slots are available for a department's meeting.
+    Returns (available, conflict_reason)"""
+    # Get approved members of the booking department
+    dept_members = set(
+        md.member_id for md in db.query(MemberDepartment)
+        .filter(
+            MemberDepartment.department_id == department_id,
+            MemberDepartment.status == "approved"
+        ).all()
+    )
+
+    # Find overlapping meetings on the same date
+    query = db.query(Meeting).filter(
+        Meeting.meeting_date == meeting_date,
+        Meeting.start_slot < end_slot,
+        Meeting.end_slot > start_slot
+    )
+    if exclude_meeting_id:
+        query = query.filter(Meeting.id != exclude_meeting_id)
+
+    conflicts = query.all()
+
+    for meeting in conflicts:
+        # Get approved members of the conflicting meeting's department
+        other_members = set(
+            md.member_id for md in db.query(MemberDepartment)
+            .filter(
+                MemberDepartment.department_id == meeting.department_id,
+                MemberDepartment.status == "approved"
+            ).all()
+        )
+
+        # Check for intersection
+        if dept_members & other_members:
+            dept = db.query(Department).filter(Department.id == meeting.department_id).first()
+            return False, f"Conflict with {dept.name if dept else 'another department'} - shared members"
+
+    return True, None
+
+
+def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[int] = None) -> dict:
+    """Format a meeting for API response"""
+    # Get RSVP counts
+    rsvp_count = db.query(MeetingRSVP).filter(MeetingRSVP.meeting_id == meeting.id).count()
+    attending_count = db.query(MeetingRSVP).filter(
+        MeetingRSVP.meeting_id == meeting.id,
+        MeetingRSVP.response == "attending"
+    ).count()
+
+    # Get member's RSVP if member_id provided
+    my_rsvp = None
+    if member_id:
+        rsvp = db.query(MeetingRSVP).filter(
+            MeetingRSVP.meeting_id == meeting.id,
+            MeetingRSVP.member_id == member_id
+        ).first()
+        if rsvp:
+            my_rsvp = rsvp.response
+
+    return {
+        "id": meeting.id,
+        "department_id": meeting.department_id,
+        "department_name": meeting.department.name if meeting.department else None,
+        "title": meeting.title,
+        "description": meeting.description,
+        "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
+        "start_slot": meeting.start_slot,
+        "end_slot": meeting.end_slot,
+        "start_time": slot_to_time(meeting.start_slot),
+        "end_time": slot_to_time(meeting.end_slot),
+        "location": meeting.location,
+        "meeting_link": meeting.meeting_link,
+        "created_by_id": meeting.created_by_id,
+        "created_by_name": meeting.created_by.full_name if meeting.created_by else None,
+        "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
+        "rsvp_count": rsvp_count,
+        "attending_count": attending_count,
+        "my_rsvp": my_rsvp
+    }
+
+
+# --- HOD Meeting Endpoints ---
+
+@router.get("/hod/meetings")
+def get_hod_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
+    """Get all meetings for departments where this member is HOD"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    hod_member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            hod_member = m
+            break
+
+    if not hod_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Get departments where this member is HOD
+    dept_ids = [d.id for d in db.query(Department).filter(Department.hod_member_id == hod_member.id).all()]
+
+    if not dept_ids:
+        return {"meetings": [], "total": 0}
+
+    # Get meetings for these departments
+    meetings = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(
+        Meeting.department_id.in_(dept_ids),
+        Meeting.meeting_date >= date.today()
+    ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
+
+    return {
+        "meetings": [format_meeting_response(m, db) for m in meetings],
+        "total": len(meetings)
+    }
+
+
+@router.get("/hod/calendar")
+def get_hod_calendar(
+    phone: str = Query(...),
+    department_id: int = Query(...),
+    week_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Get weekly calendar with availability for a department"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    hod_member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            hod_member = m
+            break
+
+    if not hod_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Verify HOD access to this department
+    department = db.query(Department).filter(Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+    if department.hod_member_id != hod_member.id:
+        raise HTTPException(status_code=403, detail="You are not the HOD of this department")
+
+    # Parse week date or use today
+    if week_date:
+        try:
+            ref_date = date.fromisoformat(week_date)
+        except ValueError:
+            ref_date = date.today()
+    else:
+        ref_date = date.today()
+
+    week_start, week_end = get_week_dates(ref_date)
+
+    # Get all meetings for this week
+    all_meetings = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(
+        Meeting.meeting_date >= week_start,
+        Meeting.meeting_date <= week_end
+    ).all()
+
+    # Build calendar
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    days = []
+
+    for day_offset in range(7):
+        current_date = week_start + timedelta(days=day_offset)
+        day_meetings = [m for m in all_meetings if m.meeting_date == current_date]
+
+        # Build slots (showing 6 AM to 10 PM = slots 12 to 44)
+        slots = []
+        for slot in range(12, 44):  # 6:00 to 22:00
+            slot_time = slot_to_time(slot)
+
+            # Check if this slot is taken by any meeting for this department
+            dept_meeting = None
+            for m in day_meetings:
+                if m.department_id == department_id and m.start_slot <= slot < m.end_slot:
+                    dept_meeting = m
+                    break
+
+            if dept_meeting:
+                slots.append({
+                    "slot": slot,
+                    "time": slot_time,
+                    "available": False,
+                    "meeting": format_meeting_response(dept_meeting, db),
+                    "conflict_reason": None
+                })
+            else:
+                # Check availability (conflicts with other departments)
+                available, conflict_reason = check_slot_availability(
+                    db, department_id, current_date, slot, slot + 1
+                )
+                slots.append({
+                    "slot": slot,
+                    "time": slot_time,
+                    "available": available,
+                    "meeting": None,
+                    "conflict_reason": conflict_reason
+                })
+
+        days.append({
+            "date": current_date.isoformat(),
+            "day_name": day_names[day_offset],
+            "slots": slots
+        })
+
+    return {
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "department_id": department_id,
+        "department_name": department.name,
+        "days": days
+    }
+
+
+@router.post("/hod/meetings")
+def create_hod_meeting(
+    data: MeetingCreate,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Create a meeting (HOD only)"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    hod_member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            hod_member = m
+            break
+
+    if not hod_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Verify HOD access
+    department = db.query(Department).filter(Department.id == data.department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+    if department.hod_member_id != hod_member.id:
+        raise HTTPException(status_code=403, detail="You are not the HOD of this department")
+
+    # Validate slots
+    if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
+        raise HTTPException(status_code=400, detail="Invalid time slots")
+
+    # Check availability
+    available, conflict_reason = check_slot_availability(
+        db, data.department_id, data.meeting_date, data.start_slot, data.end_slot
+    )
+    if not available:
+        raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+
+    # Create meeting
+    meeting = Meeting(
+        department_id=data.department_id,
+        created_by_id=hod_member.id,
+        title=data.title,
+        description=data.description,
+        meeting_date=data.meeting_date,
+        start_slot=data.start_slot,
+        end_slot=data.end_slot,
+        location=data.location,
+        meeting_link=data.meeting_link
+    )
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+
+    # Reload with relationships
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(Meeting.id == meeting.id).first()
+
+    return {"success": True, "meeting": format_meeting_response(meeting, db)}
+
+
+@router.put("/hod/meetings/{meeting_id}")
+def update_hod_meeting(
+    meeting_id: int,
+    data: MeetingUpdate,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Update a meeting (HOD who created it only)"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    hod_member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            hod_member = m
+            break
+
+    if not hod_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Find meeting
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(Meeting.id == meeting_id).first()
+
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # Verify ownership
+    if meeting.created_by_id != hod_member.id:
+        raise HTTPException(status_code=403, detail="You can only edit meetings you created")
+
+    # Handle date/slot changes with conflict check
+    new_date = data.meeting_date if data.meeting_date else meeting.meeting_date
+    new_start = data.start_slot if data.start_slot is not None else meeting.start_slot
+    new_end = data.end_slot if data.end_slot is not None else meeting.end_slot
+
+    if new_start < 0 or new_end > 48 or new_start >= new_end:
+        raise HTTPException(status_code=400, detail="Invalid time slots")
+
+    # Check availability if date or slots changed
+    if new_date != meeting.meeting_date or new_start != meeting.start_slot or new_end != meeting.end_slot:
+        available, conflict_reason = check_slot_availability(
+            db, meeting.department_id, new_date, new_start, new_end, exclude_meeting_id=meeting_id
+        )
+        if not available:
+            raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+
+    # Update fields
+    if data.title is not None:
+        meeting.title = data.title
+    if data.description is not None:
+        meeting.description = data.description
+    if data.meeting_date is not None:
+        meeting.meeting_date = data.meeting_date
+    if data.start_slot is not None:
+        meeting.start_slot = data.start_slot
+    if data.end_slot is not None:
+        meeting.end_slot = data.end_slot
+    if data.location is not None:
+        meeting.location = data.location
+    if data.meeting_link is not None:
+        meeting.meeting_link = data.meeting_link
+
+    db.commit()
+    db.refresh(meeting)
+
+    return {"success": True, "meeting": format_meeting_response(meeting, db)}
+
+
+@router.delete("/hod/meetings/{meeting_id}")
+def delete_hod_meeting(
+    meeting_id: int,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Delete a meeting (HOD who created it only)"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    hod_member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            hod_member = m
+            break
+
+    if not hod_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Find meeting
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # Verify ownership
+    if meeting.created_by_id != hod_member.id:
+        raise HTTPException(status_code=403, detail="You can only delete meetings you created")
+
+    db.delete(meeting)
+    db.commit()
+
+    return {"success": True, "message": "Meeting deleted"}
+
+
+# --- Member Meeting Endpoints ---
+
+@router.get("/meetings")
+def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
+    """Get upcoming meetings for member's approved departments"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Get approved department IDs
+    approved_dept_ids = [
+        md.department_id for md in db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member.id,
+            MemberDepartment.status == "approved"
+        ).all()
+    ]
+
+    if not approved_dept_ids:
+        return {"meetings": [], "total": 0}
+
+    # Get upcoming meetings
+    meetings = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(
+        Meeting.department_id.in_(approved_dept_ids),
+        Meeting.meeting_date >= date.today()
+    ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
+
+    return {
+        "meetings": [format_meeting_response(m, db, member.id) for m in meetings],
+        "total": len(meetings)
+    }
+
+
+@router.post("/meetings/{meeting_id}/rsvp")
+def submit_rsvp(
+    meeting_id: int,
+    data: RSVPRequest,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Submit or update RSVP for a meeting"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Find meeting
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # Verify member is in this department
+    membership = db.query(MemberDepartment).filter(
+        MemberDepartment.member_id == member.id,
+        MemberDepartment.department_id == meeting.department_id,
+        MemberDepartment.status == "approved"
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="You are not an approved member of this department")
+
+    # Validate response
+    if data.response not in ["attending", "not_attending"]:
+        raise HTTPException(status_code=400, detail="Response must be 'attending' or 'not_attending'")
+
+    # Find or create RSVP
+    rsvp = db.query(MeetingRSVP).filter(
+        MeetingRSVP.meeting_id == meeting_id,
+        MeetingRSVP.member_id == member.id
+    ).first()
+
+    if rsvp:
+        rsvp.response = data.response
+        rsvp.updated_at = datetime.now()
+    else:
+        rsvp = MeetingRSVP(
+            meeting_id=meeting_id,
+            member_id=member.id,
+            response=data.response
+        )
+        db.add(rsvp)
+
+    db.commit()
+
+    return {"success": True, "response": data.response}
+
+
+# --- Admin Meeting Endpoints ---
+
+@router.get("/admin/meetings")
+def get_all_meetings(
+    department_id: Optional[int] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Get all meetings (admin)"""
+    query = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    )
+
+    if department_id:
+        query = query.filter(Meeting.department_id == department_id)
+
+    if from_date:
+        try:
+            from_dt = date.fromisoformat(from_date)
+            query = query.filter(Meeting.meeting_date >= from_dt)
+        except ValueError:
+            pass
+
+    if to_date:
+        try:
+            to_dt = date.fromisoformat(to_date)
+            query = query.filter(Meeting.meeting_date <= to_dt)
+        except ValueError:
+            pass
+
+    meetings = query.order_by(Meeting.meeting_date.desc(), Meeting.start_slot).all()
+
+    return {
+        "meetings": [format_meeting_response(m, db) for m in meetings],
+        "total": len(meetings)
+    }
+
+
+@router.post("/admin/meetings")
+def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
+    """Create a meeting (admin)"""
+    department = db.query(Department).filter(Department.id == data.department_id).first()
+    if not department:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
+        raise HTTPException(status_code=400, detail="Invalid time slots")
+
+    # Check availability
+    available, conflict_reason = check_slot_availability(
+        db, data.department_id, data.meeting_date, data.start_slot, data.end_slot
+    )
+    if not available:
+        raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+
+    meeting = Meeting(
+        department_id=data.department_id,
+        created_by_id=None,  # Admin-created
+        title=data.title,
+        description=data.description,
+        meeting_date=data.meeting_date,
+        start_slot=data.start_slot,
+        end_slot=data.end_slot,
+        location=data.location,
+        meeting_link=data.meeting_link
+    )
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(Meeting.id == meeting.id).first()
+
+    return {"success": True, "meeting": format_meeting_response(meeting, db)}
+
+
+@router.put("/admin/meetings/{meeting_id}")
+def update_admin_meeting(
+    meeting_id: int,
+    data: MeetingUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update any meeting (admin)"""
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department),
+        joinedload(Meeting.created_by)
+    ).filter(Meeting.id == meeting_id).first()
+
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # Handle date/slot changes with conflict check
+    new_date = data.meeting_date if data.meeting_date else meeting.meeting_date
+    new_start = data.start_slot if data.start_slot is not None else meeting.start_slot
+    new_end = data.end_slot if data.end_slot is not None else meeting.end_slot
+
+    if new_start < 0 or new_end > 48 or new_start >= new_end:
+        raise HTTPException(status_code=400, detail="Invalid time slots")
+
+    if new_date != meeting.meeting_date or new_start != meeting.start_slot or new_end != meeting.end_slot:
+        available, conflict_reason = check_slot_availability(
+            db, meeting.department_id, new_date, new_start, new_end, exclude_meeting_id=meeting_id
+        )
+        if not available:
+            raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+
+    if data.title is not None:
+        meeting.title = data.title
+    if data.description is not None:
+        meeting.description = data.description
+    if data.meeting_date is not None:
+        meeting.meeting_date = data.meeting_date
+    if data.start_slot is not None:
+        meeting.start_slot = data.start_slot
+    if data.end_slot is not None:
+        meeting.end_slot = data.end_slot
+    if data.location is not None:
+        meeting.location = data.location
+    if data.meeting_link is not None:
+        meeting.meeting_link = data.meeting_link
+
+    db.commit()
+    db.refresh(meeting)
+
+    return {"success": True, "meeting": format_meeting_response(meeting, db)}
+
+
+@router.delete("/admin/meetings/{meeting_id}")
+def delete_admin_meeting(meeting_id: int, db: Session = Depends(get_db)):
+    """Delete any meeting (admin)"""
+    meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    db.delete(meeting)
+    db.commit()
+
+    return {"success": True, "message": "Meeting deleted"}
+
+
+@router.get("/admin/meetings/{meeting_id}/rsvps")
+def get_meeting_rsvps(meeting_id: int, db: Session = Depends(get_db)):
+    """Get all RSVPs for a meeting (admin)"""
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department)
+    ).filter(Meeting.id == meeting_id).first()
+
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    rsvps = db.query(MeetingRSVP).options(
+        joinedload(MeetingRSVP.member)
+    ).filter(MeetingRSVP.meeting_id == meeting_id).all()
+
+    return {
+        "meeting_id": meeting_id,
+        "meeting_title": meeting.title,
+        "department_name": meeting.department.name if meeting.department else None,
+        "rsvps": [
+            {
+                "id": r.id,
+                "member_id": r.member_id,
+                "member_name": r.member.full_name if r.member else None,
+                "member_phone": r.member.phone if r.member else None,
+                "response": r.response,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None
+            }
+            for r in rsvps
+        ],
+        "total": len(rsvps),
+        "attending": sum(1 for r in rsvps if r.response == "attending"),
+        "not_attending": sum(1 for r in rsvps if r.response == "not_attending")
     }

@@ -1,0 +1,675 @@
+{% extends "base.html" %}
+
+{% block title %}HOD Meetings - RFM Stellenbosch{% endblock %}
+
+{% block head %}
+<style>
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: 60px repeat(7, 1fr);
+        gap: 1px;
+        background-color: #e5e7eb;
+    }
+    .calendar-header {
+        background-color: #1f2937;
+        color: white;
+        padding: 8px 4px;
+        text-align: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .time-label {
+        background-color: #f9fafb;
+        padding: 4px;
+        font-size: 0.65rem;
+        color: #6b7280;
+        text-align: right;
+        padding-right: 8px;
+    }
+    .slot {
+        background-color: white;
+        min-height: 24px;
+        cursor: pointer;
+        transition: background-color 0.15s;
+        position: relative;
+    }
+    .slot:hover:not(.unavailable):not(.booked) {
+        background-color: #dbeafe;
+    }
+    .slot.selected {
+        background-color: #3b82f6 !important;
+    }
+    .slot.selecting {
+        background-color: #93c5fd !important;
+    }
+    .slot.unavailable {
+        background-color: #fef2f2;
+        cursor: not-allowed;
+    }
+    .slot.booked {
+        background-color: #dcfce7;
+        cursor: pointer;
+    }
+    .slot.booked-other {
+        background-color: #fee2e2;
+    }
+    .meeting-block {
+        position: absolute;
+        left: 2px;
+        right: 2px;
+        background-color: #10b981;
+        color: white;
+        font-size: 0.6rem;
+        padding: 2px 4px;
+        border-radius: 2px;
+        overflow: hidden;
+        z-index: 10;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Meeting Calendar</h1>
+            <p id="hodName" class="text-gray-600"></p>
+        </div>
+        <a href="/portal" class="text-blue-600 hover:underline text-sm">Back to Portal</a>
+    </div>
+
+    <!-- Phone Entry (if not in URL) -->
+    <div id="phoneEntry" class="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 class="text-lg font-semibold mb-4">Enter Your Phone Number</h2>
+        <div class="flex gap-4">
+            <input type="tel" id="phoneInput" placeholder="0711234567"
+                   class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <button onclick="loadHODData()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Continue
+            </button>
+        </div>
+        <p id="phoneError" class="text-red-500 text-sm mt-2 hidden"></p>
+    </div>
+
+    <!-- Main Content (hidden until authenticated) -->
+    <div id="mainContent" class="hidden">
+        <!-- Department Selector -->
+        <div class="bg-white rounded-lg shadow p-4 mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Select Department</label>
+            <select id="departmentSelect" onchange="loadCalendar()"
+                    class="w-full md:w-auto px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">-- Select Department --</option>
+            </select>
+        </div>
+
+        <!-- Calendar Section -->
+        <div id="calendarSection" class="hidden">
+            <!-- Week Navigation -->
+            <div class="bg-white rounded-lg shadow p-4 mb-4">
+                <div class="flex items-center justify-between">
+                    <button onclick="changeWeek(-1)" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">
+                        &larr; Previous Week
+                    </button>
+                    <div class="text-center">
+                        <span id="weekLabel" class="font-semibold"></span>
+                    </div>
+                    <button onclick="changeWeek(1)" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">
+                        Next Week &rarr;
+                    </button>
+                </div>
+            </div>
+
+            <!-- Calendar Grid -->
+            <div class="bg-white rounded-lg shadow overflow-hidden mb-6">
+                <div id="calendarGrid" class="calendar-grid">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="flex flex-wrap gap-4 mb-6 text-sm">
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 bg-white border"></div>
+                    <span>Available</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 bg-green-100"></div>
+                    <span>Your Meeting</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 bg-red-50"></div>
+                    <span>Unavailable (Conflict)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 bg-blue-500"></div>
+                    <span>Selected</span>
+                </div>
+            </div>
+
+            <!-- Instructions -->
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <p class="text-sm text-blue-800">
+                    <strong>How to book:</strong> Click on a slot to start selection, then click another slot to end.
+                    You can select multiple consecutive 30-minute slots. Then click "Create Meeting" to finalize.
+                </p>
+            </div>
+
+            <!-- Selection Actions -->
+            <div id="selectionActions" class="hidden bg-white rounded-lg shadow p-4 mb-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="font-medium">Selected: </span>
+                        <span id="selectionInfo" class="text-blue-600"></span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="clearSelection()" class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">
+                            Clear
+                        </button>
+                        <button onclick="openCreateModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                            Create Meeting
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upcoming Meetings List -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">Your Upcoming Meetings</h2>
+            <div id="meetingsList" class="space-y-3">
+                <p class="text-gray-500">Loading...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Meeting Modal -->
+<div id="createModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold mb-4">Create Meeting</h3>
+        <form id="createForm" onsubmit="createMeeting(event)">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input type="text" id="meetingTitle" required
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="meetingDescription" rows="2"
+                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input type="text" id="meetingLocation" placeholder="e.g., Church Hall"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Meeting Link (Zoom/Teams)</label>
+                    <input type="url" id="meetingLink" placeholder="https://..."
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="bg-gray-50 p-3 rounded-lg">
+                    <p class="text-sm"><strong>Date:</strong> <span id="modalDate"></span></p>
+                    <p class="text-sm"><strong>Time:</strong> <span id="modalTime"></span></p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button" onclick="closeCreateModal()"
+                        class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                    Create Meeting
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Meeting Modal -->
+<div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold mb-4">Edit Meeting</h3>
+        <form id="editForm" onsubmit="updateMeeting(event)">
+            <input type="hidden" id="editMeetingId">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input type="text" id="editTitle" required
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="editDescription" rows="2"
+                              class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input type="text" id="editLocation"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Meeting Link</label>
+                    <input type="url" id="editLink"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="flex justify-between mt-6">
+                <button type="button" onclick="deleteMeeting()"
+                        class="px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200">Delete</button>
+                <div class="flex gap-3">
+                    <button type="button" onclick="closeEditModal()"
+                            class="px-4 py-2 bg-gray-100 rounded hover:bg-gray-200">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let phone = '';
+let departments = [];
+let currentDeptId = null;
+let currentWeekDate = new Date();
+let calendarData = null;
+
+// Selection state
+let selectionStart = null;
+let selectionEnd = null;
+let selectedDate = null;
+
+// Slot time helpers
+function slotToTime(slot) {
+    const hours = Math.floor(slot / 2);
+    const mins = (slot % 2) * 30;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// Check URL for phone parameter
+function init() {
+    const params = new URLSearchParams(window.location.search);
+    const urlPhone = params.get('phone');
+    if (urlPhone) {
+        document.getElementById('phoneInput').value = urlPhone;
+        loadHODData();
+    }
+}
+
+async function loadHODData() {
+    phone = document.getElementById('phoneInput').value.trim().replace(/\D/g, '');
+    if (phone.length !== 10) {
+        document.getElementById('phoneError').textContent = 'Please enter a valid 10-digit phone number';
+        document.getElementById('phoneError').classList.remove('hidden');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/hod/departments?phone=${phone}`);
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to load data');
+        }
+        const data = await res.json();
+
+        if (data.departments.length === 0) {
+            document.getElementById('phoneError').textContent = 'You are not assigned as HOD of any department';
+            document.getElementById('phoneError').classList.remove('hidden');
+            return;
+        }
+
+        departments = data.departments;
+        document.getElementById('hodName').textContent = `Welcome, ${data.hod_name}`;
+
+        // Update URL
+        window.history.replaceState({}, '', `/hod/meetings?phone=${phone}`);
+
+        // Populate department select
+        const select = document.getElementById('departmentSelect');
+        select.innerHTML = '<option value="">-- Select Department --</option>';
+        departments.forEach(dept => {
+            select.innerHTML += `<option value="${dept.id}">${dept.name}</option>`;
+        });
+
+        // Show main content
+        document.getElementById('phoneEntry').classList.add('hidden');
+        document.getElementById('mainContent').classList.remove('hidden');
+
+        // Load meetings list
+        loadMeetingsList();
+    } catch (err) {
+        document.getElementById('phoneError').textContent = err.message;
+        document.getElementById('phoneError').classList.remove('hidden');
+    }
+}
+
+async function loadMeetingsList() {
+    const container = document.getElementById('meetingsList');
+    try {
+        const res = await fetch(`/api/hod/meetings?phone=${phone}`);
+        const data = await res.json();
+
+        if (data.meetings.length === 0) {
+            container.innerHTML = '<p class="text-gray-500">No upcoming meetings scheduled</p>';
+            return;
+        }
+
+        container.innerHTML = data.meetings.map(m => `
+            <div class="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer" onclick="openEditModal(${m.id})">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="font-medium">${m.title}</h3>
+                        <p class="text-sm text-gray-600">${m.department_name}</p>
+                    </div>
+                    <div class="text-right text-sm">
+                        <p class="font-medium">${formatDate(m.meeting_date)}</p>
+                        <p class="text-gray-600">${m.start_time} - ${m.end_time}</p>
+                    </div>
+                </div>
+                ${m.location ? `<p class="text-sm text-gray-500 mt-2">Location: ${m.location}</p>` : ''}
+                <p class="text-xs text-gray-400 mt-2">RSVPs: ${m.attending_count} attending / ${m.rsvp_count} responded</p>
+            </div>
+        `).join('');
+    } catch (err) {
+        container.innerHTML = '<p class="text-red-500">Failed to load meetings</p>';
+    }
+}
+
+async function loadCalendar() {
+    currentDeptId = parseInt(document.getElementById('departmentSelect').value);
+    if (!currentDeptId) {
+        document.getElementById('calendarSection').classList.add('hidden');
+        return;
+    }
+
+    document.getElementById('calendarSection').classList.remove('hidden');
+    clearSelection();
+
+    const weekDate = currentWeekDate.toISOString().split('T')[0];
+    try {
+        const res = await fetch(`/api/hod/calendar?phone=${phone}&department_id=${currentDeptId}&week_date=${weekDate}`);
+        calendarData = await res.json();
+        renderCalendar();
+    } catch (err) {
+        console.error('Failed to load calendar:', err);
+    }
+}
+
+function renderCalendar() {
+    if (!calendarData) return;
+
+    document.getElementById('weekLabel').textContent =
+        `${formatDate(calendarData.week_start)} - ${formatDate(calendarData.week_end)}`;
+
+    const grid = document.getElementById('calendarGrid');
+
+    // Header row
+    let html = '<div class="calendar-header">Time</div>';
+    calendarData.days.forEach(day => {
+        html += `<div class="calendar-header">${day.day_name}<br><span class="font-normal">${day.date.slice(5)}</span></div>`;
+    });
+
+    // Time slots (6 AM to 10 PM)
+    for (let slot = 12; slot < 44; slot++) {
+        // Time label
+        html += `<div class="time-label">${slotToTime(slot)}</div>`;
+
+        // Day cells
+        calendarData.days.forEach((day, dayIdx) => {
+            const slotData = day.slots.find(s => s.slot === slot);
+            let classes = 'slot';
+            let content = '';
+            let dataAttrs = `data-date="${day.date}" data-slot="${slot}"`;
+
+            if (slotData) {
+                if (slotData.meeting) {
+                    classes += ' booked';
+                    // Show meeting title on first slot
+                    if (slot === slotData.meeting.start_slot) {
+                        const duration = slotData.meeting.end_slot - slotData.meeting.start_slot;
+                        content = `<div class="meeting-block" style="height: ${duration * 24 - 2}px" onclick="openEditModal(${slotData.meeting.id})">${slotData.meeting.title}</div>`;
+                    }
+                } else if (!slotData.available) {
+                    classes += ' unavailable';
+                    dataAttrs += ` title="${slotData.conflict_reason || 'Unavailable'}"`;
+                }
+            }
+
+            html += `<div class="${classes}" ${dataAttrs}>${content}</div>`;
+        });
+    }
+
+    grid.innerHTML = html;
+
+    // Add click handlers
+    grid.querySelectorAll('.slot:not(.unavailable):not(.booked)').forEach(slot => {
+        slot.addEventListener('click', handleSlotClick);
+    });
+}
+
+function handleSlotClick(e) {
+    const slotEl = e.target.closest('.slot');
+    const slotDate = slotEl.dataset.date;
+    const slotNum = parseInt(slotEl.dataset.slot);
+
+    if (selectionStart === null) {
+        // Start new selection
+        selectionStart = slotNum;
+        selectedDate = slotDate;
+        slotEl.classList.add('selected');
+        updateSelectionUI();
+    } else if (selectedDate === slotDate && slotNum !== selectionStart) {
+        // Complete selection
+        selectionEnd = slotNum;
+        if (selectionEnd < selectionStart) {
+            [selectionStart, selectionEnd] = [selectionEnd, selectionStart];
+        }
+        selectionEnd += 1; // End is exclusive
+        highlightSelection();
+        updateSelectionUI();
+    } else {
+        // Start over
+        clearSelection();
+        selectionStart = slotNum;
+        selectedDate = slotDate;
+        slotEl.classList.add('selected');
+        updateSelectionUI();
+    }
+}
+
+function highlightSelection() {
+    document.querySelectorAll('.slot').forEach(slot => {
+        slot.classList.remove('selected', 'selecting');
+        if (slot.dataset.date === selectedDate) {
+            const slotNum = parseInt(slot.dataset.slot);
+            if (slotNum >= selectionStart && slotNum < selectionEnd) {
+                slot.classList.add('selected');
+            }
+        }
+    });
+}
+
+function clearSelection() {
+    selectionStart = null;
+    selectionEnd = null;
+    selectedDate = null;
+    document.querySelectorAll('.slot').forEach(s => s.classList.remove('selected', 'selecting'));
+    updateSelectionUI();
+}
+
+function updateSelectionUI() {
+    const actionsDiv = document.getElementById('selectionActions');
+    const infoSpan = document.getElementById('selectionInfo');
+
+    if (selectionStart !== null && selectionEnd !== null) {
+        actionsDiv.classList.remove('hidden');
+        infoSpan.textContent = `${formatDate(selectedDate)}, ${slotToTime(selectionStart)} - ${slotToTime(selectionEnd)}`;
+    } else if (selectionStart !== null) {
+        actionsDiv.classList.remove('hidden');
+        infoSpan.textContent = `${formatDate(selectedDate)}, ${slotToTime(selectionStart)} - Click another slot to set end time`;
+    } else {
+        actionsDiv.classList.add('hidden');
+    }
+}
+
+function changeWeek(delta) {
+    currentWeekDate.setDate(currentWeekDate.getDate() + (delta * 7));
+    loadCalendar();
+}
+
+// Create Modal
+function openCreateModal() {
+    if (selectionStart === null || selectionEnd === null) return;
+
+    document.getElementById('modalDate').textContent = formatDate(selectedDate);
+    document.getElementById('modalTime').textContent = `${slotToTime(selectionStart)} - ${slotToTime(selectionEnd)}`;
+
+    document.getElementById('meetingTitle').value = '';
+    document.getElementById('meetingDescription').value = '';
+    document.getElementById('meetingLocation').value = '';
+    document.getElementById('meetingLink').value = '';
+
+    document.getElementById('createModal').classList.remove('hidden');
+    document.getElementById('createModal').classList.add('flex');
+}
+
+function closeCreateModal() {
+    document.getElementById('createModal').classList.add('hidden');
+    document.getElementById('createModal').classList.remove('flex');
+}
+
+async function createMeeting(e) {
+    e.preventDefault();
+
+    const payload = {
+        department_id: currentDeptId,
+        title: document.getElementById('meetingTitle').value,
+        description: document.getElementById('meetingDescription').value || null,
+        meeting_date: selectedDate,
+        start_slot: selectionStart,
+        end_slot: selectionEnd,
+        location: document.getElementById('meetingLocation').value || null,
+        meeting_link: document.getElementById('meetingLink').value || null
+    };
+
+    try {
+        const res = await fetch(`/api/hod/meetings?phone=${phone}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to create meeting');
+        }
+
+        closeCreateModal();
+        clearSelection();
+        loadCalendar();
+        loadMeetingsList();
+        alert('Meeting created successfully!');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// Edit Modal
+let editingMeeting = null;
+
+async function openEditModal(meetingId) {
+    try {
+        const res = await fetch(`/api/hod/meetings?phone=${phone}`);
+        const data = await res.json();
+        editingMeeting = data.meetings.find(m => m.id === meetingId);
+
+        if (!editingMeeting) return;
+
+        document.getElementById('editMeetingId').value = meetingId;
+        document.getElementById('editTitle').value = editingMeeting.title;
+        document.getElementById('editDescription').value = editingMeeting.description || '';
+        document.getElementById('editLocation').value = editingMeeting.location || '';
+        document.getElementById('editLink').value = editingMeeting.meeting_link || '';
+
+        document.getElementById('editModal').classList.remove('hidden');
+        document.getElementById('editModal').classList.add('flex');
+    } catch (err) {
+        console.error('Failed to load meeting:', err);
+    }
+}
+
+function closeEditModal() {
+    document.getElementById('editModal').classList.add('hidden');
+    document.getElementById('editModal').classList.remove('flex');
+    editingMeeting = null;
+}
+
+async function updateMeeting(e) {
+    e.preventDefault();
+    const meetingId = document.getElementById('editMeetingId').value;
+
+    const payload = {
+        title: document.getElementById('editTitle').value,
+        description: document.getElementById('editDescription').value || null,
+        location: document.getElementById('editLocation').value || null,
+        meeting_link: document.getElementById('editLink').value || null
+    };
+
+    try {
+        const res = await fetch(`/api/hod/meetings/${meetingId}?phone=${phone}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to update meeting');
+        }
+
+        closeEditModal();
+        loadCalendar();
+        loadMeetingsList();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+async function deleteMeeting() {
+    const meetingId = document.getElementById('editMeetingId').value;
+
+    if (!confirm('Are you sure you want to delete this meeting?')) return;
+
+    try {
+        const res = await fetch(`/api/hod/meetings/${meetingId}?phone=${phone}`, {
+            method: 'DELETE'
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to delete meeting');
+        }
+
+        closeEditModal();
+        loadCalendar();
+        loadMeetingsList();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// Initialize on load
+init();
+</script>
+{% endblock %}

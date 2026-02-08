@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Date, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -27,6 +27,7 @@ class Department(Base):
     category = relationship("Category", back_populates="departments")
     hod = relationship("Member", foreign_keys=[hod_member_id])
     member_departments = relationship("MemberDepartment", back_populates="department", cascade="all, delete-orphan")
+    meetings = relationship("Meeting", back_populates="department", cascade="all, delete-orphan")
 
 
 class Member(Base):
@@ -102,3 +103,42 @@ class Settings(Base):
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String, unique=True, nullable=False)
     value = Column(String, nullable=False)
+
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+    created_by_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    meeting_date = Column(Date, nullable=False)
+    start_slot = Column(Integer, nullable=False)  # 0-47 (30-min slots, 0=00:00, 1=00:30, etc.)
+    end_slot = Column(Integer, nullable=False)    # Exclusive end slot
+    location = Column(String(200), nullable=True)
+    meeting_link = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    department = relationship("Department", back_populates="meetings")
+    created_by = relationship("Member", foreign_keys=[created_by_id])
+    rsvps = relationship("MeetingRSVP", back_populates="meeting", cascade="all, delete-orphan")
+
+
+class MeetingRSVP(Base):
+    __tablename__ = "meeting_rsvps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False)
+    response = Column(String(20), server_default="pending")  # pending, attending, not_attending
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('meeting_id', 'member_id', name='uq_meeting_member'),
+    )
+
+    meeting = relationship("Meeting", back_populates="rsvps")
+    member = relationship("Member")

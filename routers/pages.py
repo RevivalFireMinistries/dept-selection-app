@@ -270,3 +270,19 @@ async def desk_member_profile(request: Request, member_id: int):
     if not is_desk_authenticated(request):
         return RedirectResponse(url="/desk/login", status_code=302)
     return templates.TemplateResponse("desk/profile.html", {"request": request})
+
+
+# ============ MEETING ROUTES ============
+
+@router.get("/hod/meetings")
+async def hod_meetings(request: Request):
+    """HOD meeting management with calendar"""
+    return templates.TemplateResponse("hod/meetings.html", {"request": request})
+
+
+@router.get("/admin/meetings")
+async def admin_meetings(request: Request):
+    """Admin meeting management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/meetings.html", {"request": request})

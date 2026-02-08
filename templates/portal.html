@@ -138,6 +138,20 @@
                 </div>
             </div>
 
+            <!-- Upcoming Meetings Section -->
+            <div id="meetingsSection" class="hidden bg-white rounded-2xl shadow-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Upcoming Meetings</h3>
+                    <a href="#" id="hodMeetingsLink" class="hidden text-sm text-indigo-600 hover:underline">Manage Meetings</a>
+                </div>
+                <div id="meetingsList" class="space-y-3">
+                    <p class="text-gray-500 text-sm">Loading meetings...</p>
+                </div>
+                <div id="noMeetingsMessage" class="hidden text-center py-4 text-gray-500 text-sm">
+                    No upcoming meetings scheduled for your departments.
+                </div>
+            </div>
+
             <!-- HOD Dashboard Section -->
             <div id="hodSection" class="hidden space-y-4">
                 <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-5 text-white">
@@ -214,6 +228,7 @@
 let phone = '';
 let allData = null;
 let hodData = null;
+let meetingsData = null;
 let currentMember = null;
 let allDepartments = [];
 
@@ -230,18 +245,23 @@ async function init() {
     }
 
     try {
-        // Fetch data (include HOD data)
-        const [resultsRes, deptsRes, hodRes] = await Promise.all([
+        // Fetch data (include HOD data and meetings)
+        const [resultsRes, deptsRes, hodRes, meetingsRes] = await Promise.all([
             fetch(`/api/results?phone=${encodeURIComponent(phone)}`).then(r => r.json()),
             fetch('/api/departments').then(r => r.json()),
             fetch(`/api/hod/departments?phone=${encodeURIComponent(phone)}`).then(r => {
                 if (r.ok) return r.json();
                 return null;
-            }).catch(() => null)
+            }).catch(() => null),
+            fetch(`/api/meetings?phone=${encodeURIComponent(phone)}`).then(r => {
+                if (r.ok) return r.json();
+                return { meetings: [] };
+            }).catch(() => ({ meetings: [] }))
         ]);
 
         allData = resultsRes;
         hodData = hodRes;
+        meetingsData = meetingsRes;
 
         // Flatten departments for appeal dropdown
         allDepartments = [];
@@ -333,6 +353,9 @@ function selectMember(member) {
 
     // Render HOD dashboard if applicable
     renderHodDashboard();
+
+    // Render meetings
+    renderMeetings();
 }
 
 function renderDepartments(member) {
@@ -519,6 +542,116 @@ function toggleHodDept(btn) {
     const icon = btn.querySelector('svg');
     memberList.classList.toggle('hidden');
     icon.classList.toggle('rotate-180');
+}
+
+function formatMeetingDate(dateStr) {
+    const d = new Date(dateStr);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (d.toDateString() === today.toDateString()) {
+        return 'Today';
+    } else if (d.toDateString() === tomorrow.toDateString()) {
+        return 'Tomorrow';
+    }
+    return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function renderMeetings() {
+    const section = document.getElementById('meetingsSection');
+    const list = document.getElementById('meetingsList');
+    const noMeetings = document.getElementById('noMeetingsMessage');
+    const hodLink = document.getElementById('hodMeetingsLink');
+
+    // Show HOD meetings link if user is HOD
+    if (hodData && hodData.departments && hodData.departments.length > 0) {
+        hodLink.classList.remove('hidden');
+        hodLink.href = `/hod/meetings?phone=${encodeURIComponent(phone)}`;
+    }
+
+    if (!meetingsData || !meetingsData.meetings || meetingsData.meetings.length === 0) {
+        section.classList.remove('hidden');
+        list.classList.add('hidden');
+        noMeetings.classList.remove('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+    list.classList.remove('hidden');
+    noMeetings.classList.add('hidden');
+
+    list.innerHTML = meetingsData.meetings.map(m => {
+        const rsvpBtns = m.my_rsvp
+            ? `<span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} px-2 py-1 rounded-full font-medium">
+                ${m.my_rsvp === 'attending' ? 'Attending' : 'Not Attending'}
+               </span>
+               <button onclick="changeRsvp(${m.id})" class="text-xs text-gray-500 hover:underline">Change</button>`
+            : `<button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700">Attending</button>
+               <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Not Attending</button>`;
+
+        return `
+            <div class="border border-gray-200 rounded-xl p-4">
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <h4 class="font-medium text-gray-900">${m.title}</h4>
+                        <p class="text-sm text-indigo-600">${m.department_name}</p>
+                    </div>
+                    <div class="text-right text-sm">
+                        <p class="font-medium text-gray-900">${formatMeetingDate(m.meeting_date)}</p>
+                        <p class="text-gray-500">${m.start_time} - ${m.end_time}</p>
+                    </div>
+                </div>
+                ${m.location ? `<p class="text-sm text-gray-500 mt-2">Location: ${m.location}</p>` : ''}
+                ${m.meeting_link ? `<a href="${m.meeting_link}" target="_blank" class="text-sm text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
+                <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                    <span class="text-xs text-gray-400">${m.attending_count} attending</span>
+                    <div class="flex items-center gap-2">
+                        ${rsvpBtns}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function submitRsvp(meetingId, response) {
+    try {
+        const res = await fetch(`/api/meetings/${meetingId}/rsvp?phone=${encodeURIComponent(phone)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ response })
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to submit RSVP');
+        }
+
+        // Update local data and re-render
+        const meeting = meetingsData.meetings.find(m => m.id === meetingId);
+        if (meeting) {
+            if (!meeting.my_rsvp && response === 'attending') {
+                meeting.attending_count++;
+            } else if (meeting.my_rsvp === 'attending' && response === 'not_attending') {
+                meeting.attending_count--;
+            } else if (meeting.my_rsvp === 'not_attending' && response === 'attending') {
+                meeting.attending_count++;
+            }
+            meeting.my_rsvp = response;
+        }
+        renderMeetings();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+function changeRsvp(meetingId) {
+    const meeting = meetingsData.meetings.find(m => m.id === meetingId);
+    if (!meeting) return;
+
+    const newResponse = meeting.my_rsvp === 'attending' ? 'not_attending' : 'attending';
+    submitRsvp(meetingId, newResponse);
 }
 
 async function acceptAssignment(memberDeptId) {

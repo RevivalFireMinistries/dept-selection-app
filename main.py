@@ -64,6 +64,14 @@ def run_migrations():
             conn.commit()
             print("Migration: Added hod_member_id column to departments")
 
+        # Check if meetings table exists (created by create_all, log for visibility)
+        result = conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'meetings'
+        """))
+        if not result.fetchone():
+            print("Migration: meetings and meeting_rsvps tables will be created by create_all()")
+
         # Add new settings if they don't exist
         new_settings = [
             ('resultsPublished', 'false'),
