@@ -109,199 +109,314 @@ def render_email_template(event_type: EventType, data: Dict[str, Any]) -> str:
 
 
 def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
-    """Generate default email template"""
-    base_style = """
-        <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-            .content { background: #F9FAFB; padding: 20px; border: 1px solid #E5E7EB; }
-            .footer { padding: 15px; text-align: center; color: #6B7280; font-size: 12px; border-top: 1px solid #E5E7EB; }
-            .button { display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 0; }
-            .info-box { background: white; border: 1px solid #E5E7EB; border-radius: 6px; padding: 15px; margin: 15px 0; }
-            .label { font-weight: bold; color: #4B5563; }
-        </style>
-    """
+    """Generate modern email template with table-based layout for email client compatibility"""
+
+    def base_template(title: str, icon: str, accent_color: str, content: str, button_text: str = None, button_url: str = None):
+        """Generate a modern email template wrapper"""
+        button_html = ""
+        if button_text and button_url:
+            button_html = f'''
+                <tr>
+                    <td align="center" style="padding: 30px 0 20px 0;">
+                        <a href="{button_url}" style="display: inline-block; background: {accent_color}; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">{button_text}</a>
+                    </td>
+                </tr>
+            '''
+
+        return f'''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f4f4f5;">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <!-- Main Container -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 20px rgba(0, 0, 0, 0.03); overflow: hidden;">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, {accent_color} 0%, {accent_color}dd 100%); padding: 40px 40px 30px 40px; text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">{icon}</div>
+                            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">{title}</h1>
+                        </td>
+                    </tr>
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            {content}
+                        </td>
+                    </tr>
+                    <!-- Button -->
+                    {button_html}
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #fafafa; padding: 30px 40px; border-top: 1px solid #e5e7eb;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 14px; font-weight: 600;">Revival Fire Ministries</p>
+                                        <p style="margin: 0; color: #9ca3af; font-size: 13px;">Stellenbosch, South Africa</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+                <!-- Sub-footer -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px;">
+                    <tr>
+                        <td align="center" style="padding: 24px 20px;">
+                            <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                                This is an automated message from the Department Selection System.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+'''
+
+    def info_card(items: list) -> str:
+        """Generate an info card with key-value pairs"""
+        rows = ""
+        for label, value in items:
+            if value:
+                rows += f'''
+                    <tr>
+                        <td style="padding: 12px 0; border-bottom: 1px solid #f3f4f6;">
+                            <span style="color: #6b7280; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">{label}</span>
+                            <p style="margin: 4px 0 0 0; color: #111827; font-size: 16px; font-weight: 500;">{value}</p>
+                        </td>
+                    </tr>
+                '''
+        return f'''
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f9fafb; border-radius: 12px; margin: 24px 0;">
+                <tr>
+                    <td style="padding: 20px 24px;">
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                            {rows}
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        '''
+
+    def greeting(name: str) -> str:
+        return f'<p style="margin: 0 0 20px 0; color: #374151; font-size: 16px; line-height: 1.6;">Dear <strong>{name}</strong>,</p>'
+
+    def paragraph(text: str) -> str:
+        return f'<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">{text}</p>'
 
     templates = {
-        EventType.MEMBER_APPROVED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header"><h2>Selection Approved!</h2></div>
-                    <div class="content">
-                        <p>Dear {data.get('member_name', 'Member')},</p>
-                        <p>Great news! Your selection for <strong>{data.get('department_name', 'the department')}</strong> has been approved.</p>
-                        <div class="info-box">
-                            <p><span class="label">Department:</span> {data.get('department_name', 'N/A')}</p>
-                            <p><span class="label">Category:</span> {data.get('category_name', 'N/A')}</p>
-                        </div>
-                        <p>You can view your approved departments in the member portal.</p>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
-                </div>
-            </body></html>
-        """,
+        EventType.MEMBER_APPROVED: base_template(
+            title="Selection Approved!",
+            icon="&#127881;",  # Party popper
+            accent_color="#10b981",  # Green
+            content=f'''
+                {greeting(data.get('member_name', 'Member'))}
+                {paragraph(f"Great news! Your selection for <strong>{data.get('department_name', 'the department')}</strong> has been approved.")}
+                {info_card([
+                    ("Department", data.get('department_name')),
+                    ("Category", data.get('category_name'))
+                ])}
+                {paragraph("You can now view your approved departments in the member portal. We're excited to have you serve with us!")}
+            ''',
+            button_text="View My Departments",
+            button_url="#"
+        ),
 
-        EventType.MEMBER_REJECTED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header" style="background: #DC2626;"><h2>Selection Update</h2></div>
-                    <div class="content">
-                        <p>Dear {data.get('member_name', 'Member')},</p>
-                        <p>We regret to inform you that your selection for <strong>{data.get('department_name', 'the department')}</strong> was not approved.</p>
-                        {f'<div class="info-box"><p><span class="label">Reason:</span> {data.get("admin_note")}</p></div>' if data.get('admin_note') else ''}
-                        <p>If you have questions, please contact the church office or speak to a leader.</p>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
-                </div>
-            </body></html>
-        """,
+        EventType.MEMBER_REJECTED: base_template(
+            title="Selection Update",
+            icon="&#128172;",  # Speech bubble
+            accent_color="#6b7280",  # Gray
+            content=f'''
+                {greeting(data.get('member_name', 'Member'))}
+                {paragraph(f"We regret to inform you that your selection for <strong>{data.get('department_name', 'the department')}</strong> was not approved at this time.")}
+                {info_card([
+                    ("Department", data.get('department_name')),
+                    ("Feedback", data.get('admin_note'))
+                ]) if data.get('admin_note') else info_card([("Department", data.get('department_name'))])}
+                {paragraph("If you have any questions or would like to discuss other opportunities to serve, please don't hesitate to reach out to a church leader.")}
+            '''
+        ),
 
-        EventType.DEPARTMENT_ASSIGNED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header"><h2>Department Assignment</h2></div>
-                    <div class="content">
-                        <p>Dear {data.get('member_name', 'Member')},</p>
-                        <p>You have been assigned to <strong>{data.get('department_name', 'a department')}</strong> by the admin team.</p>
-                        <div class="info-box">
-                            <p><span class="label">Department:</span> {data.get('department_name', 'N/A')}</p>
-                            <p><span class="label">Category:</span> {data.get('category_name', 'N/A')}</p>
-                        </div>
-                        {f'<p><span class="label">Note:</span> {data.get("admin_note")}</p>' if data.get('admin_note') else ''}
-                        <p>Please log in to the member portal to view your assignments.</p>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
-                </div>
-            </body></html>
-        """,
+        EventType.DEPARTMENT_ASSIGNED: base_template(
+            title="You've Been Assigned!",
+            icon="&#11088;",  # Star
+            accent_color="#8b5cf6",  # Purple
+            content=f'''
+                {greeting(data.get('member_name', 'Member'))}
+                {paragraph(f"You have been assigned to <strong>{data.get('department_name', 'a department')}</strong> by our leadership team.")}
+                {info_card([
+                    ("Department", data.get('department_name')),
+                    ("Category", data.get('category_name')),
+                    ("Note", data.get('admin_note'))
+                ])}
+                {paragraph("Please log in to the member portal to view your assignments and connect with your team.")}
+            ''',
+            button_text="View Assignment",
+            button_url="#"
+        ),
 
-        EventType.RESULTS_PUBLISHED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header"><h2>Results Published!</h2></div>
-                    <div class="content">
-                        <p>Dear Member,</p>
-                        <p>The department selection results for <strong>{data.get('year', '2026')}</strong> are now available!</p>
-                        <p>Please log in to the member portal to view your approved department assignments.</p>
-                        <p style="text-align: center;">
-                            <a href="#" class="button">View My Results</a>
-                        </p>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
-                </div>
-            </body></html>
-        """,
+        EventType.RESULTS_PUBLISHED: base_template(
+            title="Results Are Live!",
+            icon="&#128227;",  # Megaphone
+            accent_color="#4f46e5",  # Indigo
+            content=f'''
+                {paragraph(f"The department selection results for <strong>{data.get('year', '2026')}</strong> are now available!")}
+                {paragraph("Log in to the member portal to view your approved department assignments and start connecting with your teams.")}
+            ''',
+            button_text="View My Results",
+            button_url="#"
+        ),
 
-        EventType.APPEAL_SUBMITTED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header" style="background: #F59E0B;"><h2>New Appeal Submitted</h2></div>
-                    <div class="content">
-                        <p>A new appeal has been submitted and requires your attention.</p>
-                        <div class="info-box">
-                            <p><span class="label">Member:</span> {data.get('member_name', 'N/A')}</p>
-                            <p><span class="label">Phone:</span> {data.get('member_phone', 'N/A')}</p>
-                            {f'<p><span class="label">Unwanted Dept:</span> {data.get("unwanted_department")}</p>' if data.get('unwanted_department') else ''}
-                            {f'<p><span class="label">Wanted Dept:</span> {data.get("wanted_department")}</p>' if data.get('wanted_department') else ''}
-                            {f'<p><span class="label">Reason:</span> {data.get("reason")}</p>' if data.get('reason') else ''}
-                        </div>
-                        <p>Please review this appeal in the admin panel.</p>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
-                </div>
-            </body></html>
-        """,
+        EventType.APPEAL_SUBMITTED: base_template(
+            title="New Appeal Received",
+            icon="&#128221;",  # Memo
+            accent_color="#f59e0b",  # Amber
+            content=f'''
+                {paragraph("A new appeal has been submitted and requires your attention.")}
+                {info_card([
+                    ("Member", data.get('member_name')),
+                    ("Phone", data.get('member_phone')),
+                    ("Current Department", data.get('unwanted_department')),
+                    ("Requested Department", data.get('wanted_department')),
+                    ("Reason", data.get('reason'))
+                ])}
+                {paragraph("Please review this appeal in the admin panel at your earliest convenience.")}
+            ''',
+            button_text="Review Appeal",
+            button_url="#"
+        ),
 
-        EventType.APPEAL_RESOLVED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header"><h2>Appeal Resolved</h2></div>
-                    <div class="content">
-                        <p>Dear {data.get('member_name', 'Member')},</p>
-                        <p>Your appeal has been reviewed and <strong>{data.get('status', 'processed')}</strong>.</p>
-                        {f'<div class="info-box"><p><span class="label">Response:</span> {data.get("admin_response")}</p></div>' if data.get('admin_response') else ''}
-                        <p>Please check the member portal for your updated department assignments.</p>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
-                </div>
-            </body></html>
-        """,
+        EventType.APPEAL_RESOLVED: base_template(
+            title="Appeal Resolved",
+            icon="&#9989;" if data.get('status') == 'approved' else "&#128172;",  # Checkmark or speech bubble
+            accent_color="#10b981" if data.get('status') == 'approved' else "#6b7280",
+            content=f'''
+                {greeting(data.get('member_name', 'Member'))}
+                {paragraph(f"Your appeal has been reviewed and <strong>{data.get('status', 'processed')}</strong>.")}
+                {info_card([("Response", data.get('admin_response'))]) if data.get('admin_response') else ''}
+                {paragraph("Please check the member portal for your updated department assignments.")}
+            ''',
+            button_text="View Updates",
+            button_url="#"
+        ),
 
-        EventType.MEETING_CREATED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header"><h2>New Meeting Scheduled</h2></div>
-                    <div class="content">
-                        <p>A new meeting has been scheduled:</p>
-                        <div class="info-box">
-                            <h3 style="margin-top: 0;">{data.get('title', 'Meeting')}</h3>
-                            <p><span class="label">Date:</span> {data.get('meeting_date', 'TBD')}</p>
-                            <p><span class="label">Time:</span> {data.get('start_time', '')} - {data.get('end_time', '')}</p>
-                            {f'<p><span class="label">Location:</span> {data.get("location")}</p>' if data.get('location') else ''}
-                            {f'<p><span class="label">Department:</span> {data.get("department_name")}</p>' if data.get('department_name') else ''}
-                            {f'<p>{data.get("description")}</p>' if data.get('description') else ''}
-                        </div>
-                        {f'<p style="text-align: center;"><a href="{data.get("meeting_link")}" class="button">Join Meeting</a></p>' if data.get('meeting_link') else ''}
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
+        EventType.MEETING_CREATED: base_template(
+            title="New Meeting",
+            icon="&#128197;",  # Calendar
+            accent_color="#4f46e5",  # Indigo
+            content=f'''
+                {paragraph("A new meeting has been scheduled for your department.")}
+                <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+                    <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Meeting')}</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td style="padding-right: 24px;">
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Date</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('meeting_date', 'TBD')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Time</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('start_time', '')} - {data.get('end_time', '')}</p>
+                            </td>
+                        </tr>
+                    </table>
                 </div>
-            </body></html>
-        """,
+                {info_card([
+                    ("Location", data.get('location')),
+                    ("Department", data.get('department_name')),
+                    ("Details", data.get('description'))
+                ])}
+            ''',
+            button_text="Join Meeting" if data.get('meeting_link') else None,
+            button_url=data.get('meeting_link')
+        ),
 
-        EventType.MEETING_REMINDER: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header" style="background: #10B981;"><h2>Meeting Reminder</h2></div>
-                    <div class="content">
-                        <p>This is a reminder about your upcoming meeting:</p>
-                        <div class="info-box">
-                            <h3 style="margin-top: 0;">{data.get('title', 'Meeting')}</h3>
-                            <p><span class="label">Date:</span> {data.get('meeting_date', 'Tomorrow')}</p>
-                            <p><span class="label">Time:</span> {data.get('start_time', '')} - {data.get('end_time', '')}</p>
-                            {f'<p><span class="label">Location:</span> {data.get("location")}</p>' if data.get('location') else ''}
-                        </div>
-                        {f'<p style="text-align: center;"><a href="{data.get("meeting_link")}" class="button">Join Meeting</a></p>' if data.get('meeting_link') else ''}
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
+        EventType.MEETING_REMINDER: base_template(
+            title="Meeting Tomorrow",
+            icon="&#9200;",  # Alarm clock
+            accent_color="#10b981",  # Green
+            content=f'''
+                {paragraph("This is a friendly reminder about your upcoming meeting.")}
+                <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+                    <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Meeting')}</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td style="padding-right: 24px;">
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Date</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('meeting_date', 'Tomorrow')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Time</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('start_time', '')} - {data.get('end_time', '')}</p>
+                            </td>
+                        </tr>
+                    </table>
                 </div>
-            </body></html>
-        """,
+                {info_card([("Location", data.get('location'))]) if data.get('location') else ''}
+            ''',
+            button_text="Join Meeting" if data.get('meeting_link') else None,
+            button_url=data.get('meeting_link')
+        ),
 
-        EventType.MEETING_UPDATED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header" style="background: #F59E0B;"><h2>Meeting Updated</h2></div>
-                    <div class="content">
-                        <p>A meeting has been updated. Please note the new details:</p>
-                        <div class="info-box">
-                            <h3 style="margin-top: 0;">{data.get('title', 'Meeting')}</h3>
-                            <p><span class="label">Date:</span> {data.get('meeting_date', 'TBD')}</p>
-                            <p><span class="label">Time:</span> {data.get('start_time', '')} - {data.get('end_time', '')}</p>
-                            {f'<p><span class="label">Location:</span> {data.get("location")}</p>' if data.get('location') else ''}
-                        </div>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
+        EventType.MEETING_UPDATED: base_template(
+            title="Meeting Updated",
+            icon="&#128260;",  # Arrows
+            accent_color="#f59e0b",  # Amber
+            content=f'''
+                {paragraph("A meeting has been updated. Please note the new details below.")}
+                <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+                    <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Meeting')}</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td style="padding-right: 24px;">
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">New Date</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('meeting_date', 'TBD')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">New Time</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('start_time', '')} - {data.get('end_time', '')}</p>
+                            </td>
+                        </tr>
+                    </table>
                 </div>
-            </body></html>
-        """,
+                {info_card([("Location", data.get('location'))]) if data.get('location') else ''}
+            '''
+        ),
 
-        EventType.MEETING_CANCELLED: f"""
-            <html><head>{base_style}</head><body>
-                <div class="container">
-                    <div class="header" style="background: #DC2626;"><h2>Meeting Cancelled</h2></div>
-                    <div class="content">
-                        <p>The following meeting has been cancelled:</p>
-                        <div class="info-box" style="border-color: #DC2626;">
-                            <h3 style="margin-top: 0; text-decoration: line-through;">{data.get('title', 'Meeting')}</h3>
-                            <p><span class="label">Date:</span> {data.get('meeting_date', 'N/A')}</p>
-                            <p><span class="label">Time:</span> {data.get('start_time', '')} - {data.get('end_time', '')}</p>
-                        </div>
-                    </div>
-                    <div class="footer">RFM Stellenbosch Department Selection</div>
+        EventType.MEETING_CANCELLED: base_template(
+            title="Meeting Cancelled",
+            icon="&#10060;",  # X mark
+            accent_color="#ef4444",  # Red
+            content=f'''
+                {paragraph("The following meeting has been cancelled.")}
+                <div style="background-color: #fef2f2; border: 2px solid #fecaca; border-radius: 12px; padding: 24px; margin: 24px 0;">
+                    <h2 style="margin: 0 0 16px 0; color: #991b1b; font-size: 20px; font-weight: 600; text-decoration: line-through;">{data.get('title', 'Meeting')}</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td style="padding-right: 24px;">
+                                <p style="margin: 0; color: #991b1b; font-size: 13px; text-transform: uppercase;">Date</p>
+                                <p style="margin: 4px 0 0 0; color: #7f1d1d; font-size: 16px;">{data.get('meeting_date', 'N/A')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: #991b1b; font-size: 13px; text-transform: uppercase;">Time</p>
+                                <p style="margin: 4px 0 0 0; color: #7f1d1d; font-size: 16px;">{data.get('start_time', '')} - {data.get('end_time', '')}</p>
+                            </td>
+                        </tr>
+                    </table>
                 </div>
-            </body></html>
-        """,
+                {paragraph("Please disregard any previous meeting invitations. We apologize for any inconvenience.")}
+            '''
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")
