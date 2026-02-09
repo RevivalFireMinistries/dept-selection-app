@@ -1,0 +1,489 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Member Profile - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <!-- Back Link -->
+    <a href="/admin/members" class="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+        </svg>
+        Back to Members
+    </a>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="flex justify-center items-center py-12">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+    </div>
+
+    <!-- Error Message -->
+    <div id="errorMessage" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl"></div>
+
+    <!-- Profile Content -->
+    <div id="profileContent" class="hidden space-y-6">
+        <!-- Member Info Banner -->
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-6">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold text-blue-900" id="memberName"></h2>
+                    <div class="mt-2 space-y-1">
+                        <p class="text-sm text-blue-700 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+                            </svg>
+                            <span id="memberPhone"></span>
+                        </p>
+                        <p class="text-sm text-blue-700 flex items-center gap-2" id="emailRow">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                            <span id="memberEmail"></span>
+                        </p>
+                        <p class="text-sm text-blue-600" id="memberAddress"></p>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-2">
+                    <button onclick="openAssignModal()"
+                        class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+                        + Assign Department
+                    </button>
+                    <a id="editLink" href="#"
+                        class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 text-center">
+                        Edit Details
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Summary -->
+        <div class="grid grid-cols-3 gap-4">
+            <div class="bg-green-50 rounded-xl p-4 text-center">
+                <p class="text-2xl font-bold text-green-600" id="statApproved">0</p>
+                <p class="text-sm text-green-700">Approved</p>
+            </div>
+            <div class="bg-yellow-50 rounded-xl p-4 text-center">
+                <p class="text-2xl font-bold text-yellow-600" id="statPending">0</p>
+                <p class="text-sm text-yellow-700">Pending</p>
+            </div>
+            <div class="bg-red-50 rounded-xl p-4 text-center">
+                <p class="text-2xl font-bold text-red-600" id="statRejected">0</p>
+                <p class="text-sm text-red-700">Rejected</p>
+            </div>
+        </div>
+
+        <!-- Approved Departments -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Approved Departments
+            </h3>
+            <div id="approvedList" class="space-y-2"></div>
+            <div id="noApproved" class="hidden text-center py-4 text-gray-500">
+                No departments have been approved for this member.
+            </div>
+        </div>
+
+        <!-- Pending Departments -->
+        <div id="pendingSection" class="hidden bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Pending Review
+            </h3>
+            <div id="pendingList" class="space-y-2"></div>
+        </div>
+
+        <!-- Rejected Departments -->
+        <div id="rejectedSection" class="hidden bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+                Rejected
+            </h3>
+            <div id="rejectedList" class="space-y-2"></div>
+        </div>
+
+        <!-- Appeals Section -->
+        <div id="appealsSection" class="hidden bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+                </svg>
+                Appeals
+            </h3>
+            <div id="appealsList" class="space-y-2"></div>
+        </div>
+
+        <!-- Notification Log -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                </svg>
+                Notification History
+            </h3>
+            <div id="notificationsList" class="space-y-2"></div>
+            <div id="noNotifications" class="text-center py-4 text-gray-500">
+                No notifications sent to this member.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Department Modal -->
+<div id="assignModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full">
+        <div class="p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Assign Department</h3>
+            <p class="text-sm text-gray-600 mb-4">Assign a new department to <strong id="assignMemberName"></strong></p>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                    <select id="assignDept" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500">
+                        <option value="">-- Select department --</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>
+                    <textarea id="assignNote" rows="2" placeholder="Reason for assignment..."
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+                </div>
+                <div id="assignError" class="hidden text-sm text-red-600"></div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button onclick="closeAssignModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="assignDepartment()" id="assignBtn" class="flex-1 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700">
+                    Assign
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Get member ID from URL
+const pathParts = window.location.pathname.split('/');
+const memberId = pathParts[pathParts.length - 2]; // /admin/member/{id}/profile
+
+let memberData = null;
+let allDepartments = [];
+let memberSelections = [];
+
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    try {
+        const [memberRes, deptsRes, reviewsRes] = await Promise.all([
+            fetch(`/api/members/${memberId}`).then(r => {
+                if (!r.ok) throw new Error('Member not found');
+                return r.json();
+            }),
+            fetch('/api/departments').then(r => r.json()),
+            fetch('/api/admin/reviews').then(r => r.json())
+        ]);
+
+        memberData = memberRes;
+
+        // Flatten departments
+        allDepartments = [];
+        (deptsRes.categories || []).forEach(cat => {
+            cat.departments.forEach(d => {
+                allDepartments.push({ ...d, categoryName: cat.name });
+            });
+        });
+        (deptsRes.uncategorized || []).forEach(d => {
+            allDepartments.push({ ...d, categoryName: null });
+        });
+
+        // Get member's selections from reviews
+        const memberReview = reviewsRes.find(r => r.id === parseInt(memberId));
+        memberSelections = memberReview ? memberReview.selections || [] : [];
+
+        // Fill member info
+        document.getElementById('memberName').textContent = memberData.fullName;
+        document.getElementById('memberPhone').textContent = memberData.phone;
+        document.getElementById('memberEmail').textContent = memberData.email || 'No email';
+        if (!memberData.email) {
+            document.getElementById('emailRow').classList.add('hidden');
+        }
+        document.getElementById('memberAddress').textContent = memberData.physicalAddress || '';
+        document.getElementById('editLink').href = `/admin/submissions`;
+
+        // Render selections
+        renderSelections();
+
+        // Load appeals
+        await loadAppeals();
+
+        // Load notifications
+        await loadNotifications();
+
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('profileContent').classList.remove('hidden');
+
+    } catch (error) {
+        console.error('Failed to load data:', error);
+        showError('Failed to load member data. The member may have been deleted.');
+        document.getElementById('loadingState').classList.add('hidden');
+    }
+}
+
+function renderSelections() {
+    const approved = memberSelections.filter(s => s.status === 'approved');
+    const pending = memberSelections.filter(s => s.status === 'pending' || !s.status);
+    const rejected = memberSelections.filter(s => s.status === 'rejected');
+
+    // Update stats
+    document.getElementById('statApproved').textContent = approved.length;
+    document.getElementById('statPending').textContent = pending.length;
+    document.getElementById('statRejected').textContent = rejected.length;
+
+    // Render approved
+    const approvedList = document.getElementById('approvedList');
+    if (approved.length > 0) {
+        approvedList.innerHTML = approved.map(s => {
+            const isAdminAdded = s.source === 'admin';
+            return `
+            <div class="flex items-center justify-between p-3 ${isAdminAdded ? 'bg-blue-50 border border-blue-200' : 'bg-green-50'} rounded-lg">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 ${isAdminAdded ? 'text-blue-600' : 'text-green-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <div>
+                        <p class="font-medium text-gray-900">${s.department_name}</p>
+                        ${s.category_name ? `<p class="text-xs text-gray-500">${s.category_name}</p>` : ''}
+                        ${isAdminAdded ? `<p class="text-xs text-blue-600 font-medium">Admin assigned</p>` : ''}
+                    </div>
+                </div>
+                <button onclick="updateSelectionStatus(${s.id}, 'rejected')"
+                    class="px-3 py-1 text-sm text-red-600 hover:bg-red-100 rounded-lg" title="Revoke">
+                    Revoke
+                </button>
+            </div>
+        `}).join('');
+        document.getElementById('noApproved').classList.add('hidden');
+    } else {
+        approvedList.innerHTML = '';
+        document.getElementById('noApproved').classList.remove('hidden');
+    }
+
+    // Render pending
+    if (pending.length > 0) {
+        document.getElementById('pendingSection').classList.remove('hidden');
+        document.getElementById('pendingList').innerHTML = pending.map(s => `
+            <div class="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <div>
+                        <p class="font-medium text-gray-900">${s.department_name}</p>
+                        ${s.category_name ? `<p class="text-xs text-gray-500">${s.category_name}</p>` : ''}
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="updateSelectionStatus(${s.id}, 'approved')"
+                        class="px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">
+                        Approve
+                    </button>
+                    <button onclick="updateSelectionStatus(${s.id}, 'rejected')"
+                        class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200">
+                        Reject
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        document.getElementById('pendingSection').classList.add('hidden');
+    }
+
+    // Render rejected
+    if (rejected.length > 0) {
+        document.getElementById('rejectedSection').classList.remove('hidden');
+        document.getElementById('rejectedList').innerHTML = rejected.map(s => `
+            <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                <div class="flex items-center gap-3">
+                    <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                    <div>
+                        <p class="font-medium text-gray-900">${s.department_name}</p>
+                        ${s.admin_note ? `<p class="text-xs text-red-600">${s.admin_note}</p>` : ''}
+                    </div>
+                </div>
+                <button onclick="updateSelectionStatus(${s.id}, 'approved')"
+                    class="px-3 py-1 text-sm text-green-600 hover:bg-green-100 rounded-lg">
+                    Restore
+                </button>
+            </div>
+        `).join('');
+    } else {
+        document.getElementById('rejectedSection').classList.add('hidden');
+    }
+}
+
+async function loadAppeals() {
+    try {
+        const res = await fetch('/api/admin/appeals');
+        const appeals = await res.json();
+        const memberAppeals = appeals.filter(a => a.member_id === parseInt(memberId));
+
+        if (memberAppeals.length > 0) {
+            document.getElementById('appealsSection').classList.remove('hidden');
+            document.getElementById('appealsList').innerHTML = memberAppeals.map(a => {
+                const statusColors = {
+                    pending: 'bg-amber-100 text-amber-700',
+                    approved: 'bg-green-100 text-green-700',
+                    rejected: 'bg-red-100 text-red-700'
+                };
+                return `
+                <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs ${statusColors[a.status]} px-2 py-0.5 rounded font-medium">${a.status}</span>
+                        <span class="text-xs text-gray-500">${new Date(a.created_at).toLocaleDateString()}</span>
+                    </div>
+                    ${a.unwanted_department_name ? `<p class="text-sm"><span class="text-gray-500">Remove:</span> ${a.unwanted_department_name}</p>` : ''}
+                    ${a.wanted_department_name ? `<p class="text-sm"><span class="text-gray-500">Want:</span> ${a.wanted_department_name}</p>` : ''}
+                    ${a.reason ? `<p class="text-sm text-gray-600 mt-1">${a.reason}</p>` : ''}
+                    ${a.admin_response ? `<p class="text-sm text-blue-600 mt-1"><strong>Response:</strong> ${a.admin_response}</p>` : ''}
+                </div>
+            `}).join('');
+        }
+    } catch (err) {
+        console.error('Failed to load appeals:', err);
+    }
+}
+
+async function loadNotifications() {
+    try {
+        const res = await fetch('/api/admin/notifications/logs');
+        const logs = await res.json();
+        const memberLogs = logs.filter(l => l.recipient_id === parseInt(memberId)).slice(0, 10);
+
+        const container = document.getElementById('notificationsList');
+        const noNotif = document.getElementById('noNotifications');
+
+        if (memberLogs.length > 0) {
+            noNotif.classList.add('hidden');
+            container.innerHTML = memberLogs.map(l => {
+                const statusIcon = l.status === 'sent'
+                    ? '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+                    : '<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+                return `
+                <div class="flex items-center gap-3 p-2 bg-gray-50 rounded-lg text-sm">
+                    ${statusIcon}
+                    <div class="flex-1 min-w-0">
+                        <p class="font-medium text-gray-900 truncate">${l.subject || l.event_type}</p>
+                        <p class="text-xs text-gray-500">${l.channel} - ${new Date(l.created_at).toLocaleString()}</p>
+                    </div>
+                </div>
+            `}).join('');
+        } else {
+            container.innerHTML = '';
+            noNotif.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Failed to load notifications:', err);
+    }
+}
+
+async function updateSelectionStatus(selectionId, status) {
+    try {
+        const res = await fetch(`/api/admin/reviews/${selectionId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
+        if (res.ok) {
+            location.reload();
+        } else {
+            alert('Failed to update status');
+        }
+    } catch (err) {
+        alert('Failed to update status');
+    }
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
+}
+
+function openAssignModal() {
+    document.getElementById('assignModal').classList.remove('hidden');
+    document.getElementById('assignMemberName').textContent = memberData.fullName;
+    document.getElementById('assignError').classList.add('hidden');
+    document.getElementById('assignNote').value = '';
+
+    // Populate departments (exclude already assigned)
+    const assignedIds = new Set(memberSelections.map(s => s.department_id));
+    const select = document.getElementById('assignDept');
+    select.innerHTML = '<option value="">-- Select department --</option>';
+
+    allDepartments.filter(d => !assignedIds.has(d.id)).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.name + (d.categoryName ? ` (${d.categoryName})` : '');
+        select.appendChild(opt);
+    });
+}
+
+function closeAssignModal() {
+    document.getElementById('assignModal').classList.add('hidden');
+}
+
+async function assignDepartment() {
+    const deptId = document.getElementById('assignDept').value;
+    const note = document.getElementById('assignNote').value;
+    const errorDiv = document.getElementById('assignError');
+
+    if (!deptId) {
+        errorDiv.textContent = 'Please select a department';
+        errorDiv.classList.remove('hidden');
+        return;
+    }
+
+    const btn = document.getElementById('assignBtn');
+    btn.disabled = true;
+    btn.textContent = 'Assigning...';
+
+    try {
+        const res = await fetch(`/api/admin/members/${memberId}/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                department_id: parseInt(deptId),
+                admin_note: note || null
+            })
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to assign');
+        }
+
+        closeAssignModal();
+        location.reload();
+
+    } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Assign';
+    }
+}
+</script>
+{% endblock %}

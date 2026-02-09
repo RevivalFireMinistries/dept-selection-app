@@ -26,7 +26,7 @@
             <!-- Tabs -->
             <div class="flex gap-1 overflow-x-auto pb-2 -mb-px">
                 <a href="/admin" class="nav-tab {% if request.url.path == '/admin' %}active{% endif %}">Dashboard</a>
-                <a href="/admin/submissions" class="nav-tab {% if request.url.path == '/admin/submissions' %}active{% endif %}">Submissions</a>
+                <a href="/admin/members" class="nav-tab {% if request.url.path == '/admin/members' or '/admin/member/' in request.url.path %}active{% endif %}">Members</a>
                 <a href="/admin/approvals" class="nav-tab {% if request.url.path == '/admin/approvals' %}active{% endif %}">Approvals</a>
                 <a href="/admin/publish" class="nav-tab {% if request.url.path == '/admin/publish' %}active{% endif %}">Publish</a>
                 <a href="/admin/appeals" class="nav-tab {% if request.url.path == '/admin/appeals' %}active{% endif %}">Appeals</a>

@@ -1,0 +1,239 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Members - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <h2 class="text-2xl font-bold text-gray-900">Search Members</h2>
+
+    <!-- Search Card -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <p class="text-sm text-gray-600 mb-4">
+            Search for a member by phone number or name to view their profile, department selections, and manage their assignments.
+        </p>
+
+        <div class="flex flex-col sm:flex-row gap-4">
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                <input type="text" id="searchInput" placeholder="Enter phone number or name..."
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onkeyup="handleSearchKeyup(event)">
+            </div>
+            <div class="flex items-end gap-2">
+                <button onclick="searchMembers()"
+                    class="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    Search
+                </button>
+                <button onclick="showAllMembers()"
+                    class="px-6 py-3 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors">
+                    Show All
+                </button>
+            </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="mt-4 flex gap-4 text-sm text-gray-500">
+            <span><strong id="totalCount">0</strong> total members</span>
+            <span><strong id="approvedCount">0</strong> with approved selections</span>
+        </div>
+
+        <!-- Search Results -->
+        <div id="searchResults" class="mt-6 hidden">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-medium text-gray-700">Results (<span id="resultCount">0</span>)</h3>
+                <select id="filterStatus" onchange="applyFilter()" class="text-sm border-gray-300 rounded-lg">
+                    <option value="all">All statuses</option>
+                    <option value="approved">Has approved</option>
+                    <option value="pending">Has pending</option>
+                    <option value="rejected">Has rejected</option>
+                </select>
+            </div>
+            <div id="resultsContainer" class="space-y-2 max-h-[600px] overflow-y-auto"></div>
+        </div>
+
+        <!-- No Results -->
+        <div id="noResults" class="mt-6 hidden">
+            <div class="text-center py-8 text-gray-500">
+                <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <p>No members found matching your search.</p>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="searchLoading" class="mt-6 hidden">
+            <div class="flex justify-center py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allMembers = [];
+let filteredMembers = [];
+let reviewsData = [];
+
+// Load all members and reviews on page load
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+    document.getElementById('searchLoading').classList.remove('hidden');
+    try {
+        const [membersRes, reviewsRes] = await Promise.all([
+            fetch('/api/members').then(r => r.json()),
+            fetch('/api/admin/reviews').then(r => r.json())
+        ]);
+        allMembers = membersRes;
+        reviewsData = reviewsRes;
+
+        // Merge review data into members
+        allMembers.forEach(member => {
+            const review = reviewsData.find(r => r.id === member.id);
+            if (review) {
+                member.selections = review.selections || [];
+                member.approvedCount = member.selections.filter(s => s.status === 'approved').length;
+                member.pendingCount = member.selections.filter(s => s.status === 'pending' || !s.status).length;
+                member.rejectedCount = member.selections.filter(s => s.status === 'rejected').length;
+            } else {
+                member.selections = [];
+                member.approvedCount = 0;
+                member.pendingCount = 0;
+                member.rejectedCount = 0;
+            }
+        });
+
+        // Update stats
+        document.getElementById('totalCount').textContent = allMembers.length;
+        document.getElementById('approvedCount').textContent = allMembers.filter(m => m.approvedCount > 0).length;
+
+    } catch (error) {
+        console.error('Failed to load data:', error);
+    } finally {
+        document.getElementById('searchLoading').classList.add('hidden');
+    }
+}
+
+function handleSearchKeyup(event) {
+    if (event.key === 'Enter') {
+        searchMembers();
+    }
+}
+
+function showAllMembers() {
+    document.getElementById('searchInput').value = '';
+    filteredMembers = [...allMembers];
+    applyFilter();
+    renderResults();
+}
+
+function searchMembers() {
+    const query = document.getElementById('searchInput').value.trim().toLowerCase();
+
+    if (!query) {
+        document.getElementById('searchResults').classList.add('hidden');
+        document.getElementById('noResults').classList.add('hidden');
+        return;
+    }
+
+    // Show loading
+    document.getElementById('searchLoading').classList.remove('hidden');
+    document.getElementById('searchResults').classList.add('hidden');
+    document.getElementById('noResults').classList.add('hidden');
+
+    // Filter members
+    filteredMembers = allMembers.filter(member => {
+        const name = (member.fullName || '').toLowerCase();
+        const phone = (member.phone || '').toLowerCase();
+        const email = (member.email || '').toLowerCase();
+        return name.includes(query) || phone.includes(query) || email.includes(query);
+    });
+
+    applyFilter();
+    renderResults();
+}
+
+function applyFilter() {
+    const status = document.getElementById('filterStatus').value;
+    let results = filteredMembers;
+
+    if (status === 'approved') {
+        results = filteredMembers.filter(m => m.approvedCount > 0);
+    } else if (status === 'pending') {
+        results = filteredMembers.filter(m => m.pendingCount > 0);
+    } else if (status === 'rejected') {
+        results = filteredMembers.filter(m => m.rejectedCount > 0);
+    }
+
+    document.getElementById('resultCount').textContent = results.length;
+    renderMemberList(results);
+}
+
+function renderResults() {
+    document.getElementById('searchLoading').classList.add('hidden');
+
+    if (filteredMembers.length === 0) {
+        document.getElementById('noResults').classList.remove('hidden');
+        document.getElementById('searchResults').classList.add('hidden');
+        return;
+    }
+
+    document.getElementById('noResults').classList.add('hidden');
+    document.getElementById('searchResults').classList.remove('hidden');
+    applyFilter();
+}
+
+function renderMemberList(members) {
+    const container = document.getElementById('resultsContainer');
+    container.innerHTML = members.map(member => {
+        // Status badges
+        let badges = '';
+        if (member.approvedCount > 0) {
+            badges += `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">${member.approvedCount} approved</span>`;
+        }
+        if (member.pendingCount > 0) {
+            badges += `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">${member.pendingCount} pending</span>`;
+        }
+        if (member.rejectedCount > 0) {
+            badges += `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">${member.rejectedCount} rejected</span>`;
+        }
+        if (!badges) {
+            badges = '<span class="text-xs text-gray-400">No selections</span>';
+        }
+
+        // Department names
+        const deptNames = member.selections
+            .filter(s => s.status === 'approved')
+            .map(s => s.department_name)
+            .slice(0, 3)
+            .join(', ');
+        const moreCount = member.approvedCount > 3 ? ` +${member.approvedCount - 3} more` : '';
+
+        return `
+        <div class="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                    <p class="font-medium text-gray-900 truncate">${member.fullName}</p>
+                    <p class="text-sm text-gray-500">${member.phone} ${member.email ? '• ' + member.email : ''}</p>
+                    <div class="flex flex-wrap gap-1 mt-2">${badges}</div>
+                    ${deptNames ? `<p class="text-xs text-gray-500 mt-1 truncate">${deptNames}${moreCount}</p>` : ''}
+                </div>
+                <div class="flex flex-col gap-2">
+                    <a href="/admin/member/${member.id}/profile"
+                       class="px-4 py-2 bg-blue-600 text-white text-sm font-medium text-center rounded-lg hover:bg-blue-700">
+                        View Profile
+                    </a>
+                    <a href="/admin/approvals?member=${member.id}"
+                       class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium text-center rounded-lg hover:bg-gray-300">
+                        Review
+                    </a>
+                </div>
+            </div>
+        </div>
+    `}).join('');
+}
+</script>
+{% endblock %}

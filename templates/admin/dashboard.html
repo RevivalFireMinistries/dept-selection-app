@@ -11,7 +11,72 @@
         <!-- Filled by JS -->
     </div>
 
-    <!-- Meetings Section (Primary) -->
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl shadow p-4">
+            <p class="text-sm text-gray-500">Total Members</p>
+            <p class="text-2xl font-bold text-gray-900" id="totalSubmissions">-</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 cursor-pointer hover:shadow-md transition-shadow" onclick="window.location='/admin/approvals'">
+            <p class="text-sm text-gray-500">Pending Approvals</p>
+            <p class="text-2xl font-bold text-yellow-600" id="pendingCount">-</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4">
+            <p class="text-sm text-gray-500">Approved</p>
+            <p class="text-2xl font-bold text-green-600" id="approvedCount">-</p>
+        </div>
+        <div class="bg-white rounded-xl shadow p-4 cursor-pointer hover:shadow-md transition-shadow" onclick="window.location='/admin/appeals'">
+            <p class="text-sm text-gray-500">Active Appeals</p>
+            <p class="text-2xl font-bold text-orange-600" id="appealsCount">-</p>
+        </div>
+    </div>
+
+    <!-- Quick Actions Row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <a href="/admin/approvals" class="block bg-white rounded-xl shadow p-5 hover:shadow-lg transition-all border-l-4 border-yellow-500">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-gray-900">Review Approvals</h3>
+                    <p class="text-sm text-gray-500"><span id="pendingBadge">0</span> pending</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/admin/publish" class="block bg-white rounded-xl shadow p-5 hover:shadow-lg transition-all border-l-4 border-green-500">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-gray-900">Publish Results</h3>
+                    <p class="text-sm text-gray-500" id="publishStatus">Loading...</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/admin/members" class="block bg-white rounded-xl shadow p-5 hover:shadow-lg transition-all border-l-4 border-blue-500">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-gray-900">Search Members</h3>
+                    <p class="text-sm text-gray-500">Find & manage</p>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- Meetings Section -->
     <div class="bg-white rounded-xl shadow p-6">
         <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-3">
@@ -22,7 +87,7 @@
                 </div>
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">Upcoming Meetings</h3>
-                    <p class="text-sm text-gray-500">Meetings scheduled for all departments</p>
+                    <p class="text-sm text-gray-500">Scheduled for all departments</p>
                 </div>
             </div>
             <button onclick="openCreateMeetingModal()" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
@@ -41,144 +106,83 @@
         </div>
     </div>
 
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-white rounded-xl shadow p-4">
-            <p class="text-sm text-gray-500">Total Submissions</p>
-            <p class="text-2xl font-bold text-gray-900" id="totalSubmissions">-</p>
-        </div>
-        <div class="bg-white rounded-xl shadow p-4">
-            <p class="text-sm text-gray-500">Pending Approvals</p>
-            <p class="text-2xl font-bold text-yellow-600" id="pendingCount">-</p>
-        </div>
-        <div class="bg-white rounded-xl shadow p-4">
-            <p class="text-sm text-gray-500">Approved</p>
-            <p class="text-2xl font-bold text-green-600" id="approvedCount">-</p>
-        </div>
-        <div class="bg-white rounded-xl shadow p-4">
-            <p class="text-sm text-gray-500">Active Appeals</p>
-            <p class="text-2xl font-bold text-orange-600" id="appealsCount">-</p>
-        </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <!-- Review Approvals -->
-        <a href="/admin/approvals" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition-all border-l-4 border-yellow-500">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-                    </svg>
+    <!-- Collapsible Sections -->
+    <div class="space-y-4">
+        <!-- Department Stats (Collapsible) -->
+        <details class="bg-white rounded-xl shadow group">
+            <summary class="p-5 cursor-pointer list-none flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-gray-900">Department Statistics</h3>
+                        <p class="text-sm text-gray-500">View member counts per department</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 class="font-semibold text-gray-900">Review Approvals</h3>
-                    <p class="text-sm text-gray-500"><span id="pendingBadge">0</span> pending review</p>
+                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </summary>
+            <div class="px-5 pb-5 border-t">
+                <div id="deptStatsList" class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <p class="text-gray-400 text-sm col-span-full text-center py-4">Loading...</p>
+                </div>
+                <a href="/admin/department-stats" class="mt-4 block text-center text-indigo-600 hover:underline text-sm">View full breakdown</a>
+            </div>
+        </details>
+
+        <!-- Export Reports (Collapsible) -->
+        <details class="bg-white rounded-xl shadow group">
+            <summary class="p-5 cursor-pointer list-none flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-gray-900">Export Reports</h3>
+                        <p class="text-sm text-gray-500">Download Excel reports</p>
+                    </div>
+                </div>
+                <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+            </summary>
+            <div class="px-5 pb-5 border-t">
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-3">
+                        <h4 class="text-sm font-medium text-gray-700">All Submissions</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="downloadExport('department', false)"
+                                class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                                By Department
+                            </button>
+                            <button onclick="downloadExport('member', false)"
+                                class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                                By Member
+                            </button>
+                        </div>
+                    </div>
+                    <div class="space-y-3">
+                        <h4 class="text-sm font-medium text-gray-700">Approved Only</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="downloadExport('department', true)"
+                                class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                                By Department
+                            </button>
+                            <button onclick="downloadExport('member', true)"
+                                class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                                By Member
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </a>
-
-        <!-- Publish Results -->
-        <a href="/admin/publish" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition-all border-l-4 border-green-500">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                </div>
-                <div>
-                    <h3 class="font-semibold text-gray-900">Publish Results</h3>
-                    <p class="text-sm text-gray-500" id="publishStatus">Loading...</p>
-                </div>
-            </div>
-        </a>
-
-        <!-- Appeals -->
-        <a href="/admin/appeals" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition-all border-l-4 border-orange-500">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                    </svg>
-                </div>
-                <div>
-                    <h3 class="font-semibold text-gray-900">Manage Appeals</h3>
-                    <p class="text-sm text-gray-500" id="appealStatus">Loading...</p>
-                </div>
-            </div>
-        </a>
-    </div>
-
-    <!-- Department Stats Card -->
-    <a href="/admin/department-stats" class="block bg-white rounded-xl shadow p-6 hover:shadow-lg transition-all">
-        <div class="flex items-center justify-between">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                </div>
-                <div>
-                    <h3 class="text-lg font-semibold text-gray-900">Members per Department</h3>
-                    <p class="text-sm text-gray-500">View totals for each department</p>
-                </div>
-            </div>
-            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-            </svg>
-        </div>
-    </a>
-
-    <!-- Export Section -->
-    <div class="bg-white rounded-xl shadow p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Export Reports</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="space-y-3">
-                <h4 class="text-sm font-medium text-gray-700">All Submissions</h4>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="downloadExport('department', false)"
-                        class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
-                        By Department
-                    </button>
-                    <button onclick="downloadExport('member', false)"
-                        class="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
-                        By Member
-                    </button>
-                </div>
-            </div>
-            <div class="space-y-3">
-                <h4 class="text-sm font-medium text-gray-700">Approved Only</h4>
-                <div class="flex flex-wrap gap-2">
-                    <button onclick="downloadExport('department', true)"
-                        class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
-                        By Department
-                    </button>
-                    <button onclick="downloadExport('member', true)"
-                        class="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
-                        By Member
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Links -->
-    <div class="bg-white rounded-xl shadow p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Links</h3>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <a href="/admin/submissions" class="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
-                <p class="font-medium text-gray-900">View Submissions</p>
-            </a>
-            <a href="/admin/departments" class="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
-                <p class="font-medium text-gray-900">Manage Departments</p>
-            </a>
-            <a href="/admin/categories" class="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
-                <p class="font-medium text-gray-900">Manage Categories</p>
-            </a>
-            <a href="/admin/settings" class="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-center">
-                <p class="font-medium text-gray-900">Settings</p>
-            </a>
-        </div>
+        </details>
     </div>
 </div>
 
@@ -324,9 +328,6 @@ async function loadStats() {
         // Appeals
         const pendingAppeals = appealsRes.filter(a => a.status === 'pending').length;
         document.getElementById('appealsCount').textContent = pendingAppeals;
-        document.getElementById('appealStatus').textContent = pendingAppeals > 0
-            ? `${pendingAppeals} pending`
-            : 'No pending appeals';
 
         // Publish status
         const isPublished = settingsRes.resultsPublished === 'true';
@@ -383,6 +384,41 @@ async function loadDepartments() {
     }
 }
 
+async function loadDeptStats() {
+    try {
+        const res = await fetch('/api/admin/reviews');
+        const reviews = await res.json();
+
+        // Count approved per department
+        const deptCounts = {};
+        reviews.forEach(r => {
+            (r.selections || []).forEach(s => {
+                if (s.status === 'approved') {
+                    deptCounts[s.department_name] = (deptCounts[s.department_name] || 0) + 1;
+                }
+            });
+        });
+
+        // Sort by count
+        const sorted = Object.entries(deptCounts).sort((a, b) => b[1] - a[1]).slice(0, 9);
+
+        const container = document.getElementById('deptStatsList');
+        if (sorted.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm col-span-full text-center py-4">No approved members yet</p>';
+            return;
+        }
+
+        container.innerHTML = sorted.map(([name, count]) => `
+            <div class="bg-gray-50 rounded-lg p-3">
+                <p class="text-lg font-bold text-gray-900">${count}</p>
+                <p class="text-sm text-gray-600 truncate" title="${name}">${name}</p>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error('Failed to load dept stats:', err);
+    }
+}
+
 async function loadMeetings() {
     try {
         const res = await fetch('/api/admin/meetings');
@@ -405,7 +441,6 @@ async function loadMeetings() {
         list.classList.remove('hidden');
 
         list.innerHTML = upcoming.map(m => {
-            // Determine badge style based on meeting type
             let badgeClass = 'bg-indigo-100 text-indigo-700';
             if (m.is_general) {
                 badgeClass = 'bg-purple-100 text-purple-700';
@@ -418,7 +453,7 @@ async function loadMeetings() {
                 <div class="flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                         <span class="font-medium text-gray-900">${m.title}</span>
-                        <span class="text-xs ${badgeClass} px-2 py-0.5 rounded">${m.department_name || 'No department'}</span>
+                        <span class="text-xs ${badgeClass} px-2 py-0.5 rounded">${m.department_name || 'All Leaders'}</span>
                     </div>
                     <p class="text-sm text-gray-500">${m.location || 'No location set'}</p>
                 </div>
@@ -451,7 +486,6 @@ let currentMeetingType = 'single';
 function setMeetingType(type) {
     currentMeetingType = type;
 
-    // Update button styles
     ['single', 'all', 'multi'].forEach(t => {
         const btn = document.getElementById(`typeBtn-${t}`);
         if (t === type) {
@@ -463,17 +497,14 @@ function setMeetingType(type) {
         }
     });
 
-    // Show/hide sections
     document.getElementById('singleDeptSection').classList.toggle('hidden', type !== 'single');
     document.getElementById('multiDeptSection').classList.toggle('hidden', type !== 'multi');
     document.getElementById('allLeadersSection').classList.toggle('hidden', type !== 'all');
 
-    // Update required attribute
     document.getElementById('meetingDepartment').required = (type === 'single');
 }
 
 function openCreateMeetingModal() {
-    // Set default date to today
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('meetingDate').value = today;
     document.getElementById('meetingDate').min = today;
@@ -483,10 +514,8 @@ function openCreateMeetingModal() {
     document.getElementById('meetingDepartment').value = '';
     document.getElementById('meetingTime').value = '38-40';
 
-    // Reset meeting type to single
     setMeetingType('single');
 
-    // Populate multi-dept checkboxes
     const multiList = document.getElementById('multiDeptList');
     multiList.innerHTML = departments.map(d => `
         <label class="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
@@ -524,7 +553,6 @@ async function createMeeting(e) {
     const timeValue = document.getElementById('meetingTime').value;
     const [startSlot, endSlot] = timeValue.split('-').map(Number);
 
-    // Build payload based on meeting type
     const payload = {
         title: document.getElementById('meetingTitle').value,
         description: document.getElementById('meetingDescription').value || null,
@@ -551,7 +579,6 @@ async function createMeeting(e) {
         }
         payload.target_department_ids = selectedDepts;
     } else {
-        // Single department
         const deptId = document.getElementById('meetingDepartment').value;
         if (!deptId) {
             showErrorModal('Please select a department.');
@@ -607,5 +634,6 @@ function downloadExport(type, approvedOnly) {
 loadStats();
 loadDepartments();
 loadMeetings();
+loadDeptStats();
 </script>
 {% endblock %}

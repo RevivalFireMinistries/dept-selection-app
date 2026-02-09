@@ -160,6 +160,22 @@ async def admin_notifications(request: Request):
     return templates.TemplateResponse("admin/notifications.html", {"request": request})
 
 
+@router.get("/admin/members")
+async def admin_members(request: Request):
+    """Admin member search page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/members.html", {"request": request})
+
+
+@router.get("/admin/member/{member_id}/profile")
+async def admin_member_profile(request: Request, member_id: int):
+    """Admin member profile page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/member_profile.html", {"request": request})
+
+
 # ============ DESK ROUTES ============
 
 @router.get("/desk/login")
