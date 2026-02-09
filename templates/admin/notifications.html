@@ -1,0 +1,328 @@
+{% extends "admin/base.html" %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-gray-900">Notification Settings</h2>
+    </div>
+
+    <!-- SMTP Configuration -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <h3 class="text-lg font-semibold mb-4">Email Configuration (SMTP)</h3>
+
+        <form id="smtpForm" class="space-y-4">
+            <div class="flex items-center gap-4 mb-4">
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" id="smtp_enabled" name="smtp_enabled" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                    <span class="font-medium">Enable Email Notifications</span>
+                </label>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Host</label>
+                    <input type="text" id="smtp_host" name="smtp_host" placeholder="smtp.gmail.com"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Port</label>
+                    <input type="text" id="smtp_port" name="smtp_port" placeholder="587"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <input type="text" id="smtp_username" name="smtp_username" placeholder="your@email.com"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="smtp_password" name="smtp_password" placeholder="App password"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <p class="text-xs text-gray-500 mt-1">For Gmail, use an App Password</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">From Name</label>
+                    <input type="text" id="smtp_from_name" name="smtp_from_name" placeholder="RFM Stellenbosch"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">From Email</label>
+                    <input type="email" id="smtp_from_email" name="smtp_from_email" placeholder="church@gmail.com"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-4">
+                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                    Save SMTP Settings
+                </button>
+                <button type="button" onclick="testEmail()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                    Send Test Email
+                </button>
+            </div>
+        </form>
+
+        <div id="smtpMessage" class="hidden mt-4 p-3 rounded-lg"></div>
+    </div>
+
+    <!-- Event Configurations -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <h3 class="text-lg font-semibold mb-4">Event Notifications</h3>
+        <p class="text-sm text-gray-600 mb-4">Choose which events trigger email notifications.</p>
+
+        <div id="eventConfigs" class="space-y-3">
+            <div class="text-gray-400">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Notification Logs -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold">Recent Notifications</h3>
+            <select id="logFilter" onchange="loadLogs()" class="rounded-lg border-gray-300 text-sm">
+                <option value="">All Status</option>
+                <option value="sent">Sent</option>
+                <option value="failed">Failed</option>
+                <option value="pending">Pending</option>
+            </select>
+        </div>
+
+        <div id="notificationLogs" class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Event</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="logsBody" class="bg-white divide-y divide-gray-200">
+                    <tr><td colspan="5" class="px-4 py-3 text-gray-400">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Test Email Modal -->
+<div id="testEmailModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+        <h3 class="text-lg font-semibold mb-4">Send Test Email</h3>
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Send to:</label>
+            <input type="email" id="testEmailAddress" placeholder="your@email.com"
+                class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+        </div>
+        <div class="flex justify-end gap-3">
+            <button onclick="closeTestModal()" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
+                Cancel
+            </button>
+            <button onclick="sendTestEmail()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                Send Test
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Load SMTP settings on page load
+    async function loadSmtpSettings() {
+        try {
+            const res = await fetch('/api/admin/notifications/smtp-settings');
+            const data = await res.json();
+
+            document.getElementById('smtp_enabled').checked = data.smtp_enabled === 'true';
+            document.getElementById('smtp_host').value = data.smtp_host || '';
+            document.getElementById('smtp_port').value = data.smtp_port || '';
+            document.getElementById('smtp_username').value = data.smtp_username || '';
+            document.getElementById('smtp_password').value = data.smtp_password || '';
+            document.getElementById('smtp_from_name').value = data.smtp_from_name || '';
+            document.getElementById('smtp_from_email').value = data.smtp_from_email || '';
+        } catch (err) {
+            console.error('Failed to load SMTP settings:', err);
+        }
+    }
+
+    // Save SMTP settings
+    document.getElementById('smtpForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const data = {
+            smtp_enabled: document.getElementById('smtp_enabled').checked ? 'true' : 'false',
+            smtp_host: document.getElementById('smtp_host').value,
+            smtp_port: document.getElementById('smtp_port').value,
+            smtp_username: document.getElementById('smtp_username').value,
+            smtp_password: document.getElementById('smtp_password').value,
+            smtp_from_name: document.getElementById('smtp_from_name').value,
+            smtp_from_email: document.getElementById('smtp_from_email').value
+        };
+
+        try {
+            const res = await fetch('/api/admin/notifications/smtp-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (res.ok) {
+                showMessage('smtpMessage', 'Settings saved successfully!', 'success');
+            } else {
+                const err = await res.json();
+                showMessage('smtpMessage', err.detail || 'Failed to save settings', 'error');
+            }
+        } catch (err) {
+            showMessage('smtpMessage', 'Network error', 'error');
+        }
+    });
+
+    // Load event configurations
+    async function loadEventConfigs() {
+        try {
+            const res = await fetch('/api/admin/notifications/config');
+            const configs = await res.json();
+
+            const container = document.getElementById('eventConfigs');
+            container.innerHTML = configs.map(config => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex-1">
+                        <div class="font-medium text-gray-900">${config.label}</div>
+                        <div class="text-sm text-gray-500">${config.description}</div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox"
+                                ${config.email_enabled ? 'checked' : ''}
+                                onchange="toggleEventEmail('${config.event_type}', this.checked)"
+                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-sm text-gray-600">Email</span>
+                        </label>
+                    </div>
+                </div>
+            `).join('');
+        } catch (err) {
+            document.getElementById('eventConfigs').innerHTML = '<div class="text-red-500">Failed to load configurations</div>';
+        }
+    }
+
+    // Toggle email for an event
+    async function toggleEventEmail(eventType, enabled) {
+        try {
+            await fetch(`/api/admin/notifications/config/${eventType}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email_enabled: enabled ? 1 : 0 })
+            });
+        } catch (err) {
+            console.error('Failed to update config:', err);
+        }
+    }
+
+    // Load notification logs
+    async function loadLogs() {
+        const status = document.getElementById('logFilter').value;
+        const url = `/api/admin/notifications/logs?limit=20${status ? '&status=' + status : ''}`;
+
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+
+            const tbody = document.getElementById('logsBody');
+
+            if (data.logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-3 text-gray-400 text-center">No notifications yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.logs.map(log => `
+                <tr>
+                    <td class="px-4 py-2 text-sm text-gray-500 whitespace-nowrap">
+                        ${formatDate(log.created_at)}
+                    </td>
+                    <td class="px-4 py-2 text-sm">
+                        <span class="px-2 py-1 text-xs bg-gray-100 rounded">${log.event_type}</span>
+                    </td>
+                    <td class="px-4 py-2 text-sm text-gray-900">${log.recipient_email || '-'}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600 max-w-xs truncate">${log.subject || '-'}</td>
+                    <td class="px-4 py-2 text-sm">
+                        ${getStatusBadge(log.status, log.error_message)}
+                    </td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            document.getElementById('logsBody').innerHTML = '<tr><td colspan="5" class="px-4 py-3 text-red-500">Failed to load logs</td></tr>';
+        }
+    }
+
+    function getStatusBadge(status, error) {
+        const colors = {
+            sent: 'bg-green-100 text-green-800',
+            failed: 'bg-red-100 text-red-800',
+            pending: 'bg-yellow-100 text-yellow-800'
+        };
+        const badge = `<span class="px-2 py-1 text-xs rounded ${colors[status] || 'bg-gray-100 text-gray-800'}">${status}</span>`;
+        if (error && status === 'failed') {
+            return badge + `<div class="text-xs text-red-600 mt-1 max-w-xs truncate" title="${error}">${error}</div>`;
+        }
+        return badge;
+    }
+
+    function formatDate(isoString) {
+        if (!isoString) return '-';
+        const d = new Date(isoString);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Test email modal
+    function testEmail() {
+        const fromEmail = document.getElementById('smtp_from_email').value;
+        document.getElementById('testEmailAddress').value = fromEmail;
+        document.getElementById('testEmailModal').classList.remove('hidden');
+    }
+
+    function closeTestModal() {
+        document.getElementById('testEmailModal').classList.add('hidden');
+    }
+
+    async function sendTestEmail() {
+        const email = document.getElementById('testEmailAddress').value;
+        if (!email) {
+            alert('Please enter an email address');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/admin/notifications/test-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to_email: email })
+            });
+
+            if (res.ok) {
+                closeTestModal();
+                showMessage('smtpMessage', `Test email sent to ${email}!`, 'success');
+                loadLogs(); // Refresh logs
+            } else {
+                const err = await res.json();
+                alert(err.detail || 'Failed to send test email');
+            }
+        } catch (err) {
+            alert('Network error');
+        }
+    }
+
+    function showMessage(elementId, message, type) {
+        const el = document.getElementById(elementId);
+        el.textContent = message;
+        el.className = `mt-4 p-3 rounded-lg ${type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
+        el.classList.remove('hidden');
+        setTimeout(() => el.classList.add('hidden'), 5000);
+    }
+
+    // Initialize
+    loadSmtpSettings();
+    loadEventConfigs();
+    loadLogs();
+</script>
+{% endblock %}

@@ -8,7 +8,7 @@ from datetime import datetime, date, timedelta
 import re
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -17,7 +17,8 @@ from schemas import (
     ReviewStatusUpdate, ReplaceDepartmentRequest, AssignDepartmentRequest,
     AppealCreate, AppealResolve,
     SetHODRequest,
-    MeetingCreate, MeetingUpdate, RSVPRequest
+    MeetingCreate, MeetingUpdate, RSVPRequest,
+    SMTPSettingsUpdate, NotificationConfigUpdate, TestEmailRequest
 )
 
 router = APIRouter()
@@ -811,7 +812,10 @@ def update_review_status(
     db: Session = Depends(get_db)
 ):
     """Approve or reject a single department selection"""
-    md = db.query(MemberDepartment).filter(MemberDepartment.id == member_department_id).first()
+    md = db.query(MemberDepartment).options(
+        joinedload(MemberDepartment.member),
+        joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).filter(MemberDepartment.id == member_department_id).first()
     if not md:
         raise HTTPException(status_code=404, detail="Selection not found")
 
@@ -822,6 +826,23 @@ def update_review_status(
     md.admin_note = data.admin_note
     md.status_changed_at = datetime.now()
     db.commit()
+
+    # Dispatch notification
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        event_type = EventType.MEMBER_APPROVED if data.status == "approved" else EventType.MEMBER_REJECTED
+        dispatch_event(db, event_type, {
+            "member_id": md.member.id,
+            "member_name": md.member.full_name,
+            "member_email": md.member.email,
+            "department_name": md.department.name,
+            "category_name": md.department.category.name if md.department.category else None,
+            "admin_note": data.admin_note
+        })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
 
     return {"success": True, "id": member_department_id, "status": data.status}
 
@@ -877,7 +898,9 @@ def assign_department(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    dept = db.query(Department).filter(Department.id == data.department_id).first()
+    dept = db.query(Department).options(
+        joinedload(Department.category)
+    ).filter(Department.id == data.department_id).first()
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
 
@@ -901,6 +924,22 @@ def assign_department(
     db.add(md)
     db.commit()
     db.refresh(md)
+
+    # Dispatch notification
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        dispatch_event(db, EventType.DEPARTMENT_ASSIGNED, {
+            "member_id": member.id,
+            "member_name": member.full_name,
+            "member_email": member.email,
+            "department_name": dept.name,
+            "category_name": dept.category.name if dept.category else None,
+            "admin_note": data.admin_note
+        })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
 
     return {"success": True, "id": md.id}
 
@@ -977,6 +1016,35 @@ def publish_results(db: Session = Depends(get_db)):
         db.add(Settings(key="publishedAt", value=now))
 
     db.commit()
+
+    # Dispatch notification to all members with approved selections
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        # Get all members with at least one approved selection
+        members_with_approved = db.query(Member).join(MemberDepartment).filter(
+            MemberDepartment.status == "approved"
+        ).distinct().all()
+
+        # Get year
+        year_setting = db.query(Settings).filter(Settings.key == "selectionYear").first()
+        year = year_setting.value if year_setting else "2026"
+
+        # Build recipients list
+        recipients = [
+            {"id": m.id, "email": m.email, "phone": m.phone}
+            for m in members_with_approved
+            if m.email  # Only include members with email
+        ]
+
+        if recipients:
+            dispatch_event(db, EventType.RESULTS_PUBLISHED, {
+                "year": year,
+                "recipients": recipients
+            })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
 
     return {"success": True, "published_at": now}
 
@@ -1149,6 +1217,14 @@ def submit_appeal(data: AppealCreate, db: Session = Depends(get_db)):
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
+    # Get department names for notification
+    unwanted_dept = None
+    wanted_dept = None
+    if data.unwanted_department_id:
+        unwanted_dept = db.query(Department).filter(Department.id == data.unwanted_department_id).first()
+    if data.wanted_department_id:
+        wanted_dept = db.query(Department).filter(Department.id == data.wanted_department_id).first()
+
     # Create appeal
     appeal = Appeal(
         member_id=member.id,
@@ -1160,6 +1236,22 @@ def submit_appeal(data: AppealCreate, db: Session = Depends(get_db)):
     db.add(appeal)
     db.commit()
     db.refresh(appeal)
+
+    # Dispatch notification to admin
+    try:
+        from notifications.dispatcher import dispatch_to_admins
+        from notifications.events import EventType
+
+        dispatch_to_admins(db, EventType.APPEAL_SUBMITTED, {
+            "appeal_id": appeal.id,
+            "member_name": member.full_name,
+            "member_phone": member.phone,
+            "unwanted_department": unwanted_dept.name if unwanted_dept else None,
+            "wanted_department": wanted_dept.name if wanted_dept else None,
+            "reason": data.reason
+        })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
 
     return {"success": True, "appeal_id": appeal.id}
 
@@ -1200,7 +1292,11 @@ def resolve_appeal(
     db: Session = Depends(get_db)
 ):
     """Resolve an appeal (approve or reject)"""
-    appeal = db.query(Appeal).filter(Appeal.id == appeal_id).first()
+    appeal = db.query(Appeal).options(
+        joinedload(Appeal.member),
+        joinedload(Appeal.unwanted_department),
+        joinedload(Appeal.wanted_department)
+    ).filter(Appeal.id == appeal_id).first()
     if not appeal:
         raise HTTPException(status_code=404, detail="Appeal not found")
 
@@ -1244,6 +1340,23 @@ def resolve_appeal(
                 db.add(new_md)
 
     db.commit()
+
+    # Dispatch notification to member
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        dispatch_event(db, EventType.APPEAL_RESOLVED, {
+            "member_id": appeal.member.id,
+            "member_name": appeal.member.full_name,
+            "member_email": appeal.member.email,
+            "status": data.status,
+            "unwanted_department": appeal.unwanted_department.name if appeal.unwanted_department else None,
+            "wanted_department": appeal.wanted_department.name if appeal.wanted_department else None,
+            "admin_response": data.admin_response
+        })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
 
     return {"success": True, "appeal_id": appeal_id, "status": data.status}
 
@@ -1718,6 +1831,35 @@ def create_hod_meeting(
         joinedload(Meeting.created_by)
     ).filter(Meeting.id == meeting.id).first()
 
+    # Dispatch notification to department members
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        # Get approved members of this department
+        dept_members = db.query(Member).join(MemberDepartment).filter(
+            MemberDepartment.department_id == data.department_id,
+            MemberDepartment.status == "approved"
+        ).all()
+
+        recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in dept_members if m.email]
+
+        if recipients:
+            dispatch_event(db, EventType.MEETING_CREATED, {
+                "meeting_id": meeting.id,
+                "title": meeting.title,
+                "description": meeting.description,
+                "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
+                "start_time": slot_to_time(meeting.start_slot),
+                "end_time": slot_to_time(meeting.end_slot),
+                "location": meeting.location,
+                "meeting_link": meeting.meeting_link,
+                "department_name": department.name,
+                "recipients": recipients
+            })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
+
     return {"success": True, "meeting": format_meeting_response(meeting, db)}
 
 
@@ -2063,6 +2205,58 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
         joinedload(Meeting.created_by)
     ).filter(Meeting.id == meeting.id).first()
 
+    # Dispatch notification to relevant members
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        # Determine recipients based on meeting type
+        recipients = []
+        dept_name = None
+
+        if is_general:
+            # All approved members
+            members = db.query(Member).join(MemberDepartment).filter(
+                MemberDepartment.status == "approved"
+            ).distinct().all()
+            recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in members if m.email]
+            dept_name = "All Leaders"
+        elif data.target_department_ids:
+            # Members from specified departments
+            members = db.query(Member).join(MemberDepartment).filter(
+                MemberDepartment.department_id.in_(data.target_department_ids),
+                MemberDepartment.status == "approved"
+            ).distinct().all()
+            recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in members if m.email]
+            depts = db.query(Department).filter(Department.id.in_(data.target_department_ids)).all()
+            dept_name = ", ".join([d.name for d in depts])
+        else:
+            # Single department
+            members = db.query(Member).join(MemberDepartment).filter(
+                MemberDepartment.department_id == department_id,
+                MemberDepartment.status == "approved"
+            ).all()
+            recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in members if m.email]
+            dept = db.query(Department).filter(Department.id == department_id).first()
+            dept_name = dept.name if dept else None
+
+        if recipients:
+            dispatch_event(db, EventType.MEETING_CREATED, {
+                "meeting_id": meeting.id,
+                "title": meeting.title,
+                "description": meeting.description,
+                "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
+                "start_time": slot_to_time(meeting.start_slot),
+                "end_time": slot_to_time(meeting.end_slot),
+                "location": meeting.location,
+                "meeting_link": meeting.meeting_link,
+                "department_name": dept_name,
+                "is_general": is_general,
+                "recipients": recipients
+            })
+    except Exception as e:
+        print(f"Failed to dispatch notification: {e}")
+
     return {"success": True, "meeting": format_meeting_response(meeting, db)}
 
 
@@ -2162,4 +2356,172 @@ def get_meeting_rsvps(meeting_id: int, db: Session = Depends(get_db)):
         "total": len(rsvps),
         "attending": sum(1 for r in rsvps if r.response == "attending"),
         "not_attending": sum(1 for r in rsvps if r.response == "not_attending")
+    }
+
+
+# ============ NOTIFICATION ENDPOINTS ============
+
+@router.get("/admin/notifications/smtp-settings")
+def get_smtp_settings(db: Session = Depends(get_db)):
+    """Get SMTP settings (password is masked)"""
+    smtp_keys = [
+        'smtp_enabled', 'smtp_host', 'smtp_port',
+        'smtp_username', 'smtp_password',
+        'smtp_from_name', 'smtp_from_email'
+    ]
+    settings = db.query(Settings).filter(Settings.key.in_(smtp_keys)).all()
+    result = {s.key: s.value for s in settings}
+
+    # Mask the password
+    if result.get('smtp_password'):
+        result['smtp_password'] = '********' if result['smtp_password'] else ''
+
+    return result
+
+
+@router.put("/admin/notifications/smtp-settings")
+def update_smtp_settings(data: SMTPSettingsUpdate, db: Session = Depends(get_db)):
+    """Update SMTP settings"""
+    updates = data.model_dump(exclude_none=True)
+
+    for key, value in updates.items():
+        # Skip password update if it's the masked value
+        if key == 'smtp_password' and value == '********':
+            continue
+
+        setting = db.query(Settings).filter(Settings.key == key).first()
+        if setting:
+            setting.value = value
+        else:
+            db.add(Settings(key=key, value=value))
+
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/admin/notifications/test-email")
+def send_test_email(data: TestEmailRequest, db: Session = Depends(get_db)):
+    """Send a test email to verify SMTP configuration"""
+    from notifications.channels.email import EmailChannel
+
+    # Get SMTP settings
+    smtp_keys = [
+        'smtp_enabled', 'smtp_host', 'smtp_port',
+        'smtp_username', 'smtp_password',
+        'smtp_from_name', 'smtp_from_email'
+    ]
+    settings = db.query(Settings).filter(Settings.key.in_(smtp_keys)).all()
+    smtp_settings = {s.key: s.value for s in settings}
+
+    # Create email channel and test
+    channel = EmailChannel(smtp_settings)
+
+    # First test connection
+    conn_success, conn_error = channel.test_connection()
+    if not conn_success:
+        raise HTTPException(status_code=400, detail=f"Connection failed: {conn_error}")
+
+    # Send test email
+    success, error = channel.send_test_email(data.to_email)
+
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Failed to send: {error}")
+
+    return {"success": True, "message": f"Test email sent to {data.to_email}"}
+
+
+@router.get("/admin/notifications/config")
+def get_notification_configs(db: Session = Depends(get_db)):
+    """Get all notification event configurations"""
+    from notifications.events import EventType, EVENT_LABELS, EVENT_DESCRIPTIONS
+
+    configs = db.query(NotificationConfig).all()
+    config_map = {c.event_type: c for c in configs}
+
+    result = []
+    for event_type in EventType:
+        config = config_map.get(event_type.value)
+        result.append({
+            "event_type": event_type.value,
+            "label": EVENT_LABELS.get(event_type, event_type.value),
+            "description": EVENT_DESCRIPTIONS.get(event_type, ""),
+            "email_enabled": bool(config.email_enabled) if config else True,
+            "sms_enabled": bool(config.sms_enabled) if config else False,
+            "push_enabled": bool(config.push_enabled) if config else False
+        })
+
+    return result
+
+
+@router.put("/admin/notifications/config/{event_type}")
+def update_notification_config(
+    event_type: str,
+    data: NotificationConfigUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update notification config for a specific event type"""
+    from notifications.events import EventType
+
+    # Validate event type
+    valid_types = [e.value for e in EventType]
+    if event_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid event type: {event_type}")
+
+    config = db.query(NotificationConfig).filter(
+        NotificationConfig.event_type == event_type
+    ).first()
+
+    if not config:
+        config = NotificationConfig(event_type=event_type)
+        db.add(config)
+
+    if data.email_enabled is not None:
+        config.email_enabled = data.email_enabled
+    if data.sms_enabled is not None:
+        config.sms_enabled = data.sms_enabled
+    if data.push_enabled is not None:
+        config.push_enabled = data.push_enabled
+
+    db.commit()
+    return {"success": True, "event_type": event_type}
+
+
+@router.get("/admin/notifications/logs")
+def get_notification_logs(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(None),
+    event_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Get notification logs with pagination and filtering"""
+    query = db.query(NotificationLog)
+
+    if status:
+        query = query.filter(NotificationLog.status == status)
+    if event_type:
+        query = query.filter(NotificationLog.event_type == event_type)
+
+    total = query.count()
+    logs = query.order_by(NotificationLog.created_at.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "logs": [
+            {
+                "id": log.id,
+                "event_type": log.event_type,
+                "channel": log.channel,
+                "recipient_email": log.recipient_email,
+                "recipient_phone": log.recipient_phone,
+                "subject": log.subject,
+                "status": log.status,
+                "error_message": log.error_message,
+                "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+                "created_at": log.created_at.isoformat() if log.created_at else None
+            }
+            for log in logs
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset
     }

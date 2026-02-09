@@ -92,11 +92,21 @@ def run_migrations():
                 print("Migration: Added is_general and target_department_ids columns to meetings")
 
         # Add new settings if they don't exist
+        # SMTP settings can be overridden by environment variables
+        import os
         new_settings = [
             ('resultsPublished', 'false'),
             ('publishedAt', ''),
             ('appealWindowOpen', 'false'),
             ('selectionYear', '2026'),
+            # SMTP settings for notifications (env vars take precedence)
+            ('smtp_enabled', os.getenv('SMTP_ENABLED', 'false')),
+            ('smtp_host', os.getenv('SMTP_HOST', 'smtp.gmail.com')),
+            ('smtp_port', os.getenv('SMTP_PORT', '587')),
+            ('smtp_username', os.getenv('SMTP_USERNAME', '')),
+            ('smtp_password', os.getenv('SMTP_PASSWORD', '')),
+            ('smtp_from_name', os.getenv('SMTP_FROM_NAME', 'RFM Stellenbosch')),
+            ('smtp_from_email', os.getenv('SMTP_FROM_EMAIL', '')),
         ]
         for key, value in new_settings:
             result = conn.execute(text(
@@ -108,6 +118,36 @@ def run_migrations():
                 ), {"key": key, "value": value})
                 conn.commit()
                 print(f"Migration: Added setting {key}={value}")
+
+        # Seed default notification configs for all event types
+        event_types = [
+            'member_approved',
+            'member_rejected',
+            'department_assigned',
+            'results_published',
+            'appeal_submitted',
+            'appeal_resolved',
+            'meeting_created',
+            'meeting_reminder',
+            'meeting_updated',
+            'meeting_cancelled',
+        ]
+        # Check if notification_configs table exists (created by create_all)
+        result = conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'notification_configs'
+        """))
+        if result.fetchone():
+            for event_type in event_types:
+                result = conn.execute(text(
+                    "SELECT event_type FROM notification_configs WHERE event_type = :event_type"
+                ), {"event_type": event_type})
+                if not result.fetchone():
+                    conn.execute(text(
+                        "INSERT INTO notification_configs (event_type, email_enabled) VALUES (:event_type, 1)"
+                    ), {"event_type": event_type})
+                    conn.commit()
+                    print(f"Migration: Added notification config for {event_type}")
 
 
 @asynccontextmanager

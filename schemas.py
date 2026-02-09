@@ -320,3 +320,46 @@ class WeeklyCalendarResponse(BaseModel):
 class MeetingListResponse(BaseModel):
     meetings: List[MeetingResponse] = []
     total: int = 0
+
+
+# ============ NOTIFICATION SCHEMAS ============
+
+class SMTPSettingsUpdate(BaseModel):
+    smtp_enabled: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from_name: Optional[str] = None
+    smtp_from_email: Optional[str] = None
+
+class NotificationConfigUpdate(BaseModel):
+    email_enabled: Optional[int] = None
+    sms_enabled: Optional[int] = None
+    push_enabled: Optional[int] = None
+
+class NotificationConfigResponse(BaseModel):
+    event_type: str
+    label: str
+    description: str
+    email_enabled: bool = True
+    sms_enabled: bool = False
+    push_enabled: bool = False
+
+class NotificationLogResponse(BaseModel):
+    id: int
+    event_type: str
+    channel: str
+    recipient_email: Optional[str] = None
+    recipient_phone: Optional[str] = None
+    subject: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class TestEmailRequest(BaseModel):
+    to_email: str

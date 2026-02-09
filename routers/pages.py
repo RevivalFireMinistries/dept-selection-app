@@ -152,6 +152,14 @@ async def admin_settings(request: Request):
     return templates.TemplateResponse("admin/settings.html", {"request": request})
 
 
+@router.get("/admin/notifications")
+async def admin_notifications(request: Request):
+    """Admin notification settings page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/notifications.html", {"request": request})
+
+
 # ============ DESK ROUTES ============
 
 @router.get("/desk/login")

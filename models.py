@@ -146,3 +146,37 @@ class MeetingRSVP(Base):
 
     meeting = relationship("Meeting", back_populates="rsvps")
     member = relationship("Member")
+
+
+class NotificationConfig(Base):
+    """Configuration for each notification event type"""
+    __tablename__ = "notification_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(50), unique=True, nullable=False)  # e.g., "meeting_created"
+    email_enabled = Column(Integer, nullable=True, server_default="1")  # 1=enabled, 0=disabled
+    email_template = Column(Text, nullable=True)  # Custom template override
+    sms_enabled = Column(Integer, nullable=True, server_default="0")  # Future
+    push_enabled = Column(Integer, nullable=True, server_default="0")  # Future
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class NotificationLog(Base):
+    """Audit log of sent notifications"""
+    __tablename__ = "notification_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(50), nullable=False)
+    channel = Column(String(20), nullable=False)  # "email", "sms", "push"
+    recipient_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    recipient_email = Column(String(200), nullable=True)
+    recipient_phone = Column(String(50), nullable=True)
+    subject = Column(String(200), nullable=True)
+    body = Column(Text, nullable=True)
+    status = Column(String(20), nullable=True, server_default="pending")  # pending, sent, failed
+    error_message = Column(Text, nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    recipient = relationship("Member", foreign_keys=[recipient_id])
