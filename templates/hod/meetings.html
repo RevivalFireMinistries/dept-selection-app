@@ -206,12 +206,58 @@ let meetings = [];
 let calendarData = null;
 let currentWeekDate = new Date();
 
-// Time slots we care about (7PM-9PM = slots 38-42)
-const TIME_SLOTS = [
+// Time slots for weekdays (7PM-9PM = slots 38-42)
+const WEEKDAY_SLOTS = [
     { slot: 38, label: '7:00 PM' },
     { slot: 39, label: '7:30 PM' },
     { slot: 40, label: '8:00 PM' },
     { slot: 41, label: '8:30 PM' }
+];
+
+// Time slots for Sundays (after service - 12PM onwards)
+const SUNDAY_SLOTS = [
+    { slot: 24, label: '12:00 PM' },
+    { slot: 25, label: '12:30 PM' },
+    { slot: 26, label: '1:00 PM' },
+    { slot: 27, label: '1:30 PM' },
+    { slot: 28, label: '2:00 PM' },
+    { slot: 29, label: '2:30 PM' },
+    { slot: 30, label: '3:00 PM' },
+    { slot: 31, label: '3:30 PM' },
+    { slot: 32, label: '4:00 PM' },
+    { slot: 33, label: '4:30 PM' },
+    { slot: 34, label: '5:00 PM' },
+    { slot: 35, label: '5:30 PM' },
+    { slot: 36, label: '6:00 PM' },
+    { slot: 37, label: '6:30 PM' },
+    { slot: 38, label: '7:00 PM' },
+    { slot: 39, label: '7:30 PM' },
+    { slot: 40, label: '8:00 PM' },
+    { slot: 41, label: '8:30 PM' }
+];
+
+// Sunday time options for dropdown
+const SUNDAY_TIME_OPTIONS = [
+    { value: '24-26', label: '12:00 PM - 1:00 PM' },
+    { value: '24-28', label: '12:00 PM - 2:00 PM' },
+    { value: '26-28', label: '1:00 PM - 2:00 PM' },
+    { value: '26-30', label: '1:00 PM - 3:00 PM' },
+    { value: '28-30', label: '2:00 PM - 3:00 PM' },
+    { value: '28-32', label: '2:00 PM - 4:00 PM' },
+    { value: '30-32', label: '3:00 PM - 4:00 PM' },
+    { value: '32-34', label: '4:00 PM - 5:00 PM' },
+    { value: '34-36', label: '5:00 PM - 6:00 PM' },
+    { value: '38-40', label: '7:00 PM - 8:00 PM' },
+    { value: '38-42', label: '7:00 PM - 9:00 PM' },
+    { value: '40-42', label: '8:00 PM - 9:00 PM' }
+];
+
+// Weekday time options for dropdown
+const WEEKDAY_TIME_OPTIONS = [
+    { value: '38-40', label: '7:00 PM - 8:00 PM' },
+    { value: '38-42', label: '7:00 PM - 9:00 PM' },
+    { value: '39-41', label: '7:30 PM - 8:30 PM' },
+    { value: '40-42', label: '8:00 PM - 9:00 PM' }
 ];
 
 function formatDate(dateStr) {
@@ -231,6 +277,11 @@ function formatShortDate(dateStr) {
 }
 
 function init() {
+    // Update time options when date changes
+    document.getElementById('meetingDate').addEventListener('change', function() {
+        updateTimeOptions(this.value);
+    });
+
     const params = new URLSearchParams(window.location.search);
     const urlPhone = params.get('phone');
     if (urlPhone) {
@@ -363,6 +414,10 @@ function renderCalendar() {
     document.getElementById('weekLabel').textContent =
         `${startDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })} - ${endDate.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
+    // Get all unique slots we need to show (union of weekday and Sunday slots for any Sunday in the week)
+    const hasSunday = calendarData.days.some(day => day.day_name === 'Sunday');
+    const allSlots = hasSunday ? SUNDAY_SLOTS : WEEKDAY_SLOTS;
+
     // Build calendar grid
     let html = '<div class="grid grid-cols-8 text-sm">';
 
@@ -371,19 +426,29 @@ function renderCalendar() {
     calendarData.days.forEach(day => {
         const d = new Date(day.date);
         const isToday = d.toDateString() === new Date().toDateString();
-        html += `<div class="p-2 bg-gray-50 border-b font-medium text-center ${isToday ? 'text-indigo-600' : 'text-gray-700'}">
+        const isSunday = day.day_name === 'Sunday';
+        html += `<div class="p-2 bg-gray-50 border-b font-medium text-center ${isToday ? 'text-indigo-600' : isSunday ? 'text-orange-600' : 'text-gray-700'}">
             ${day.day_name.slice(0, 3)}<br>
             <span class="text-xs ${isToday ? 'bg-indigo-600 text-white px-1.5 py-0.5 rounded-full' : ''}">${d.getDate()}</span>
         </div>`;
     });
 
-    // Time slot rows (only 7PM-9PM)
-    TIME_SLOTS.forEach(timeSlot => {
+    // Time slot rows
+    allSlots.forEach(timeSlot => {
         html += `<div class="p-2 border-b text-gray-500 text-xs text-right pr-3">${timeSlot.label}</div>`;
 
         calendarData.days.forEach(day => {
-            const slotData = day.slots.find(s => s.slot === timeSlot.slot);
+            const isSunday = day.day_name === 'Sunday';
+            const isDaytimeSlot = timeSlot.slot < 38;
             const cellDate = day.date;
+
+            // Daytime slots only available on Sundays
+            if (isDaytimeSlot && !isSunday) {
+                html += `<div class="p-1 border-b bg-gray-50"></div>`;
+                return;
+            }
+
+            const slotData = day.slots.find(s => s.slot === timeSlot.slot);
 
             if (slotData?.meeting) {
                 // Has a meeting
@@ -433,9 +498,30 @@ function nextWeek() {
     loadCalendar();
 }
 
+function isSunday(dateStr) {
+    const d = new Date(dateStr);
+    return d.getDay() === 0;
+}
+
+function updateTimeOptions(dateStr) {
+    const timeSelect = document.getElementById('meetingTime');
+    const options = isSunday(dateStr) ? SUNDAY_TIME_OPTIONS : WEEKDAY_TIME_OPTIONS;
+
+    timeSelect.innerHTML = options.map(opt =>
+        `<option value="${opt.value}">${opt.label}</option>`
+    ).join('');
+}
+
 function openCreateModalWithSlot(dateStr, slot) {
-    openCreateModal();
     document.getElementById('meetingDate').value = dateStr;
+    updateTimeOptions(dateStr);
+
+    document.getElementById('meetingTitle').value = '';
+    document.getElementById('meetingLocation').value = '';
+    document.getElementById('meetingDescription').value = '';
+
+    const activeDept = document.getElementById('activeDepartment').value;
+    document.getElementById('meetingDepartment').value = departments.length === 1 ? departments[0].id : activeDept;
 
     // Find the time option that starts with this slot
     const timeSelect = document.getElementById('meetingTime');
@@ -445,19 +531,23 @@ function openCreateModalWithSlot(dateStr, slot) {
             break;
         }
     }
+
+    document.getElementById('createModal').classList.remove('hidden');
+    document.getElementById('createModal').classList.add('flex');
 }
 
 function openCreateModal() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('meetingDate').value = today;
     document.getElementById('meetingDate').min = today;
+    updateTimeOptions(today);
+
     document.getElementById('meetingTitle').value = '';
     document.getElementById('meetingLocation').value = '';
     document.getElementById('meetingDescription').value = '';
 
     const activeDept = document.getElementById('activeDepartment').value;
     document.getElementById('meetingDepartment').value = departments.length === 1 ? departments[0].id : activeDept;
-    document.getElementById('meetingTime').value = '38-40';
 
     document.getElementById('createModal').classList.remove('hidden');
     document.getElementById('createModal').classList.add('flex');
@@ -467,6 +557,7 @@ function closeCreateModal() {
     document.getElementById('createModal').classList.add('hidden');
     document.getElementById('createModal').classList.remove('flex');
 }
+
 
 async function createMeeting(e) {
     e.preventDefault();
