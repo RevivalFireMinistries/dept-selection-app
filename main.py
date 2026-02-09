@@ -107,6 +107,11 @@ def run_migrations():
             ('smtp_password', os.getenv('SMTP_PASSWORD', '')),
             ('smtp_from_name', os.getenv('SMTP_FROM_NAME', 'RFM Stellenbosch')),
             ('smtp_from_email', os.getenv('SMTP_FROM_EMAIL', '')),
+            # Resend settings (preferred for cloud platforms like Railway)
+            ('resend_enabled', os.getenv('RESEND_ENABLED', 'false')),
+            ('resend_api_key', os.getenv('RESEND_API_KEY', '')),
+            ('resend_from_name', os.getenv('RESEND_FROM_NAME', 'RFM Stellenbosch')),
+            ('resend_from_email', os.getenv('RESEND_FROM_EMAIL', '')),
         ]
         for key, value in new_settings:
             result = conn.execute(text(

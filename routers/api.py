@@ -2361,9 +2361,31 @@ def get_meeting_rsvps(meeting_id: int, db: Session = Depends(get_db)):
 
 # ============ NOTIFICATION ENDPOINTS ============
 
+@router.get("/admin/notifications/email-settings")
+def get_email_settings(db: Session = Depends(get_db)):
+    """Get all email settings (SMTP and Resend), passwords masked"""
+    all_keys = [
+        'smtp_enabled', 'smtp_host', 'smtp_port',
+        'smtp_username', 'smtp_password',
+        'smtp_from_name', 'smtp_from_email',
+        'resend_enabled', 'resend_api_key',
+        'resend_from_name', 'resend_from_email'
+    ]
+    settings = db.query(Settings).filter(Settings.key.in_(all_keys)).all()
+    result = {s.key: s.value for s in settings}
+
+    # Mask secrets
+    if result.get('smtp_password'):
+        result['smtp_password'] = '********'
+    if result.get('resend_api_key'):
+        result['resend_api_key'] = '********'
+
+    return result
+
+
 @router.get("/admin/notifications/smtp-settings")
 def get_smtp_settings(db: Session = Depends(get_db)):
-    """Get SMTP settings (password is masked)"""
+    """Get SMTP settings (password is masked) - legacy endpoint"""
     smtp_keys = [
         'smtp_enabled', 'smtp_host', 'smtp_port',
         'smtp_username', 'smtp_password',
@@ -2401,20 +2423,20 @@ def update_smtp_settings(data: SMTPSettingsUpdate, db: Session = Depends(get_db)
 
 @router.post("/admin/notifications/test-email")
 def send_test_email(data: TestEmailRequest, db: Session = Depends(get_db)):
-    """Send a test email to verify SMTP configuration"""
-    from notifications.channels.email import EmailChannel
+    """Send a test email using the active channel (Resend or SMTP)"""
+    from notifications.dispatcher import get_email_settings, get_email_channel
 
-    # Get SMTP settings
-    smtp_keys = [
-        'smtp_enabled', 'smtp_host', 'smtp_port',
-        'smtp_username', 'smtp_password',
-        'smtp_from_name', 'smtp_from_email'
-    ]
-    settings = db.query(Settings).filter(Settings.key.in_(smtp_keys)).all()
-    smtp_settings = {s.key: s.value for s in settings}
+    # Get all email settings
+    settings = get_email_settings(db)
 
-    # Create email channel and test
-    channel = EmailChannel(smtp_settings)
+    # Get the active channel
+    channel, channel_name = get_email_channel(settings)
+
+    if not channel:
+        raise HTTPException(
+            status_code=400,
+            detail="No email channel configured. Enable either Resend or SMTP."
+        )
 
     # First test connection
     conn_success, conn_error = channel.test_connection()
@@ -2427,7 +2449,7 @@ def send_test_email(data: TestEmailRequest, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to send: {error}")
 
-    return {"success": True, "message": f"Test email sent to {data.to_email}"}
+    return {"success": True, "message": f"Test email sent via {channel_name} to {data.to_email}"}
 
 
 @router.get("/admin/notifications/config")

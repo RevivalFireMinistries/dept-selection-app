@@ -10,19 +10,42 @@ from sqlalchemy.orm import Session
 
 from .events import EventType, EMAIL_SUBJECTS
 from .channels.email import EmailChannel
+from .channels.resend import ResendChannel
 
 
-def get_smtp_settings(db: Session) -> Dict[str, str]:
-    """Get SMTP settings from database"""
+def get_email_settings(db: Session) -> Dict[str, str]:
+    """Get all email settings (SMTP and Resend) from database"""
     from models import Settings
     settings = db.query(Settings).filter(
         Settings.key.in_([
+            # SMTP settings
             'smtp_enabled', 'smtp_host', 'smtp_port',
             'smtp_username', 'smtp_password',
-            'smtp_from_name', 'smtp_from_email'
+            'smtp_from_name', 'smtp_from_email',
+            # Resend settings
+            'resend_enabled', 'resend_api_key',
+            'resend_from_name', 'resend_from_email'
         ])
     ).all()
     return {s.key: s.value for s in settings}
+
+
+def get_email_channel(settings: Dict[str, str]):
+    """
+    Get the appropriate email channel based on configuration.
+    Resend is preferred if configured, otherwise falls back to SMTP.
+    """
+    # Try Resend first (more reliable on cloud platforms)
+    resend = ResendChannel(settings)
+    if resend.is_configured():
+        return resend, "resend"
+
+    # Fall back to SMTP
+    smtp = EmailChannel(settings)
+    if smtp.is_configured():
+        return smtp, "smtp"
+
+    return None, None
 
 
 def get_notification_config(db: Session, event_type: EventType):
@@ -317,8 +340,18 @@ def dispatch_event(
         print(f"No notification config found for {event_type.value}")
         return
 
-    # Get SMTP settings
-    settings = get_smtp_settings(db)
+    # Check if email is enabled for this event
+    if not config.email_enabled:
+        print(f"Email notifications disabled for {event_type.value}")
+        return
+
+    # Get email settings and channel
+    settings = get_email_settings(db)
+    email_channel, channel_name = get_email_channel(settings)
+
+    if not email_channel:
+        print("No email channel configured, skipping notifications")
+        return
 
     # Determine recipients
     if recipients is None:
@@ -334,44 +367,36 @@ def dispatch_event(
             print(f"No recipients for event {event_type.value}")
             return
 
-    # Check if email is enabled for this event
-    if config.email_enabled and settings.get('smtp_enabled') == 'true':
-        email_channel = EmailChannel(settings)
+    # Render email template
+    subject = get_email_subject(event_type, data)
+    body = render_email_template(event_type, data)
 
-        if not email_channel.is_configured():
-            print("Email channel not configured, skipping email notifications")
-            return
+    # Send to each recipient
+    for recipient in recipients:
+        recipient_email = recipient.get('email')
+        if not recipient_email:
+            continue
 
-        # Render email template
-        subject = get_email_subject(event_type, data)
-        body = render_email_template(event_type, data)
+        success, error = email_channel.send(recipient_email, subject, body)
 
-        # Send to each recipient
-        for recipient in recipients:
-            recipient_email = recipient.get('email')
-            if not recipient_email:
-                continue
+        # Log the notification
+        log_notification(
+            db=db,
+            event_type=event_type,
+            channel=channel_name,
+            recipient_id=recipient.get('id'),
+            recipient_email=recipient_email,
+            recipient_phone=recipient.get('phone'),
+            subject=subject,
+            body=body,
+            status="sent" if success else "failed",
+            error_message=error
+        )
 
-            success, error = email_channel.send(recipient_email, subject, body)
-
-            # Log the notification
-            log_notification(
-                db=db,
-                event_type=event_type,
-                channel="email",
-                recipient_id=recipient.get('id'),
-                recipient_email=recipient_email,
-                recipient_phone=recipient.get('phone'),
-                subject=subject,
-                body=body,
-                status="sent" if success else "failed",
-                error_message=error
-            )
-
-            if success:
-                print(f"Email sent to {recipient_email} for event {event_type.value}")
-            else:
-                print(f"Failed to send email to {recipient_email}: {error}")
+        if success:
+            print(f"[{channel_name}] Email sent to {recipient_email} for {event_type.value}")
+        else:
+            print(f"[{channel_name}] Failed to send to {recipient_email}: {error}")
 
 
 def dispatch_to_admins(
@@ -381,10 +406,16 @@ def dispatch_to_admins(
 ):
     """
     Dispatch a notification event to admin email(s).
-    Uses smtp_from_email as the admin recipient.
+    Uses the from_email of the active channel as admin recipient.
     """
-    settings = get_smtp_settings(db)
-    admin_email = settings.get('smtp_from_email')
+    settings = get_email_settings(db)
+
+    # Get admin email from active channel
+    admin_email = None
+    if os.getenv('RESEND_ENABLED', '').lower() == 'true' or settings.get('resend_enabled') == 'true':
+        admin_email = os.getenv('RESEND_FROM_EMAIL') or settings.get('resend_from_email')
+    if not admin_email:
+        admin_email = os.getenv('SMTP_FROM_EMAIL') or settings.get('smtp_from_email')
 
     if admin_email:
         dispatch_event(db, event_type, data, recipients=[{

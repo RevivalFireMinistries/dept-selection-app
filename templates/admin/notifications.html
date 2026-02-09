@@ -6,63 +6,134 @@
         <h2 class="text-2xl font-bold text-gray-900">Notification Settings</h2>
     </div>
 
-    <!-- SMTP Configuration -->
+    <!-- Email Provider Selection -->
     <div class="bg-white rounded-lg shadow p-6">
-        <h3 class="text-lg font-semibold mb-4">Email Configuration (SMTP)</h3>
+        <h3 class="text-lg font-semibold mb-4">Email Provider</h3>
+        <p class="text-sm text-gray-600 mb-4">Choose your email provider. Resend is recommended for Railway deployments.</p>
 
-        <form id="smtpForm" class="space-y-4">
-            <div class="flex items-center gap-4 mb-4">
-                <label class="flex items-center gap-2">
-                    <input type="checkbox" id="smtp_enabled" name="smtp_enabled" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                    <span class="font-medium">Enable Email Notifications</span>
-                </label>
+        <!-- Provider Tabs -->
+        <div class="flex gap-2 mb-6">
+            <button type="button" onclick="showProvider('resend')" id="tab-resend"
+                class="px-4 py-2 rounded-lg font-medium transition provider-tab">
+                Resend (Recommended)
+            </button>
+            <button type="button" onclick="showProvider('smtp')" id="tab-smtp"
+                class="px-4 py-2 rounded-lg font-medium transition provider-tab">
+                SMTP
+            </button>
+        </div>
+
+        <!-- Resend Configuration -->
+        <div id="provider-resend" class="provider-panel">
+            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
+                <p class="text-sm text-indigo-800">
+                    <strong>Resend</strong> is a modern email API that works reliably on cloud platforms like Railway.
+                    <a href="https://resend.com" target="_blank" class="underline">Get your API key</a> (100 free emails/day).
+                </p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Host</label>
-                    <input type="text" id="smtp_host" name="smtp_host" placeholder="smtp.gmail.com"
-                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+            <form id="resendForm" class="space-y-4">
+                <div class="flex items-center gap-4 mb-4">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" id="resend_enabled" name="resend_enabled"
+                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                        <span class="font-medium">Enable Resend</span>
+                    </label>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Port</label>
-                    <input type="text" id="smtp_port" name="smtp_port" placeholder="587"
-                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                        <input type="password" id="resend_api_key" name="resend_api_key" placeholder="re_xxxxxxxxx"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">From Name</label>
+                        <input type="text" id="resend_from_name" name="resend_from_name" placeholder="RFM Stellenbosch"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">From Email</label>
+                        <input type="email" id="resend_from_email" name="resend_from_email" placeholder="noreply@yourdomain.com"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        <p class="text-xs text-gray-500 mt-1">Must be from a verified domain in Resend</p>
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                    <input type="text" id="smtp_username" name="smtp_username" placeholder="your@email.com"
-                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+
+                <div class="flex gap-3 mt-4">
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                        Save Resend Settings
+                    </button>
+                    <button type="button" onclick="testEmail()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                        Send Test Email
+                    </button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                    <input type="password" id="smtp_password" name="smtp_password" placeholder="App password"
-                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
-                    <p class="text-xs text-gray-500 mt-1">For Gmail, use an App Password</p>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">From Name</label>
-                    <input type="text" id="smtp_from_name" name="smtp_from_name" placeholder="RFM Stellenbosch"
-                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">From Email</label>
-                    <input type="email" id="smtp_from_email" name="smtp_from_email" placeholder="church@gmail.com"
-                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
+            </form>
+        </div>
+
+        <!-- SMTP Configuration -->
+        <div id="provider-smtp" class="provider-panel hidden">
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p class="text-sm text-yellow-800">
+                    <strong>Note:</strong> SMTP may not work on Railway due to network restrictions.
+                    Use Resend if you're having connection issues.
+                </p>
             </div>
 
-            <div class="flex gap-3 mt-4">
-                <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
-                    Save SMTP Settings
-                </button>
-                <button type="button" onclick="testEmail()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                    Send Test Email
-                </button>
-            </div>
-        </form>
+            <form id="smtpForm" class="space-y-4">
+                <div class="flex items-center gap-4 mb-4">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" id="smtp_enabled" name="smtp_enabled"
+                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                        <span class="font-medium">Enable SMTP</span>
+                    </label>
+                </div>
 
-        <div id="smtpMessage" class="hidden mt-4 p-3 rounded-lg"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Host</label>
+                        <input type="text" id="smtp_host" name="smtp_host" placeholder="smtp.gmail.com"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">SMTP Port</label>
+                        <input type="text" id="smtp_port" name="smtp_port" placeholder="587"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                        <input type="text" id="smtp_username" name="smtp_username" placeholder="your@email.com"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input type="password" id="smtp_password" name="smtp_password" placeholder="App password"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">From Name</label>
+                        <input type="text" id="smtp_from_name" name="smtp_from_name" placeholder="RFM Stellenbosch"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">From Email</label>
+                        <input type="email" id="smtp_from_email" name="smtp_from_email" placeholder="church@gmail.com"
+                            class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <div class="flex gap-3 mt-4">
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                        Save SMTP Settings
+                    </button>
+                    <button type="button" onclick="testEmail()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
+                        Send Test Email
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div id="providerMessage" class="hidden mt-4 p-3 rounded-lg"></div>
     </div>
 
     <!-- Event Configurations -->
@@ -92,9 +163,9 @@
                 <thead class="bg-gray-50">
                     <tr>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Channel</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Event</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Recipient</th>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Subject</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     </tr>
                 </thead>
@@ -126,13 +197,43 @@
     </div>
 </div>
 
+<style>
+    .provider-tab {
+        background: #F3F4F6;
+        color: #6B7280;
+    }
+    .provider-tab.active {
+        background: #4F46E5;
+        color: white;
+    }
+</style>
+
 <script>
-    // Load SMTP settings on page load
-    async function loadSmtpSettings() {
+    let currentProvider = 'resend';
+
+    function showProvider(provider) {
+        currentProvider = provider;
+        // Update tabs
+        document.querySelectorAll('.provider-tab').forEach(tab => tab.classList.remove('active'));
+        document.getElementById('tab-' + provider).classList.add('active');
+        // Show/hide panels
+        document.querySelectorAll('.provider-panel').forEach(panel => panel.classList.add('hidden'));
+        document.getElementById('provider-' + provider).classList.remove('hidden');
+    }
+
+    // Load all email settings
+    async function loadEmailSettings() {
         try {
-            const res = await fetch('/api/admin/notifications/smtp-settings');
+            const res = await fetch('/api/admin/notifications/email-settings');
             const data = await res.json();
 
+            // Resend settings
+            document.getElementById('resend_enabled').checked = data.resend_enabled === 'true';
+            document.getElementById('resend_api_key').value = data.resend_api_key || '';
+            document.getElementById('resend_from_name').value = data.resend_from_name || '';
+            document.getElementById('resend_from_email').value = data.resend_from_email || '';
+
+            // SMTP settings
             document.getElementById('smtp_enabled').checked = data.smtp_enabled === 'true';
             document.getElementById('smtp_host').value = data.smtp_host || '';
             document.getElementById('smtp_port').value = data.smtp_port || '';
@@ -140,16 +241,35 @@
             document.getElementById('smtp_password').value = data.smtp_password || '';
             document.getElementById('smtp_from_name').value = data.smtp_from_name || '';
             document.getElementById('smtp_from_email').value = data.smtp_from_email || '';
+
+            // Show active provider tab
+            if (data.resend_enabled === 'true') {
+                showProvider('resend');
+            } else if (data.smtp_enabled === 'true') {
+                showProvider('smtp');
+            } else {
+                showProvider('resend'); // Default to resend
+            }
         } catch (err) {
-            console.error('Failed to load SMTP settings:', err);
+            console.error('Failed to load email settings:', err);
         }
     }
+
+    // Save Resend settings
+    document.getElementById('resendForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await saveSettings({
+            resend_enabled: document.getElementById('resend_enabled').checked ? 'true' : 'false',
+            resend_api_key: document.getElementById('resend_api_key').value,
+            resend_from_name: document.getElementById('resend_from_name').value,
+            resend_from_email: document.getElementById('resend_from_email').value
+        });
+    });
 
     // Save SMTP settings
     document.getElementById('smtpForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-
-        const data = {
+        await saveSettings({
             smtp_enabled: document.getElementById('smtp_enabled').checked ? 'true' : 'false',
             smtp_host: document.getElementById('smtp_host').value,
             smtp_port: document.getElementById('smtp_port').value,
@@ -157,8 +277,10 @@
             smtp_password: document.getElementById('smtp_password').value,
             smtp_from_name: document.getElementById('smtp_from_name').value,
             smtp_from_email: document.getElementById('smtp_from_email').value
-        };
+        });
+    });
 
+    async function saveSettings(data) {
         try {
             const res = await fetch('/api/admin/notifications/smtp-settings', {
                 method: 'PUT',
@@ -167,15 +289,15 @@
             });
 
             if (res.ok) {
-                showMessage('smtpMessage', 'Settings saved successfully!', 'success');
+                showMessage('providerMessage', 'Settings saved successfully!', 'success');
             } else {
                 const err = await res.json();
-                showMessage('smtpMessage', err.detail || 'Failed to save settings', 'error');
+                showMessage('providerMessage', err.detail || 'Failed to save settings', 'error');
             }
         } catch (err) {
-            showMessage('smtpMessage', 'Network error', 'error');
+            showMessage('providerMessage', 'Network error', 'error');
         }
-    });
+    }
 
     // Load event configurations
     async function loadEventConfigs() {
@@ -206,7 +328,6 @@
         }
     }
 
-    // Toggle email for an event
     async function toggleEventEmail(eventType, enabled) {
         try {
             await fetch(`/api/admin/notifications/config/${eventType}`, {
@@ -241,10 +362,14 @@
                         ${formatDate(log.created_at)}
                     </td>
                     <td class="px-4 py-2 text-sm">
+                        <span class="px-2 py-1 text-xs ${log.channel === 'resend' ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-800'} rounded">
+                            ${log.channel}
+                        </span>
+                    </td>
+                    <td class="px-4 py-2 text-sm">
                         <span class="px-2 py-1 text-xs bg-gray-100 rounded">${log.event_type}</span>
                     </td>
                     <td class="px-4 py-2 text-sm text-gray-900">${log.recipient_email || '-'}</td>
-                    <td class="px-4 py-2 text-sm text-gray-600 max-w-xs truncate">${log.subject || '-'}</td>
                     <td class="px-4 py-2 text-sm">
                         ${getStatusBadge(log.status, log.error_message)}
                     </td>
@@ -276,7 +401,9 @@
 
     // Test email modal
     function testEmail() {
-        const fromEmail = document.getElementById('smtp_from_email').value;
+        const fromEmail = currentProvider === 'resend'
+            ? document.getElementById('resend_from_email').value
+            : document.getElementById('smtp_from_email').value;
         document.getElementById('testEmailAddress').value = fromEmail;
         document.getElementById('testEmailModal').classList.remove('hidden');
     }
@@ -299,13 +426,14 @@
                 body: JSON.stringify({ to_email: email })
             });
 
+            const data = await res.json();
+
             if (res.ok) {
                 closeTestModal();
-                showMessage('smtpMessage', `Test email sent to ${email}!`, 'success');
-                loadLogs(); // Refresh logs
+                showMessage('providerMessage', data.message || `Test email sent to ${email}!`, 'success');
+                loadLogs();
             } else {
-                const err = await res.json();
-                alert(err.detail || 'Failed to send test email');
+                alert(data.detail || 'Failed to send test email');
             }
         } catch (err) {
             alert('Network error');
@@ -321,8 +449,9 @@
     }
 
     // Initialize
-    loadSmtpSettings();
+    loadEmailSettings();
     loadEventConfigs();
     loadLogs();
+    showProvider('resend'); // Default tab
 </script>
 {% endblock %}
