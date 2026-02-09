@@ -83,7 +83,8 @@ class ResendChannel(NotificationChannel):
                 data=data,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "User-Agent": "RFM-DeptSelection/1.0"
                 },
                 method="POST"
             )
@@ -130,7 +131,10 @@ class ResendChannel(NotificationChannel):
         try:
             req = urllib.request.Request(
                 "https://api.resend.com/api-keys",
-                headers={"Authorization": f"Bearer {self.api_key}"},
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "User-Agent": "RFM-DeptSelection/1.0"
+                },
                 method="GET"
             )
             with urllib.request.urlopen(req, timeout=10) as response:
