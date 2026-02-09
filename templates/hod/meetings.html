@@ -167,6 +167,22 @@
     </div>
 </div>
 
+<!-- Error Modal -->
+<div id="errorModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-xl shadow-xl max-w-sm w-full mx-4 p-6 text-center">
+        <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+        </div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">Cannot Create Meeting</h3>
+        <p id="errorMessage" class="text-gray-600 mb-6">Time slot is not available.</p>
+        <button onclick="closeErrorModal()" class="w-full py-3 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700">
+            OK, Got It
+        </button>
+    </div>
+</div>
+
 <!-- Edit Meeting Modal -->
 <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
     <div class="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
@@ -587,6 +603,17 @@ function closeCreateModal() {
 }
 
 
+function showErrorModal(message) {
+    document.getElementById('errorMessage').textContent = message;
+    document.getElementById('errorModal').classList.remove('hidden');
+    document.getElementById('errorModal').classList.add('flex');
+}
+
+function closeErrorModal() {
+    document.getElementById('errorModal').classList.add('hidden');
+    document.getElementById('errorModal').classList.remove('flex');
+}
+
 async function createMeeting(e) {
     e.preventDefault();
     const btn = document.getElementById('createBtn');
@@ -618,16 +645,20 @@ async function createMeeting(e) {
             body: JSON.stringify(payload)
         });
 
+        const data = await res.json();
+
         if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.detail || 'Failed to create meeting');
+            closeCreateModal();
+            showErrorModal(data.detail || 'This time slot is not available. Please choose a different time.');
+            return;
         }
 
         closeCreateModal();
         loadMeetings();
         loadCalendar();
     } catch (err) {
-        alert('Error: ' + err.message);
+        closeCreateModal();
+        showErrorModal(err.message || 'Failed to create meeting. Please try again.');
     } finally {
         btn.disabled = false;
         btn.textContent = 'Create';

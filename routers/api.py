@@ -1410,14 +1410,6 @@ def check_slot_availability(
 ) -> Tuple[bool, Optional[str]]:
     """Check if time slots are available for a department's meeting.
     Returns (available, conflict_reason)"""
-    # Get approved members of the booking department
-    dept_members = set(
-        md.member_id for md in db.query(MemberDepartment)
-        .filter(
-            MemberDepartment.department_id == department_id,
-            MemberDepartment.status == "approved"
-        ).all()
-    )
 
     # Find overlapping meetings on the same date
     query = db.query(Meeting).filter(
@@ -1431,6 +1423,19 @@ def check_slot_availability(
     conflicts = query.all()
 
     for meeting in conflicts:
+        # Same department can't have overlapping meetings
+        if meeting.department_id == department_id:
+            return False, f"You already have a meeting scheduled at this time"
+
+        # Get approved members of the booking department
+        dept_members = set(
+            md.member_id for md in db.query(MemberDepartment)
+            .filter(
+                MemberDepartment.department_id == department_id,
+                MemberDepartment.status == "approved"
+            ).all()
+        )
+
         # Get approved members of the conflicting meeting's department
         other_members = set(
             md.member_id for md in db.query(MemberDepartment)
@@ -1440,7 +1445,7 @@ def check_slot_availability(
             ).all()
         )
 
-        # Check for intersection
+        # Check for member intersection
         if dept_members & other_members:
             dept = db.query(Department).filter(Department.id == meeting.department_id).first()
             return False, f"Conflict with {dept.name if dept else 'another department'} - shared members"
