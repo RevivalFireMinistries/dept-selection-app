@@ -71,6 +71,25 @@ def run_migrations():
         """))
         if not result.fetchone():
             print("Migration: meetings and meeting_rsvps tables will be created by create_all()")
+        else:
+            # Add is_general and target_department_ids columns to meetings if they don't exist
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'meetings' AND column_name = 'is_general'
+            """))
+            if not result.fetchone():
+                conn.execute(text("""
+                    ALTER TABLE meetings
+                    ADD COLUMN IF NOT EXISTS is_general INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS target_department_ids TEXT
+                """))
+                # Also make department_id nullable for general meetings
+                conn.execute(text("""
+                    ALTER TABLE meetings
+                    ALTER COLUMN department_id DROP NOT NULL
+                """))
+                conn.commit()
+                print("Migration: Added is_general and target_department_ids columns to meetings")
 
         # Add new settings if they don't exist
         new_settings = [

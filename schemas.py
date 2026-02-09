@@ -243,7 +243,7 @@ class HODDashboardResponse(BaseModel):
 # ============ MEETING SCHEMAS ============
 
 class MeetingCreate(BaseModel):
-    department_id: int
+    department_id: Optional[int] = None  # Nullable for general/multi-dept meetings
     title: str
     description: Optional[str] = None
     meeting_date: date
@@ -251,6 +251,9 @@ class MeetingCreate(BaseModel):
     end_slot: int    # Exclusive end slot, must be > start_slot
     location: Optional[str] = None
     meeting_link: Optional[str] = None
+    # Meeting type options
+    is_general: bool = False  # True = meeting for all leaders
+    target_department_ids: Optional[List[int]] = None  # List of department IDs for multi-dept meetings
 
 class MeetingUpdate(BaseModel):
     title: Optional[str] = None
@@ -273,8 +276,8 @@ class RSVPResponse(BaseModel):
 
 class MeetingResponse(BaseModel):
     id: int
-    department_id: int
-    department_name: str
+    department_id: Optional[int] = None
+    department_name: Optional[str] = None
     title: str
     description: Optional[str] = None
     meeting_date: date
@@ -290,6 +293,10 @@ class MeetingResponse(BaseModel):
     rsvp_count: int = 0
     attending_count: int = 0
     my_rsvp: Optional[str] = None  # For member view
+    # Meeting type fields
+    is_general: bool = False
+    target_department_ids: Optional[List[int]] = None
+    target_department_names: Optional[List[str]] = None  # For display
 
 class CalendarSlot(BaseModel):
     slot: int

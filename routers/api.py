@@ -1472,10 +1472,31 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
         if rsvp:
             my_rsvp = rsvp.response
 
+    # Parse target department IDs and get names
+    target_dept_ids = None
+    target_dept_names = None
+    if meeting.target_department_ids:
+        try:
+            target_dept_ids = [int(x) for x in meeting.target_department_ids.split(",") if x.strip()]
+            depts = db.query(Department).filter(Department.id.in_(target_dept_ids)).all()
+            target_dept_names = [d.name for d in depts]
+        except (ValueError, AttributeError):
+            pass
+
+    # Determine department name for display
+    if meeting.is_general:
+        dept_name = "All Leaders"
+    elif target_dept_ids:
+        dept_name = ", ".join(target_dept_names) if target_dept_names else "Multiple Departments"
+    elif meeting.department:
+        dept_name = meeting.department.name
+    else:
+        dept_name = None
+
     return {
         "id": meeting.id,
         "department_id": meeting.department_id,
-        "department_name": meeting.department.name if meeting.department else None,
+        "department_name": dept_name,
         "title": meeting.title,
         "description": meeting.description,
         "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
@@ -1490,7 +1511,10 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
         "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
         "rsvp_count": rsvp_count,
         "attending_count": attending_count,
-        "my_rsvp": my_rsvp
+        "my_rsvp": my_rsvp,
+        "is_general": bool(meeting.is_general),
+        "target_department_ids": target_dept_ids,
+        "target_department_names": target_dept_names
     }
 
 
@@ -1806,7 +1830,7 @@ def delete_hod_meeting(
 
 @router.get("/meetings")
 def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
-    """Get upcoming meetings for member's approved departments"""
+    """Get upcoming meetings for member's approved departments, plus general meetings"""
     # Find member by phone
     normalized = phone.strip().replace(" ", "").replace("-", "")
     member = None
@@ -1820,28 +1844,47 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Member not found")
 
     # Get approved department IDs
-    approved_dept_ids = [
+    approved_dept_ids = set(
         md.department_id for md in db.query(MemberDepartment).filter(
             MemberDepartment.member_id == member.id,
             MemberDepartment.status == "approved"
         ).all()
-    ]
+    )
 
-    if not approved_dept_ids:
-        return {"meetings": [], "total": 0}
-
-    # Get upcoming meetings
-    meetings = db.query(Meeting).options(
+    # Get all upcoming meetings
+    all_meetings = db.query(Meeting).options(
         joinedload(Meeting.department),
         joinedload(Meeting.created_by)
     ).filter(
-        Meeting.department_id.in_(approved_dept_ids),
         Meeting.meeting_date >= date.today()
     ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
 
+    # Filter meetings that are relevant to this member
+    relevant_meetings = []
+    for meeting in all_meetings:
+        # General meetings are for all approved members
+        if meeting.is_general:
+            if approved_dept_ids:  # Only show if member has at least one approved department
+                relevant_meetings.append(meeting)
+            continue
+
+        # Multi-department meetings
+        if meeting.target_department_ids:
+            try:
+                target_ids = set(int(x) for x in meeting.target_department_ids.split(",") if x.strip())
+                if target_ids & approved_dept_ids:  # Member has at least one target department
+                    relevant_meetings.append(meeting)
+            except (ValueError, AttributeError):
+                pass
+            continue
+
+        # Single department meetings
+        if meeting.department_id and meeting.department_id in approved_dept_ids:
+            relevant_meetings.append(meeting)
+
     return {
-        "meetings": [format_meeting_response(m, db, member.id) for m in meetings],
-        "total": len(meetings)
+        "meetings": [format_meeting_response(m, db, member.id) for m in relevant_meetings],
+        "total": len(relevant_meetings)
     }
 
 
@@ -1947,23 +1990,59 @@ def get_all_meetings(
 
 @router.post("/admin/meetings")
 def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
-    """Create a meeting (admin)"""
-    department = db.query(Department).filter(Department.id == data.department_id).first()
-    if not department:
-        raise HTTPException(status_code=404, detail="Department not found")
+    """Create a meeting (admin) - supports single dept, all leaders, or multi-dept"""
 
     if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
         raise HTTPException(status_code=400, detail="Invalid time slots")
 
-    # Check availability
-    available, conflict_reason = check_slot_availability(
-        db, data.department_id, data.meeting_date, data.start_slot, data.end_slot
-    )
-    if not available:
-        raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+    # Determine meeting type and validate
+    is_general = data.is_general
+    target_dept_ids_str = None
+    department_id = None
+
+    if is_general:
+        # All leaders meeting - no specific department
+        pass
+    elif data.target_department_ids and len(data.target_department_ids) > 0:
+        # Multi-department meeting
+        # Validate all departments exist
+        for dept_id in data.target_department_ids:
+            dept = db.query(Department).filter(Department.id == dept_id).first()
+            if not dept:
+                raise HTTPException(status_code=404, detail=f"Department {dept_id} not found")
+        target_dept_ids_str = ",".join(str(x) for x in data.target_department_ids)
+
+        # Check availability for each department
+        for dept_id in data.target_department_ids:
+            available, conflict_reason = check_slot_availability(
+                db, dept_id, data.meeting_date, data.start_slot, data.end_slot
+            )
+            if not available:
+                dept = db.query(Department).filter(Department.id == dept_id).first()
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Conflict for {dept.name}: {conflict_reason}" if dept else conflict_reason
+                )
+    else:
+        # Single department meeting
+        if not data.department_id:
+            raise HTTPException(status_code=400, detail="Department is required for single-department meetings")
+
+        department = db.query(Department).filter(Department.id == data.department_id).first()
+        if not department:
+            raise HTTPException(status_code=404, detail="Department not found")
+
+        department_id = data.department_id
+
+        # Check availability
+        available, conflict_reason = check_slot_availability(
+            db, data.department_id, data.meeting_date, data.start_slot, data.end_slot
+        )
+        if not available:
+            raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
 
     meeting = Meeting(
-        department_id=data.department_id,
+        department_id=department_id,
         created_by_id=None,  # Admin-created
         title=data.title,
         description=data.description,
@@ -1971,7 +2050,9 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
         start_slot=data.start_slot,
         end_slot=data.end_slot,
         location=data.location,
-        meeting_link=data.meeting_link
+        meeting_link=data.meeting_link,
+        is_general=1 if is_general else 0,
+        target_department_ids=target_dept_ids_str
     )
     db.add(meeting)
     db.commit()

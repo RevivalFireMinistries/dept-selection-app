@@ -109,7 +109,7 @@ class Meeting(Base):
     __tablename__ = "meetings"
 
     id = Column(Integer, primary_key=True, index=True)
-    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True)  # Nullable for general meetings
     created_by_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
@@ -120,6 +120,10 @@ class Meeting(Base):
     meeting_link = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Meeting type fields
+    is_general = Column(Integer, nullable=True, server_default="0")  # 1 = all leaders meeting
+    target_department_ids = Column(Text, nullable=True)  # Comma-separated department IDs for multi-dept meetings
 
     department = relationship("Department", back_populates="meetings")
     created_by = relationship("Member", foreign_keys=[created_by_id])
