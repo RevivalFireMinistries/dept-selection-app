@@ -110,7 +110,7 @@ class ResendChannel(NotificationChannel):
 
     def test_connection(self) -> Tuple[bool, Optional[str]]:
         """
-        Test the Resend API connection by validating the API key.
+        Test the Resend API connection by checking API key validity.
 
         Returns:
             Tuple of (success, error_message)
@@ -122,10 +122,14 @@ class ResendChannel(NotificationChannel):
         if not self.enabled:
             return False, "Resend is not enabled"
 
-        # Try to fetch API key info (domains endpoint)
+        # Validate API key format
+        if not self.api_key.startswith('re_'):
+            return False, "Invalid API key format (should start with 're_')"
+
+        # Try to get API keys list to validate the key works
         try:
             req = urllib.request.Request(
-                "https://api.resend.com/domains",
+                "https://api.resend.com/api-keys",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 method="GET"
             )
@@ -136,6 +140,10 @@ class ResendChannel(NotificationChannel):
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 return False, "Invalid API key"
+            elif e.code == 403:
+                # 403 on api-keys might mean restricted key, but it could still send emails
+                # Just return success and let the actual send be the real test
+                return True, None
             return False, f"API error: {e.code}"
         except urllib.error.URLError as e:
             return False, f"Network error: {str(e.reason)}"
