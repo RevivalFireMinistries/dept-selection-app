@@ -11,12 +11,20 @@
                 <h1 class="text-2xl font-bold text-gray-900">My Meetings</h1>
                 <p id="hodName" class="text-gray-600 text-sm"></p>
             </div>
-            <a href="/portal" class="text-indigo-600 hover:underline text-sm flex items-center gap-1">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                </svg>
-                Back to Portal
-            </a>
+            <div class="flex items-center gap-4">
+                <a href="/portal" id="portalLink" class="text-indigo-600 hover:underline text-sm flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                    Back to Portal
+                </a>
+                <button onclick="logout()" id="logoutBtn" class="hidden text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                    Logout
+                </button>
+            </div>
         </div>
 
         <!-- Phone Entry (if not in URL) -->
@@ -206,6 +214,8 @@ let meetings = [];
 let calendarData = null;
 let currentWeekDate = new Date();
 
+const STORAGE_KEY = 'rfm_member_phone';
+
 // Time slots for weekdays (7PM-9PM = slots 38-42)
 const WEEKDAY_SLOTS = [
     { slot: 38, label: '7:00 PM' },
@@ -283,11 +293,22 @@ function init() {
     });
 
     const params = new URLSearchParams(window.location.search);
-    const urlPhone = params.get('phone');
+    let urlPhone = params.get('phone');
+
+    // If no phone in URL, check localStorage
+    if (!urlPhone) {
+        urlPhone = localStorage.getItem(STORAGE_KEY);
+    }
+
     if (urlPhone) {
         document.getElementById('phoneInput').value = urlPhone;
         loadHODData();
     }
+}
+
+function logout() {
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.href = '/';
 }
 
 async function loadHODData() {
@@ -314,6 +335,13 @@ async function loadHODData() {
 
         departments = data.departments;
         document.getElementById('hodName').textContent = `HOD: ${data.hod_name}`;
+
+        // Save phone to localStorage for persistent login
+        localStorage.setItem(STORAGE_KEY, phone);
+
+        // Show logout button and update portal link
+        document.getElementById('logoutBtn').classList.remove('hidden');
+        document.getElementById('portalLink').href = `/portal?phone=${phone}`;
 
         // Update URL
         window.history.replaceState({}, '', `/hod/meetings?phone=${phone}`);

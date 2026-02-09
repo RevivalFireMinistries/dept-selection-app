@@ -111,15 +111,60 @@
 
 {% block scripts %}
 <script>
-// Show success message if redirected from submission
+const STORAGE_KEY = 'rfm_member_phone';
+
+// Check for saved login and show success message if redirected from submission
 document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
+
+    // Show success message if just submitted
     if (urlParams.get('success') === 'true') {
         document.getElementById('successMessage').classList.remove('hidden');
         // Clean up URL without reloading
         window.history.replaceState({}, document.title, '/');
     }
+
+    // Check for saved login in localStorage
+    const savedPhone = localStorage.getItem(STORAGE_KEY);
+    if (savedPhone) {
+        showSavedLogin(savedPhone);
+    }
 });
+
+function showSavedLogin(phone) {
+    // Pre-fill the phone input
+    document.getElementById('loginPhone').value = phone;
+
+    // Create and show "Continue as" banner
+    const loginCard = document.querySelector('.bg-white.rounded-2xl.shadow-lg.p-5');
+    if (loginCard) {
+        const banner = document.createElement('div');
+        banner.id = 'savedLoginBanner';
+        banner.className = 'bg-indigo-50 border border-indigo-200 rounded-xl p-3 mb-4';
+        banner.innerHTML = `
+            <p class="text-sm text-indigo-800 mb-2">Welcome back!</p>
+            <div class="flex gap-2">
+                <button onclick="window.location.href='/portal?phone=${encodeURIComponent(phone)}'"
+                    class="flex-1 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+                    Continue as ${phone}
+                </button>
+                <button onclick="clearSavedLogin()"
+                    class="px-3 py-2 bg-white text-gray-600 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Switch
+                </button>
+            </div>
+        `;
+        loginCard.insertBefore(banner, loginCard.firstChild.nextSibling.nextSibling);
+    }
+}
+
+function clearSavedLogin() {
+    localStorage.removeItem(STORAGE_KEY);
+    const banner = document.getElementById('savedLoginBanner');
+    if (banner) banner.remove();
+    document.getElementById('loginPhone').value = '';
+    document.getElementById('loginPhone').focus();
+}
 
 function handleLoginKeyup(event) {
     if (event.key === 'Enter') {

@@ -7,18 +7,26 @@
     <!-- Header -->
     <div class="sticky top-0 z-10 backdrop-blur-lg bg-white/70 shadow-sm">
         <div class="max-w-md mx-auto px-4 py-4 sm:py-6">
-            <div class="flex items-center gap-3">
-                <a href="/" class="text-gray-500 hover:text-gray-700 p-1">
-                    <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                    </svg>
-                </a>
-                <div>
-                    <h1 class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                        My Portal
-                    </h1>
-                    <p class="text-gray-600 text-xs sm:text-sm">RFM Stellenbosch <span id="yearDisplay">2026</span></p>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <a href="/" class="text-gray-500 hover:text-gray-700 p-1">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                    </a>
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                            My Portal
+                        </h1>
+                        <p class="text-gray-600 text-xs sm:text-sm">RFM Stellenbosch <span id="yearDisplay">2026</span></p>
+                    </div>
                 </div>
+                <button onclick="logout()" id="logoutBtn" class="hidden text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                    </svg>
+                    Logout
+                </button>
             </div>
         </div>
     </div>
@@ -218,12 +226,23 @@ let meetingsData = null;
 let currentMember = null;
 let allDepartments = [];
 
+const STORAGE_KEY = 'rfm_member_phone';
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-    // Get phone from URL
+    // Get phone from URL first, then check localStorage
     const params = new URLSearchParams(window.location.search);
     phone = params.get('phone');
+
+    // If no phone in URL, check localStorage
+    if (!phone) {
+        phone = localStorage.getItem(STORAGE_KEY);
+        // If found in localStorage, update URL for consistency
+        if (phone) {
+            window.history.replaceState({}, '', `/portal?phone=${encodeURIComponent(phone)}`);
+        }
+    }
 
     if (!phone) {
         showError('Missing Information', 'Please access this page from the home page.');
@@ -263,9 +282,17 @@ async function init() {
         document.getElementById('yearDisplay').textContent = allData.year || '2026';
 
         if (!allData.members || allData.members.length === 0) {
+            // Clear invalid phone from storage
+            localStorage.removeItem(STORAGE_KEY);
             showError('Not Found', 'No registration found for this phone number.');
             return;
         }
+
+        // Save phone to localStorage for persistent login
+        localStorage.setItem(STORAGE_KEY, phone);
+
+        // Show logout button
+        document.getElementById('logoutBtn').classList.remove('hidden');
 
         document.getElementById('loading').classList.add('hidden');
 
@@ -738,6 +765,11 @@ async function submitAppeal() {
         btn.disabled = false;
         btn.textContent = 'Submit Appeal';
     }
+}
+
+function logout() {
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.href = '/';
 }
 </script>
 {% endblock %}
