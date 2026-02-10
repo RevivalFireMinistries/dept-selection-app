@@ -73,7 +73,10 @@ def shutdown_scheduler():
 
 def send_meeting_reminders() -> Dict[str, Any]:
     """
-    Send reminder emails for meetings happening tomorrow.
+    Send reminder emails for upcoming meetings:
+    - Today's meetings that haven't started yet
+    - Tomorrow's meetings
+
     Can be called by scheduler or manually triggered.
 
     Returns a summary of the operation.
@@ -91,18 +94,33 @@ def send_meeting_reminders() -> Dict[str, Any]:
     db: Session = SessionLocal()
 
     try:
-        # Calculate tomorrow's date
-        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        now = datetime.now()
+        today = now.date()
+        tomorrow = (now + timedelta(days=1)).date()
+        today_str = today.isoformat()
         tomorrow_str = tomorrow.isoformat()
 
-        print(f"[Reminder Job] Checking for meetings on {tomorrow_str}")
+        # Current time slot (for filtering today's meetings)
+        current_slot = (now.hour * 2) + (1 if now.minute >= 30 else 0)
 
-        # Find all meetings happening tomorrow
+        print(f"[Reminder Job] Checking for meetings on {today_str} (after slot {current_slot}) and {tomorrow_str}")
+
+        # Find upcoming meetings: today (not started) + tomorrow
+        from sqlalchemy import or_, and_
+
         meetings = db.query(Meeting).options(
             joinedload(Meeting.department)
         ).filter(
-            Meeting.meeting_date == tomorrow_str
-        ).all()
+            or_(
+                # Tomorrow's meetings
+                Meeting.meeting_date == tomorrow_str,
+                # Today's meetings that haven't started yet
+                and_(
+                    Meeting.meeting_date == today_str,
+                    Meeting.start_slot > current_slot
+                )
+            )
+        ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
 
         result["meetings_found"] = len(meetings)
 

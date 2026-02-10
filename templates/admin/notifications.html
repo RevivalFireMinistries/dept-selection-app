@@ -151,7 +151,7 @@
         <div class="flex justify-between items-center mb-4">
             <div>
                 <h3 class="text-lg font-semibold">Meeting Reminders</h3>
-                <p class="text-sm text-gray-500">Automatic reminders are sent daily for tomorrow's meetings</p>
+                <p class="text-sm text-gray-500">Automatic reminders are sent daily for upcoming meetings (today & tomorrow)</p>
             </div>
             <div id="schedulerStatus" class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-gray-300"></span>
@@ -159,10 +159,10 @@
             </div>
         </div>
 
-        <!-- Tomorrow's Preview -->
+        <!-- Upcoming Meetings Preview -->
         <div class="mb-4">
             <div class="flex items-center justify-between mb-2">
-                <h4 class="text-sm font-medium text-gray-700">Tomorrow's Meetings</h4>
+                <h4 class="text-sm font-medium text-gray-700">Upcoming Meetings (Today & Tomorrow)</h4>
                 <button onclick="loadReminderPreview()" class="text-sm text-indigo-600 hover:underline">Refresh</button>
             </div>
             <div id="reminderPreview" class="bg-gray-50 rounded-lg p-4">
@@ -548,7 +548,7 @@
                         <svg class="w-10 h-10 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                         </svg>
-                        <p class="text-gray-500">No meetings scheduled for tomorrow (${data.tomorrow})</p>
+                        <p class="text-gray-500">No upcoming meetings (today or tomorrow)</p>
                     </div>
                 `;
                 return;
@@ -556,14 +556,17 @@
 
             container.innerHTML = `
                 <div class="text-sm text-gray-600 mb-3">
-                    <strong>${data.meetings_count}</strong> meeting(s) tomorrow (${data.tomorrow}) •
+                    <strong>${data.meetings_count}</strong> upcoming meeting(s) •
                     <strong>${data.total_recipients}</strong> total recipient(s)
                 </div>
                 <div class="space-y-2">
                     ${data.meetings.map(m => `
-                        <div class="p-3 bg-white rounded border">
+                        <div class="p-3 bg-white rounded border ${m.is_today ? 'border-amber-300' : ''}">
                             <div class="flex items-center justify-between">
                                 <div>
+                                    <span class="text-xs px-2 py-0.5 ${m.is_today ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} rounded mr-2">
+                                        ${m.is_today ? 'Today' : 'Tomorrow'}
+                                    </span>
                                     <span class="font-medium">${m.title}</span>
                                     <span class="text-xs px-2 py-0.5 ${m.is_general ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'} rounded ml-2">
                                         ${m.department}
