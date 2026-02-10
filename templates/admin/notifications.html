@@ -146,6 +146,51 @@
         </div>
     </div>
 
+    <!-- Meeting Reminders (Scheduler) -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h3 class="text-lg font-semibold">Meeting Reminders</h3>
+                <p class="text-sm text-gray-500">Automatic reminders are sent daily for tomorrow's meetings</p>
+            </div>
+            <div id="schedulerStatus" class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-gray-300"></span>
+                <span class="text-sm text-gray-500">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Tomorrow's Preview -->
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+                <h4 class="text-sm font-medium text-gray-700">Tomorrow's Meetings</h4>
+                <button onclick="loadReminderPreview()" class="text-sm text-indigo-600 hover:underline">Refresh</button>
+            </div>
+            <div id="reminderPreview" class="bg-gray-50 rounded-lg p-4">
+                <p class="text-gray-400 text-sm">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Last Run Info -->
+        <div id="lastRunInfo" class="mb-4 p-3 bg-gray-50 rounded-lg hidden">
+            <h4 class="text-sm font-medium text-gray-700 mb-1">Last Run</h4>
+            <p class="text-sm text-gray-600" id="lastRunText"></p>
+        </div>
+
+        <!-- Manual Trigger -->
+        <div class="flex items-center gap-3">
+            <button onclick="triggerReminders()" id="triggerBtn"
+                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                </svg>
+                Send Reminders Now
+            </button>
+            <span class="text-sm text-gray-500">Manually send reminders for tomorrow's meetings</span>
+        </div>
+
+        <div id="triggerResult" class="hidden mt-4 p-3 rounded-lg"></div>
+    </div>
+
     <!-- Notification Logs -->
     <div class="bg-white rounded-lg shadow p-6">
         <div class="flex justify-between items-center mb-4">
@@ -448,10 +493,148 @@
         setTimeout(() => el.classList.add('hidden'), 5000);
     }
 
+    // Scheduler functions
+    async function loadSchedulerStatus() {
+        try {
+            const res = await fetch('/api/admin/scheduler/status');
+            const data = await res.json();
+
+            const statusEl = document.getElementById('schedulerStatus');
+            if (data.running) {
+                const nextRun = data.jobs.find(j => j.id === 'meeting_reminders')?.next_run;
+                const nextRunText = nextRun ? new Date(nextRun).toLocaleString() : 'Not scheduled';
+                statusEl.innerHTML = `
+                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                    <span class="text-sm text-green-600">Active</span>
+                    <span class="text-xs text-gray-400 ml-2">Next: ${nextRunText}</span>
+                `;
+            } else {
+                statusEl.innerHTML = `
+                    <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                    <span class="text-sm text-red-600">Not Running</span>
+                `;
+            }
+
+            // Show last run info
+            const lastRun = data.last_runs?.meeting_reminders;
+            if (lastRun?.last_run) {
+                const infoEl = document.getElementById('lastRunInfo');
+                const textEl = document.getElementById('lastRunText');
+                infoEl.classList.remove('hidden');
+
+                const runTime = new Date(lastRun.last_run).toLocaleString();
+                const statusClass = lastRun.last_status === 'success' ? 'text-green-600' : 'text-amber-600';
+                textEl.innerHTML = `
+                    <span class="${statusClass}">${lastRun.last_status}</span> at ${runTime}<br>
+                    <span class="text-gray-500">${lastRun.meetings_processed} meeting(s), ${lastRun.reminders_sent} reminder(s) sent</span>
+                `;
+            }
+        } catch (err) {
+            console.error('Failed to load scheduler status:', err);
+        }
+    }
+
+    async function loadReminderPreview() {
+        const container = document.getElementById('reminderPreview');
+        container.innerHTML = '<p class="text-gray-400 text-sm">Loading...</p>';
+
+        try {
+            const res = await fetch('/api/admin/scheduler/reminders/preview', { method: 'POST' });
+            const data = await res.json();
+
+            if (data.meetings_count === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-4">
+                        <svg class="w-10 h-10 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        <p class="text-gray-500">No meetings scheduled for tomorrow (${data.tomorrow})</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="text-sm text-gray-600 mb-3">
+                    <strong>${data.meetings_count}</strong> meeting(s) tomorrow (${data.tomorrow}) •
+                    <strong>${data.total_recipients}</strong> total recipient(s)
+                </div>
+                <div class="space-y-2">
+                    ${data.meetings.map(m => `
+                        <div class="p-3 bg-white rounded border">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="font-medium">${m.title}</span>
+                                    <span class="text-xs px-2 py-0.5 ${m.is_general ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'} rounded ml-2">
+                                        ${m.department}
+                                    </span>
+                                </div>
+                                <span class="text-sm text-gray-500">${m.time}</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1">
+                                ${m.location || 'No location'} •
+                                <span class="text-indigo-600">${m.recipient_count} recipient(s)</span>
+                                ${m.more_recipients > 0 ? `<span class="text-gray-400">+${m.more_recipients} more</span>` : ''}
+                            </p>
+                            ${m.recipients.length > 0 ? `
+                                <p class="text-xs text-gray-400 mt-1 truncate">
+                                    ${m.recipients.map(r => r.email).join(', ')}
+                                </p>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } catch (err) {
+            container.innerHTML = '<p class="text-red-500 text-sm">Failed to load preview</p>';
+        }
+    }
+
+    async function triggerReminders() {
+        const btn = document.getElementById('triggerBtn');
+        const resultEl = document.getElementById('triggerResult');
+
+        btn.disabled = true;
+        btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> Sending...';
+
+        try {
+            const res = await fetch('/api/admin/scheduler/reminders/trigger', { method: 'POST' });
+            const data = await res.json();
+
+            resultEl.classList.remove('hidden');
+
+            if (data.success) {
+                resultEl.className = 'mt-4 p-3 rounded-lg bg-green-100 text-green-800';
+                resultEl.innerHTML = `
+                    <strong>Reminders sent successfully!</strong><br>
+                    Found ${data.meetings_found} meeting(s), sent ${data.reminders_sent} reminder(s)
+                `;
+                loadLogs(); // Refresh logs
+                loadSchedulerStatus(); // Refresh status
+            } else {
+                resultEl.className = 'mt-4 p-3 rounded-lg bg-amber-100 text-amber-800';
+                resultEl.innerHTML = `
+                    <strong>Completed with issues</strong><br>
+                    Found ${data.meetings_found} meeting(s), sent ${data.reminders_sent} reminder(s)<br>
+                    Errors: ${data.errors.join(', ')}
+                `;
+            }
+        } catch (err) {
+            resultEl.className = 'mt-4 p-3 rounded-lg bg-red-100 text-red-800';
+            resultEl.textContent = 'Failed to trigger reminders: ' + err.message;
+            resultEl.classList.remove('hidden');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg> Send Reminders Now';
+        }
+    }
+
     // Initialize
     loadEmailSettings();
     loadEventConfigs();
     loadLogs();
+    loadSchedulerStatus();
+    loadReminderPreview();
     showProvider('resend'); // Default tab
 </script>
 {% endblock %}

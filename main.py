@@ -161,7 +161,15 @@ async def lifespan(app: FastAPI):
     run_migrations()
     # Create any new tables on startup
     models.Base.metadata.create_all(bind=engine)
+
+    # Start background scheduler for reminders
+    from scheduler import start_scheduler, shutdown_scheduler
+    start_scheduler()
+
     yield
+
+    # Shutdown scheduler on app exit
+    shutdown_scheduler()
 
 
 app = FastAPI(title="Department Selection App", lifespan=lifespan)

@@ -2573,3 +2573,68 @@ def get_notification_logs(
         "limit": limit,
         "offset": offset
     }
+
+
+# ============ SCHEDULER / REMINDERS ============
+
+@router.get("/admin/scheduler/status")
+def get_scheduler_status():
+    """Get the current status of the background scheduler"""
+    from scheduler import get_scheduler_status
+    return get_scheduler_status()
+
+
+@router.post("/admin/scheduler/reminders/trigger")
+def trigger_meeting_reminders():
+    """Manually trigger meeting reminders for tomorrow's meetings"""
+    from scheduler import send_meeting_reminders
+    result = send_meeting_reminders()
+    return result
+
+
+@router.post("/admin/scheduler/reminders/preview")
+def preview_meeting_reminders(db: Session = Depends(get_db)):
+    """
+    Preview which meetings would get reminders tomorrow.
+    Does not send any emails, just returns the list.
+    """
+    from scheduler import get_meeting_recipients, slot_to_time
+
+    tomorrow = (datetime.now() + timedelta(days=1)).date()
+    tomorrow_str = tomorrow.isoformat()
+
+    meetings = db.query(Meeting).options(
+        joinedload(Meeting.department)
+    ).filter(
+        Meeting.meeting_date == tomorrow_str
+    ).all()
+
+    preview = []
+    total_recipients = 0
+
+    for meeting in meetings:
+        recipients = get_meeting_recipients(db, meeting)
+        total_recipients += len(recipients)
+
+        preview.append({
+            "id": meeting.id,
+            "title": meeting.title,
+            "date": meeting.meeting_date,
+            "time": f"{slot_to_time(meeting.start_slot)} - {slot_to_time(meeting.end_slot)}",
+            "location": meeting.location,
+            "department": meeting.department.name if meeting.department else "All Leaders",
+            "is_general": meeting.is_general,
+            "recipient_count": len(recipients),
+            "recipients": [
+                {"name": r["name"], "email": r["email"]}
+                for r in recipients[:10]  # Limit preview to first 10
+            ],
+            "more_recipients": max(0, len(recipients) - 10)
+        })
+
+    return {
+        "tomorrow": tomorrow_str,
+        "meetings_count": len(meetings),
+        "total_recipients": total_recipients,
+        "meetings": preview
+    }
