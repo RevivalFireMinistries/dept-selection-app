@@ -363,12 +363,38 @@ def update_member(member_id: int, data: dict, db: Session = Depends(get_db)):
                     detail=f"You can only select up to {max_allowed} department(s) from '{category.name}'"
                 )
 
-        # Delete existing department associations
-        db.query(MemberDepartment).filter(MemberDepartment.member_id == member_id).delete()
+        # Get existing department associations with their statuses
+        existing_mds = db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member_id
+        ).all()
 
-        # Create new associations
-        for dept_id in selected:
-            md = MemberDepartment(member_id=member_id, department_id=dept_id)
+        # Build a map of existing department_id -> MemberDepartment for status preservation
+        existing_map = {md.department_id: md for md in existing_mds}
+        existing_dept_ids = set(existing_map.keys())
+        new_dept_ids = set(selected)
+
+        # Departments to remove (in existing but not in new selection)
+        to_remove = existing_dept_ids - new_dept_ids
+        # Departments to add (in new selection but not existing)
+        to_add = new_dept_ids - existing_dept_ids
+        # Departments to keep (in both) - preserve their status
+        to_keep = existing_dept_ids & new_dept_ids
+
+        # Delete only the removed departments
+        if to_remove:
+            db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == member_id,
+                MemberDepartment.department_id.in_(to_remove)
+            ).delete(synchronize_session=False)
+
+        # Create new associations only for newly added departments (with pending status)
+        for dept_id in to_add:
+            md = MemberDepartment(
+                member_id=member_id,
+                department_id=dept_id,
+                source="member",
+                status="pending"
+            )
             db.add(md)
 
     db.commit()
