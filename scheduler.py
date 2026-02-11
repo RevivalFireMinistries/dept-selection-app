@@ -71,13 +71,17 @@ def shutdown_scheduler():
         print("Scheduler shut down")
 
 
-def send_meeting_reminders() -> Dict[str, Any]:
+def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     """
     Send reminder emails for upcoming meetings:
     - Today's meetings that haven't started yet
     - Tomorrow's meetings
 
     Can be called by scheduler or manually triggered.
+
+    Args:
+        meeting_ids: Optional list of specific meeting IDs to send reminders for.
+                    If None, auto-detects based on today/tomorrow dates.
 
     Returns a summary of the operation.
     """
@@ -86,6 +90,8 @@ def send_meeting_reminders() -> Dict[str, Any]:
     result = {
         "success": True,
         "timestamp": datetime.now().isoformat(),
+        "mode": "selected" if meeting_ids else "auto",
+        "meeting_ids_requested": meeting_ids,
         "meetings_found": 0,
         "reminders_sent": 0,
         "errors": []
@@ -103,24 +109,32 @@ def send_meeting_reminders() -> Dict[str, Any]:
         # Current time slot (for filtering today's meetings)
         current_slot = (now.hour * 2) + (1 if now.minute >= 30 else 0)
 
-        print(f"[Reminder Job] Checking for meetings on {today_str} (after slot {current_slot}) and {tomorrow_str}")
-
-        # Find upcoming meetings: today (not started) + tomorrow
         from sqlalchemy import or_, and_
 
-        meetings = db.query(Meeting).options(
-            joinedload(Meeting.department)
-        ).filter(
-            or_(
-                # Tomorrow's meetings
-                Meeting.meeting_date == tomorrow_str,
-                # Today's meetings that haven't started yet
-                and_(
-                    Meeting.meeting_date == today_str,
-                    Meeting.start_slot > current_slot
+        if meeting_ids:
+            # Manual selection: only send for specified meeting IDs
+            print(f"[Reminder Job] Sending reminders for selected meetings: {meeting_ids}")
+            meetings = db.query(Meeting).options(
+                joinedload(Meeting.department)
+            ).filter(
+                Meeting.id.in_(meeting_ids)
+            ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
+        else:
+            # Auto mode: find upcoming meetings (today + tomorrow)
+            print(f"[Reminder Job] Checking for meetings on {today_str} (after slot {current_slot}) and {tomorrow_str}")
+            meetings = db.query(Meeting).options(
+                joinedload(Meeting.department)
+            ).filter(
+                or_(
+                    # Tomorrow's meetings
+                    Meeting.meeting_date == tomorrow_str,
+                    # Today's meetings that haven't started yet
+                    and_(
+                        Meeting.meeting_date == today_str,
+                        Meeting.start_slot > current_slot
+                    )
                 )
-            )
-        ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
+            ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
 
         result["meetings_found"] = len(meetings)
 

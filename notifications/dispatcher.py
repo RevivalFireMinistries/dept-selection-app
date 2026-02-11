@@ -4,6 +4,7 @@ Routes events to appropriate channels based on configuration.
 """
 
 import os
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -487,10 +488,17 @@ def dispatch_event(
     body = render_email_template(event_type, data)
 
     # Send to each recipient
-    for recipient in recipients:
+    # Rate limiting: Resend allows max 2 requests per second, so we wait 0.5s between emails
+    is_resend = channel_name == "resend"
+
+    for i, recipient in enumerate(recipients):
         recipient_email = recipient.get('email')
         if not recipient_email:
             continue
+
+        # Apply rate limiting for Resend (after first email)
+        if is_resend and i > 0:
+            time.sleep(0.5)  # 500ms delay = max 2 requests per second
 
         success, error = email_channel.send(recipient_email, subject, body)
 

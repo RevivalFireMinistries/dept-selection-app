@@ -2585,10 +2585,16 @@ def get_scheduler_status():
 
 
 @router.post("/admin/scheduler/reminders/trigger")
-def trigger_meeting_reminders():
-    """Manually trigger meeting reminders for tomorrow's meetings"""
+def trigger_meeting_reminders(meeting_ids: Optional[List[int]] = Query(None)):
+    """
+    Manually trigger meeting reminders.
+
+    Args:
+        meeting_ids: Optional list of specific meeting IDs to include.
+                    If not provided, sends for all upcoming meetings (today + tomorrow).
+    """
     from scheduler import send_meeting_reminders
-    result = send_meeting_reminders()
+    result = send_meeting_reminders(meeting_ids=meeting_ids)
     return result
 
 
