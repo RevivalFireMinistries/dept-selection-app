@@ -46,7 +46,7 @@ EVENT_DESCRIPTIONS = {
     EventType.APPEAL_SUBMITTED: "Sent to admin when a member submits an appeal",
     EventType.APPEAL_RESOLVED: "Sent to member when their appeal is resolved",
     EventType.MEETING_CREATED: "Sent to department members when a new meeting is scheduled",
-    EventType.MEETING_REMINDER: "Sent to attendees 1 day before a meeting",
+    EventType.MEETING_REMINDER: "Sent to attendees on the day of a meeting",
     EventType.MEETING_UPDATED: "Sent to department members when meeting details change",
     EventType.MEETING_CANCELLED: "Sent to department members when a meeting is cancelled",
 }
@@ -61,7 +61,7 @@ EMAIL_SUBJECTS = {
     EventType.APPEAL_SUBMITTED: "New Appeal Submitted",
     EventType.APPEAL_RESOLVED: "Your Appeal Has Been Resolved",
     EventType.MEETING_CREATED: "New Meeting Scheduled: {title}",
-    EventType.MEETING_REMINDER: "Reminder: {title} Tomorrow",
+    EventType.MEETING_REMINDER: "Reminder: {title} Today",
     EventType.MEETING_UPDATED: "Meeting Updated: {title}",
     EventType.MEETING_CANCELLED: "Meeting Cancelled: {title}",
 }

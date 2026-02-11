@@ -343,27 +343,26 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
         ),
 
         EventType.MEETING_REMINDER: base_template(
-            title="Meeting Tomorrow",
+            title="Meeting Today",
             icon="&#9200;",  # Alarm clock
             accent_color="#10b981",  # Green
             content=f'''
-                {paragraph("This is a friendly reminder about your upcoming meeting.")}
+                {paragraph("This is a friendly reminder about your meeting today.")}
                 <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
                     <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Meeting')}</h2>
                     <table role="presentation" cellspacing="0" cellpadding="0">
                         <tr>
                             <td style="padding-right: 24px;">
-                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Date</p>
-                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('meeting_date', 'Tomorrow')}</p>
-                            </td>
-                            <td>
                                 <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Time</p>
                                 <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('start_time', '')} - {data.get('end_time', '')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Location</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('location', 'TBD')}</p>
                             </td>
                         </tr>
                     </table>
                 </div>
-                {info_card([("Location", data.get('location'))]) if data.get('location') else ''}
             ''',
             button_text="Join Meeting" if data.get('meeting_link') else None,
             button_url=data.get('meeting_link')

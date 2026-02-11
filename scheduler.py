@@ -73,15 +73,13 @@ def shutdown_scheduler():
 
 def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str, Any]:
     """
-    Send reminder emails for upcoming meetings:
-    - Today's meetings that haven't started yet
-    - Tomorrow's meetings
+    Send reminder emails for today's meetings.
 
     Can be called by scheduler or manually triggered.
 
     Args:
         meeting_ids: Optional list of specific meeting IDs to send reminders for.
-                    If None, auto-detects based on today/tomorrow dates.
+                    If None, auto-detects based on today's date.
 
     Returns a summary of the operation.
     """
@@ -102,14 +100,7 @@ def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str,
     try:
         now = datetime.now()
         today = now.date()
-        tomorrow = (now + timedelta(days=1)).date()
         today_str = today.isoformat()
-        tomorrow_str = tomorrow.isoformat()
-
-        # Current time slot (for filtering today's meetings)
-        current_slot = (now.hour * 2) + (1 if now.minute >= 30 else 0)
-
-        from sqlalchemy import or_, and_
 
         if meeting_ids:
             # Manual selection: only send for specified meeting IDs
@@ -120,26 +111,18 @@ def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str,
                 Meeting.id.in_(meeting_ids)
             ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
         else:
-            # Auto mode: find upcoming meetings (today + tomorrow)
-            print(f"[Reminder Job] Checking for meetings on {today_str} (after slot {current_slot}) and {tomorrow_str}")
+            # Auto mode: find today's meetings
+            print(f"[Reminder Job] Checking for meetings on {today_str}")
             meetings = db.query(Meeting).options(
                 joinedload(Meeting.department)
             ).filter(
-                or_(
-                    # Tomorrow's meetings
-                    Meeting.meeting_date == tomorrow_str,
-                    # Today's meetings that haven't started yet
-                    and_(
-                        Meeting.meeting_date == today_str,
-                        Meeting.start_slot > current_slot
-                    )
-                )
-            ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
+                Meeting.meeting_date == today_str
+            ).order_by(Meeting.start_slot).all()
 
         result["meetings_found"] = len(meetings)
 
         if not meetings:
-            print("[Reminder Job] No meetings found for tomorrow")
+            print("[Reminder Job] No meetings found for today")
             last_run_info["meeting_reminders"].update({
                 "last_run": result["timestamp"],
                 "last_status": "success",

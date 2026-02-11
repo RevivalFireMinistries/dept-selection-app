@@ -2602,32 +2602,21 @@ def trigger_meeting_reminders(meeting_ids: Optional[List[int]] = Query(None)):
 def preview_meeting_reminders(db: Session = Depends(get_db)):
     """
     Preview which meetings would get reminders.
-    Includes today's remaining meetings and tomorrow's meetings.
+    Shows today's meetings.
     Does not send any emails, just returns the list.
     """
     from scheduler import get_meeting_recipients, slot_to_time
 
     now = datetime.now()
     today = now.date()
-    tomorrow = (now + timedelta(days=1)).date()
     today_str = today.isoformat()
-    tomorrow_str = tomorrow.isoformat()
 
-    # Current time slot
-    current_slot = (now.hour * 2) + (1 if now.minute >= 30 else 0)
-
-    # Find upcoming meetings: today (not started) + tomorrow
+    # Find today's meetings
     meetings = db.query(Meeting).options(
         joinedload(Meeting.department)
     ).filter(
-        or_(
-            Meeting.meeting_date == tomorrow_str,
-            and_(
-                Meeting.meeting_date == today_str,
-                Meeting.start_slot > current_slot
-            )
-        )
-    ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
+        Meeting.meeting_date == today_str
+    ).order_by(Meeting.start_slot).all()
 
     preview = []
     total_recipients = 0
@@ -2636,13 +2625,10 @@ def preview_meeting_reminders(db: Session = Depends(get_db)):
         recipients = get_meeting_recipients(db, meeting)
         total_recipients += len(recipients)
 
-        is_today = meeting.meeting_date == today_str
-
         preview.append({
             "id": meeting.id,
             "title": meeting.title,
             "date": meeting.meeting_date,
-            "is_today": is_today,
             "time": f"{slot_to_time(meeting.start_slot)} - {slot_to_time(meeting.end_slot)}",
             "location": meeting.location,
             "department": meeting.department.name if meeting.department else "All Leaders",
@@ -2657,7 +2643,6 @@ def preview_meeting_reminders(db: Session = Depends(get_db)):
 
     return {
         "today": today_str,
-        "tomorrow": tomorrow_str,
         "meetings_count": len(meetings),
         "total_recipients": total_recipients,
         "meetings": preview
