@@ -2005,7 +2005,7 @@ def delete_hod_meeting(
 
 @router.get("/meetings")
 def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
-    """Get upcoming meetings for member's approved departments, plus general meetings"""
+    """Get meetings for the current month for member's approved departments, plus general meetings"""
     # Find member by phone
     normalized = phone.strip().replace(" ", "").replace("-", "")
     member = None
@@ -2026,12 +2026,21 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         ).all()
     )
 
-    # Get all upcoming meetings
+    # Get meetings for current month
+    today = date.today()
+    month_start = today.replace(day=1)
+    # Calculate last day of month
+    if today.month == 12:
+        month_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+    else:
+        month_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+
     all_meetings = db.query(Meeting).options(
         joinedload(Meeting.department),
         joinedload(Meeting.created_by)
     ).filter(
-        Meeting.meeting_date >= date.today()
+        Meeting.meeting_date >= month_start,
+        Meeting.meeting_date <= month_end
     ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
 
     # Filter meetings that are relevant to this member
@@ -2059,7 +2068,10 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
 
     return {
         "meetings": [format_meeting_response(m, db, member.id) for m in relevant_meetings],
-        "total": len(relevant_meetings)
+        "total": len(relevant_meetings),
+        "month": today.strftime("%B %Y"),
+        "month_start": month_start.isoformat(),
+        "month_end": month_end.isoformat()
     }
 
 
