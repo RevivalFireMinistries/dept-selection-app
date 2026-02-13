@@ -2026,9 +2026,8 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         ).all()
     )
 
-    # Get meetings for current month
+    # Get remaining meetings for current month (from today onwards)
     today = date.today()
-    month_start = today.replace(day=1)
     # Calculate last day of month
     if today.month == 12:
         month_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
@@ -2039,7 +2038,7 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         joinedload(Meeting.department),
         joinedload(Meeting.created_by)
     ).filter(
-        Meeting.meeting_date >= month_start,
+        Meeting.meeting_date >= today,
         Meeting.meeting_date <= month_end
     ).order_by(Meeting.meeting_date, Meeting.start_slot).all()
 

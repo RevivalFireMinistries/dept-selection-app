@@ -578,35 +578,28 @@ function renderMeetings() {
     noMeetings.classList.add('hidden');
 
     list.innerHTML = meetingsData.meetings.map(m => {
-        const meetingDate = new Date(m.meeting_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const isPast = meetingDate < today;
-
-        const rsvpBtns = isPast
-            ? `<span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">Completed</span>`
-            : m.my_rsvp
-                ? `<span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} px-2 py-1 rounded-full font-medium">
-                    ${m.my_rsvp === 'attending' ? 'Attending' : 'Not Attending'}
-                   </span>
-                   <button onclick="changeRsvp(${m.id})" class="text-xs text-gray-500 hover:underline">Change</button>`
-                : `<button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700">Attending</button>
-                   <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Not Attending</button>`;
+        const rsvpBtns = m.my_rsvp
+            ? `<span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} px-2 py-1 rounded-full font-medium">
+                ${m.my_rsvp === 'attending' ? 'Attending' : 'Not Attending'}
+               </span>
+               <button onclick="changeRsvp(${m.id})" class="text-xs text-gray-500 hover:underline">Change</button>`
+            : `<button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700">Attending</button>
+               <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Not Attending</button>`;
 
         return `
-            <div class="border ${isPast ? 'border-gray-100 bg-gray-50' : 'border-gray-200'} rounded-xl p-4 ${isPast ? 'opacity-60' : ''}">
+            <div class="border border-gray-200 rounded-xl p-4">
                 <div class="flex justify-between items-start">
                     <div class="flex-1">
-                        <h4 class="font-medium ${isPast ? 'text-gray-500' : 'text-gray-900'}">${m.title}</h4>
-                        <p class="text-sm ${isPast ? 'text-gray-400' : 'text-indigo-600'}">${m.department_name}</p>
+                        <h4 class="font-medium text-gray-900">${m.title}</h4>
+                        <p class="text-sm text-indigo-600">${m.department_name}</p>
                     </div>
                     <div class="text-right text-sm">
-                        <p class="font-medium ${isPast ? 'text-gray-500' : 'text-gray-900'}">${formatMeetingDate(m.meeting_date)}</p>
+                        <p class="font-medium text-gray-900">${formatMeetingDate(m.meeting_date)}</p>
                         <p class="text-gray-500">${m.start_time} - ${m.end_time}</p>
                     </div>
                 </div>
                 ${m.location ? `<p class="text-sm text-gray-500 mt-2">Location: ${m.location}</p>` : ''}
-                ${m.meeting_link && !isPast ? `<a href="${m.meeting_link}" target="_blank" class="text-sm text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
+                ${m.meeting_link ? `<a href="${m.meeting_link}" target="_blank" class="text-sm text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
                 <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
                     <span class="text-xs text-gray-400">${m.attending_count} attending</span>
                     <div class="flex items-center gap-2">
