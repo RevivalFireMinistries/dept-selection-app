@@ -152,7 +152,10 @@ let departments = [];
 function slotToTime(slot) {
     const hours = Math.floor(slot / 2);
     const mins = (slot % 2) * 30;
-    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+    // 12-hour format with AM/PM
+    const period = hours < 12 ? 'AM' : 'PM';
+    const displayHours = hours === 0 ? 12 : (hours > 12 ? hours - 12 : hours);
+    return `${displayHours}:${mins.toString().padStart(2, '0')} ${period}`;
 }
 
 function formatDate(dateStr) {
@@ -183,9 +186,9 @@ async function init() {
         formSelect.innerHTML += `<option value="${d.id}">${d.name}</option>`;
     });
 
-    // Populate time slots (6 AM to 10 PM)
+    // Populate time slots (5 AM to 11 PM) - no restrictions for admin
     const startSlotSelect = document.getElementById('meetingStartSlot');
-    for (let slot = 12; slot < 44; slot++) {
+    for (let slot = 10; slot <= 46; slot++) {
         startSlotSelect.innerHTML += `<option value="${slot}">${slotToTime(slot)}</option>`;
     }
 
