@@ -233,8 +233,21 @@ async function loadMeetings() {
                     ${m.attending_count}/${m.rsvp_count}
                 </button>
             </td>
-            <td class="px-6 py-4 text-right">
-                <button onclick="editMeeting(${m.id})" class="text-blue-600 hover:underline text-sm mr-3">Edit</button>
+            <td class="px-6 py-4 text-right space-x-2">
+                <div class="relative inline-block">
+                    <button onclick="toggleEmailMenu(${m.id})" class="text-green-600 hover:underline text-sm">
+                        Email ▾
+                    </button>
+                    <div id="emailMenu-${m.id}" class="hidden absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border z-10">
+                        <button onclick="sendInvite(${m.id})" class="block w-full px-4 py-2 text-left text-sm hover:bg-gray-100">
+                            Send Invite
+                        </button>
+                        <button onclick="sendReminder(${m.id})" class="block w-full px-4 py-2 text-left text-sm hover:bg-gray-100">
+                            Send Reminder
+                        </button>
+                    </div>
+                </div>
+                <button onclick="editMeeting(${m.id})" class="text-blue-600 hover:underline text-sm">Edit</button>
                 <button onclick="deleteMeeting(${m.id})" class="text-red-600 hover:underline text-sm">Delete</button>
             </td>
         </tr>
@@ -394,6 +407,66 @@ async function viewRsvps(id) {
 function closeRsvpModal() {
     document.getElementById('rsvpModal').classList.add('hidden');
     document.getElementById('rsvpModal').classList.remove('flex');
+}
+
+// Email menu functions
+let openMenuId = null;
+
+function toggleEmailMenu(id) {
+    // Close any open menu
+    if (openMenuId && openMenuId !== id) {
+        document.getElementById(`emailMenu-${openMenuId}`).classList.add('hidden');
+    }
+
+    const menu = document.getElementById(`emailMenu-${id}`);
+    menu.classList.toggle('hidden');
+    openMenuId = menu.classList.contains('hidden') ? null : id;
+}
+
+// Close menu when clicking outside
+document.addEventListener('click', (e) => {
+    if (openMenuId && !e.target.closest(`#emailMenu-${openMenuId}`) && !e.target.closest(`[onclick*="toggleEmailMenu"]`)) {
+        document.getElementById(`emailMenu-${openMenuId}`).classList.add('hidden');
+        openMenuId = null;
+    }
+});
+
+async function sendInvite(id) {
+    if (!confirm('Send meeting invite (RSVP request) to all department members?')) return;
+
+    toggleEmailMenu(id); // Close menu
+
+    try {
+        const res = await fetch(`/api/admin/meetings/${id}/send-invite`, { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            alert(data.message);
+        } else {
+            alert('Error: ' + data.message);
+        }
+    } catch (err) {
+        alert('Error sending invite: ' + err.message);
+    }
+}
+
+async function sendReminder(id) {
+    if (!confirm('Send meeting reminder to all department members?')) return;
+
+    toggleEmailMenu(id); // Close menu
+
+    try {
+        const res = await fetch(`/api/admin/meetings/${id}/send-reminder`, { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            alert(data.message);
+        } else {
+            alert('Error: ' + data.message);
+        }
+    } catch (err) {
+        alert('Error sending reminder: ' + err.message);
+    }
 }
 
 init();

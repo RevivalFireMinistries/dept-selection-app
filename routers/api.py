@@ -2647,3 +2647,109 @@ def preview_meeting_reminders(db: Session = Depends(get_db)):
         "total_recipients": total_recipients,
         "meetings": preview
     }
+
+
+@router.post("/admin/meetings/{meeting_id}/send-invite")
+def send_meeting_invite(meeting_id: int, db: Session = Depends(get_db)):
+    """
+    Manually send meeting invite (RSVP request) to all members of the meeting's department.
+    """
+    from scheduler import get_meeting_recipients, slot_to_time
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department)
+    ).filter(Meeting.id == meeting_id).first()
+
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    recipients = get_meeting_recipients(db, meeting)
+
+    if not recipients:
+        return {
+            "success": False,
+            "message": "No recipients found for this meeting",
+            "emails_sent": 0
+        }
+
+    # Prepare meeting data
+    meeting_data = {
+        "meeting_id": meeting.id,
+        "title": meeting.title,
+        "description": meeting.description,
+        "meeting_date": meeting.meeting_date,
+        "start_time": slot_to_time(meeting.start_slot),
+        "end_time": slot_to_time(meeting.end_slot),
+        "location": meeting.location,
+        "meeting_link": meeting.meeting_link,
+        "department_name": meeting.department.name if meeting.department else "All Leaders",
+        "is_general": meeting.is_general
+    }
+
+    # Dispatch invite notification
+    dispatch_event(
+        db=db,
+        event_type=EventType.MEETING_CREATED,
+        data=meeting_data,
+        recipients=recipients
+    )
+
+    return {
+        "success": True,
+        "message": f"Meeting invite sent to {len(recipients)} recipient(s)",
+        "emails_sent": len(recipients)
+    }
+
+
+@router.post("/admin/meetings/{meeting_id}/send-reminder")
+def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
+    """
+    Manually send meeting reminder to all members of the meeting's department.
+    """
+    from scheduler import get_meeting_recipients, slot_to_time
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+
+    meeting = db.query(Meeting).options(
+        joinedload(Meeting.department)
+    ).filter(Meeting.id == meeting_id).first()
+
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    recipients = get_meeting_recipients(db, meeting)
+
+    if not recipients:
+        return {
+            "success": False,
+            "message": "No recipients found for this meeting",
+            "emails_sent": 0
+        }
+
+    # Prepare meeting data
+    meeting_data = {
+        "title": meeting.title,
+        "meeting_date": meeting.meeting_date,
+        "start_time": slot_to_time(meeting.start_slot),
+        "end_time": slot_to_time(meeting.end_slot),
+        "location": meeting.location,
+        "department_name": meeting.department.name if meeting.department else "All Leaders",
+        "meeting_link": meeting.meeting_link,
+        "description": meeting.description
+    }
+
+    # Dispatch reminder notification
+    dispatch_event(
+        db=db,
+        event_type=EventType.MEETING_REMINDER,
+        data=meeting_data,
+        recipients=recipients
+    )
+
+    return {
+        "success": True,
+        "message": f"Meeting reminder sent to {len(recipients)} recipient(s)",
+        "emails_sent": len(recipients)
+    }
