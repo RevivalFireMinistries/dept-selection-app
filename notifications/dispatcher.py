@@ -215,13 +215,21 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
     def paragraph(text: str) -> str:
         return f'<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">{text}</p>'
 
+    # Build portal link for member auto-login
+    portal_link = None
+    if data.get('app_url') and data.get('recipient_phone'):
+        portal_link = f"{data.get('app_url')}/portal?phone={data.get('recipient_phone')}"
+
+    # Build admin link
+    admin_link = f"{data.get('app_url')}/admin" if data.get('app_url') else None
+
     templates = {
         EventType.MEMBER_APPROVED: base_template(
             title="Selection Approved!",
             icon="&#127881;",  # Party popper
             accent_color="#10b981",  # Green
             content=f'''
-                {greeting(data.get('member_name', 'Member'))}
+                {greeting(data.get('recipient_name') or data.get('member_name', 'Member'))}
                 {paragraph(f"Great news! Your selection for <strong>{data.get('department_name', 'the department')}</strong> has been approved.")}
                 {info_card([
                     ("Department", data.get('department_name')),
@@ -229,8 +237,8 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 ])}
                 {paragraph("You can now view your approved departments in the member portal. We're excited to have you serve with us!")}
             ''',
-            button_text="View My Departments",
-            button_url="#"
+            button_text="View My Departments" if portal_link else None,
+            button_url=portal_link
         ),
 
         EventType.MEMBER_REJECTED: base_template(
@@ -238,14 +246,16 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             icon="&#128172;",  # Speech bubble
             accent_color="#6b7280",  # Gray
             content=f'''
-                {greeting(data.get('member_name', 'Member'))}
+                {greeting(data.get('recipient_name') or data.get('member_name', 'Member'))}
                 {paragraph(f"We regret to inform you that your selection for <strong>{data.get('department_name', 'the department')}</strong> was not approved at this time.")}
                 {info_card([
                     ("Department", data.get('department_name')),
                     ("Feedback", data.get('admin_note'))
                 ]) if data.get('admin_note') else info_card([("Department", data.get('department_name'))])}
                 {paragraph("If you have any questions or would like to discuss other opportunities to serve, please don't hesitate to reach out to a church leader.")}
-            '''
+            ''',
+            button_text="View My Portal" if portal_link else None,
+            button_url=portal_link
         ),
 
         EventType.DEPARTMENT_ASSIGNED: base_template(
@@ -253,17 +263,17 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             icon="&#11088;",  # Star
             accent_color="#8b5cf6",  # Purple
             content=f'''
-                {greeting(data.get('member_name', 'Member'))}
+                {greeting(data.get('recipient_name') or data.get('member_name', 'Member'))}
                 {paragraph(f"You have been assigned to <strong>{data.get('department_name', 'a department')}</strong> by our leadership team.")}
                 {info_card([
                     ("Department", data.get('department_name')),
                     ("Category", data.get('category_name')),
                     ("Note", data.get('admin_note'))
                 ])}
-                {paragraph("Please log in to the member portal to view your assignments and connect with your team.")}
+                {paragraph("Click below to view your assignments and connect with your team.")}
             ''',
-            button_text="View Assignment",
-            button_url="#"
+            button_text="View Assignment" if portal_link else None,
+            button_url=portal_link
         ),
 
         EventType.RESULTS_PUBLISHED: base_template(
@@ -271,11 +281,12 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             icon="&#128227;",  # Megaphone
             accent_color="#4f46e5",  # Indigo
             content=f'''
+                {greeting(data.get('recipient_name', 'Member'))}
                 {paragraph(f"The department selection results for <strong>{data.get('year', '2026')}</strong> are now available!")}
-                {paragraph("Log in to the member portal to view your approved department assignments and start connecting with your teams.")}
+                {paragraph("Click below to view your approved department assignments and start connecting with your teams.")}
             ''',
-            button_text="View My Results",
-            button_url="#"
+            button_text="View My Results" if portal_link else None,
+            button_url=portal_link
         ),
 
         EventType.APPEAL_SUBMITTED: base_template(
@@ -293,8 +304,8 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 ])}
                 {paragraph("Please review this appeal in the admin panel at your earliest convenience.")}
             ''',
-            button_text="Review Appeal",
-            button_url="#"
+            button_text="Review Appeal" if admin_link else None,
+            button_url=admin_link
         ),
 
         EventType.APPEAL_RESOLVED: base_template(
@@ -302,13 +313,13 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             icon="&#9989;" if data.get('status') == 'approved' else "&#128172;",  # Checkmark or speech bubble
             accent_color="#10b981" if data.get('status') == 'approved' else "#6b7280",
             content=f'''
-                {greeting(data.get('member_name', 'Member'))}
+                {greeting(data.get('recipient_name') or data.get('member_name', 'Member'))}
                 {paragraph(f"Your appeal has been reviewed and <strong>{data.get('status', 'processed')}</strong>.")}
                 {info_card([("Response", data.get('admin_response'))]) if data.get('admin_response') else ''}
-                {paragraph("Please check the member portal for your updated department assignments.")}
+                {paragraph("Click below to view your updated department assignments.")}
             ''',
-            button_text="View Updates",
-            button_url="#"
+            button_text="View Updates" if portal_link else None,
+            button_url=portal_link
         ),
 
         EventType.MEETING_CREATED: base_template(
@@ -349,6 +360,7 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             icon="&#9200;",  # Alarm clock
             accent_color="#10b981",  # Green
             content=f'''
+                {greeting(data.get('recipient_name', 'Member'))}
                 {paragraph("This is a friendly reminder about your meeting today.")}
                 <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
                     <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Meeting')}</h2>
@@ -366,8 +378,8 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                     </table>
                 </div>
             ''',
-            button_text="Join Meeting" if data.get('meeting_link') else None,
-            button_url=data.get('meeting_link')
+            button_text="View in Portal" if portal_link else ("Join Meeting" if data.get('meeting_link') else None),
+            button_url=portal_link or data.get('meeting_link')
         ),
 
         EventType.MEETING_UPDATED: base_template(
