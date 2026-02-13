@@ -312,11 +312,12 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
         ),
 
         EventType.MEETING_CREATED: base_template(
-            title="New Meeting",
+            title="New Meeting Invite",
             icon="&#128197;",  # Calendar
             accent_color="#4f46e5",  # Indigo
             content=f'''
-                {paragraph("A new meeting has been scheduled for your department.")}
+                {greeting(data.get('recipient_name', 'Member'))}
+                {paragraph("You're invited to a meeting scheduled for your department. Please RSVP to let us know if you'll be attending.")}
                 <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
                     <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Meeting')}</h2>
                     <table role="presentation" cellspacing="0" cellpadding="0">
@@ -337,9 +338,10 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                     ("Department", data.get('department_name')),
                     ("Details", data.get('description'))
                 ])}
+                {paragraph("Please click the button below to RSVP for this meeting.") if data.get('rsvp_link') else ''}
             ''',
-            button_text="Join Meeting" if data.get('meeting_link') else None,
-            button_url=data.get('meeting_link')
+            button_text="RSVP Now" if data.get('rsvp_link') else ("Join Meeting" if data.get('meeting_link') else None),
+            button_url=data.get('rsvp_link') or data.get('meeting_link')
         ),
 
         EventType.MEETING_REMINDER: base_template(
@@ -482,9 +484,8 @@ def dispatch_event(
             print(f"No recipients for event {event_type.value}")
             return
 
-    # Render email template
-    subject = get_email_subject(event_type, data)
-    body = render_email_template(event_type, data)
+    # Get base URL for links in emails
+    app_url = os.getenv('APP_URL', '').rstrip('/')
 
     # Send to each recipient
     # Rate limiting: Resend allows max 2 requests per second, so we wait 0.5s between emails
@@ -498,6 +499,21 @@ def dispatch_event(
         # Apply rate limiting for Resend (after first email)
         if is_resend and i > 0:
             time.sleep(0.5)  # 500ms delay = max 2 requests per second
+
+        # Merge recipient data into template data for personalized emails
+        recipient_data = {**data}
+        recipient_data['recipient_name'] = recipient.get('name', '')
+        recipient_data['recipient_phone'] = recipient.get('phone', '')
+        recipient_data['recipient_email'] = recipient_email
+        recipient_data['app_url'] = app_url
+
+        # Build RSVP link if phone is available
+        if recipient.get('phone') and app_url:
+            recipient_data['rsvp_link'] = f"{app_url}/portal?phone={recipient.get('phone')}"
+
+        # Render email template per-recipient for personalized content
+        subject = get_email_subject(event_type, recipient_data)
+        body = render_email_template(event_type, recipient_data)
 
         success, error = email_channel.send(recipient_email, subject, body)
 

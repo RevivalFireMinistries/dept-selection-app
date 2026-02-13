@@ -60,7 +60,7 @@ EMAIL_SUBJECTS = {
     EventType.RESULTS_PUBLISHED: "Department Selection Results Are Now Available",
     EventType.APPEAL_SUBMITTED: "New Appeal Submitted",
     EventType.APPEAL_RESOLVED: "Your Appeal Has Been Resolved",
-    EventType.MEETING_CREATED: "New Meeting Scheduled: {title}",
+    EventType.MEETING_CREATED: "Meeting Invite: {title} - Please RSVP",
     EventType.MEETING_REMINDER: "Reminder: {title} Today",
     EventType.MEETING_UPDATED: "Meeting Updated: {title}",
     EventType.MEETING_CANCELLED: "Meeting Cancelled: {title}",

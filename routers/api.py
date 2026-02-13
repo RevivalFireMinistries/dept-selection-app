@@ -1868,7 +1868,7 @@ def create_hod_meeting(
             MemberDepartment.status == "approved"
         ).all()
 
-        recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in dept_members if m.email]
+        recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in dept_members if m.email]
 
         if recipients:
             dispatch_event(db, EventType.MEETING_CREATED, {
@@ -2245,7 +2245,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             members = db.query(Member).join(MemberDepartment).filter(
                 MemberDepartment.status == "approved"
             ).distinct().all()
-            recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in members if m.email]
+            recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
             dept_name = "All Leaders"
         elif data.target_department_ids:
             # Members from specified departments
@@ -2253,7 +2253,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
                 MemberDepartment.department_id.in_(data.target_department_ids),
                 MemberDepartment.status == "approved"
             ).distinct().all()
-            recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in members if m.email]
+            recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
             depts = db.query(Department).filter(Department.id.in_(data.target_department_ids)).all()
             dept_name = ", ".join([d.name for d in depts])
         else:
@@ -2262,7 +2262,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
                 MemberDepartment.department_id == department_id,
                 MemberDepartment.status == "approved"
             ).all()
-            recipients = [{"id": m.id, "email": m.email, "phone": m.phone} for m in members if m.email]
+            recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
             dept = db.query(Department).filter(Department.id == department_id).first()
             dept_name = dept.name if dept else None
 
