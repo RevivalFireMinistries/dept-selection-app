@@ -1857,7 +1857,7 @@ def create_hod_meeting(
         joinedload(Meeting.created_by)
     ).filter(Meeting.id == meeting.id).first()
 
-    # Dispatch notification to department members
+    # Dispatch notification to department members and HOD
     try:
         from notifications.dispatcher import dispatch_event
         from notifications.events import EventType
@@ -1868,7 +1868,14 @@ def create_hod_meeting(
             MemberDepartment.status == "approved"
         ).all()
 
+        member_ids = set(m.id for m in dept_members)
         recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in dept_members if m.email]
+
+        # Include HOD if not already in recipients
+        if department.hod_member_id and department.hod_member_id not in member_ids:
+            hod = db.query(Member).filter(Member.id == department.hod_member_id).first()
+            if hod and hod.email:
+                recipients.append({"id": hod.id, "name": hod.full_name, "email": hod.email, "phone": hod.phone})
 
         if recipients:
             dispatch_event(db, EventType.MEETING_CREATED, {
@@ -2231,40 +2238,63 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
         joinedload(Meeting.created_by)
     ).filter(Meeting.id == meeting.id).first()
 
-    # Dispatch notification to relevant members
+    # Dispatch notification to relevant members and HODs
     try:
         from notifications.dispatcher import dispatch_event
         from notifications.events import EventType
 
         # Determine recipients based on meeting type
+        member_ids = set()
         recipients = []
         dept_name = None
+        target_dept_ids = []
 
         if is_general:
             # All approved members
             members = db.query(Member).join(MemberDepartment).filter(
                 MemberDepartment.status == "approved"
             ).distinct().all()
+            member_ids = set(m.id for m in members)
             recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
             dept_name = "All Leaders"
+            # Get all department IDs for HOD lookup
+            all_depts = db.query(Department.id).all()
+            target_dept_ids = [d[0] for d in all_depts]
         elif data.target_department_ids:
             # Members from specified departments
             members = db.query(Member).join(MemberDepartment).filter(
                 MemberDepartment.department_id.in_(data.target_department_ids),
                 MemberDepartment.status == "approved"
             ).distinct().all()
+            member_ids = set(m.id for m in members)
             recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
             depts = db.query(Department).filter(Department.id.in_(data.target_department_ids)).all()
             dept_name = ", ".join([d.name for d in depts])
+            target_dept_ids = data.target_department_ids
         else:
             # Single department
             members = db.query(Member).join(MemberDepartment).filter(
                 MemberDepartment.department_id == department_id,
                 MemberDepartment.status == "approved"
             ).all()
+            member_ids = set(m.id for m in members)
             recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
             dept = db.query(Department).filter(Department.id == department_id).first()
             dept_name = dept.name if dept else None
+            target_dept_ids = [department_id]
+
+        # Include HODs of relevant departments if not already in recipients
+        if target_dept_ids:
+            hod_depts = db.query(Department).filter(
+                Department.id.in_(target_dept_ids),
+                Department.hod_member_id.isnot(None)
+            ).all()
+            hod_ids = [d.hod_member_id for d in hod_depts if d.hod_member_id not in member_ids]
+            if hod_ids:
+                hods = db.query(Member).filter(Member.id.in_(hod_ids)).all()
+                for hod in hods:
+                    if hod.email:
+                        recipients.append({"id": hod.id, "name": hod.full_name, "email": hod.email, "phone": hod.phone})
 
         if recipients:
             dispatch_event(db, EventType.MEETING_CREATED, {

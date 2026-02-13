@@ -210,19 +210,24 @@ def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str,
 def get_meeting_recipients(db: Session, meeting: Meeting) -> List[Dict[str, Any]]:
     """
     Get list of recipients for a meeting based on its type.
+    Always includes HOD(s) of the relevant department(s).
 
-    - Single department meeting: members with approved status in that department
-    - Multi-department meeting: members with approved status in any target department
-    - General meeting (all leaders): all members with at least one approved department
+    - Single department meeting: members with approved status in that department + HOD
+    - Multi-department meeting: members with approved status in any target department + HODs
+    - General meeting (all leaders): all members with at least one approved department + all HODs
     """
-    recipients = []
+    member_ids = set()
+    department_ids = []
 
     if meeting.is_general:
         # All leaders meeting - get all members with at least one approved department
-        member_ids = db.query(MemberDepartment.member_id).filter(
+        approved_members = db.query(MemberDepartment.member_id).filter(
             MemberDepartment.status == "approved"
         ).distinct().all()
-        member_ids = [m[0] for m in member_ids]
+        member_ids = set(m[0] for m in approved_members)
+        # Get all department IDs for HOD lookup
+        all_depts = db.query(Department.id).all()
+        department_ids = [d[0] for d in all_depts]
 
     elif meeting.target_department_ids:
         # Multi-department meeting
@@ -233,26 +238,36 @@ def get_meeting_recipients(db: Session, meeting: Meeting) -> List[Dict[str, Any]
             target_ids = []
 
         if target_ids:
-            member_ids = db.query(MemberDepartment.member_id).filter(
+            approved_members = db.query(MemberDepartment.member_id).filter(
                 MemberDepartment.department_id.in_(target_ids),
                 MemberDepartment.status == "approved"
             ).distinct().all()
-            member_ids = [m[0] for m in member_ids]
-        else:
-            member_ids = []
+            member_ids = set(m[0] for m in approved_members)
+            department_ids = target_ids
 
     elif meeting.department_id:
         # Single department meeting
-        member_ids = db.query(MemberDepartment.member_id).filter(
+        approved_members = db.query(MemberDepartment.member_id).filter(
             MemberDepartment.department_id == meeting.department_id,
             MemberDepartment.status == "approved"
         ).distinct().all()
-        member_ids = [m[0] for m in member_ids]
+        member_ids = set(m[0] for m in approved_members)
+        department_ids = [meeting.department_id]
 
     else:
         return []
 
+    # Add HODs of relevant departments
+    if department_ids:
+        hods = db.query(Department.hod_member_id).filter(
+            Department.id.in_(department_ids),
+            Department.hod_member_id.isnot(None)
+        ).all()
+        for hod in hods:
+            member_ids.add(hod[0])
+
     # Get member details
+    recipients = []
     if member_ids:
         members = db.query(Member).filter(Member.id.in_(member_ids)).all()
         for member in members:
