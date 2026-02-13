@@ -2026,6 +2026,16 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         ).all()
     )
 
+    # Also include departments where user is HOD
+    hod_dept_ids = set(
+        d.id for d in db.query(Department).filter(
+            Department.hod_member_id == member.id
+        ).all()
+    )
+
+    # Combine both sets
+    member_dept_ids = approved_dept_ids | hod_dept_ids
+
     # Get remaining meetings for current month (from today onwards)
     today = date.today()
     # Calculate last day of month
@@ -2045,9 +2055,9 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
     # Filter meetings that are relevant to this member
     relevant_meetings = []
     for meeting in all_meetings:
-        # General meetings are for all approved members
+        # General meetings are for all approved members or HODs
         if meeting.is_general:
-            if approved_dept_ids:  # Only show if member has at least one approved department
+            if member_dept_ids:  # Only show if member has at least one department
                 relevant_meetings.append(meeting)
             continue
 
@@ -2055,21 +2065,20 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         if meeting.target_department_ids:
             try:
                 target_ids = set(int(x) for x in meeting.target_department_ids.split(",") if x.strip())
-                if target_ids & approved_dept_ids:  # Member has at least one target department
+                if target_ids & member_dept_ids:  # Member has at least one target department
                     relevant_meetings.append(meeting)
             except (ValueError, AttributeError):
                 pass
             continue
 
         # Single department meetings
-        if meeting.department_id and meeting.department_id in approved_dept_ids:
+        if meeting.department_id and meeting.department_id in member_dept_ids:
             relevant_meetings.append(meeting)
 
     return {
         "meetings": [format_meeting_response(m, db, member.id) for m in relevant_meetings],
         "total": len(relevant_meetings),
         "month": today.strftime("%B %Y"),
-        "month_start": month_start.isoformat(),
         "month_end": month_end.isoformat()
     }
 
