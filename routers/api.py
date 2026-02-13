@@ -2108,14 +2108,49 @@ def submit_rsvp(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Verify member is in this department
-    membership = db.query(MemberDepartment).filter(
-        MemberDepartment.member_id == member.id,
-        MemberDepartment.department_id == meeting.department_id,
-        MemberDepartment.status == "approved"
-    ).first()
-    if not membership:
-        raise HTTPException(status_code=403, detail="You are not an approved member of this department")
+    # Verify member is allowed to RSVP for this meeting
+    is_allowed = False
+
+    if meeting.is_general:
+        # All Leaders meeting - member must have at least one approved department
+        has_approved = db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member.id,
+            MemberDepartment.status == "approved"
+        ).first()
+        is_allowed = has_approved is not None
+    elif meeting.target_department_ids:
+        # Multi-department meeting - member must be approved in one of the target departments
+        import json
+        try:
+            target_ids = json.loads(meeting.target_department_ids) if isinstance(meeting.target_department_ids, str) else meeting.target_department_ids
+        except:
+            target_ids = []
+
+        if target_ids:
+            membership = db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == member.id,
+                MemberDepartment.department_id.in_(target_ids),
+                MemberDepartment.status == "approved"
+            ).first()
+            is_allowed = membership is not None
+    elif meeting.department_id:
+        # Single department meeting - member must be approved in that department OR be HOD
+        membership = db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member.id,
+            MemberDepartment.department_id == meeting.department_id,
+            MemberDepartment.status == "approved"
+        ).first()
+
+        # Also check if member is HOD of this department
+        is_hod = db.query(Department).filter(
+            Department.id == meeting.department_id,
+            Department.hod_member_id == member.id
+        ).first()
+
+        is_allowed = membership is not None or is_hod is not None
+
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail="You are not eligible to RSVP for this meeting")
 
     # Validate response
     if data.response not in ["attending", "not_attending"]:
