@@ -67,21 +67,69 @@
         <form id="meetingForm" onsubmit="saveMeeting(event)">
             <input type="hidden" id="meetingId">
             <div class="space-y-4">
-                <!-- All Leaders Toggle -->
-                <div class="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg">
-                    <input type="checkbox" id="meetingAllLeaders" onchange="toggleAllLeaders()"
-                           class="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500">
-                    <label for="meetingAllLeaders" class="font-medium text-indigo-900">
-                        All Leaders Meeting
-                    </label>
-                    <span class="text-sm text-indigo-600">(includes everyone with an approved department)</span>
+                <!-- Meeting Type Selector -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Meeting Type *</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <button type="button" onclick="setMeetingType('single')" id="typeBtn-single"
+                                class="px-2 py-2 text-xs border-2 border-blue-600 bg-blue-600 text-white rounded-lg">
+                            Single Dept
+                        </button>
+                        <button type="button" onclick="setMeetingType('all')" id="typeBtn-all"
+                                class="px-2 py-2 text-xs border-2 border-gray-300 text-gray-700 rounded-lg hover:border-blue-400">
+                            All Leaders
+                        </button>
+                        <button type="button" onclick="setMeetingType('multi')" id="typeBtn-multi"
+                                class="px-2 py-2 text-xs border-2 border-gray-300 text-gray-700 rounded-lg hover:border-blue-400">
+                            Multi-Dept
+                        </button>
+                        <button type="button" onclick="setMeetingType('individuals')" id="typeBtn-individuals"
+                                class="px-2 py-2 text-xs border-2 border-gray-300 text-gray-700 rounded-lg hover:border-blue-400">
+                            Individuals
+                        </button>
+                    </div>
                 </div>
-                <div id="departmentSection">
+
+                <!-- Single Department Selector -->
+                <div id="singleDeptSection">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Department *</label>
                     <select id="meetingDepartment"
                             class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
                         <option value="">-- Select Department --</option>
                     </select>
+                </div>
+
+                <!-- Multi Department Selector -->
+                <div id="multiDeptSection" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Departments *</label>
+                    <div id="multiDeptList" class="max-h-40 overflow-y-auto border rounded-lg p-2 space-y-1">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- All Leaders Info -->
+                <div id="allLeadersSection" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p class="text-sm text-blue-800">
+                        <span class="font-medium">All Leaders Meeting:</span>
+                        This meeting will be visible to all members with at least one approved department.
+                    </p>
+                </div>
+
+                <!-- Individual Members Selector -->
+                <div id="individualMembersSection" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Select Members *</label>
+                    <div class="relative">
+                        <input type="text" id="memberSearchInput" placeholder="Search members by name or phone..."
+                               class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                               oninput="searchMembers(this.value)">
+                        <div id="memberSearchResults" class="hidden absolute z-10 w-full bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                    <div id="selectedMembersList" class="mt-2 flex flex-wrap gap-2">
+                        <!-- Selected members shown as chips -->
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Search and click to add members</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Title *</label>
@@ -118,7 +166,23 @@
                             <option value="6">3 hours</option>
                         </select>
                     </div>
-                    <div></div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Repeat</label>
+                        <select id="meetingRecurrence" onchange="toggleRecurrenceEnd()"
+                                class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="none">Does not repeat</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="biweekly">Every 2 weeks</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="recurrenceEndSection" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Repeat Until</label>
+                    <input type="date" id="meetingRecurrenceEnd"
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Maximum 52 occurrences will be created</p>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
@@ -157,6 +221,9 @@
 {% block scripts %}
 <script>
 let departments = [];
+let allMembers = [];
+let selectedMembers = [];
+let currentMeetingType = 'single';
 
 function slotToTime(slot) {
     const hours = Math.floor(slot / 2);
@@ -275,17 +342,121 @@ function clearFilters() {
     loadMeetings();
 }
 
-// Toggle All Leaders checkbox
-function toggleAllLeaders() {
-    const isAllLeaders = document.getElementById('meetingAllLeaders').checked;
-    const deptSection = document.getElementById('departmentSection');
+// Meeting type selection
+function setMeetingType(type) {
+    currentMeetingType = type;
 
-    if (isAllLeaders) {
-        deptSection.classList.add('hidden');
-        document.getElementById('meetingDepartment').removeAttribute('required');
+    ['single', 'all', 'multi', 'individuals'].forEach(t => {
+        const btn = document.getElementById(`typeBtn-${t}`);
+        if (t === type) {
+            btn.classList.add('border-blue-600', 'bg-blue-600', 'text-white');
+            btn.classList.remove('border-gray-300', 'text-gray-700');
+        } else {
+            btn.classList.remove('border-blue-600', 'bg-blue-600', 'text-white');
+            btn.classList.add('border-gray-300', 'text-gray-700');
+        }
+    });
+
+    document.getElementById('singleDeptSection').classList.toggle('hidden', type !== 'single');
+    document.getElementById('multiDeptSection').classList.toggle('hidden', type !== 'multi');
+    document.getElementById('allLeadersSection').classList.toggle('hidden', type !== 'all');
+    document.getElementById('individualMembersSection').classList.toggle('hidden', type !== 'individuals');
+
+    document.getElementById('meetingDepartment').required = (type === 'single');
+}
+
+// Individual member search and selection
+async function loadMembers() {
+    try {
+        const res = await fetch('/api/members');
+        allMembers = await res.json();
+    } catch (err) {
+        console.error('Failed to load members:', err);
+    }
+}
+
+function searchMembers(query) {
+    const resultsDiv = document.getElementById('memberSearchResults');
+    if (!query || query.length < 2) {
+        resultsDiv.classList.add('hidden');
+        return;
+    }
+
+    const q = query.toLowerCase();
+    const filtered = allMembers.filter(m =>
+        !selectedMembers.some(s => s.id === m.id) &&
+        (m.full_name.toLowerCase().includes(q) || m.phone.includes(q))
+    ).slice(0, 10);
+
+    if (filtered.length === 0) {
+        resultsDiv.innerHTML = '<div class="p-2 text-sm text-gray-500">No members found</div>';
     } else {
-        deptSection.classList.remove('hidden');
-        document.getElementById('meetingDepartment').setAttribute('required', 'required');
+        resultsDiv.innerHTML = filtered.map(m => `
+            <div class="p-2 hover:bg-gray-100 cursor-pointer text-sm" onclick="addMember(${m.id}, '${m.full_name.replace(/'/g, "\\'")}')">
+                <span class="font-medium">${m.full_name}</span>
+                <span class="text-gray-500 ml-2">${m.phone}</span>
+            </div>
+        `).join('');
+    }
+    resultsDiv.classList.remove('hidden');
+}
+
+function addMember(id, name) {
+    if (selectedMembers.some(m => m.id === id)) return;
+    selectedMembers.push({ id, name });
+    renderSelectedMembers();
+    document.getElementById('memberSearchInput').value = '';
+    document.getElementById('memberSearchResults').classList.add('hidden');
+}
+
+function removeMember(id) {
+    selectedMembers = selectedMembers.filter(m => m.id !== id);
+    renderSelectedMembers();
+}
+
+function renderSelectedMembers() {
+    const container = document.getElementById('selectedMembersList');
+    if (selectedMembers.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = selectedMembers.map(m => `
+        <span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
+            ${m.name}
+            <button type="button" onclick="removeMember(${m.id})" class="hover:text-blue-900">&times;</button>
+        </span>
+    `).join('');
+}
+
+// Recurrence handling
+function toggleRecurrenceEnd() {
+    const recurrence = document.getElementById('meetingRecurrence').value;
+    const section = document.getElementById('recurrenceEndSection');
+    const endInput = document.getElementById('meetingRecurrenceEnd');
+
+    if (recurrence === 'none') {
+        section.classList.add('hidden');
+        endInput.required = false;
+    } else {
+        section.classList.remove('hidden');
+        endInput.required = true;
+
+        // Set default end date based on recurrence type
+        const startDate = new Date(document.getElementById('meetingDate').value);
+        let endDate = new Date(startDate);
+
+        if (recurrence === 'daily') {
+            endDate.setDate(endDate.getDate() + 14);
+        } else if (recurrence === 'weekly') {
+            endDate.setMonth(endDate.getMonth() + 3);
+        } else if (recurrence === 'biweekly') {
+            endDate.setMonth(endDate.getMonth() + 6);
+        } else if (recurrence === 'monthly') {
+            endDate.setFullYear(endDate.getFullYear() + 1);
+        }
+
+        endInput.value = endDate.toISOString().split('T')[0];
+        endInput.min = document.getElementById('meetingDate').value;
     }
 }
 
@@ -296,12 +467,30 @@ function openCreateModal() {
     document.getElementById('meetingForm').reset();
     document.getElementById('meetingDate').value = new Date().toISOString().split('T')[0];
     document.getElementById('meetingDuration').value = '2';
-    document.getElementById('meetingStartSlot').value = '18'; // 9 AM default
+    document.getElementById('meetingStartSlot').value = '38'; // 7 PM default
 
-    // Reset All Leaders toggle
-    document.getElementById('meetingAllLeaders').checked = false;
-    document.getElementById('departmentSection').classList.remove('hidden');
-    document.getElementById('meetingDepartment').setAttribute('required', 'required');
+    // Reset recurrence
+    document.getElementById('meetingRecurrence').value = 'none';
+    document.getElementById('meetingRecurrenceEnd').value = '';
+    document.getElementById('recurrenceEndSection').classList.add('hidden');
+
+    // Reset individual members selection
+    selectedMembers = [];
+    renderSelectedMembers();
+    document.getElementById('memberSearchInput').value = '';
+    document.getElementById('memberSearchResults').classList.add('hidden');
+
+    // Reset meeting type to single
+    setMeetingType('single');
+
+    // Populate multi-dept list
+    const multiList = document.getElementById('multiDeptList');
+    multiList.innerHTML = departments.map(d => `
+        <label class="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+            <input type="checkbox" value="${d.id}" class="multi-dept-checkbox rounded text-blue-600">
+            <span class="text-sm text-gray-700">${d.name}</span>
+        </label>
+    `).join('');
 
     document.getElementById('meetingModal').classList.remove('hidden');
     document.getElementById('meetingModal').classList.add('flex');
@@ -328,15 +517,33 @@ async function editMeeting(id) {
     document.getElementById('meetingLocation').value = meeting.location || '';
     document.getElementById('meetingLink').value = meeting.meeting_link || '';
 
-    // Handle All Leaders toggle
-    const isGeneral = meeting.is_general || meeting.department_name === 'All Leaders';
-    document.getElementById('meetingAllLeaders').checked = isGeneral;
-    if (isGeneral) {
-        document.getElementById('departmentSection').classList.add('hidden');
-        document.getElementById('meetingDepartment').removeAttribute('required');
+    // Reset recurrence (not editable for existing)
+    document.getElementById('meetingRecurrence').value = 'none';
+    document.getElementById('recurrenceEndSection').classList.add('hidden');
+
+    // Reset individual members selection
+    selectedMembers = [];
+    renderSelectedMembers();
+
+    // Determine meeting type
+    if (meeting.is_general || meeting.department_name === 'All Leaders') {
+        setMeetingType('all');
+    } else if (meeting.target_department_ids && meeting.target_department_ids.length > 0) {
+        setMeetingType('multi');
+        // Check the appropriate departments
+        const multiList = document.getElementById('multiDeptList');
+        multiList.innerHTML = departments.map(d => `
+            <label class="flex items-center gap-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                <input type="checkbox" value="${d.id}" class="multi-dept-checkbox rounded text-blue-600"
+                       ${meeting.target_department_ids.includes(d.id) ? 'checked' : ''}>
+                <span class="text-sm text-gray-700">${d.name}</span>
+            </label>
+        `).join('');
+    } else if (meeting.department_name && meeting.department_name.includes('Selected Members')) {
+        // This is an individuals meeting - but we can't easily get the member list back
+        setMeetingType('individuals');
     } else {
-        document.getElementById('departmentSection').classList.remove('hidden');
-        document.getElementById('meetingDepartment').setAttribute('required', 'required');
+        setMeetingType('single');
         document.getElementById('meetingDepartment').value = meeting.department_id || '';
     }
 
@@ -350,7 +557,8 @@ async function saveMeeting(e) {
     const id = document.getElementById('meetingId').value;
     const startSlot = parseInt(document.getElementById('meetingStartSlot').value);
     const duration = parseInt(document.getElementById('meetingDuration').value);
-    const isAllLeaders = document.getElementById('meetingAllLeaders').checked;
+    const recurrence = document.getElementById('meetingRecurrence').value;
+    const recurrenceEndDate = document.getElementById('meetingRecurrenceEnd').value;
 
     const payload = {
         title: document.getElementById('meetingTitle').value,
@@ -360,12 +568,42 @@ async function saveMeeting(e) {
         end_slot: startSlot + duration,
         location: document.getElementById('meetingLocation').value || null,
         meeting_link: document.getElementById('meetingLink').value || null,
-        is_general: isAllLeaders
+        is_general: false,
+        department_id: null,
+        target_department_ids: null,
+        target_member_ids: null
     };
 
-    // Only include department_id if not an All Leaders meeting
-    if (!isAllLeaders) {
-        payload.department_id = parseInt(document.getElementById('meetingDepartment').value);
+    // Handle different meeting types
+    if (currentMeetingType === 'all') {
+        payload.is_general = true;
+    } else if (currentMeetingType === 'multi') {
+        const selectedDepts = Array.from(document.querySelectorAll('.multi-dept-checkbox:checked'))
+            .map(cb => parseInt(cb.value));
+        if (selectedDepts.length === 0) {
+            alert('Please select at least one department.');
+            return;
+        }
+        payload.target_department_ids = selectedDepts;
+    } else if (currentMeetingType === 'individuals') {
+        if (selectedMembers.length === 0) {
+            alert('Please select at least one member.');
+            return;
+        }
+        payload.target_member_ids = selectedMembers.map(m => m.id);
+    } else {
+        const deptId = document.getElementById('meetingDepartment').value;
+        if (!deptId) {
+            alert('Please select a department.');
+            return;
+        }
+        payload.department_id = parseInt(deptId);
+    }
+
+    // Only include recurrence for new meetings
+    if (!id && recurrence !== 'none') {
+        payload.recurrence = recurrence;
+        payload.recurrence_end_date = recurrenceEndDate;
     }
 
     try {
@@ -384,13 +622,19 @@ async function saveMeeting(e) {
             });
         }
 
+        const data = await res.json();
+
         if (!res.ok) {
-            const data = await res.json();
             throw new Error(data.detail || 'Failed to save meeting');
         }
 
         closeModal();
         loadMeetings();
+
+        // Show message for recurring meetings
+        if (data.meetings_created && data.meetings_created > 1) {
+            alert(`Successfully created ${data.meetings_created} recurring meetings!`);
+        }
     } catch (err) {
         alert('Error: ' + err.message);
     }
@@ -517,6 +761,15 @@ async function sendReminder(id) {
     }
 }
 
+// Close member search when clicking outside
+document.addEventListener('click', (e) => {
+    const searchContainer = document.getElementById('individualMembersSection');
+    if (searchContainer && !searchContainer.contains(e.target)) {
+        document.getElementById('memberSearchResults').classList.add('hidden');
+    }
+});
+
 init();
+loadMembers();
 </script>
 {% endblock %}

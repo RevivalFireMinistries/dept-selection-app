@@ -4,5 +4,6 @@ Channels are responsible for actually sending notifications via different medium
 """
 
 from .email import EmailChannel
+from .resend import ResendChannel
 
-__all__ = ['EmailChannel']
+__all__ = ['EmailChannel', 'ResendChannel']

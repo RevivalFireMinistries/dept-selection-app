@@ -123,7 +123,11 @@ class Meeting(Base):
 
     # Meeting type fields
     is_general = Column(Integer, nullable=True, server_default="0")  # 1 = all leaders meeting
-    target_department_ids = Column(Text, nullable=True)  # Comma-separated department IDs for multi-dept meetings
+    target_department_ids = Column(Text, nullable=True)  # JSON array of department IDs for multi-dept meetings
+    target_member_ids = Column(Text, nullable=True)  # JSON array of member IDs for individual invites
+
+    # Recurrence fields
+    recurrence_group_id = Column(String(36), nullable=True, index=True)  # UUID linking recurring meetings
 
     department = relationship("Department", back_populates="meetings")
     created_by = relationship("Member", foreign_keys=[created_by_id])

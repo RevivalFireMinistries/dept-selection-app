@@ -254,6 +254,10 @@ class MeetingCreate(BaseModel):
     # Meeting type options
     is_general: bool = False  # True = meeting for all leaders
     target_department_ids: Optional[List[int]] = None  # List of department IDs for multi-dept meetings
+    target_member_ids: Optional[List[int]] = None  # List of member IDs for individual invites
+    # Recurrence options
+    recurrence: Optional[str] = None  # none, daily, weekly, biweekly, monthly
+    recurrence_end_date: Optional[date] = None  # When to stop creating recurring meetings
 
 class MeetingUpdate(BaseModel):
     title: Optional[str] = None

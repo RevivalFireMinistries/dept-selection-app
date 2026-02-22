@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any, List, Tuple
 from io import BytesIO
 from datetime import datetime, date, timedelta
 import re
+import uuid
+import json
 
 from database import get_db
 from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog
@@ -1539,6 +1541,55 @@ def get_week_dates(reference_date: date) -> Tuple[date, date]:
     return monday, sunday
 
 
+def generate_recurring_dates(start_date: date, recurrence: str, end_date: date) -> List[date]:
+    """
+    Generate a list of dates for recurring meetings.
+
+    Args:
+        start_date: The first meeting date
+        recurrence: One of 'daily', 'weekly', 'biweekly', 'monthly'
+        end_date: The last possible date for meetings
+
+    Returns:
+        List of dates including the start_date
+    """
+    dates = [start_date]
+    current = start_date
+
+    # Limit to prevent runaway loops (max 52 occurrences)
+    max_occurrences = 52
+
+    while len(dates) < max_occurrences:
+        if recurrence == 'daily':
+            current = current + timedelta(days=1)
+        elif recurrence == 'weekly':
+            current = current + timedelta(weeks=1)
+        elif recurrence == 'biweekly':
+            current = current + timedelta(weeks=2)
+        elif recurrence == 'monthly':
+            # Add one month (handle month boundaries)
+            month = current.month + 1
+            year = current.year
+            if month > 12:
+                month = 1
+                year += 1
+            # Handle day overflow (e.g., Jan 31 -> Feb 28)
+            day = min(current.day, 28)  # Safe for all months
+            try:
+                current = date(year, month, day)
+            except ValueError:
+                current = date(year, month, 28)
+        else:
+            break
+
+        if current > end_date:
+            break
+
+        dates.append(current)
+
+    return dates
+
+
 def check_slot_availability(
     db: Session,
     department_id: int,
@@ -1616,15 +1667,27 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
     target_dept_names = None
     if meeting.target_department_ids:
         try:
-            target_dept_ids = [int(x) for x in meeting.target_department_ids.split(",") if x.strip()]
+            target_dept_ids = json.loads(meeting.target_department_ids) if isinstance(meeting.target_department_ids, str) else meeting.target_department_ids
             depts = db.query(Department).filter(Department.id.in_(target_dept_ids)).all()
             target_dept_names = [d.name for d in depts]
-        except (ValueError, AttributeError):
+        except (ValueError, TypeError):
+            pass
+
+    # Parse target member IDs and get count
+    target_member_ids = None
+    target_member_count = 0
+    if meeting.target_member_ids:
+        try:
+            target_member_ids = json.loads(meeting.target_member_ids) if isinstance(meeting.target_member_ids, str) else meeting.target_member_ids
+            target_member_count = len(target_member_ids) if target_member_ids else 0
+        except (ValueError, TypeError):
             pass
 
     # Determine department name for display
     if meeting.is_general:
         dept_name = "All Leaders"
+    elif target_member_ids:
+        dept_name = f"{target_member_count} Selected Members"
     elif target_dept_ids:
         dept_name = ", ".join(target_dept_names) if target_dept_names else "Multiple Departments"
     elif meeting.department:
@@ -1804,7 +1867,7 @@ def create_hod_meeting(
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Create a meeting (HOD only)"""
+    """Create a meeting (HOD only) - supports recurring meetings"""
     # Find member by phone
     normalized = phone.strip().replace(" ", "").replace("-", "")
     hod_member = None
@@ -1828,34 +1891,62 @@ def create_hod_meeting(
     if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
         raise HTTPException(status_code=400, detail="Invalid time slots")
 
-    # Check availability
-    available, conflict_reason = check_slot_availability(
-        db, data.department_id, data.meeting_date, data.start_slot, data.end_slot
-    )
-    if not available:
-        raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+    # Generate meeting dates (single or recurring)
+    meeting_dates = [data.meeting_date]
+    recurrence_group_id = None
 
-    # Create meeting
-    meeting = Meeting(
-        department_id=data.department_id,
-        created_by_id=hod_member.id,
-        title=data.title,
-        description=data.description,
-        meeting_date=data.meeting_date,
-        start_slot=data.start_slot,
-        end_slot=data.end_slot,
-        location=data.location,
-        meeting_link=data.meeting_link
-    )
-    db.add(meeting)
+    if data.recurrence and data.recurrence != 'none' and data.recurrence_end_date:
+        if data.recurrence_end_date <= data.meeting_date:
+            raise HTTPException(status_code=400, detail="Recurrence end date must be after meeting date")
+
+        meeting_dates = generate_recurring_dates(data.meeting_date, data.recurrence, data.recurrence_end_date)
+        recurrence_group_id = str(uuid.uuid4())
+
+    # Check availability for all dates
+    conflicts = []
+    for mtg_date in meeting_dates:
+        available, conflict_reason = check_slot_availability(
+            db, data.department_id, mtg_date, data.start_slot, data.end_slot
+        )
+        if not available:
+            conflicts.append(f"{mtg_date.isoformat()}: {conflict_reason}")
+
+    if conflicts:
+        if len(conflicts) == 1:
+            raise HTTPException(status_code=409, detail=conflicts[0])
+        else:
+            raise HTTPException(status_code=409, detail=f"Conflicts found: {'; '.join(conflicts[:3])}" +
+                                (f" and {len(conflicts) - 3} more" if len(conflicts) > 3 else ""))
+
+    # Create meetings for all dates
+    created_meetings = []
+    for mtg_date in meeting_dates:
+        meeting = Meeting(
+            department_id=data.department_id,
+            created_by_id=hod_member.id,
+            title=data.title,
+            description=data.description,
+            meeting_date=mtg_date,
+            start_slot=data.start_slot,
+            end_slot=data.end_slot,
+            location=data.location,
+            meeting_link=data.meeting_link,
+            recurrence_group_id=recurrence_group_id
+        )
+        db.add(meeting)
+        created_meetings.append(meeting)
+
     db.commit()
-    db.refresh(meeting)
 
-    # Reload with relationships
-    meeting = db.query(Meeting).options(
+    # Refresh all meetings
+    for meeting in created_meetings:
+        db.refresh(meeting)
+
+    # Reload first meeting with relationships
+    first_meeting = db.query(Meeting).options(
         joinedload(Meeting.department),
         joinedload(Meeting.created_by)
-    ).filter(Meeting.id == meeting.id).first()
+    ).filter(Meeting.id == created_meetings[0].id).first()
 
     # Dispatch notification to department members and HOD
     try:
@@ -1878,22 +1969,32 @@ def create_hod_meeting(
                 recipients.append({"id": hod.id, "name": hod.full_name, "email": hod.email, "phone": hod.phone})
 
         if recipients:
+            recurrence_info = None
+            if len(created_meetings) > 1:
+                recurrence_info = f"This is a recurring meeting ({len(created_meetings)} occurrences until {meeting_dates[-1].isoformat()})"
+
             dispatch_event(db, EventType.MEETING_CREATED, {
-                "meeting_id": meeting.id,
-                "title": meeting.title,
-                "description": meeting.description,
-                "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
-                "start_time": slot_to_time(meeting.start_slot),
-                "end_time": slot_to_time(meeting.end_slot),
-                "location": meeting.location,
-                "meeting_link": meeting.meeting_link,
+                "meeting_id": first_meeting.id,
+                "title": first_meeting.title,
+                "description": first_meeting.description,
+                "meeting_date": first_meeting.meeting_date.isoformat() if first_meeting.meeting_date else None,
+                "start_time": slot_to_time(first_meeting.start_slot),
+                "end_time": slot_to_time(first_meeting.end_slot),
+                "location": first_meeting.location,
+                "meeting_link": first_meeting.meeting_link,
                 "department_name": department.name,
+                "recurrence_info": recurrence_info,
                 "recipients": recipients
             })
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
 
-    return {"success": True, "meeting": format_meeting_response(meeting, db)}
+    return {
+        "success": True,
+        "meeting": format_meeting_response(first_meeting, db),
+        "meetings_created": len(created_meetings),
+        "recurrence_group_id": recurrence_group_id
+    }
 
 
 @router.put("/hod/meetings/{meeting_id}")
@@ -2061,13 +2162,23 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
                 relevant_meetings.append(meeting)
             continue
 
+        # Individual member meetings - check if member is in the target list
+        if meeting.target_member_ids:
+            try:
+                target_member_list = json.loads(meeting.target_member_ids) if isinstance(meeting.target_member_ids, str) else meeting.target_member_ids
+                if member.id in target_member_list:
+                    relevant_meetings.append(meeting)
+            except (ValueError, TypeError):
+                pass
+            continue
+
         # Multi-department meetings
         if meeting.target_department_ids:
             try:
-                target_ids = set(int(x) for x in meeting.target_department_ids.split(",") if x.strip())
-                if target_ids & member_dept_ids:  # Member has at least one target department
+                target_ids = json.loads(meeting.target_department_ids) if isinstance(meeting.target_department_ids, str) else meeting.target_department_ids
+                if set(target_ids) & member_dept_ids:  # Member has at least one target department
                     relevant_meetings.append(meeting)
-            except (ValueError, AttributeError):
+            except (ValueError, TypeError):
                 pass
             continue
 
@@ -2118,9 +2229,15 @@ def submit_rsvp(
             MemberDepartment.status == "approved"
         ).first()
         is_allowed = has_approved is not None
+    elif meeting.target_member_ids:
+        # Individual members meeting - member must be in the target list
+        try:
+            target_ids = json.loads(meeting.target_member_ids) if isinstance(meeting.target_member_ids, str) else meeting.target_member_ids
+            is_allowed = member.id in target_ids
+        except:
+            is_allowed = False
     elif meeting.target_department_ids:
         # Multi-department meeting - member must be approved in one of the target departments
-        import json
         try:
             target_ids = json.loads(meeting.target_department_ids) if isinstance(meeting.target_department_ids, str) else meeting.target_department_ids
         except:
@@ -2220,7 +2337,7 @@ def get_all_meetings(
 
 @router.post("/admin/meetings")
 def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
-    """Create a meeting (admin) - supports single dept, all leaders, or multi-dept"""
+    """Create a meeting (admin) - supports single dept, all leaders, multi-dept, individuals, and recurring"""
 
     if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
         raise HTTPException(status_code=400, detail="Invalid time slots")
@@ -2228,11 +2345,20 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
     # Determine meeting type and validate
     is_general = data.is_general
     target_dept_ids_str = None
+    target_member_ids_str = None
     department_id = None
 
     if is_general:
         # All leaders meeting - no specific department
         pass
+    elif data.target_member_ids and len(data.target_member_ids) > 0:
+        # Individual members meeting
+        # Validate all members exist
+        for member_id in data.target_member_ids:
+            member = db.query(Member).filter(Member.id == member_id).first()
+            if not member:
+                raise HTTPException(status_code=404, detail=f"Member {member_id} not found")
+        target_member_ids_str = json.dumps(data.target_member_ids)
     elif data.target_department_ids and len(data.target_department_ids) > 0:
         # Multi-department meeting
         # Validate all departments exist
@@ -2240,60 +2366,90 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             dept = db.query(Department).filter(Department.id == dept_id).first()
             if not dept:
                 raise HTTPException(status_code=404, detail=f"Department {dept_id} not found")
-        target_dept_ids_str = ",".join(str(x) for x in data.target_department_ids)
-
-        # Check availability for each department
-        for dept_id in data.target_department_ids:
-            available, conflict_reason = check_slot_availability(
-                db, dept_id, data.meeting_date, data.start_slot, data.end_slot
-            )
-            if not available:
-                dept = db.query(Department).filter(Department.id == dept_id).first()
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Conflict for {dept.name}: {conflict_reason}" if dept else conflict_reason
-                )
-    else:
+        target_dept_ids_str = json.dumps(data.target_department_ids)
+    elif data.department_id:
         # Single department meeting
-        if not data.department_id:
-            raise HTTPException(status_code=400, detail="Department is required for single-department meetings")
-
         department = db.query(Department).filter(Department.id == data.department_id).first()
         if not department:
             raise HTTPException(status_code=404, detail="Department not found")
 
         department_id = data.department_id
+    else:
+        raise HTTPException(status_code=400, detail="Meeting must target a department, multiple departments, specific members, or all leaders")
 
-        # Check availability
-        available, conflict_reason = check_slot_availability(
-            db, data.department_id, data.meeting_date, data.start_slot, data.end_slot
+    # Generate meeting dates (single or recurring)
+    meeting_dates = [data.meeting_date]
+    recurrence_group_id = None
+
+    if data.recurrence and data.recurrence != 'none' and data.recurrence_end_date:
+        if data.recurrence_end_date <= data.meeting_date:
+            raise HTTPException(status_code=400, detail="Recurrence end date must be after meeting date")
+
+        meeting_dates = generate_recurring_dates(data.meeting_date, data.recurrence, data.recurrence_end_date)
+        recurrence_group_id = str(uuid.uuid4())
+
+    # Check availability for all dates (only for department-based meetings)
+    conflicts = []
+    dept_ids_to_check = []
+    if is_general:
+        dept_ids_to_check = []  # No specific department to check
+    elif target_member_ids_str:
+        dept_ids_to_check = []  # Individual meeting - no department conflicts
+    elif data.target_department_ids:
+        dept_ids_to_check = data.target_department_ids
+    elif department_id:
+        dept_ids_to_check = [department_id]
+
+    for meeting_date in meeting_dates:
+        for dept_id in dept_ids_to_check:
+            available, conflict_reason = check_slot_availability(
+                db, dept_id, meeting_date, data.start_slot, data.end_slot
+            )
+            if not available:
+                dept = db.query(Department).filter(Department.id == dept_id).first()
+                conflicts.append(f"{meeting_date.isoformat()} ({dept.name if dept else 'Unknown'}): {conflict_reason}")
+
+    if conflicts:
+        if len(conflicts) == 1:
+            raise HTTPException(status_code=409, detail=conflicts[0])
+        else:
+            raise HTTPException(status_code=409, detail=f"Conflicts found: {'; '.join(conflicts[:3])}" +
+                                (f" and {len(conflicts) - 3} more" if len(conflicts) > 3 else ""))
+
+    # Create meetings for all dates
+    created_meetings = []
+    for mtg_date in meeting_dates:
+        meeting = Meeting(
+            department_id=department_id,
+            created_by_id=None,  # Admin-created
+            title=data.title,
+            description=data.description,
+            meeting_date=mtg_date,
+            start_slot=data.start_slot,
+            end_slot=data.end_slot,
+            location=data.location,
+            meeting_link=data.meeting_link,
+            is_general=1 if is_general else 0,
+            target_department_ids=target_dept_ids_str,
+            target_member_ids=target_member_ids_str,
+            recurrence_group_id=recurrence_group_id
         )
-        if not available:
-            raise HTTPException(status_code=409, detail=conflict_reason or "Time slot not available")
+        db.add(meeting)
+        created_meetings.append(meeting)
 
-    meeting = Meeting(
-        department_id=department_id,
-        created_by_id=None,  # Admin-created
-        title=data.title,
-        description=data.description,
-        meeting_date=data.meeting_date,
-        start_slot=data.start_slot,
-        end_slot=data.end_slot,
-        location=data.location,
-        meeting_link=data.meeting_link,
-        is_general=1 if is_general else 0,
-        target_department_ids=target_dept_ids_str
-    )
-    db.add(meeting)
     db.commit()
-    db.refresh(meeting)
 
-    meeting = db.query(Meeting).options(
+    # Refresh all meetings
+    for meeting in created_meetings:
+        db.refresh(meeting)
+
+    # Get the first meeting with relationships for response
+    first_meeting = db.query(Meeting).options(
         joinedload(Meeting.department),
         joinedload(Meeting.created_by)
-    ).filter(Meeting.id == meeting.id).first()
+    ).filter(Meeting.id == created_meetings[0].id).first()
 
-    # Dispatch notification to relevant members and HODs
+    # Dispatch notification for the first meeting only (or series)
     try:
         from notifications.dispatcher import dispatch_event
         from notifications.events import EventType
@@ -2315,6 +2471,12 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             # Get all department IDs for HOD lookup
             all_depts = db.query(Department.id).all()
             target_dept_ids = [d[0] for d in all_depts]
+        elif data.target_member_ids:
+            # Specific individual members
+            members = db.query(Member).filter(Member.id.in_(data.target_member_ids)).all()
+            member_ids = set(m.id for m in members)
+            recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members if m.email]
+            dept_name = f"{len(members)} Selected Members"
         elif data.target_department_ids:
             # Members from specified departments
             members = db.query(Member).join(MemberDepartment).filter(
@@ -2326,7 +2488,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             depts = db.query(Department).filter(Department.id.in_(data.target_department_ids)).all()
             dept_name = ", ".join([d.name for d in depts])
             target_dept_ids = data.target_department_ids
-        else:
+        elif department_id:
             # Single department
             members = db.query(Member).join(MemberDepartment).filter(
                 MemberDepartment.department_id == department_id,
@@ -2352,23 +2514,34 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
                         recipients.append({"id": hod.id, "name": hod.full_name, "email": hod.email, "phone": hod.phone})
 
         if recipients:
+            # Include recurrence info in notification
+            recurrence_info = None
+            if len(created_meetings) > 1:
+                recurrence_info = f"This is a recurring meeting ({len(created_meetings)} occurrences until {meeting_dates[-1].isoformat()})"
+
             dispatch_event(db, EventType.MEETING_CREATED, {
-                "meeting_id": meeting.id,
-                "title": meeting.title,
-                "description": meeting.description,
-                "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
-                "start_time": slot_to_time(meeting.start_slot),
-                "end_time": slot_to_time(meeting.end_slot),
-                "location": meeting.location,
-                "meeting_link": meeting.meeting_link,
+                "meeting_id": first_meeting.id,
+                "title": first_meeting.title,
+                "description": first_meeting.description,
+                "meeting_date": first_meeting.meeting_date.isoformat() if first_meeting.meeting_date else None,
+                "start_time": slot_to_time(first_meeting.start_slot),
+                "end_time": slot_to_time(first_meeting.end_slot),
+                "location": first_meeting.location,
+                "meeting_link": first_meeting.meeting_link,
                 "department_name": dept_name,
                 "is_general": is_general,
+                "recurrence_info": recurrence_info,
                 "recipients": recipients
             })
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
 
-    return {"success": True, "meeting": format_meeting_response(meeting, db)}
+    return {
+        "success": True,
+        "meeting": format_meeting_response(first_meeting, db),
+        "meetings_created": len(created_meetings),
+        "recurrence_group_id": recurrence_group_id
+    }
 
 
 @router.put("/admin/meetings/{meeting_id}")

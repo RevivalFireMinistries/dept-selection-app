@@ -91,6 +91,36 @@ def run_migrations():
                 conn.commit()
                 print("Migration: Added is_general and target_department_ids columns to meetings")
 
+        # Add recurrence_group_id column to meetings
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'meetings' AND column_name = 'recurrence_group_id'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE meetings
+                ADD COLUMN IF NOT EXISTS recurrence_group_id VARCHAR(36)
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_meetings_recurrence_group_id
+                ON meetings (recurrence_group_id)
+            """))
+            conn.commit()
+            print("Migration: Added recurrence_group_id column to meetings")
+
+        # Add target_member_ids column to meetings for individual invites
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'meetings' AND column_name = 'target_member_ids'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE meetings
+                ADD COLUMN IF NOT EXISTS target_member_ids TEXT
+            """))
+            conn.commit()
+            print("Migration: Added target_member_ids column to meetings")
+
         # Add new settings if they don't exist
         # SMTP settings can be overridden by environment variables
         import os
