@@ -488,15 +488,29 @@ async function loadDeptStats() {
 
 async function loadMeetings() {
     try {
-        const res = await fetch('/api/admin/meetings');
+        // Get current month date range
+        const today = new Date();
+        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        const fromDate = monthStart.toISOString().split('T')[0];
+        const toDate = monthEnd.toISOString().split('T')[0];
+        const todayStr = today.toISOString().split('T')[0];
+
+        const res = await fetch(`/api/admin/meetings?from_date=${fromDate}&to_date=${toDate}`);
         const data = await res.json();
 
         const list = document.getElementById('meetingsList');
         const noMeetings = document.getElementById('noMeetings');
 
-        // Filter to upcoming only
-        const today = new Date().toISOString().split('T')[0];
-        const upcoming = data.meetings.filter(m => m.meeting_date >= today).slice(0, 5);
+        // Filter to today onwards within the month, show first 5
+        const upcoming = data.meetings.filter(m => m.meeting_date >= todayStr).slice(0, 5);
+
+        // Update month display in header
+        const monthName = today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        const subtitle = document.querySelector('.space-y-6 .bg-white .text-sm.text-gray-500');
+        if (subtitle) {
+            subtitle.textContent = `Meetings for ${monthName}`;
+        }
 
         if (upcoming.length === 0) {
             list.classList.add('hidden');
@@ -536,10 +550,12 @@ async function loadMeetings() {
             </div>
         `}).join('');
 
-        if (data.total > 5) {
+        // Count remaining meetings this month (from today onwards)
+        const remainingCount = data.meetings.filter(m => m.meeting_date >= todayStr).length;
+        if (remainingCount > 5) {
             list.innerHTML += `
                 <a href="/admin/meetings" class="block text-center text-indigo-600 hover:underline text-sm py-2">
-                    View all ${data.total} meetings
+                    View all ${remainingCount} meetings this month
                 </a>
             `;
         }
