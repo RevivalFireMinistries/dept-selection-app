@@ -1716,7 +1716,8 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
         "my_rsvp": my_rsvp,
         "is_general": bool(meeting.is_general),
         "target_department_ids": target_dept_ids,
-        "target_department_names": target_dept_names
+        "target_department_names": target_dept_names,
+        "recurrence_group_id": meeting.recurrence_group_id
     }
 
 
@@ -2072,9 +2073,10 @@ def update_hod_meeting(
 def delete_hod_meeting(
     meeting_id: int,
     phone: str = Query(...),
+    delete_scope: str = Query("single", description="single, future, or all"),
     db: Session = Depends(get_db)
 ):
-    """Delete a meeting (HOD who created it only)"""
+    """Delete meeting(s) - supports single, future (this and future), or all in recurring series"""
     # Find member by phone
     normalized = phone.strip().replace(" ", "").replace("-", "")
     hod_member = None
@@ -2096,10 +2098,33 @@ def delete_hod_meeting(
     if meeting.created_by_id != hod_member.id:
         raise HTTPException(status_code=403, detail="You can only delete meetings you created")
 
-    db.delete(meeting)
+    deleted_count = 1
+
+    if delete_scope in ("future", "all") and meeting.recurrence_group_id:
+        # Delete multiple meetings in the recurring series
+        # For HOD, also verify they created all meetings in the series
+        query = db.query(Meeting).filter(
+            Meeting.recurrence_group_id == meeting.recurrence_group_id,
+            Meeting.created_by_id == hod_member.id
+        )
+
+        if delete_scope == "future":
+            # Delete this meeting and all future ones in the series
+            query = query.filter(Meeting.meeting_date >= meeting.meeting_date)
+
+        meetings_to_delete = query.all()
+        deleted_count = len(meetings_to_delete)
+
+        for m in meetings_to_delete:
+            db.delete(m)
+    else:
+        # Delete only this single meeting
+        db.delete(meeting)
+
     db.commit()
 
-    return {"success": True, "message": "Meeting deleted"}
+    message = f"Deleted {deleted_count} meeting(s)" if deleted_count > 1 else "Meeting deleted"
+    return {"success": True, "message": message, "deleted_count": deleted_count}
 
 
 # --- Member Meeting Endpoints ---
@@ -2596,16 +2621,41 @@ def update_admin_meeting(
 
 
 @router.delete("/admin/meetings/{meeting_id}")
-def delete_admin_meeting(meeting_id: int, db: Session = Depends(get_db)):
-    """Delete any meeting (admin)"""
+def delete_admin_meeting(
+    meeting_id: int,
+    delete_scope: str = Query("single", description="single, future, or all"),
+    db: Session = Depends(get_db)
+):
+    """Delete meeting(s) - supports single, future (this and future), or all in recurring series"""
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    db.delete(meeting)
+    deleted_count = 1
+
+    if delete_scope in ("future", "all") and meeting.recurrence_group_id:
+        # Delete multiple meetings in the recurring series
+        query = db.query(Meeting).filter(
+            Meeting.recurrence_group_id == meeting.recurrence_group_id
+        )
+
+        if delete_scope == "future":
+            # Delete this meeting and all future ones in the series
+            query = query.filter(Meeting.meeting_date >= meeting.meeting_date)
+
+        meetings_to_delete = query.all()
+        deleted_count = len(meetings_to_delete)
+
+        for m in meetings_to_delete:
+            db.delete(m)
+    else:
+        # Delete only this single meeting
+        db.delete(meeting)
+
     db.commit()
 
-    return {"success": True, "message": "Meeting deleted"}
+    message = f"Deleted {deleted_count} meeting(s)" if deleted_count > 1 else "Meeting deleted"
+    return {"success": True, "message": message, "deleted_count": deleted_count}
 
 
 @router.get("/admin/meetings/{meeting_id}/rsvps")
