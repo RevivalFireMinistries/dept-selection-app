@@ -72,6 +72,41 @@
             </div>
         </div>
 
+        <!-- Leadership Roles Section -->
+        <div class="bg-white rounded-xl shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"></path>
+                </svg>
+                Leadership Roles
+            </h3>
+            <div class="space-y-3">
+                <!-- HOD Status (read-only) -->
+                <div id="hodStatus" class="hidden flex items-center justify-between p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                    <div class="flex items-center gap-3">
+                        <span class="px-2 py-1 bg-indigo-600 text-white text-xs font-bold rounded">HOD</span>
+                        <span id="hodDepts" class="text-sm text-indigo-700"></span>
+                    </div>
+                    <span class="text-xs text-indigo-500">(Set via department settings)</span>
+                </div>
+
+                <!-- Assignable Roles -->
+                <div class="flex flex-wrap gap-3">
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleDeacon" value="deacon" onchange="updateLeadershipRoles()"
+                               class="rounded text-purple-600 focus:ring-purple-500">
+                        <span class="font-medium text-gray-700">Deacon</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleElder" value="elder" onchange="updateLeadershipRoles()"
+                               class="rounded text-purple-600 focus:ring-purple-500">
+                        <span class="font-medium text-gray-700">Elder</span>
+                    </label>
+                </div>
+                <p id="roleUpdateStatus" class="text-sm text-green-600 hidden">Roles updated successfully</p>
+            </div>
+        </div>
+
         <!-- Approved Departments -->
         <div class="bg-white rounded-xl shadow p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -222,6 +257,9 @@ async function loadData() {
 
         // Render selections
         renderSelections();
+
+        // Load leadership roles
+        await loadLeadershipRoles();
 
         // Load appeals
         await loadAppeals();
@@ -442,6 +480,47 @@ function openAssignModal() {
 
 function closeAssignModal() {
     document.getElementById('assignModal').classList.add('hidden');
+}
+
+async function loadLeadershipRoles() {
+    try {
+        const res = await fetch(`/api/admin/members/${memberId}/leadership-roles`);
+        const data = await res.json();
+
+        // Set checkboxes based on current roles
+        document.getElementById('roleDeacon').checked = data.roles.includes('deacon');
+        document.getElementById('roleElder').checked = data.roles.includes('elder');
+
+        // Show HOD status if applicable
+        if (data.is_hod && data.hod_departments.length > 0) {
+            document.getElementById('hodStatus').classList.remove('hidden');
+            document.getElementById('hodDepts').textContent = 'Head of: ' + data.hod_departments.map(d => d.name).join(', ');
+        }
+    } catch (err) {
+        console.error('Failed to load leadership roles:', err);
+    }
+}
+
+async function updateLeadershipRoles() {
+    const roles = [];
+    if (document.getElementById('roleDeacon').checked) roles.push('deacon');
+    if (document.getElementById('roleElder').checked) roles.push('elder');
+
+    try {
+        const res = await fetch(`/api/admin/members/${memberId}/leadership-roles`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roles })
+        });
+
+        if (res.ok) {
+            const statusEl = document.getElementById('roleUpdateStatus');
+            statusEl.classList.remove('hidden');
+            setTimeout(() => statusEl.classList.add('hidden'), 2000);
+        }
+    } catch (err) {
+        console.error('Failed to update leadership roles:', err);
+    }
 }
 
 async function assignDepartment() {

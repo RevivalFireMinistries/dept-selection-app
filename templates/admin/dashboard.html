@@ -250,7 +250,7 @@
                 <!-- Meeting Type Selector -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Meeting Type *</label>
-                    <div class="grid grid-cols-4 gap-2">
+                    <div class="grid grid-cols-5 gap-2">
                         <button type="button" onclick="setMeetingType('single')" id="typeBtn-single"
                                 class="px-2 py-2 text-xs border-2 border-indigo-600 bg-indigo-600 text-white rounded-lg">
                             Single Dept
@@ -262,6 +262,10 @@
                         <button type="button" onclick="setMeetingType('multi')" id="typeBtn-multi"
                                 class="px-2 py-2 text-xs border-2 border-gray-300 text-gray-700 rounded-lg hover:border-indigo-400">
                             Multi-Dept
+                        </button>
+                        <button type="button" onclick="setMeetingType('roles')" id="typeBtn-roles"
+                                class="px-2 py-2 text-xs border-2 border-gray-300 text-gray-700 rounded-lg hover:border-indigo-400">
+                            Leadership
                         </button>
                         <button type="button" onclick="setMeetingType('individuals')" id="typeBtn-individuals"
                                 class="px-2 py-2 text-xs border-2 border-gray-300 text-gray-700 rounded-lg hover:border-indigo-400">
@@ -293,6 +297,26 @@
                         <span class="font-medium">All Leaders Meeting:</span>
                         This meeting will be visible to all members with at least one approved department.
                     </p>
+                </div>
+
+                <!-- Leadership Roles Selector -->
+                <div id="leadershipRolesSection" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Leadership Roles *</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" id="roleHod" value="hod" class="leadership-role-checkbox rounded text-indigo-600">
+                            <span class="text-sm font-medium text-gray-700">HODs (Heads of Department)</span>
+                        </label>
+                        <label class="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" id="roleDeacon" value="deacon" class="leadership-role-checkbox rounded text-indigo-600">
+                            <span class="text-sm font-medium text-gray-700">Deacons</span>
+                        </label>
+                        <label class="flex items-center gap-2 p-2 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" id="roleElder" value="elder" class="leadership-role-checkbox rounded text-indigo-600">
+                            <span class="text-sm font-medium text-gray-700">Elders</span>
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Meeting will be visible to all members with selected leadership roles</p>
                 </div>
 
                 <!-- Individual Members Selector -->
@@ -611,7 +635,7 @@ let currentMeetingType = 'single';
 function setMeetingType(type) {
     currentMeetingType = type;
 
-    ['single', 'all', 'multi', 'individuals'].forEach(t => {
+    ['single', 'all', 'multi', 'roles', 'individuals'].forEach(t => {
         const btn = document.getElementById(`typeBtn-${t}`);
         if (t === type) {
             btn.classList.add('border-indigo-600', 'bg-indigo-600', 'text-white');
@@ -625,6 +649,7 @@ function setMeetingType(type) {
     document.getElementById('singleDeptSection').classList.toggle('hidden', type !== 'single');
     document.getElementById('multiDeptSection').classList.toggle('hidden', type !== 'multi');
     document.getElementById('allLeadersSection').classList.toggle('hidden', type !== 'all');
+    document.getElementById('leadershipRolesSection').classList.toggle('hidden', type !== 'roles');
     document.getElementById('individualMembersSection').classList.toggle('hidden', type !== 'individuals');
 
     document.getElementById('meetingDepartment').required = (type === 'single');
@@ -799,12 +824,23 @@ async function createMeeting(e) {
         department_id: null,
         target_department_ids: null,
         target_member_ids: null,
+        target_leadership_roles: null,
         recurrence: recurrence !== 'none' ? recurrence : null,
         recurrence_end_date: recurrence !== 'none' ? recurrenceEndDate : null
     };
 
     if (currentMeetingType === 'all') {
         payload.is_general = true;
+    } else if (currentMeetingType === 'roles') {
+        const selectedRoles = Array.from(document.querySelectorAll('.leadership-role-checkbox:checked'))
+            .map(cb => cb.value);
+        if (selectedRoles.length === 0) {
+            showErrorModal('Please select at least one leadership role.');
+            btn.disabled = false;
+            btn.textContent = 'Create';
+            return;
+        }
+        payload.target_leadership_roles = selectedRoles;
     } else if (currentMeetingType === 'multi') {
         const selectedDepts = Array.from(document.querySelectorAll('.multi-dept-checkbox:checked'))
             .map(cb => parseInt(cb.value));

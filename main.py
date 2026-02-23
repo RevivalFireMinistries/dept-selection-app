@@ -121,6 +121,32 @@ def run_migrations():
             conn.commit()
             print("Migration: Added target_member_ids column to meetings")
 
+        # Add leadership_roles column to members for leadership tags (deacon, elder, etc.)
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'members' AND column_name = 'leadership_roles'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS leadership_roles TEXT
+            """))
+            conn.commit()
+            print("Migration: Added leadership_roles column to members")
+
+        # Add target_leadership_roles column to meetings for leadership role-based meetings
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'meetings' AND column_name = 'target_leadership_roles'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE meetings
+                ADD COLUMN IF NOT EXISTS target_leadership_roles TEXT
+            """))
+            conn.commit()
+            print("Migration: Added target_leadership_roles column to meetings")
+
         # Add new settings if they don't exist
         # SMTP settings can be overridden by environment variables
         import os

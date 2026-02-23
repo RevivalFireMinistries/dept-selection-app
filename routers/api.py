@@ -986,6 +986,91 @@ def bulk_approve_pending(db: Session = Depends(get_db)):
     return {"success": True, "approved_count": count}
 
 
+# ============ LEADERSHIP ROLES ============
+
+@router.get("/admin/members/{member_id}/leadership-roles")
+def get_member_leadership_roles(member_id: int, db: Session = Depends(get_db)):
+    """Get leadership roles for a member"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    roles = []
+    if member.leadership_roles:
+        try:
+            roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+        except (ValueError, TypeError):
+            roles = []
+
+    # Check if member is HOD of any department
+    hod_depts = db.query(Department).filter(Department.hod_member_id == member_id).all()
+    is_hod = len(hod_depts) > 0
+
+    return {
+        "member_id": member_id,
+        "roles": roles,
+        "is_hod": is_hod,
+        "hod_departments": [{"id": d.id, "name": d.name} for d in hod_depts]
+    }
+
+
+@router.put("/admin/members/{member_id}/leadership-roles")
+def update_member_leadership_roles(
+    member_id: int,
+    roles: List[str] = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """Update leadership roles for a member (deacon, elder, etc.)"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Validate roles
+    valid_roles = ["deacon", "elder"]  # HOD is derived from departments
+    invalid = [r for r in roles if r not in valid_roles]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
+
+    member.leadership_roles = json.dumps(roles) if roles else None
+    db.commit()
+
+    return {"success": True, "roles": roles}
+
+
+@router.get("/admin/leadership-roles")
+def get_all_leadership_roles(db: Session = Depends(get_db)):
+    """Get all members with their leadership roles for management"""
+    members = db.query(Member).all()
+
+    result = []
+    for member in members:
+        roles = []
+        if member.leadership_roles:
+            try:
+                roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+            except (ValueError, TypeError):
+                roles = []
+
+        # Check if member is HOD
+        hod_depts = db.query(Department).filter(Department.hod_member_id == member.id).all()
+        if hod_depts:
+            roles = ["hod"] + roles  # HOD comes first
+
+        result.append({
+            "id": member.id,
+            "full_name": member.full_name,
+            "phone": member.phone,
+            "email": member.email,
+            "roles": roles,
+            "hod_departments": [{"id": d.id, "name": d.name} for d in hod_depts]
+        })
+
+    # Sort by name
+    result.sort(key=lambda x: x["full_name"])
+
+    return {"members": result}
+
+
 # ============ PUBLISH ENDPOINTS ============
 
 @router.get("/admin/preview")
@@ -1683,9 +1768,20 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
         except (ValueError, TypeError):
             pass
 
+    # Parse target leadership roles
+    target_leadership_roles = None
+    if meeting.target_leadership_roles:
+        try:
+            target_leadership_roles = json.loads(meeting.target_leadership_roles) if isinstance(meeting.target_leadership_roles, str) else meeting.target_leadership_roles
+        except (ValueError, TypeError):
+            pass
+
     # Determine department name for display
     if meeting.is_general:
         dept_name = "All Leaders"
+    elif target_leadership_roles:
+        role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders"}
+        dept_name = ", ".join([role_labels.get(r, r.title()) for r in target_leadership_roles])
     elif target_member_ids:
         dept_name = f"{target_member_count} Selected Members"
     elif target_dept_ids:
@@ -1717,6 +1813,7 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
         "is_general": bool(meeting.is_general),
         "target_department_ids": target_dept_ids,
         "target_department_names": target_dept_names,
+        "target_leadership_roles": target_leadership_roles,
         "recurrence_group_id": meeting.recurrence_group_id
     }
 
@@ -2162,6 +2259,17 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
     # Combine both sets
     member_dept_ids = approved_dept_ids | hod_dept_ids
 
+    # Get member's leadership roles
+    member_roles = []
+    if member.leadership_roles:
+        try:
+            member_roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+        except (ValueError, TypeError):
+            member_roles = []
+    # Add "hod" role if member is HOD of any department
+    if hod_dept_ids:
+        member_roles = ["hod"] + member_roles
+
     # Get remaining meetings for current month (from today onwards)
     today = date.today()
     # Calculate last day of month
@@ -2185,6 +2293,16 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
         if meeting.is_general:
             if member_dept_ids:  # Only show if member has at least one department
                 relevant_meetings.append(meeting)
+            continue
+
+        # Leadership role meetings - check if member has any of the target roles
+        if meeting.target_leadership_roles:
+            try:
+                target_roles = json.loads(meeting.target_leadership_roles) if isinstance(meeting.target_leadership_roles, str) else meeting.target_leadership_roles
+                if set(target_roles) & set(member_roles):  # Member has at least one target role
+                    relevant_meetings.append(meeting)
+            except (ValueError, TypeError):
+                pass
             continue
 
         # Individual member meetings - check if member is in the target list
@@ -2254,6 +2372,30 @@ def submit_rsvp(
             MemberDepartment.status == "approved"
         ).first()
         is_allowed = has_approved is not None
+    elif meeting.target_leadership_roles:
+        # Leadership role meeting - member must have one of the target roles
+        try:
+            target_roles = json.loads(meeting.target_leadership_roles) if isinstance(meeting.target_leadership_roles, str) else meeting.target_leadership_roles
+        except:
+            target_roles = []
+
+        # Get member's leadership roles
+        member_roles = []
+        if member.leadership_roles:
+            try:
+                member_roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+            except:
+                member_roles = []
+
+        # Check if member is HOD for "hod" role
+        if "hod" in target_roles:
+            is_hod = db.query(Department).filter(Department.hod_member_id == member.id).first()
+            if is_hod:
+                is_allowed = True
+
+        # Check other roles
+        if not is_allowed and set(target_roles) & set(member_roles):
+            is_allowed = True
     elif meeting.target_member_ids:
         # Individual members meeting - member must be in the target list
         try:
@@ -2371,11 +2513,19 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
     is_general = data.is_general
     target_dept_ids_str = None
     target_member_ids_str = None
+    target_leadership_roles_str = None
     department_id = None
 
     if is_general:
         # All leaders meeting - no specific department
         pass
+    elif data.target_leadership_roles and len(data.target_leadership_roles) > 0:
+        # Leadership roles meeting (HODs, Deacons, Elders)
+        valid_roles = ["hod", "deacon", "elder"]
+        invalid = [r for r in data.target_leadership_roles if r not in valid_roles]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
+        target_leadership_roles_str = json.dumps(data.target_leadership_roles)
     elif data.target_member_ids and len(data.target_member_ids) > 0:
         # Individual members meeting
         # Validate all members exist
@@ -2400,7 +2550,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
 
         department_id = data.department_id
     else:
-        raise HTTPException(status_code=400, detail="Meeting must target a department, multiple departments, specific members, or all leaders")
+        raise HTTPException(status_code=400, detail="Meeting must target a department, multiple departments, leadership roles, specific members, or all leaders")
 
     # Generate meeting dates (single or recurring)
     meeting_dates = [data.meeting_date]
@@ -2457,6 +2607,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             is_general=1 if is_general else 0,
             target_department_ids=target_dept_ids_str,
             target_member_ids=target_member_ids_str,
+            target_leadership_roles=target_leadership_roles_str,
             recurrence_group_id=recurrence_group_id
         )
         db.add(meeting)
@@ -2496,6 +2647,33 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             # Get all department IDs for HOD lookup
             all_depts = db.query(Department.id).all()
             target_dept_ids = [d[0] for d in all_depts]
+        elif data.target_leadership_roles:
+            # Members with specific leadership roles
+            role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders"}
+            dept_name = ", ".join([role_labels.get(r, r.title()) for r in data.target_leadership_roles])
+            members_set = set()
+
+            for role in data.target_leadership_roles:
+                if role == "hod":
+                    # Get all HODs
+                    hod_depts = db.query(Department).filter(Department.hod_member_id.isnot(None)).all()
+                    hod_ids = [d.hod_member_id for d in hod_depts]
+                    hods = db.query(Member).filter(Member.id.in_(hod_ids)).all()
+                    for m in hods:
+                        members_set.add(m)
+                else:
+                    # Get members with this role in leadership_roles JSON
+                    all_members = db.query(Member).filter(Member.leadership_roles.isnot(None)).all()
+                    for m in all_members:
+                        try:
+                            m_roles = json.loads(m.leadership_roles) if isinstance(m.leadership_roles, str) else m.leadership_roles
+                            if role in m_roles:
+                                members_set.add(m)
+                        except (ValueError, TypeError):
+                            pass
+
+            member_ids = set(m.id for m in members_set)
+            recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone} for m in members_set if m.email]
         elif data.target_member_ids:
             # Specific individual members
             members = db.query(Member).filter(Member.id.in_(data.target_member_ids)).all()

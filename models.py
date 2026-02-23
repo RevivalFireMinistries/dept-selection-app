@@ -39,6 +39,8 @@ class Member(Base):
     email = Column(String, nullable=False, default="")
     address = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Leadership roles: JSON array e.g. ["deacon", "elder"] - "hod" is derived from departments
+    leadership_roles = Column(Text, nullable=True)
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")
@@ -125,6 +127,7 @@ class Meeting(Base):
     is_general = Column(Integer, nullable=True, server_default="0")  # 1 = all leaders meeting
     target_department_ids = Column(Text, nullable=True)  # JSON array of department IDs for multi-dept meetings
     target_member_ids = Column(Text, nullable=True)  # JSON array of member IDs for individual invites
+    target_leadership_roles = Column(Text, nullable=True)  # JSON array of roles e.g. ["hod", "deacon", "elder"]
 
     # Recurrence fields
     recurrence_group_id = Column(String(36), nullable=True, index=True)  # UUID linking recurring meetings
