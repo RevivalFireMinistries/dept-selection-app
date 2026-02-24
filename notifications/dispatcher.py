@@ -431,6 +431,58 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 {paragraph("Please disregard any previous meeting invitations. We apologize for any inconvenience.")}
             '''
         ),
+
+        EventType.POSTER_REQUEST_SUBMITTED: base_template(
+            title="New Poster Request",
+            icon="&#127912;",  # Art palette
+            accent_color="#9333ea",  # Purple
+            content=f'''
+                {paragraph("A new poster request has been submitted and needs your attention.")}
+                <div style="background: linear-gradient(135deg, #9333ea 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+                    <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('event_name', 'Event')}</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td style="padding-right: 24px;">
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Event Date</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('event_date', 'TBD')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Time</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('event_time', '')}</p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                {info_card([
+                    ("Requested By", data.get('requester_name')),
+                    ("Contact Email", data.get('requester_email')),
+                    ("Ministry/Department", data.get('ministry_department')),
+                    ("Venue", data.get('venue_platform')),
+                    ("Purpose", data.get('purpose'))
+                ])}
+                {paragraph("Please log in to the portal to acknowledge this request and begin working on the design.")}
+            ''',
+            button_text="View Request" if portal_link else None,
+            button_url=portal_link
+        ),
+
+        EventType.POSTER_REQUEST_ACKNOWLEDGED: base_template(
+            title="Your Poster Request is Being Processed",
+            icon="&#9989;",  # Checkmark
+            accent_color="#10b981",  # Green
+            content=f'''
+                {greeting(data.get('recipient_name', 'Member'))}
+                {paragraph(f"Great news! Your poster request for <strong>{data.get('event_name', 'your event')}</strong> has been acknowledged and is now being worked on by the media team.")}
+                {info_card([
+                    ("Event", data.get('event_name')),
+                    ("Event Date", data.get('event_date')),
+                    ("Acknowledged By", data.get('acknowledged_by_name'))
+                ])}
+                {paragraph("You will receive your poster design soon. If you have any updates or additional requirements, please reach out to the media team.")}
+            ''',
+            button_text="View My Requests" if portal_link else None,
+            button_url=portal_link
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")
