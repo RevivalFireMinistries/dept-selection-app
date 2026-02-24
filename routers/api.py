@@ -2876,6 +2876,24 @@ def get_meeting_rsvps(meeting_id: int, db: Session = Depends(get_db)):
 
 def format_poster_request(pr: PosterRequest) -> dict:
     """Format a poster request for API response"""
+    import json
+
+    # Parse speakers from JSON
+    speakers = None
+    if pr.speakers:
+        try:
+            speakers = json.loads(pr.speakers)
+        except (json.JSONDecodeError, TypeError):
+            speakers = None
+
+    # Parse output_formats from JSON
+    output_formats = None
+    if pr.output_formats:
+        try:
+            output_formats = json.loads(pr.output_formats)
+        except (json.JSONDecodeError, TypeError):
+            output_formats = None
+
     return {
         "id": pr.id,
         "requester_id": pr.requester_id,
@@ -2886,11 +2904,12 @@ def format_poster_request(pr: PosterRequest) -> dict:
         "event_date": pr.event_date.isoformat() if pr.event_date else None,
         "event_time": pr.event_time,
         "venue_platform": pr.venue_platform,
-        "speaker_host": pr.speaker_host,
+        "speakers": speakers,
         "theme_tagline": pr.theme_tagline,
         "scripture": pr.scripture,
         "target_audience": pr.target_audience,
         "purpose": pr.purpose,
+        "output_formats": output_formats,
         "additional_notes": pr.additional_notes,
         "status": pr.status,
         "acknowledged_by_id": pr.acknowledged_by_id,
@@ -2919,6 +2938,16 @@ def create_poster_request(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
+    # Serialize speakers and output_formats to JSON
+    import json
+    speakers_json = None
+    if data.speakers:
+        speakers_json = json.dumps([s.model_dump() for s in data.speakers])
+
+    output_formats_json = None
+    if data.output_formats:
+        output_formats_json = json.dumps(data.output_formats)
+
     # Create the poster request
     pr = PosterRequest(
         requester_id=member.id,
@@ -2927,11 +2956,12 @@ def create_poster_request(
         event_date=data.event_date,
         event_time=data.event_time,
         venue_platform=data.venue_platform,
-        speaker_host=data.speaker_host,
+        speakers=speakers_json,
         theme_tagline=data.theme_tagline,
         scripture=data.scripture,
         target_audience=data.target_audience,
         purpose=data.purpose,
+        output_formats=output_formats_json,
         additional_notes=data.additional_notes,
         status="pending"
     )

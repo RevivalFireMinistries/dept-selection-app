@@ -43,8 +43,8 @@
             <thead class="bg-gray-50">
                 <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Event</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ministry</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Output</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                     <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -171,16 +171,29 @@ async function loadRequests() {
             completed: 'bg-green-100 text-green-700'
         };
 
-        tbody.innerHTML = data.requests.map(r => `
+        const formatLabels = {
+            projector: 'Projector',
+            social_media: 'Social',
+            print: 'Print'
+        };
+
+        tbody.innerHTML = data.requests.map(r => {
+            const outputTags = (r.output_formats || []).map(f =>
+                `<span class="inline-block px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded mr-1">${formatLabels[f] || f}</span>`
+            ).join('');
+
+            return `
             <tr class="hover:bg-gray-50">
                 <td class="px-6 py-4">
                     <div class="font-medium text-gray-900">${r.event_name}</div>
-                    <div class="text-sm text-gray-500">${r.purpose}</div>
+                    <div class="text-sm text-gray-500">${r.ministry_department || ''} ${r.purpose}</div>
                 </td>
-                <td class="px-6 py-4 text-sm text-gray-900">${r.ministry_department}</td>
                 <td class="px-6 py-4 text-sm">
                     <div class="text-gray-900">${new Date(r.event_date).toLocaleDateString()}</div>
                     <div class="text-gray-500">${r.event_time}</div>
+                </td>
+                <td class="px-6 py-4 text-sm">
+                    ${outputTags || '<span class="text-gray-400">-</span>'}
                 </td>
                 <td class="px-6 py-4 text-sm">
                     <div class="text-gray-900">${r.requester_name}</div>
@@ -194,7 +207,7 @@ async function loadRequests() {
                     <button onclick="viewDetails(${r.id})" class="text-blue-600 hover:underline text-sm">View</button>
                 </td>
             </tr>
-        `).join('');
+        `}).join('');
 
         document.getElementById('requestCount').textContent = `Showing ${data.total} request(s)`;
     } catch (err) {
@@ -213,19 +226,49 @@ async function viewDetails(id) {
     const r = allRequests.find(req => req.id === id);
     if (!r) return;
 
+    // Format speakers
+    let speakersHtml = '-';
+    if (r.speakers && r.speakers.length > 0) {
+        speakersHtml = r.speakers.map(s => {
+            const roleClass = s.role === 'host' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700';
+            return `<div class="flex items-center gap-2 mb-1">
+                <span>${s.name}</span>
+                <span class="px-1.5 py-0.5 text-xs rounded ${roleClass}">${s.role}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // Format output formats
+    const formatLabels = { projector: 'Projector', social_media: 'Social Media', print: 'Print' };
+    let outputHtml = '-';
+    if (r.output_formats && r.output_formats.length > 0) {
+        outputHtml = r.output_formats.map(f =>
+            `<span class="inline-block px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded mr-1 mb-1">${formatLabels[f] || f}</span>`
+        ).join('');
+    }
+
     const content = document.getElementById('detailContent');
     content.innerHTML = `
         <div class="grid grid-cols-2 gap-4">
             <div><strong class="text-gray-500">Event Name:</strong><br>${r.event_name}</div>
-            <div><strong class="text-gray-500">Ministry:</strong><br>${r.ministry_department}</div>
+            <div><strong class="text-gray-500">Ministry:</strong><br>${r.ministry_department || '-'}</div>
             <div><strong class="text-gray-500">Date:</strong><br>${new Date(r.event_date).toLocaleDateString()}</div>
             <div><strong class="text-gray-500">Time:</strong><br>${r.event_time}</div>
             <div><strong class="text-gray-500">Venue:</strong><br>${r.venue_platform}</div>
-            <div><strong class="text-gray-500">Speaker/Host:</strong><br>${r.speaker_host || '-'}</div>
+            <div><strong class="text-gray-500">Purpose:</strong><br>${r.purpose}</div>
+        </div>
+        <div class="mt-4">
+            <strong class="text-gray-500">Speakers / Hosts:</strong><br>
+            <div class="mt-1">${speakersHtml}</div>
+        </div>
+        <div class="mt-4">
+            <strong class="text-gray-500">Output Formats:</strong><br>
+            <div class="mt-1">${outputHtml}</div>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mt-4">
             <div><strong class="text-gray-500">Theme:</strong><br>${r.theme_tagline || '-'}</div>
             <div><strong class="text-gray-500">Scripture:</strong><br>${r.scripture || '-'}</div>
             <div><strong class="text-gray-500">Audience:</strong><br>${r.target_audience || '-'}</div>
-            <div><strong class="text-gray-500">Purpose:</strong><br>${r.purpose}</div>
         </div>
         ${r.additional_notes ? `<div class="mt-4"><strong class="text-gray-500">Additional Notes:</strong><br>${r.additional_notes}</div>` : ''}
         <div class="mt-4 pt-4 border-t">

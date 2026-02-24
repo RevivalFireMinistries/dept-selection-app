@@ -198,15 +198,18 @@ class PosterRequest(Base):
 
     # Form fields
     event_name = Column(String(200), nullable=False)
-    ministry_department = Column(String(200), nullable=False)
+    ministry_department = Column(String(200), nullable=True)  # Optional
     event_date = Column(Date, nullable=False)
     event_time = Column(String(100), nullable=False)
     venue_platform = Column(String(200), nullable=False)
-    speaker_host = Column(String(200), nullable=True)
+    # Speakers stored as JSON array: [{"name": "John", "role": "host"}, {"name": "Mary", "role": "guest"}]
+    speakers = Column(Text, nullable=True)
     theme_tagline = Column(String(300), nullable=True)
     scripture = Column(String(500), nullable=True)
     target_audience = Column(String(200), nullable=True)
     purpose = Column(String(50), nullable=False)  # invitation, information, reminder, registration
+    # Output formats stored as JSON array: ["projector", "social_media", "print"]
+    output_formats = Column(Text, nullable=True)
     additional_notes = Column(Text, nullable=True)
 
     # Workflow

@@ -372,17 +372,22 @@ class TestEmailRequest(BaseModel):
 
 # ============ POSTER REQUEST SCHEMAS ============
 
+class SpeakerInfo(BaseModel):
+    name: str
+    role: str  # "host" or "guest"
+
 class PosterRequestCreate(BaseModel):
     event_name: str
-    ministry_department: str
+    ministry_department: Optional[str] = None  # Now optional
     event_date: date
     event_time: str
     venue_platform: str
-    speaker_host: Optional[str] = None
+    speakers: Optional[List[SpeakerInfo]] = None  # Multiple speakers with roles
     theme_tagline: Optional[str] = None
     scripture: Optional[str] = None
     target_audience: Optional[str] = None
     purpose: str  # invitation, information, reminder, registration
+    output_formats: Optional[List[str]] = None  # ["projector", "social_media", "print"]
     additional_notes: Optional[str] = None
 
 class PosterRequestResponse(BaseModel):
@@ -391,15 +396,16 @@ class PosterRequestResponse(BaseModel):
     requester_name: str
     requester_email: Optional[str] = None
     event_name: str
-    ministry_department: str
+    ministry_department: Optional[str] = None
     event_date: date
     event_time: str
     venue_platform: str
-    speaker_host: Optional[str] = None
+    speakers: Optional[List[SpeakerInfo]] = None
     theme_tagline: Optional[str] = None
     scripture: Optional[str] = None
     target_audience: Optional[str] = None
     purpose: str
+    output_formats: Optional[List[str]] = None
     additional_notes: Optional[str] = None
     status: str
     acknowledged_by_id: Optional[int] = None

@@ -66,8 +66,8 @@
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Ministry / Department *</label>
-                    <input type="text" id="ministryDepartment" required placeholder="e.g., Youth Ministry"
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Ministry / Department</label>
+                    <input type="text" id="ministryDepartment" placeholder="e.g., Youth Ministry"
                         class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
                 </div>
 
@@ -90,10 +90,19 @@
                         class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
                 </div>
 
+                <!-- Speakers Section -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Speaker / Host</label>
-                    <input type="text" id="speakerHost" placeholder="e.g., Pastor John"
-                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Speakers / Hosts</label>
+                    <div id="speakersContainer" class="space-y-2">
+                        <!-- Speaker entries will be added here -->
+                    </div>
+                    <button type="button" onclick="addSpeaker()"
+                        class="mt-2 text-sm text-purple-600 hover:text-purple-700 flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Add Speaker
+                    </button>
                 </div>
 
                 <div>
@@ -124,6 +133,37 @@
                         <option value="reminder">Reminder</option>
                         <option value="registration">Registration</option>
                     </select>
+                </div>
+
+                <!-- Output Formats Section -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Output Format(s) *</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-purple-50">
+                            <input type="checkbox" id="formatProjector" value="projector"
+                                class="w-5 h-5 text-purple-600 rounded focus:ring-purple-500">
+                            <div>
+                                <span class="font-medium text-gray-900">Projector</span>
+                                <p class="text-xs text-gray-500">For display on screens during services</p>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-purple-50">
+                            <input type="checkbox" id="formatSocialMedia" value="social_media"
+                                class="w-5 h-5 text-purple-600 rounded focus:ring-purple-500">
+                            <div>
+                                <span class="font-medium text-gray-900">Social Media</span>
+                                <p class="text-xs text-gray-500">For Facebook, Instagram, WhatsApp, etc.</p>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-purple-50">
+                            <input type="checkbox" id="formatPrint" value="print"
+                                class="w-5 h-5 text-purple-600 rounded focus:ring-purple-500">
+                            <div>
+                                <span class="font-medium text-gray-900">Print</span>
+                                <p class="text-xs text-gray-500">For physical posters and flyers</p>
+                            </div>
+                        </label>
+                    </div>
                 </div>
 
                 <div>
@@ -171,6 +211,7 @@
 <script>
 let currentPhone = null;
 let memberData = null;
+let speakerCount = 0;
 
 // Check URL params for phone
 document.addEventListener('DOMContentLoaded', () => {
@@ -183,7 +224,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set min date to today
     document.getElementById('eventDate').min = new Date().toISOString().split('T')[0];
+
+    // Add one speaker row by default
+    addSpeaker();
 });
+
+function addSpeaker() {
+    const container = document.getElementById('speakersContainer');
+    const speakerId = speakerCount++;
+
+    const speakerRow = document.createElement('div');
+    speakerRow.className = 'flex gap-2 items-start speaker-row';
+    speakerRow.dataset.speakerId = speakerId;
+    speakerRow.innerHTML = `
+        <div class="flex-1">
+            <input type="text" placeholder="Speaker name"
+                class="speaker-name w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm">
+        </div>
+        <div class="w-28">
+            <select class="speaker-role w-full px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm">
+                <option value="host">Host</option>
+                <option value="guest">Guest</option>
+            </select>
+        </div>
+        <button type="button" onclick="removeSpeaker(${speakerId})"
+            class="p-2 text-gray-400 hover:text-red-500 flex-shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+        </button>
+    `;
+
+    container.appendChild(speakerRow);
+}
+
+function removeSpeaker(speakerId) {
+    const row = document.querySelector(`.speaker-row[data-speaker-id="${speakerId}"]`);
+    if (row) {
+        row.remove();
+    }
+
+    // If no speakers left, add one empty row
+    if (document.querySelectorAll('.speaker-row').length === 0) {
+        addSpeaker();
+    }
+}
+
+function getSpeakers() {
+    const speakers = [];
+    document.querySelectorAll('.speaker-row').forEach(row => {
+        const name = row.querySelector('.speaker-name').value.trim();
+        const role = row.querySelector('.speaker-role').value;
+        if (name) {
+            speakers.push({ name, role });
+        }
+    });
+    return speakers;
+}
+
+function getOutputFormats() {
+    const formats = [];
+    if (document.getElementById('formatProjector').checked) formats.push('projector');
+    if (document.getElementById('formatSocialMedia').checked) formats.push('social_media');
+    if (document.getElementById('formatPrint').checked) formats.push('print');
+    return formats;
+}
 
 async function verifyPhone() {
     const phone = document.getElementById('phoneInput').value.trim();
@@ -244,12 +349,13 @@ async function loadMyRequests() {
                     acknowledged: 'Being Processed',
                     completed: 'Completed'
                 };
+                const deptText = r.ministry_department ? `${r.ministry_department} - ` : '';
                 return `
                 <div class="bg-white rounded-xl shadow p-4">
                     <div class="flex items-start justify-between">
                         <div>
                             <h4 class="font-medium text-gray-900">${r.event_name}</h4>
-                            <p class="text-sm text-gray-500">${r.ministry_department} - ${new Date(r.event_date).toLocaleDateString()}</p>
+                            <p class="text-sm text-gray-500">${deptText}${new Date(r.event_date).toLocaleDateString()}</p>
                         </div>
                         <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${statusLabels[r.status]}</span>
                     </div>
@@ -265,14 +371,19 @@ async function loadMyRequests() {
 
 async function submitRequest() {
     const eventName = document.getElementById('eventName').value.trim();
-    const ministryDepartment = document.getElementById('ministryDepartment').value.trim();
     const eventDate = document.getElementById('eventDate').value;
     const eventTime = document.getElementById('eventTime').value.trim();
     const venuePlatform = document.getElementById('venuePlatform').value.trim();
     const purpose = document.getElementById('purpose').value;
+    const outputFormats = getOutputFormats();
 
-    if (!eventName || !ministryDepartment || !eventDate || !eventTime || !venuePlatform || !purpose) {
+    if (!eventName || !eventDate || !eventTime || !venuePlatform || !purpose) {
         alert('Please fill in all required fields');
+        return;
+    }
+
+    if (outputFormats.length === 0) {
+        alert('Please select at least one output format');
         return;
     }
 
@@ -281,17 +392,20 @@ async function submitRequest() {
     btn.textContent = 'Submitting...';
 
     try {
+        const speakers = getSpeakers();
+
         const payload = {
             event_name: eventName,
-            ministry_department: ministryDepartment,
+            ministry_department: document.getElementById('ministryDepartment').value.trim() || null,
             event_date: eventDate,
             event_time: eventTime,
             venue_platform: venuePlatform,
-            speaker_host: document.getElementById('speakerHost').value.trim() || null,
+            speakers: speakers.length > 0 ? speakers : null,
             theme_tagline: document.getElementById('themeTagline').value.trim() || null,
             scripture: document.getElementById('scripture').value.trim() || null,
             target_audience: document.getElementById('targetAudience').value.trim() || null,
             purpose: purpose,
+            output_formats: outputFormats,
             additional_notes: document.getElementById('additionalNotes').value.trim() || null
         };
 
@@ -325,12 +439,21 @@ function submitAnother() {
     document.getElementById('eventDate').value = '';
     document.getElementById('eventTime').value = '';
     document.getElementById('venuePlatform').value = '';
-    document.getElementById('speakerHost').value = '';
     document.getElementById('themeTagline').value = '';
     document.getElementById('scripture').value = '';
     document.getElementById('targetAudience').value = '';
     document.getElementById('purpose').value = '';
     document.getElementById('additionalNotes').value = '';
+
+    // Reset checkboxes
+    document.getElementById('formatProjector').checked = false;
+    document.getElementById('formatSocialMedia').checked = false;
+    document.getElementById('formatPrint').checked = false;
+
+    // Reset speakers
+    document.getElementById('speakersContainer').innerHTML = '';
+    speakerCount = 0;
+    addSpeaker();
 
     document.getElementById('successState').classList.add('hidden');
     document.getElementById('requestForm').classList.remove('hidden');

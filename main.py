@@ -182,6 +182,66 @@ def run_migrations():
                 conn.commit()
                 print(f"Migration: Added setting {key}={value}")
 
+        # Migrate poster_requests table: rename speaker_host to speakers, add output_formats, make ministry_department nullable
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'poster_requests' AND column_name = 'speakers'
+        """))
+        if not result.fetchone():
+            # Check if table exists first
+            table_exists = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_name = 'poster_requests'
+            """)).fetchone()
+            if table_exists:
+                # Rename speaker_host to speakers
+                result = conn.execute(text("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'poster_requests' AND column_name = 'speaker_host'
+                """))
+                if result.fetchone():
+                    conn.execute(text("""
+                        ALTER TABLE poster_requests RENAME COLUMN speaker_host TO speakers
+                    """))
+                    conn.commit()
+                    print("Migration: Renamed speaker_host to speakers in poster_requests")
+                else:
+                    # Add speakers column if it doesn't exist
+                    conn.execute(text("""
+                        ALTER TABLE poster_requests ADD COLUMN IF NOT EXISTS speakers TEXT
+                    """))
+                    conn.commit()
+                    print("Migration: Added speakers column to poster_requests")
+
+        # Add output_formats column to poster_requests
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'poster_requests' AND column_name = 'output_formats'
+        """))
+        if not result.fetchone():
+            table_exists = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_name = 'poster_requests'
+            """)).fetchone()
+            if table_exists:
+                conn.execute(text("""
+                    ALTER TABLE poster_requests ADD COLUMN IF NOT EXISTS output_formats TEXT
+                """))
+                conn.commit()
+                print("Migration: Added output_formats column to poster_requests")
+
+        # Make ministry_department nullable in poster_requests
+        result = conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'poster_requests'
+        """))
+        if result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE poster_requests ALTER COLUMN ministry_department DROP NOT NULL
+            """))
+            conn.commit()
+            print("Migration: Made ministry_department nullable in poster_requests")
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',
