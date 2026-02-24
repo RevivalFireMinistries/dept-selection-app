@@ -209,6 +209,12 @@
                     <div id="pendingRequestsList" class="space-y-2"></div>
                 </div>
 
+                <!-- Design Team Recently Acknowledged -->
+                <div id="recentlyAcknowledgedSection" class="hidden space-y-3 mb-4">
+                    <p class="text-sm text-blue-700 font-medium">Recently acknowledged (past 7 days):</p>
+                    <div id="recentlyAcknowledgedList" class="space-y-2"></div>
+                </div>
+
                 <!-- My Requests -->
                 <div id="myPosterRequests">
                     <div id="myRequestsList" class="space-y-2"></div>
@@ -262,6 +268,30 @@
                 <button onclick="submitAppeal()" id="submitAppealBtn" class="flex-1 py-3 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700">
                     Submit Appeal
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Poster Request Detail Modal -->
+<div id="posterDetailModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Poster Request Details</h3>
+                <button onclick="closePosterDetailModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="posterDetailContent" class="space-y-4">
+                <!-- Content will be injected here -->
+            </div>
+
+            <div id="posterDetailActions" class="flex gap-3 mt-6">
+                <!-- Actions will be injected here -->
             </div>
         </div>
     </div>
@@ -680,6 +710,8 @@ function renderPosterRequests() {
     const newLink = document.getElementById('newPosterRequestLink');
     const designTeamSection = document.getElementById('designTeamRequests');
     const pendingList = document.getElementById('pendingRequestsList');
+    const recentSection = document.getElementById('recentlyAcknowledgedSection');
+    const recentList = document.getElementById('recentlyAcknowledgedList');
     const myList = document.getElementById('myRequestsList');
     const noRequests = document.getElementById('noPosterRequests');
 
@@ -704,27 +736,61 @@ function renderPosterRequests() {
         completed: 'Completed'
     };
 
-    // If design team, show pending requests to acknowledge
+    // If design team, show pending requests and recently acknowledged
     if (posterData.is_design_team) {
         const pendingRequests = posterData.requests.filter(r => r.status === 'pending');
         if (pendingRequests.length > 0) {
             designTeamSection.classList.remove('hidden');
             pendingList.innerHTML = pendingRequests.map(r => `
                 <div class="bg-purple-50 border border-purple-200 rounded-xl p-3">
-                    <div class="flex items-start justify-between">
-                        <div>
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex-1 min-w-0">
                             <h4 class="font-medium text-gray-900">${r.event_name}</h4>
-                            <p class="text-sm text-gray-500">${r.ministry_department} - ${new Date(r.event_date).toLocaleDateString()}</p>
+                            <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
                             <p class="text-xs text-gray-400">From: ${r.requester_name}</p>
                         </div>
-                        <button onclick="acknowledgePosterRequest(${r.id})" class="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700">
-                            Acknowledge
-                        </button>
+                        <div class="flex gap-2 flex-shrink-0">
+                            <button onclick="viewPosterDetail(${r.id})" class="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200">
+                                View
+                            </button>
+                            <button onclick="acknowledgePosterRequest(${r.id})" class="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700">
+                                Acknowledge
+                            </button>
+                        </div>
                     </div>
                 </div>
             `).join('');
         } else {
             designTeamSection.classList.add('hidden');
+        }
+
+        // Show recently acknowledged (past 7 days)
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        const recentAcknowledged = posterData.requests.filter(r =>
+            r.status === 'acknowledged' &&
+            r.acknowledged_at &&
+            new Date(r.acknowledged_at) >= oneWeekAgo
+        );
+
+        if (recentAcknowledged.length > 0) {
+            recentSection.classList.remove('hidden');
+            recentList.innerHTML = recentAcknowledged.map(r => `
+                <div class="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex-1 min-w-0">
+                            <h4 class="font-medium text-gray-900">${r.event_name}</h4>
+                            <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
+                            <p class="text-xs text-gray-400">By ${r.acknowledged_by_name} - ${new Date(r.acknowledged_at).toLocaleDateString()}</p>
+                        </div>
+                        <button onclick="viewPosterDetail(${r.id})" class="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200 flex-shrink-0">
+                            View
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            recentSection.classList.add('hidden');
         }
     }
 
@@ -740,7 +806,7 @@ function renderPosterRequests() {
                 <div class="flex items-start justify-between">
                     <div>
                         <h4 class="font-medium text-gray-900">${r.event_name}</h4>
-                        <p class="text-sm text-gray-500">${r.ministry_department} - ${new Date(r.event_date).toLocaleDateString()}</p>
+                        <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
                     </div>
                     <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${statusLabels[r.status]}</span>
                 </div>
@@ -751,6 +817,147 @@ function renderPosterRequests() {
         myList.innerHTML = '';
         noRequests.classList.remove('hidden');
     }
+}
+
+function viewPosterDetail(requestId) {
+    const request = posterData.requests.find(r => r.id === requestId);
+    if (!request) return;
+
+    const formatLabels = { projector: 'Projector', social_media: 'Social Media', print: 'Print' };
+
+    // Format speakers
+    let speakersHtml = '<span class="text-gray-400">Not specified</span>';
+    if (request.speakers && request.speakers.length > 0) {
+        speakersHtml = request.speakers.map(s => `
+            <span class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg text-sm mr-1 mb-1">
+                ${s.name}
+                <span class="text-xs px-1 py-0.5 rounded ${s.role === 'host' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}">${s.role}</span>
+            </span>
+        `).join('');
+    }
+
+    // Format output formats
+    let outputHtml = '<span class="text-gray-400">Not specified</span>';
+    if (request.output_formats && request.output_formats.length > 0) {
+        outputHtml = request.output_formats.map(f => `
+            <span class="inline-block px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-sm mr-1">${formatLabels[f] || f}</span>
+        `).join('');
+    }
+
+    const content = document.getElementById('posterDetailContent');
+    content.innerHTML = `
+        <div class="bg-purple-50 rounded-xl p-4 mb-4">
+            <h4 class="font-semibold text-lg text-gray-900">${request.event_name}</h4>
+            <p class="text-sm text-purple-700 mt-1">${request.purpose}</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <p class="text-gray-500 text-xs uppercase tracking-wide">Event Date</p>
+                <p class="font-medium text-gray-900">${new Date(request.event_date).toLocaleDateString()}</p>
+            </div>
+            <div>
+                <p class="text-gray-500 text-xs uppercase tracking-wide">Time</p>
+                <p class="font-medium text-gray-900">${request.event_time}</p>
+            </div>
+            <div>
+                <p class="text-gray-500 text-xs uppercase tracking-wide">Ministry/Dept</p>
+                <p class="font-medium text-gray-900">${request.ministry_department || 'Not specified'}</p>
+            </div>
+            <div>
+                <p class="text-gray-500 text-xs uppercase tracking-wide">Venue</p>
+                <p class="font-medium text-gray-900">${request.venue_platform}</p>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <p class="text-gray-500 text-xs uppercase tracking-wide mb-2">Speakers / Hosts</p>
+            <div>${speakersHtml}</div>
+        </div>
+
+        <div class="mt-4">
+            <p class="text-gray-500 text-xs uppercase tracking-wide mb-2">Output Formats</p>
+            <div>${outputHtml}</div>
+        </div>
+
+        ${request.theme_tagline ? `
+        <div class="mt-4">
+            <p class="text-gray-500 text-xs uppercase tracking-wide">Theme / Tagline</p>
+            <p class="font-medium text-gray-900">${request.theme_tagline}</p>
+        </div>
+        ` : ''}
+
+        ${request.scripture ? `
+        <div class="mt-4">
+            <p class="text-gray-500 text-xs uppercase tracking-wide">Scripture</p>
+            <p class="font-medium text-gray-900">${request.scripture}</p>
+        </div>
+        ` : ''}
+
+        ${request.target_audience ? `
+        <div class="mt-4">
+            <p class="text-gray-500 text-xs uppercase tracking-wide">Target Audience</p>
+            <p class="font-medium text-gray-900">${request.target_audience}</p>
+        </div>
+        ` : ''}
+
+        ${request.additional_notes ? `
+        <div class="mt-4">
+            <p class="text-gray-500 text-xs uppercase tracking-wide">Additional Notes</p>
+            <p class="text-gray-700 bg-gray-50 rounded-lg p-3 text-sm">${request.additional_notes}</p>
+        </div>
+        ` : ''}
+
+        <div class="mt-4 pt-4 border-t border-gray-100">
+            <div class="flex items-center justify-between text-sm">
+                <div>
+                    <p class="text-gray-500">Requested by</p>
+                    <p class="font-medium text-gray-900">${request.requester_name}</p>
+                    ${request.requester_email ? `<p class="text-xs text-gray-400">${request.requester_email}</p>` : ''}
+                </div>
+                <div class="text-right">
+                    <p class="text-gray-500">Submitted</p>
+                    <p class="font-medium text-gray-900">${new Date(request.created_at).toLocaleDateString()}</p>
+                </div>
+            </div>
+            ${request.acknowledged_by_name ? `
+            <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
+                <div>
+                    <p class="text-gray-500">Acknowledged by</p>
+                    <p class="font-medium text-blue-700">${request.acknowledged_by_name}</p>
+                </div>
+                <div class="text-right">
+                    <p class="font-medium text-gray-900">${new Date(request.acknowledged_at).toLocaleString()}</p>
+                </div>
+            </div>
+            ` : ''}
+        </div>
+    `;
+
+    // Set up action buttons
+    const actions = document.getElementById('posterDetailActions');
+    if (request.status === 'pending' && posterData.is_design_team) {
+        actions.innerHTML = `
+            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
+                Close
+            </button>
+            <button onclick="acknowledgePosterRequest(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700">
+                Acknowledge
+            </button>
+        `;
+    } else {
+        actions.innerHTML = `
+            <button onclick="closePosterDetailModal()" class="w-full py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200">
+                Close
+            </button>
+        `;
+    }
+
+    document.getElementById('posterDetailModal').classList.remove('hidden');
+}
+
+function closePosterDetailModal() {
+    document.getElementById('posterDetailModal').classList.add('hidden');
 }
 
 async function acknowledgePosterRequest(requestId) {

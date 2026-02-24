@@ -457,10 +457,16 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                     ("Requested By", data.get('requester_name')),
                     ("Contact Email", data.get('requester_email')),
                     ("Ministry/Department", data.get('ministry_department')),
-                    ("Venue", data.get('venue_platform')),
-                    ("Purpose", data.get('purpose'))
+                    ("Venue/Platform", data.get('venue_platform')),
+                    ("Purpose", data.get('purpose')),
+                    ("Output Formats", data.get('output_formats_display')),
+                    ("Speakers", data.get('speakers_display')),
+                    ("Theme/Tagline", data.get('theme_tagline')),
+                    ("Scripture", data.get('scripture')),
+                    ("Target Audience", data.get('target_audience')),
+                    ("Additional Notes", data.get('additional_notes'))
                 ])}
-                {paragraph("Please log in to the portal to acknowledge this request and begin working on the design.")}
+                {paragraph("Please log in to the portal to view the full request details and acknowledge it.")}
             ''',
             button_text="View Request" if portal_link else None,
             button_url=portal_link

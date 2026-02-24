@@ -2995,17 +2995,44 @@ def create_poster_request(
                 recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone}
                               for m in dept_members if m.email]
 
+                # Format speakers for display
+                speakers_display = None
+                if speakers_json:
+                    try:
+                        speakers_list = json.loads(speakers_json)
+                        speakers_display = ", ".join([
+                            f"{s['name']} ({s['role']})" for s in speakers_list
+                        ])
+                    except:
+                        pass
+
+                # Format output formats for display
+                output_formats_display = None
+                if output_formats_json:
+                    try:
+                        formats_list = json.loads(output_formats_json)
+                        format_labels = {'projector': 'Projector', 'social_media': 'Social Media', 'print': 'Print'}
+                        output_formats_display = ", ".join([format_labels.get(f, f) for f in formats_list])
+                    except:
+                        pass
+
                 if recipients:
                     dispatch_event(db, EventType.POSTER_REQUEST_SUBMITTED, {
                         "request_id": pr.id,
                         "event_name": pr.event_name,
-                        "ministry_department": pr.ministry_department,
+                        "ministry_department": pr.ministry_department or "Not specified",
                         "event_date": pr.event_date.isoformat() if pr.event_date else None,
                         "event_time": pr.event_time,
                         "venue_platform": pr.venue_platform,
                         "requester_name": member.full_name,
                         "requester_email": member.email,
                         "purpose": pr.purpose,
+                        "speakers_display": speakers_display,
+                        "output_formats_display": output_formats_display,
+                        "theme_tagline": pr.theme_tagline,
+                        "scripture": pr.scripture,
+                        "target_audience": pr.target_audience,
+                        "additional_notes": pr.additional_notes,
                         "recipients": recipients
                     })
             except Exception as e:
