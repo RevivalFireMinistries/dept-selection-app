@@ -3195,6 +3195,91 @@ def acknowledge_poster_request(
     return {"success": True, "request": format_poster_request(pr)}
 
 
+@router.put("/poster-requests/{request_id}/complete")
+def complete_poster_request(
+    request_id: int,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Mark a poster request as complete (design team only)"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Check if member is in the poster request department
+    dept_setting = db.query(Settings).filter(Settings.key == "poster_request_department_id").first()
+    is_design_team = False
+
+    if dept_setting and dept_setting.value:
+        try:
+            dept_id = int(dept_setting.value)
+            membership = db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == member.id,
+                MemberDepartment.department_id == dept_id,
+                MemberDepartment.status == "approved"
+            ).first()
+            if membership:
+                is_design_team = True
+
+            dept = db.query(Department).filter(Department.id == dept_id).first()
+            if dept and dept.hod_member_id == member.id:
+                is_design_team = True
+        except (ValueError, TypeError):
+            pass
+
+    if not is_design_team:
+        raise HTTPException(status_code=403, detail="Only design team members can complete requests")
+
+    # Find the request
+    pr = db.query(PosterRequest).options(
+        joinedload(PosterRequest.requester),
+        joinedload(PosterRequest.acknowledged_by)
+    ).filter(PosterRequest.id == request_id).first()
+
+    if not pr:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if pr.status != "acknowledged":
+        raise HTTPException(status_code=400, detail="Request must be in 'processing' status to mark as done")
+
+    # Update the request
+    pr.status = "completed"
+    pr.completed_at = datetime.now()
+    db.commit()
+    db.refresh(pr)
+
+    # Notify the requester that poster is ready
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        if pr.requester and pr.requester.email:
+            dispatch_event(db, EventType.POSTER_REQUEST_COMPLETED, {
+                "request_id": pr.id,
+                "event_name": pr.event_name,
+                "event_date": pr.event_date.isoformat() if pr.event_date else None,
+                "completed_by_name": member.full_name,
+                "recipients": [{
+                    "id": pr.requester.id,
+                    "name": pr.requester.full_name,
+                    "email": pr.requester.email,
+                    "phone": pr.requester.phone
+                }]
+            })
+    except Exception as e:
+        print(f"Failed to dispatch completion notification: {e}")
+
+    return {"success": True, "request": format_poster_request(pr)}
+
+
 @router.get("/admin/poster-requests")
 def get_all_poster_requests(
     status: Optional[str] = None,

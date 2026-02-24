@@ -489,6 +489,32 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_text="View My Requests" if portal_link else None,
             button_url=portal_link
         ),
+
+        EventType.POSTER_REQUEST_COMPLETED: base_template(
+            title="Your Poster is Ready!",
+            icon="&#127912;",  # Art palette
+            accent_color="#10b981",  # Green
+            content=f'''
+                {greeting(data.get('recipient_name', 'Member'))}
+                {paragraph(f"Your poster for <strong>{data.get('event_name', 'your event')}</strong> is now complete!")}
+                {info_card([
+                    ("Event", data.get('event_name')),
+                    ("Event Date", data.get('event_date')),
+                    ("Completed By", data.get('completed_by_name'))
+                ])}
+                <div style="background-color: #ecfdf5; border: 2px solid #a7f3d0; border-radius: 12px; padding: 20px; margin: 24px 0; text-align: center;">
+                    <p style="margin: 0; color: #065f46; font-size: 16px; font-weight: 600;">
+                        &#128172; Your poster has been shared in the WhatsApp group
+                    </p>
+                    <p style="margin: 8px 0 0 0; color: #047857; font-size: 14px;">
+                        Please check the group to download your design
+                    </p>
+                </div>
+                {paragraph("Thank you for using the poster request service. If you need any changes, please reach out to the media team.")}
+            ''',
+            button_text="View My Requests" if portal_link else None,
+            button_url=portal_link
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")

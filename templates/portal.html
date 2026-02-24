@@ -82,7 +82,7 @@
                     </div>
                     <div>
                         <p class="font-medium text-gray-900 text-sm">Request Poster</p>
-                        <p class="text-xs text-gray-500">Media team</p>
+                        <p class="text-xs text-gray-500">Design request</p>
                     </div>
                 </a>
                 <a id="updateSelectionMenuLink" href="#" class="bg-white rounded-xl shadow p-4 flex items-center gap-3 hover:shadow-md transition-shadow">
@@ -725,6 +725,15 @@ function renderPosterRequests() {
 
     section.classList.remove('hidden');
 
+    // Move poster section to top for design team
+    if (posterData.is_design_team) {
+        const portalContent = document.getElementById('portalContent');
+        const quickActions = portalContent.querySelector('.grid.grid-cols-2');
+        if (quickActions && quickActions.nextElementSibling !== section) {
+            quickActions.after(section);
+        }
+    }
+
     const statusColors = {
         pending: 'bg-yellow-100 text-yellow-700',
         acknowledged: 'bg-blue-100 text-blue-700',
@@ -733,7 +742,7 @@ function renderPosterRequests() {
     const statusLabels = {
         pending: 'Pending',
         acknowledged: 'Processing',
-        completed: 'Completed'
+        completed: 'Done'
     };
 
     // If design team, show pending requests and recently acknowledged
@@ -764,7 +773,7 @@ function renderPosterRequests() {
             designTeamSection.classList.add('hidden');
         }
 
-        // Show recently acknowledged (past 7 days)
+        // Show recently acknowledged (past 7 days) - these are being worked on
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
         const recentAcknowledged = posterData.requests.filter(r =>
@@ -783,9 +792,14 @@ function renderPosterRequests() {
                             <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
                             <p class="text-xs text-gray-400">By ${r.acknowledged_by_name} - ${new Date(r.acknowledged_at).toLocaleDateString()}</p>
                         </div>
-                        <button onclick="viewPosterDetail(${r.id})" class="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200 flex-shrink-0">
-                            View
-                        </button>
+                        <div class="flex gap-2 flex-shrink-0">
+                            <button onclick="viewPosterDetail(${r.id})" class="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200">
+                                View
+                            </button>
+                            <button onclick="markPosterDone(${r.id})" class="px-3 py-1 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700">
+                                Mark Done
+                            </button>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -945,6 +959,15 @@ function viewPosterDetail(requestId) {
                 Acknowledge
             </button>
         `;
+    } else if (request.status === 'acknowledged' && posterData.is_design_team) {
+        actions.innerHTML = `
+            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
+                Close
+            </button>
+            <button onclick="markPosterDone(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700">
+                Mark Done
+            </button>
+        `;
     } else {
         actions.innerHTML = `
             <button onclick="closePosterDetailModal()" class="w-full py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200">
@@ -978,6 +1001,27 @@ async function acknowledgePosterRequest(requestId) {
         renderPosterRequests();
     } catch (err) {
         alert(err.message || 'Failed to acknowledge request');
+    }
+}
+
+async function markPosterDone(requestId) {
+    try {
+        const res = await fetch(`/api/poster-requests/${requestId}/complete?phone=${encodeURIComponent(phone)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to mark as done');
+        }
+
+        // Reload poster requests
+        const posterRes = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`);
+        posterData = await posterRes.json();
+        renderPosterRequests();
+    } catch (err) {
+        alert(err.message || 'Failed to mark request as done');
     }
 }
 

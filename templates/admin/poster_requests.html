@@ -171,6 +171,12 @@ async function loadRequests() {
             completed: 'bg-green-100 text-green-700'
         };
 
+        const statusLabels = {
+            pending: 'Pending',
+            acknowledged: 'Processing',
+            completed: 'Done'
+        };
+
         const formatLabels = {
             projector: 'Projector',
             social_media: 'Social',
@@ -200,7 +206,7 @@ async function loadRequests() {
                     <div class="text-gray-500">${r.requester_email || ''}</div>
                 </td>
                 <td class="px-6 py-4">
-                    <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${r.status}</span>
+                    <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${statusLabels[r.status] || r.status}</span>
                     ${r.acknowledged_by_name ? `<div class="text-xs text-gray-400 mt-1">by ${r.acknowledged_by_name}</div>` : ''}
                 </td>
                 <td class="px-6 py-4 text-right">
@@ -274,7 +280,7 @@ async function viewDetails(id) {
         <div class="mt-4 pt-4 border-t">
             <div><strong class="text-gray-500">Requester:</strong> ${r.requester_name} (${r.requester_email || 'no email'})</div>
             <div><strong class="text-gray-500">Submitted:</strong> ${new Date(r.created_at).toLocaleString()}</div>
-            <div><strong class="text-gray-500">Status:</strong> ${r.status}</div>
+            <div><strong class="text-gray-500">Status:</strong> ${statusLabels[r.status] || r.status}</div>
             ${r.acknowledged_by_name ? `<div><strong class="text-gray-500">Acknowledged by:</strong> ${r.acknowledged_by_name} at ${new Date(r.acknowledged_at).toLocaleString()}</div>` : ''}
         </div>
     `;

@@ -10,7 +10,11 @@
       "Bash(npm run build:*)",
       "Bash(dir /s /a node_modules)",
       "Bash(findstr:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

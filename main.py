@@ -256,6 +256,7 @@ def run_migrations():
             'meeting_cancelled',
             'poster_request_submitted',
             'poster_request_acknowledged',
+            'poster_request_completed',
         ]
         # Check if notification_configs table exists (created by create_all)
         result = conn.execute(text("""
