@@ -1,0 +1,248 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Poster Requests - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Poster Requests</h2>
+    </div>
+
+    <!-- Configuration Card -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Configuration</h3>
+        <div class="flex items-end gap-4">
+            <div class="flex-1 max-w-md">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Department handling poster requests</label>
+                <select id="posterDeptSelect" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">-- Select Department --</option>
+                </select>
+            </div>
+            <button onclick="saveDeptConfig()" id="saveDeptBtn"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                Save
+            </button>
+        </div>
+        <p class="text-sm text-gray-500 mt-2">Members of this department will receive notifications and can acknowledge requests.</p>
+    </div>
+
+    <!-- Filter -->
+    <div class="flex gap-4">
+        <select id="filterStatus" onchange="loadRequests()" class="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="acknowledged">Acknowledged</option>
+            <option value="completed">Completed</option>
+        </select>
+    </div>
+
+    <!-- Requests List -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Event</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ministry</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="requestsTableBody" class="bg-white divide-y divide-gray-200">
+                <tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <p id="requestCount" class="text-sm text-gray-500"></p>
+</div>
+
+<!-- Detail Modal -->
+<div id="detailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Request Details</h3>
+        <div id="detailContent" class="space-y-3 text-sm"></div>
+        <div class="flex justify-end gap-3 mt-6">
+            <button onclick="closeDetailModal()" class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let departments = [];
+let currentDeptId = null;
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadDepartments();
+    await loadCurrentConfig();
+    await loadRequests();
+});
+
+async function loadDepartments() {
+    try {
+        const res = await fetch('/api/departments');
+        const data = await res.json();
+        departments = [];
+
+        (data.categories || []).forEach(cat => {
+            cat.departments.forEach(d => departments.push(d));
+        });
+        (data.uncategorized || []).forEach(d => departments.push(d));
+
+        const select = document.getElementById('posterDeptSelect');
+        departments.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = d.name;
+            select.appendChild(opt);
+        });
+    } catch (err) {
+        console.error('Failed to load departments:', err);
+    }
+}
+
+async function loadCurrentConfig() {
+    try {
+        const res = await fetch('/api/admin/settings/poster-request-department');
+        const data = await res.json();
+        if (data.department_id) {
+            currentDeptId = data.department_id;
+            document.getElementById('posterDeptSelect').value = data.department_id;
+        }
+    } catch (err) {
+        console.error('Failed to load config:', err);
+    }
+}
+
+async function saveDeptConfig() {
+    const deptId = document.getElementById('posterDeptSelect').value;
+    if (!deptId) {
+        alert('Please select a department');
+        return;
+    }
+
+    const btn = document.getElementById('saveDeptBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const res = await fetch('/api/admin/settings/poster-request-department', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ department_id: parseInt(deptId) })
+        });
+
+        if (!res.ok) throw new Error('Failed to save');
+
+        currentDeptId = parseInt(deptId);
+        alert('Configuration saved successfully');
+    } catch (err) {
+        alert('Failed to save configuration');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save';
+    }
+}
+
+async function loadRequests() {
+    const status = document.getElementById('filterStatus').value;
+    let url = '/api/admin/poster-requests';
+    if (status) url += `?status=${status}`;
+
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        const tbody = document.getElementById('requestsTableBody');
+
+        if (data.requests.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-4 text-center text-gray-500">No requests found</td></tr>';
+            document.getElementById('requestCount').textContent = '';
+            return;
+        }
+
+        const statusColors = {
+            pending: 'bg-yellow-100 text-yellow-700',
+            acknowledged: 'bg-blue-100 text-blue-700',
+            completed: 'bg-green-100 text-green-700'
+        };
+
+        tbody.innerHTML = data.requests.map(r => `
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4">
+                    <div class="font-medium text-gray-900">${r.event_name}</div>
+                    <div class="text-sm text-gray-500">${r.purpose}</div>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-900">${r.ministry_department}</td>
+                <td class="px-6 py-4 text-sm">
+                    <div class="text-gray-900">${new Date(r.event_date).toLocaleDateString()}</div>
+                    <div class="text-gray-500">${r.event_time}</div>
+                </td>
+                <td class="px-6 py-4 text-sm">
+                    <div class="text-gray-900">${r.requester_name}</div>
+                    <div class="text-gray-500">${r.requester_email || ''}</div>
+                </td>
+                <td class="px-6 py-4">
+                    <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${r.status}</span>
+                    ${r.acknowledged_by_name ? `<div class="text-xs text-gray-400 mt-1">by ${r.acknowledged_by_name}</div>` : ''}
+                </td>
+                <td class="px-6 py-4 text-right">
+                    <button onclick="viewDetails(${r.id})" class="text-blue-600 hover:underline text-sm">View</button>
+                </td>
+            </tr>
+        `).join('');
+
+        document.getElementById('requestCount').textContent = `Showing ${data.total} request(s)`;
+    } catch (err) {
+        console.error('Failed to load requests:', err);
+    }
+}
+
+let allRequests = [];
+
+async function viewDetails(id) {
+    // Fetch fresh data
+    const res = await fetch('/api/admin/poster-requests');
+    const data = await res.json();
+    allRequests = data.requests;
+
+    const r = allRequests.find(req => req.id === id);
+    if (!r) return;
+
+    const content = document.getElementById('detailContent');
+    content.innerHTML = `
+        <div class="grid grid-cols-2 gap-4">
+            <div><strong class="text-gray-500">Event Name:</strong><br>${r.event_name}</div>
+            <div><strong class="text-gray-500">Ministry:</strong><br>${r.ministry_department}</div>
+            <div><strong class="text-gray-500">Date:</strong><br>${new Date(r.event_date).toLocaleDateString()}</div>
+            <div><strong class="text-gray-500">Time:</strong><br>${r.event_time}</div>
+            <div><strong class="text-gray-500">Venue:</strong><br>${r.venue_platform}</div>
+            <div><strong class="text-gray-500">Speaker/Host:</strong><br>${r.speaker_host || '-'}</div>
+            <div><strong class="text-gray-500">Theme:</strong><br>${r.theme_tagline || '-'}</div>
+            <div><strong class="text-gray-500">Scripture:</strong><br>${r.scripture || '-'}</div>
+            <div><strong class="text-gray-500">Audience:</strong><br>${r.target_audience || '-'}</div>
+            <div><strong class="text-gray-500">Purpose:</strong><br>${r.purpose}</div>
+        </div>
+        ${r.additional_notes ? `<div class="mt-4"><strong class="text-gray-500">Additional Notes:</strong><br>${r.additional_notes}</div>` : ''}
+        <div class="mt-4 pt-4 border-t">
+            <div><strong class="text-gray-500">Requester:</strong> ${r.requester_name} (${r.requester_email || 'no email'})</div>
+            <div><strong class="text-gray-500">Submitted:</strong> ${new Date(r.created_at).toLocaleString()}</div>
+            <div><strong class="text-gray-500">Status:</strong> ${r.status}</div>
+            ${r.acknowledged_by_name ? `<div><strong class="text-gray-500">Acknowledged by:</strong> ${r.acknowledged_by_name} at ${new Date(r.acknowledged_at).toLocaleString()}</div>` : ''}
+        </div>
+    `;
+
+    document.getElementById('detailModal').classList.remove('hidden');
+    document.getElementById('detailModal').classList.add('flex');
+}
+
+function closeDetailModal() {
+    document.getElementById('detailModal').classList.add('hidden');
+    document.getElementById('detailModal').classList.remove('flex');
+}
+</script>
+{% endblock %}

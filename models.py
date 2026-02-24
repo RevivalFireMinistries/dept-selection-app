@@ -187,3 +187,36 @@ class NotificationLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     recipient = relationship("Member", foreign_keys=[recipient_id])
+
+
+class PosterRequest(Base):
+    """Poster/design request submitted by members"""
+    __tablename__ = "poster_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    requester_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False)
+
+    # Form fields
+    event_name = Column(String(200), nullable=False)
+    ministry_department = Column(String(200), nullable=False)
+    event_date = Column(Date, nullable=False)
+    event_time = Column(String(100), nullable=False)
+    venue_platform = Column(String(200), nullable=False)
+    speaker_host = Column(String(200), nullable=True)
+    theme_tagline = Column(String(300), nullable=True)
+    scripture = Column(String(500), nullable=True)
+    target_audience = Column(String(200), nullable=True)
+    purpose = Column(String(50), nullable=False)  # invitation, information, reminder, registration
+    additional_notes = Column(Text, nullable=True)
+
+    # Workflow
+    status = Column(String(20), nullable=False, server_default="pending")  # pending, acknowledged, completed
+    acknowledged_by_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    requester = relationship("Member", foreign_keys=[requester_id])
+    acknowledged_by = relationship("Member", foreign_keys=[acknowledged_by_id])

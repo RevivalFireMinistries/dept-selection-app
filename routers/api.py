@@ -10,7 +10,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -20,7 +20,8 @@ from schemas import (
     AppealCreate, AppealResolve,
     SetHODRequest,
     MeetingCreate, MeetingUpdate, RSVPRequest,
-    SMTPSettingsUpdate, NotificationConfigUpdate, TestEmailRequest
+    SMTPSettingsUpdate, NotificationConfigUpdate, TestEmailRequest,
+    PosterRequestCreate, PosterRequestResponse
 )
 
 router = APIRouter()
@@ -2869,6 +2870,337 @@ def get_meeting_rsvps(meeting_id: int, db: Session = Depends(get_db)):
         "attending": sum(1 for r in rsvps if r.response == "attending"),
         "not_attending": sum(1 for r in rsvps if r.response == "not_attending")
     }
+
+
+# ============ POSTER REQUEST ENDPOINTS ============
+
+def format_poster_request(pr: PosterRequest) -> dict:
+    """Format a poster request for API response"""
+    return {
+        "id": pr.id,
+        "requester_id": pr.requester_id,
+        "requester_name": pr.requester.full_name if pr.requester else None,
+        "requester_email": pr.requester.email if pr.requester else None,
+        "event_name": pr.event_name,
+        "ministry_department": pr.ministry_department,
+        "event_date": pr.event_date.isoformat() if pr.event_date else None,
+        "event_time": pr.event_time,
+        "venue_platform": pr.venue_platform,
+        "speaker_host": pr.speaker_host,
+        "theme_tagline": pr.theme_tagline,
+        "scripture": pr.scripture,
+        "target_audience": pr.target_audience,
+        "purpose": pr.purpose,
+        "additional_notes": pr.additional_notes,
+        "status": pr.status,
+        "acknowledged_by_id": pr.acknowledged_by_id,
+        "acknowledged_by_name": pr.acknowledged_by.full_name if pr.acknowledged_by else None,
+        "acknowledged_at": pr.acknowledged_at.isoformat() if pr.acknowledged_at else None,
+        "created_at": pr.created_at.isoformat() if pr.created_at else None
+    }
+
+
+@router.post("/poster-requests")
+def create_poster_request(
+    data: PosterRequestCreate,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Submit a new poster request (requires member login)"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Create the poster request
+    pr = PosterRequest(
+        requester_id=member.id,
+        event_name=data.event_name,
+        ministry_department=data.ministry_department,
+        event_date=data.event_date,
+        event_time=data.event_time,
+        venue_platform=data.venue_platform,
+        speaker_host=data.speaker_host,
+        theme_tagline=data.theme_tagline,
+        scripture=data.scripture,
+        target_audience=data.target_audience,
+        purpose=data.purpose,
+        additional_notes=data.additional_notes,
+        status="pending"
+    )
+    db.add(pr)
+    db.commit()
+    db.refresh(pr)
+
+    # Get configured department for poster requests
+    dept_setting = db.query(Settings).filter(Settings.key == "poster_request_department_id").first()
+    if dept_setting and dept_setting.value:
+        try:
+            dept_id = int(dept_setting.value)
+            # Get all members of that department
+            dept_members = db.query(Member).join(MemberDepartment).filter(
+                MemberDepartment.department_id == dept_id,
+                MemberDepartment.status == "approved"
+            ).all()
+
+            # Also include HOD
+            dept = db.query(Department).filter(Department.id == dept_id).first()
+            if dept and dept.hod_member_id:
+                hod = db.query(Member).filter(Member.id == dept.hod_member_id).first()
+                if hod and hod not in dept_members:
+                    dept_members.append(hod)
+
+            # Send email notifications
+            try:
+                from notifications.dispatcher import dispatch_event
+                from notifications.events import EventType
+
+                recipients = [{"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone}
+                              for m in dept_members if m.email]
+
+                if recipients:
+                    dispatch_event(db, EventType.POSTER_REQUEST_SUBMITTED, {
+                        "request_id": pr.id,
+                        "event_name": pr.event_name,
+                        "ministry_department": pr.ministry_department,
+                        "event_date": pr.event_date.isoformat() if pr.event_date else None,
+                        "event_time": pr.event_time,
+                        "venue_platform": pr.venue_platform,
+                        "requester_name": member.full_name,
+                        "requester_email": member.email,
+                        "purpose": pr.purpose,
+                        "recipients": recipients
+                    })
+            except Exception as e:
+                print(f"Failed to dispatch poster request notification: {e}")
+
+        except (ValueError, TypeError):
+            pass
+
+    return {"success": True, "request": format_poster_request(pr)}
+
+
+@router.get("/poster-requests")
+def get_poster_requests(
+    phone: str = Query(...),
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get poster requests - for design team members shows all pending, for others shows their own"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Check if member is in the poster request department
+    dept_setting = db.query(Settings).filter(Settings.key == "poster_request_department_id").first()
+    is_design_team = False
+
+    if dept_setting and dept_setting.value:
+        try:
+            dept_id = int(dept_setting.value)
+            # Check membership
+            membership = db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == member.id,
+                MemberDepartment.department_id == dept_id,
+                MemberDepartment.status == "approved"
+            ).first()
+            if membership:
+                is_design_team = True
+
+            # Check if HOD
+            dept = db.query(Department).filter(Department.id == dept_id).first()
+            if dept and dept.hod_member_id == member.id:
+                is_design_team = True
+        except (ValueError, TypeError):
+            pass
+
+    # Build query
+    query = db.query(PosterRequest).options(
+        joinedload(PosterRequest.requester),
+        joinedload(PosterRequest.acknowledged_by)
+    )
+
+    if is_design_team:
+        # Design team sees all requests
+        if status:
+            query = query.filter(PosterRequest.status == status)
+    else:
+        # Others see only their own requests
+        query = query.filter(PosterRequest.requester_id == member.id)
+        if status:
+            query = query.filter(PosterRequest.status == status)
+
+    requests = query.order_by(PosterRequest.created_at.desc()).all()
+
+    return {
+        "requests": [format_poster_request(pr) for pr in requests],
+        "is_design_team": is_design_team,
+        "total": len(requests)
+    }
+
+
+@router.put("/poster-requests/{request_id}/acknowledge")
+def acknowledge_poster_request(
+    request_id: int,
+    phone: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Acknowledge a poster request (design team only)"""
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    # Check if member is in the poster request department
+    dept_setting = db.query(Settings).filter(Settings.key == "poster_request_department_id").first()
+    is_design_team = False
+
+    if dept_setting and dept_setting.value:
+        try:
+            dept_id = int(dept_setting.value)
+            membership = db.query(MemberDepartment).filter(
+                MemberDepartment.member_id == member.id,
+                MemberDepartment.department_id == dept_id,
+                MemberDepartment.status == "approved"
+            ).first()
+            if membership:
+                is_design_team = True
+
+            dept = db.query(Department).filter(Department.id == dept_id).first()
+            if dept and dept.hod_member_id == member.id:
+                is_design_team = True
+        except (ValueError, TypeError):
+            pass
+
+    if not is_design_team:
+        raise HTTPException(status_code=403, detail="Only design team members can acknowledge requests")
+
+    # Find the request
+    pr = db.query(PosterRequest).options(
+        joinedload(PosterRequest.requester)
+    ).filter(PosterRequest.id == request_id).first()
+
+    if not pr:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if pr.status != "pending":
+        raise HTTPException(status_code=400, detail="Request has already been acknowledged")
+
+    # Update the request
+    pr.status = "acknowledged"
+    pr.acknowledged_by_id = member.id
+    pr.acknowledged_at = datetime.now()
+    db.commit()
+    db.refresh(pr)
+
+    # Notify the requester
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        if pr.requester and pr.requester.email:
+            dispatch_event(db, EventType.POSTER_REQUEST_ACKNOWLEDGED, {
+                "request_id": pr.id,
+                "event_name": pr.event_name,
+                "acknowledged_by_name": member.full_name,
+                "recipients": [{
+                    "id": pr.requester.id,
+                    "name": pr.requester.full_name,
+                    "email": pr.requester.email,
+                    "phone": pr.requester.phone
+                }]
+            })
+    except Exception as e:
+        print(f"Failed to dispatch acknowledgment notification: {e}")
+
+    return {"success": True, "request": format_poster_request(pr)}
+
+
+@router.get("/admin/poster-requests")
+def get_all_poster_requests(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Admin: Get all poster requests"""
+    query = db.query(PosterRequest).options(
+        joinedload(PosterRequest.requester),
+        joinedload(PosterRequest.acknowledged_by)
+    )
+
+    if status:
+        query = query.filter(PosterRequest.status == status)
+
+    requests = query.order_by(PosterRequest.created_at.desc()).all()
+
+    return {
+        "requests": [format_poster_request(pr) for pr in requests],
+        "total": len(requests)
+    }
+
+
+@router.get("/admin/settings/poster-request-department")
+def get_poster_request_department(db: Session = Depends(get_db)):
+    """Get the configured department for handling poster requests"""
+    setting = db.query(Settings).filter(Settings.key == "poster_request_department_id").first()
+    dept_id = setting.value if setting else None
+
+    dept = None
+    if dept_id:
+        try:
+            dept = db.query(Department).filter(Department.id == int(dept_id)).first()
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "department_id": int(dept_id) if dept_id else None,
+        "department_name": dept.name if dept else None
+    }
+
+
+@router.put("/admin/settings/poster-request-department")
+def set_poster_request_department(
+    department_id: int = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """Set the department that handles poster requests"""
+    # Validate department exists
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    # Update or create setting
+    setting = db.query(Settings).filter(Settings.key == "poster_request_department_id").first()
+    if setting:
+        setting.value = str(department_id)
+    else:
+        setting = Settings(key="poster_request_department_id", value=str(department_id))
+        db.add(setting)
+
+    db.commit()
+
+    return {"success": True, "department_id": department_id, "department_name": dept.name}
 
 
 # ============ NOTIFICATION ENDPOINTS ============

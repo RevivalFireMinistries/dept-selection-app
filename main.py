@@ -168,6 +168,8 @@ def run_migrations():
             ('resend_api_key', os.getenv('RESEND_API_KEY', '')),
             ('resend_from_name', os.getenv('RESEND_FROM_NAME', 'RFM Stellenbosch')),
             ('resend_from_email', os.getenv('RESEND_FROM_EMAIL', '')),
+            # Poster request settings
+            ('poster_request_department_id', ''),  # Department ID that handles poster requests
         ]
         for key, value in new_settings:
             result = conn.execute(text(
@@ -192,6 +194,8 @@ def run_migrations():
             'meeting_reminder',
             'meeting_updated',
             'meeting_cancelled',
+            'poster_request_submitted',
+            'poster_request_acknowledged',
         ]
         # Check if notification_configs table exists (created by create_all)
         result = conn.execute(text("""

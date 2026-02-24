@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block title %}Poster Request - RFM Stellenbosch{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-purple-100 via-pink-50 to-indigo-100">
+    <!-- Header -->
+    <div class="sticky top-0 z-10 backdrop-blur-lg bg-white/70 shadow-sm">
+        <div class="max-w-lg mx-auto px-4 py-4 sm:py-6">
+            <div class="flex items-center gap-3">
+                <a href="/portal" class="text-gray-500 hover:text-gray-700 p-1">
+                    <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                    </svg>
+                </a>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                        Poster Request
+                    </h1>
+                    <p class="text-gray-600 text-xs sm:text-sm">RFM Stellenbosch Media Team</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-lg mx-auto px-4 py-6">
+        <!-- Login Required -->
+        <div id="loginRequired" class="bg-white rounded-2xl shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Enter Your Phone Number</h3>
+            <p class="text-sm text-gray-600 mb-4">Please enter your registered phone number to submit a poster request.</p>
+            <div class="space-y-4">
+                <input type="tel" id="phoneInput" placeholder="e.g., 0821234567"
+                    class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-lg"
+                    pattern="[0-9]{10}" maxlength="10">
+                <button onclick="verifyPhone()" id="verifyBtn"
+                    class="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl hover:opacity-90">
+                    Continue
+                </button>
+                <p id="loginError" class="text-red-600 text-sm hidden"></p>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="hidden flex justify-center py-12">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+        </div>
+
+        <!-- Request Form -->
+        <div id="requestForm" class="hidden space-y-4">
+            <!-- Info Banner -->
+            <div class="bg-purple-50 border border-purple-200 rounded-xl p-4">
+                <p class="text-sm text-purple-800">
+                    <strong>Submitting as:</strong> <span id="memberName"></span>
+                </p>
+            </div>
+
+            <!-- Form Fields -->
+            <div class="bg-white rounded-2xl shadow-lg p-6 space-y-4">
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">Event Details</h3>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Event Name *</label>
+                    <input type="text" id="eventName" required placeholder="e.g., Youth Sunday Service"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Ministry / Department *</label>
+                    <input type="text" id="ministryDepartment" required placeholder="e.g., Youth Ministry"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Event Date *</label>
+                        <input type="date" id="eventDate" required
+                            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Time *</label>
+                        <input type="text" id="eventTime" required placeholder="e.g., 10:00 AM"
+                            class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Venue / Platform *</label>
+                    <input type="text" id="venuePlatform" required placeholder="e.g., Church Hall / Zoom"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Speaker / Host</label>
+                    <input type="text" id="speakerHost" placeholder="e.g., Pastor John"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Theme / Tagline</label>
+                    <input type="text" id="themeTagline" placeholder="e.g., Walking in Faith"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Scripture (if applicable)</label>
+                    <input type="text" id="scripture" placeholder="e.g., Hebrews 11:1"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Target Audience</label>
+                    <input type="text" id="targetAudience" placeholder="e.g., Youth ages 13-25"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Purpose *</label>
+                    <select id="purpose" required
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+                        <option value="">-- Select purpose --</option>
+                        <option value="invitation">Invitation</option>
+                        <option value="information">Information</option>
+                        <option value="reminder">Reminder</option>
+                        <option value="registration">Registration</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Additional Notes</label>
+                    <textarea id="additionalNotes" rows="3" placeholder="Any special requirements, colors, logos, etc."
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 resize-none"></textarea>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button onclick="submitRequest()" id="submitBtn"
+                class="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl hover:opacity-90 transition-opacity">
+                Submit Request
+            </button>
+        </div>
+
+        <!-- Success State -->
+        <div id="successState" class="hidden bg-white rounded-2xl shadow-lg p-6 text-center">
+            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold text-gray-900">Request Submitted!</h3>
+            <p class="text-gray-500 mt-2">Your poster request has been sent to the media team. You will receive an email when it's being processed.</p>
+            <div class="mt-6 space-y-3">
+                <button onclick="submitAnother()"
+                    class="w-full py-3 bg-purple-100 text-purple-700 font-medium rounded-xl hover:bg-purple-200">
+                    Submit Another Request
+                </button>
+                <a href="/portal" class="block w-full py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 text-center">
+                    Back to Portal
+                </a>
+            </div>
+        </div>
+
+        <!-- My Requests -->
+        <div id="myRequests" class="hidden mt-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-3">My Poster Requests</h3>
+            <div id="requestsList" class="space-y-3"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPhone = null;
+let memberData = null;
+
+// Check URL params for phone
+document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const phone = params.get('phone');
+    if (phone) {
+        document.getElementById('phoneInput').value = phone;
+        verifyPhone();
+    }
+
+    // Set min date to today
+    document.getElementById('eventDate').min = new Date().toISOString().split('T')[0];
+});
+
+async function verifyPhone() {
+    const phone = document.getElementById('phoneInput').value.trim();
+    if (!phone || phone.length < 10) {
+        document.getElementById('loginError').textContent = 'Please enter a valid phone number';
+        document.getElementById('loginError').classList.remove('hidden');
+        return;
+    }
+
+    document.getElementById('verifyBtn').disabled = true;
+    document.getElementById('verifyBtn').textContent = 'Verifying...';
+    document.getElementById('loginError').classList.add('hidden');
+
+    try {
+        const res = await fetch(`/api/results?phone=${encodeURIComponent(phone)}`);
+        const data = await res.json();
+
+        if (data.members && data.members.length > 0) {
+            currentPhone = phone;
+            memberData = data.members[0]; // Use first member for now
+            document.getElementById('memberName').textContent = memberData.name;
+
+            document.getElementById('loginRequired').classList.add('hidden');
+            document.getElementById('requestForm').classList.remove('hidden');
+
+            // Load existing requests
+            loadMyRequests();
+        } else {
+            document.getElementById('loginError').textContent = 'Phone number not found. Please register first.';
+            document.getElementById('loginError').classList.remove('hidden');
+        }
+    } catch (err) {
+        document.getElementById('loginError').textContent = 'Error verifying phone. Please try again.';
+        document.getElementById('loginError').classList.remove('hidden');
+    } finally {
+        document.getElementById('verifyBtn').disabled = false;
+        document.getElementById('verifyBtn').textContent = 'Continue';
+    }
+}
+
+async function loadMyRequests() {
+    try {
+        const res = await fetch(`/api/poster-requests?phone=${encodeURIComponent(currentPhone)}`);
+        const data = await res.json();
+
+        if (data.requests && data.requests.length > 0) {
+            document.getElementById('myRequests').classList.remove('hidden');
+            const container = document.getElementById('requestsList');
+
+            container.innerHTML = data.requests.map(r => {
+                const statusColors = {
+                    pending: 'bg-yellow-100 text-yellow-700',
+                    acknowledged: 'bg-blue-100 text-blue-700',
+                    completed: 'bg-green-100 text-green-700'
+                };
+                const statusLabels = {
+                    pending: 'Pending',
+                    acknowledged: 'Being Processed',
+                    completed: 'Completed'
+                };
+                return `
+                <div class="bg-white rounded-xl shadow p-4">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h4 class="font-medium text-gray-900">${r.event_name}</h4>
+                            <p class="text-sm text-gray-500">${r.ministry_department} - ${new Date(r.event_date).toLocaleDateString()}</p>
+                        </div>
+                        <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${statusLabels[r.status]}</span>
+                    </div>
+                    ${r.acknowledged_by_name ? `<p class="text-xs text-gray-400 mt-2">Acknowledged by ${r.acknowledged_by_name}</p>` : ''}
+                </div>
+                `;
+            }).join('');
+        }
+    } catch (err) {
+        console.error('Failed to load requests:', err);
+    }
+}
+
+async function submitRequest() {
+    const eventName = document.getElementById('eventName').value.trim();
+    const ministryDepartment = document.getElementById('ministryDepartment').value.trim();
+    const eventDate = document.getElementById('eventDate').value;
+    const eventTime = document.getElementById('eventTime').value.trim();
+    const venuePlatform = document.getElementById('venuePlatform').value.trim();
+    const purpose = document.getElementById('purpose').value;
+
+    if (!eventName || !ministryDepartment || !eventDate || !eventTime || !venuePlatform || !purpose) {
+        alert('Please fill in all required fields');
+        return;
+    }
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+        const payload = {
+            event_name: eventName,
+            ministry_department: ministryDepartment,
+            event_date: eventDate,
+            event_time: eventTime,
+            venue_platform: venuePlatform,
+            speaker_host: document.getElementById('speakerHost').value.trim() || null,
+            theme_tagline: document.getElementById('themeTagline').value.trim() || null,
+            scripture: document.getElementById('scripture').value.trim() || null,
+            target_audience: document.getElementById('targetAudience').value.trim() || null,
+            purpose: purpose,
+            additional_notes: document.getElementById('additionalNotes').value.trim() || null
+        };
+
+        const res = await fetch(`/api/poster-requests?phone=${encodeURIComponent(currentPhone)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to submit request');
+        }
+
+        document.getElementById('requestForm').classList.add('hidden');
+        document.getElementById('myRequests').classList.add('hidden');
+        document.getElementById('successState').classList.remove('hidden');
+
+    } catch (err) {
+        alert(err.message || 'Failed to submit request. Please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Submit Request';
+    }
+}
+
+function submitAnother() {
+    // Reset form
+    document.getElementById('eventName').value = '';
+    document.getElementById('ministryDepartment').value = '';
+    document.getElementById('eventDate').value = '';
+    document.getElementById('eventTime').value = '';
+    document.getElementById('venuePlatform').value = '';
+    document.getElementById('speakerHost').value = '';
+    document.getElementById('themeTagline').value = '';
+    document.getElementById('scripture').value = '';
+    document.getElementById('targetAudience').value = '';
+    document.getElementById('purpose').value = '';
+    document.getElementById('additionalNotes').value = '';
+
+    document.getElementById('successState').classList.add('hidden');
+    document.getElementById('requestForm').classList.remove('hidden');
+    loadMyRequests();
+}
+</script>
+{% endblock %}

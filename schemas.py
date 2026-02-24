@@ -368,3 +368,41 @@ class NotificationLogResponse(BaseModel):
 
 class TestEmailRequest(BaseModel):
     to_email: str
+
+
+# ============ POSTER REQUEST SCHEMAS ============
+
+class PosterRequestCreate(BaseModel):
+    event_name: str
+    ministry_department: str
+    event_date: date
+    event_time: str
+    venue_platform: str
+    speaker_host: Optional[str] = None
+    theme_tagline: Optional[str] = None
+    scripture: Optional[str] = None
+    target_audience: Optional[str] = None
+    purpose: str  # invitation, information, reminder, registration
+    additional_notes: Optional[str] = None
+
+class PosterRequestResponse(BaseModel):
+    id: int
+    requester_id: int
+    requester_name: str
+    requester_email: Optional[str] = None
+    event_name: str
+    ministry_department: str
+    event_date: date
+    event_time: str
+    venue_platform: str
+    speaker_host: Optional[str] = None
+    theme_tagline: Optional[str] = None
+    scripture: Optional[str] = None
+    target_audience: Optional[str] = None
+    purpose: str
+    additional_notes: Optional[str] = None
+    status: str
+    acknowledged_by_id: Optional[int] = None
+    acknowledged_by_name: Optional[str] = None
+    acknowledged_at: Optional[datetime] = None
+    created_at: datetime

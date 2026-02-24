@@ -310,3 +310,19 @@ async def admin_meetings(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
     return templates.TemplateResponse("admin/meetings.html", {"request": request})
+
+
+# ============ POSTER REQUEST ROUTES ============
+
+@router.get("/poster-request")
+async def poster_request_form(request: Request):
+    """Poster request form - requires phone login"""
+    return templates.TemplateResponse("poster_request.html", {"request": request})
+
+
+@router.get("/admin/poster-requests")
+async def admin_poster_requests(request: Request):
+    """Admin poster requests management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/poster_requests.html", {"request": request})

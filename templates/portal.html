@@ -164,6 +164,31 @@
 
                 <div id="hodDepartmentsList" class="space-y-4"></div>
             </div>
+
+            <!-- Poster Request Section -->
+            <div id="posterRequestSection" class="bg-white rounded-2xl shadow-lg p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        <h3 class="text-lg font-semibold text-gray-900">Poster Requests</h3>
+                    </div>
+                    <a id="newPosterRequestLink" href="#" class="text-sm text-purple-600 hover:underline">+ New Request</a>
+                </div>
+
+                <!-- Design Team Pending Requests -->
+                <div id="designTeamRequests" class="hidden space-y-3 mb-4">
+                    <p class="text-sm text-purple-700 font-medium">Pending requests to acknowledge:</p>
+                    <div id="pendingRequestsList" class="space-y-2"></div>
+                </div>
+
+                <!-- My Requests -->
+                <div id="myPosterRequests">
+                    <div id="myRequestsList" class="space-y-2"></div>
+                    <p id="noPosterRequests" class="text-gray-500 text-sm hidden">No poster requests yet.</p>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -223,6 +248,7 @@ let phone = '';
 let allData = null;
 let hodData = null;
 let meetingsData = null;
+let posterData = null;
 let currentMember = null;
 let allDepartments = [];
 
@@ -251,7 +277,7 @@ async function init() {
 
     try {
         // Fetch data (include HOD data and meetings)
-        const [resultsRes, deptsRes, hodRes, meetingsRes] = await Promise.all([
+        const [resultsRes, deptsRes, hodRes, meetingsRes, posterRes] = await Promise.all([
             fetch(`/api/results?phone=${encodeURIComponent(phone)}`).then(r => r.json()),
             fetch('/api/departments').then(r => r.json()),
             fetch(`/api/hod/departments?phone=${encodeURIComponent(phone)}`).then(r => {
@@ -261,12 +287,17 @@ async function init() {
             fetch(`/api/meetings?phone=${encodeURIComponent(phone)}`).then(r => {
                 if (r.ok) return r.json();
                 return { meetings: [] };
-            }).catch(() => ({ meetings: [] }))
+            }).catch(() => ({ meetings: [] })),
+            fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => {
+                if (r.ok) return r.json();
+                return { requests: [], is_design_team: false };
+            }).catch(() => ({ requests: [], is_design_team: false }))
         ]);
 
         allData = resultsRes;
         hodData = hodRes;
         meetingsData = meetingsRes;
+        posterData = posterRes;
 
         // Flatten departments for appeal dropdown
         allDepartments = [];
@@ -366,6 +397,9 @@ function selectMember(member) {
 
     // Render meetings
     renderMeetings();
+
+    // Render poster requests
+    renderPosterRequests();
 }
 
 function renderDepartments(member) {
@@ -609,6 +643,105 @@ function renderMeetings() {
             </div>
         `;
     }).join('');
+}
+
+function renderPosterRequests() {
+    const section = document.getElementById('posterRequestSection');
+    const newLink = document.getElementById('newPosterRequestLink');
+    const designTeamSection = document.getElementById('designTeamRequests');
+    const pendingList = document.getElementById('pendingRequestsList');
+    const myList = document.getElementById('myRequestsList');
+    const noRequests = document.getElementById('noPosterRequests');
+
+    // Set up the new request link
+    newLink.href = `/poster-request?phone=${encodeURIComponent(phone)}`;
+
+    if (!posterData) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    section.classList.remove('hidden');
+
+    const statusColors = {
+        pending: 'bg-yellow-100 text-yellow-700',
+        acknowledged: 'bg-blue-100 text-blue-700',
+        completed: 'bg-green-100 text-green-700'
+    };
+    const statusLabels = {
+        pending: 'Pending',
+        acknowledged: 'Processing',
+        completed: 'Completed'
+    };
+
+    // If design team, show pending requests to acknowledge
+    if (posterData.is_design_team) {
+        const pendingRequests = posterData.requests.filter(r => r.status === 'pending');
+        if (pendingRequests.length > 0) {
+            designTeamSection.classList.remove('hidden');
+            pendingList.innerHTML = pendingRequests.map(r => `
+                <div class="bg-purple-50 border border-purple-200 rounded-xl p-3">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h4 class="font-medium text-gray-900">${r.event_name}</h4>
+                            <p class="text-sm text-gray-500">${r.ministry_department} - ${new Date(r.event_date).toLocaleDateString()}</p>
+                            <p class="text-xs text-gray-400">From: ${r.requester_name}</p>
+                        </div>
+                        <button onclick="acknowledgePosterRequest(${r.id})" class="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700">
+                            Acknowledge
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            designTeamSection.classList.add('hidden');
+        }
+    }
+
+    // Show member's own requests (non-design team view or acknowledged/completed for design team)
+    const myRequests = posterData.is_design_team
+        ? posterData.requests.filter(r => r.requester_id === currentMember.id)
+        : posterData.requests;
+
+    if (myRequests.length > 0) {
+        noRequests.classList.add('hidden');
+        myList.innerHTML = myRequests.map(r => `
+            <div class="border border-gray-200 rounded-xl p-3">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h4 class="font-medium text-gray-900">${r.event_name}</h4>
+                        <p class="text-sm text-gray-500">${r.ministry_department} - ${new Date(r.event_date).toLocaleDateString()}</p>
+                    </div>
+                    <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${statusLabels[r.status]}</span>
+                </div>
+                ${r.acknowledged_by_name ? `<p class="text-xs text-gray-400 mt-1">Acknowledged by ${r.acknowledged_by_name}</p>` : ''}
+            </div>
+        `).join('');
+    } else {
+        myList.innerHTML = '';
+        noRequests.classList.remove('hidden');
+    }
+}
+
+async function acknowledgePosterRequest(requestId) {
+    try {
+        const res = await fetch(`/api/poster-requests/${requestId}/acknowledge?phone=${encodeURIComponent(phone)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to acknowledge');
+        }
+
+        // Reload poster requests
+        const posterRes = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`);
+        posterData = await posterRes.json();
+        renderPosterRequests();
+    } catch (err) {
+        alert(err.message || 'Failed to acknowledge request');
+    }
 }
 
 async function submitRsvp(meetingId, response) {

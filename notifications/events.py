@@ -20,6 +20,8 @@ class EventType(str, Enum):
     MEETING_REMINDER = "meeting_reminder"
     MEETING_UPDATED = "meeting_updated"
     MEETING_CANCELLED = "meeting_cancelled"
+    POSTER_REQUEST_SUBMITTED = "poster_request_submitted"
+    POSTER_REQUEST_ACKNOWLEDGED = "poster_request_acknowledged"
 
 
 # Event display names for admin UI
@@ -34,6 +36,8 @@ EVENT_LABELS = {
     EventType.MEETING_REMINDER: "Meeting Reminder",
     EventType.MEETING_UPDATED: "Meeting Updated",
     EventType.MEETING_CANCELLED: "Meeting Cancelled",
+    EventType.POSTER_REQUEST_SUBMITTED: "Poster Request Submitted",
+    EventType.POSTER_REQUEST_ACKNOWLEDGED: "Poster Request Acknowledged",
 }
 
 
@@ -49,6 +53,8 @@ EVENT_DESCRIPTIONS = {
     EventType.MEETING_REMINDER: "Sent to attendees on the day of a meeting",
     EventType.MEETING_UPDATED: "Sent to department members when meeting details change",
     EventType.MEETING_CANCELLED: "Sent to department members when a meeting is cancelled",
+    EventType.POSTER_REQUEST_SUBMITTED: "Sent to design team when a poster request is submitted",
+    EventType.POSTER_REQUEST_ACKNOWLEDGED: "Sent to requester when their poster request is acknowledged",
 }
 
 
@@ -64,6 +70,8 @@ EMAIL_SUBJECTS = {
     EventType.MEETING_REMINDER: "Reminder: {title} Today",
     EventType.MEETING_UPDATED: "Meeting Updated: {title}",
     EventType.MEETING_CANCELLED: "Meeting Cancelled: {title}",
+    EventType.POSTER_REQUEST_SUBMITTED: "New Poster Request: {event_name}",
+    EventType.POSTER_REQUEST_ACKNOWLEDGED: "Your Poster Request is Being Processed",
 }
 
 
