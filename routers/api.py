@@ -10,7 +10,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -21,7 +21,8 @@ from schemas import (
     SetHODRequest,
     MeetingCreate, MeetingUpdate, RSVPRequest,
     SMTPSettingsUpdate, NotificationConfigUpdate, TestEmailRequest,
-    PosterRequestCreate, PosterRequestResponse
+    PosterRequestCreate, PosterRequestResponse,
+    ServiceProgramCreate, ServiceProgramUpdate, ServiceProgramResponse
 )
 
 router = APIRouter()
@@ -3713,3 +3714,118 @@ def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
         "message": f"Meeting reminder sent to {len(recipients)} recipient(s)",
         "emails_sent": len(recipients)
     }
+
+
+# ============ SERVICE PROGRAM ENDPOINTS ============
+
+def _program_to_dict(program: ServiceProgram) -> dict:
+    """Convert a ServiceProgram model to response dict"""
+    return {
+        "id": program.id,
+        "title": program.title,
+        "service_date": program.service_date.isoformat(),
+        "program_items": json.loads(program.program_items) if isinstance(program.program_items, str) else program.program_items,
+        "participants": json.loads(program.participants) if isinstance(program.participants, str) else program.participants,
+        "created_at": program.created_at.isoformat() if program.created_at else None,
+        "updated_at": program.updated_at.isoformat() if program.updated_at else None
+    }
+
+
+def _cleanup_past_programs(db: Session):
+    """Delete programs with service_date before today"""
+    today = date.today()
+    deleted = db.query(ServiceProgram).filter(ServiceProgram.service_date < today).delete()
+    if deleted:
+        db.commit()
+        print(f"[Cleanup] Deleted {deleted} past service program(s)")
+    return deleted
+
+
+@router.get("/programs/today")
+def get_todays_programs(db: Session = Depends(get_db)):
+    """Public endpoint: get today's service program(s). Auto-cleans past programs."""
+    _cleanup_past_programs(db)
+
+    today = date.today()
+    programs = db.query(ServiceProgram).filter(
+        ServiceProgram.service_date == today
+    ).order_by(ServiceProgram.id).all()
+
+    return {
+        "date": today.isoformat(),
+        "programs": [_program_to_dict(p) for p in programs]
+    }
+
+
+@router.get("/admin/programs")
+def get_all_programs(db: Session = Depends(get_db)):
+    """Admin: list all programs (upcoming and today)"""
+    _cleanup_past_programs(db)
+
+    programs = db.query(ServiceProgram).order_by(ServiceProgram.service_date).all()
+    return [_program_to_dict(p) for p in programs]
+
+
+@router.get("/admin/programs/{program_id}")
+def get_program(program_id: int, db: Session = Depends(get_db)):
+    """Admin: get a single program by ID"""
+    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+    return _program_to_dict(program)
+
+
+@router.post("/admin/programs")
+def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
+    """Admin: create a new service program"""
+    if not data.title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if not data.program_items:
+        raise HTTPException(status_code=400, detail="At least one program item is required")
+
+    program = ServiceProgram(
+        title=data.title,
+        service_date=data.service_date,
+        program_items=json.dumps([item.model_dump() for item in data.program_items]),
+        participants=json.dumps([p.model_dump() for p in (data.participants or [])])
+    )
+    db.add(program)
+    db.commit()
+    db.refresh(program)
+
+    return _program_to_dict(program)
+
+
+@router.put("/admin/programs/{program_id}")
+def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = Depends(get_db)):
+    """Admin: update an existing program"""
+    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    if data.title is not None:
+        program.title = data.title
+    if data.service_date is not None:
+        program.service_date = data.service_date
+    if data.program_items is not None:
+        program.program_items = json.dumps([item.model_dump() for item in data.program_items])
+    if data.participants is not None:
+        program.participants = json.dumps([p.model_dump() for p in data.participants])
+
+    db.commit()
+    db.refresh(program)
+
+    return _program_to_dict(program)
+
+
+@router.delete("/admin/programs/{program_id}")
+def delete_program(program_id: int, db: Session = Depends(get_db)):
+    """Admin: delete a program"""
+    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    db.delete(program)
+    db.commit()
+
+    return {"success": True}

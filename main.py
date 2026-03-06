@@ -242,6 +242,9 @@ def run_migrations():
             conn.commit()
             print("Migration: Made ministry_department nullable in poster_requests")
 
+        # service_programs table is created by create_all() - no migration needed
+        # Auto-cleanup of past programs happens on GET /api/programs/today
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',

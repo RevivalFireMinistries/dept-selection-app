@@ -390,6 +390,38 @@ class PosterRequestCreate(BaseModel):
     output_formats: Optional[List[str]] = None  # ["projector", "social_media", "print"]
     additional_notes: Optional[str] = None
 
+# ============ SERVICE PROGRAM SCHEMAS ============
+
+class ProgramItem(BaseModel):
+    time: str  # "09:30"
+    item: str  # "Prayer"
+
+class Participant(BaseModel):
+    role: str  # "Prayer"
+    name: str  # "Dcns Gohodo"
+
+class ServiceProgramCreate(BaseModel):
+    title: str  # "SUNDAY SERVICE"
+    service_date: date
+    program_items: List[ProgramItem]
+    participants: List[Participant]
+
+class ServiceProgramUpdate(BaseModel):
+    title: Optional[str] = None
+    service_date: Optional[date] = None
+    program_items: Optional[List[ProgramItem]] = None
+    participants: Optional[List[Participant]] = None
+
+class ServiceProgramResponse(BaseModel):
+    id: int
+    title: str
+    service_date: date
+    program_items: List[ProgramItem]
+    participants: List[Participant]
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+
 class PosterRequestResponse(BaseModel):
     id: int
     requester_id: int

@@ -326,3 +326,11 @@ async def admin_poster_requests(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
     return templates.TemplateResponse("admin/poster_requests.html", {"request": request})
+
+
+@router.get("/admin/programs")
+async def admin_programs(request: Request):
+    """Admin service programs management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/programs.html", {"request": request})

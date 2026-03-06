@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session, joinedload
 
 from database import SessionLocal
-from models import Meeting, MemberDepartment, Member, Department
+from models import Meeting, MemberDepartment, Member, Department, ServiceProgram
 
 
 # Global scheduler instance
@@ -56,6 +56,15 @@ def start_scheduler():
         CronTrigger(hour=reminder_hour, minute=reminder_minute),
         id="meeting_reminders",
         name="Send Meeting Reminders",
+        replace_existing=True
+    )
+
+    # Add past program cleanup job - runs daily at 1:00 AM
+    scheduler.add_job(
+        cleanup_past_programs,
+        CronTrigger(hour=1, minute=0),
+        id="cleanup_past_programs",
+        name="Cleanup Past Service Programs",
         replace_existing=True
     )
 
@@ -203,6 +212,21 @@ def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str,
 
         return result
 
+    finally:
+        db.close()
+
+
+def cleanup_past_programs():
+    """Delete service programs with dates before today"""
+    db: Session = SessionLocal()
+    try:
+        today = datetime.now().date()
+        deleted = db.query(ServiceProgram).filter(ServiceProgram.service_date < today).delete()
+        if deleted:
+            db.commit()
+            print(f"[Cleanup] Deleted {deleted} past service program(s)")
+    except Exception as e:
+        print(f"[Cleanup] Failed to clean past programs: {e}")
     finally:
         db.close()
 

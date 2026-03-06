@@ -223,3 +223,18 @@ class PosterRequest(Base):
 
     requester = relationship("Member", foreign_keys=[requester_id])
     acknowledged_by = relationship("Member", foreign_keys=[acknowledged_by_id])
+
+
+class ServiceProgram(Base):
+    """Church service program/order of service"""
+    __tablename__ = "service_programs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)  # e.g. "SUNDAY SERVICE"
+    service_date = Column(Date, nullable=False, index=True)
+    # JSON array: [{"time": "09:30", "item": "Prayer"}, ...]
+    program_items = Column(Text, nullable=False)
+    # JSON array: [{"role": "Prayer", "name": "Dcns Gohodo"}, ...]
+    participants = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
