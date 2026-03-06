@@ -52,6 +52,7 @@
                     <button type="button" onclick="addParticipant()"
                         class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Participant</button>
                 </div>
+                <p class="text-xs text-gray-500 mb-2">Type to search members or enter a custom name.</p>
                 <div id="participants" class="space-y-2"></div>
             </div>
 
@@ -74,8 +75,45 @@
     </div>
 </div>
 
+<style>
+    .autocomplete-wrapper { position: relative; flex: 1; }
+    .autocomplete-dropdown {
+        position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+        background: white; border: 1px solid #d1d5db; border-top: none;
+        border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .autocomplete-dropdown .ac-item {
+        padding: 8px 12px; cursor: pointer; font-size: 14px;
+    }
+    .autocomplete-dropdown .ac-item:hover,
+    .autocomplete-dropdown .ac-item.active {
+        background-color: #eff6ff; color: #1d4ed8;
+    }
+    .autocomplete-dropdown .ac-item .ac-phone {
+        font-size: 12px; color: #9ca3af; margin-left: 8px;
+    }
+    .member-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        background: #eff6ff; color: #1d4ed8; font-size: 11px;
+        padding: 1px 6px; border-radius: 4px; margin-left: 4px;
+    }
+</style>
+
 <script>
 let editingId = null;
+let allMembers = [];
+let activeDropdown = null;
+
+// Load members for autocomplete
+async function loadMembers() {
+    try {
+        const res = await fetch('/api/members');
+        allMembers = await res.json();
+    } catch (e) {
+        console.error('Failed to load members:', e);
+    }
+}
 
 function addProgramItem(time = '', item = '') {
     const container = document.getElementById('programItems');
@@ -94,21 +132,135 @@ function addProgramItem(time = '', item = '') {
     container.appendChild(row);
 }
 
+let participantCounter = 0;
+
 function addParticipant(role = '', name = '') {
     const container = document.getElementById('participants');
     const row = document.createElement('div');
+    const id = 'part-name-' + (participantCounter++);
     row.className = 'flex gap-2 items-center participant-row';
     row.innerHTML = `
-        <input type="text" value="${role}" placeholder="e.g., Prayer"
+        <input type="text" value="${escapeHtml(role)}" placeholder="e.g., Prayer"
             class="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role">
-        <input type="text" value="${name}" placeholder="e.g., Dcns Gohodo"
-            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name">
+        <div class="autocomplete-wrapper">
+            <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name"
+                id="${id}"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name"
+                autocomplete="off">
+        </div>
         <button type="button" onclick="this.parentElement.remove()"
-            class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
+            class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     container.appendChild(row);
+
+    // Set up autocomplete on the name input
+    const input = row.querySelector('#' + id);
+    setupAutocomplete(input);
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function setupAutocomplete(input) {
+    let dropdown = null;
+    let selectedIndex = -1;
+    let filtered = [];
+
+    function showDropdown(items) {
+        closeAllDropdowns();
+        filtered = items;
+        selectedIndex = -1;
+        if (items.length === 0) { hideDropdown(); return; }
+
+        dropdown = document.createElement('div');
+        dropdown.className = 'autocomplete-dropdown';
+        items.forEach((m, i) => {
+            const div = document.createElement('div');
+            div.className = 'ac-item';
+            div.innerHTML = `${escapeHtml(m.fullName)}<span class="ac-phone">${m.phone}</span>`;
+            div.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                selectMember(m);
+            });
+            dropdown.appendChild(div);
+        });
+        input.parentElement.appendChild(dropdown);
+        activeDropdown = dropdown;
+    }
+
+    function hideDropdown() {
+        if (dropdown && dropdown.parentElement) {
+            dropdown.remove();
+        }
+        dropdown = null;
+        activeDropdown = null;
+        selectedIndex = -1;
+    }
+
+    function selectMember(m) {
+        input.value = m.fullName;
+        hideDropdown();
+    }
+
+    function updateHighlight() {
+        if (!dropdown) return;
+        const items = dropdown.querySelectorAll('.ac-item');
+        items.forEach((el, i) => {
+            el.classList.toggle('active', i === selectedIndex);
+        });
+        if (selectedIndex >= 0 && items[selectedIndex]) {
+            items[selectedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim().toLowerCase();
+        if (query.length < 1) { hideDropdown(); return; }
+
+        const matches = allMembers.filter(m =>
+            m.fullName.toLowerCase().includes(query) ||
+            m.phone.includes(query)
+        ).slice(0, 10);
+
+        showDropdown(matches);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (!dropdown) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
+            updateHighlight();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIndex = Math.max(selectedIndex - 1, 0);
+            updateHighlight();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (selectedIndex >= 0 && filtered[selectedIndex]) {
+                selectMember(filtered[selectedIndex]);
+            } else {
+                hideDropdown();
+            }
+        } else if (e.key === 'Escape') {
+            hideDropdown();
+        }
+    });
+
+    input.addEventListener('blur', () => {
+        // Small delay so mousedown on dropdown items can fire first
+        setTimeout(hideDropdown, 150);
+    });
+}
+
+function closeAllDropdowns() {
+    document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.remove());
+    activeDropdown = null;
 }
 
 function showCreateForm() {
@@ -118,7 +270,7 @@ function showCreateForm() {
     document.getElementById('progDate').value = '';
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
-    // Add a few empty rows
+    participantCounter = 0;
     addProgramItem();
     addProgramItem();
     addParticipant();
@@ -133,6 +285,7 @@ function showEditForm(program) {
     document.getElementById('progDate').value = program.service_date;
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
+    participantCounter = 0;
 
     (program.program_items || []).forEach(item => {
         addProgramItem(item.time, item.item);
@@ -158,7 +311,6 @@ function collectFormData() {
         const time = row.querySelector('.prog-item-time').value.trim();
         const item = row.querySelector('.prog-item-name').value.trim();
         if (time && item) {
-            // Convert HH:MM 24h to HH:MM for storage
             program_items.push({ time, item });
         }
     });
@@ -212,7 +364,6 @@ async function deleteProgram(id) {
 
 function formatTime(time) {
     if (!time) return '';
-    // time could be "09:30" or "HH:MM"
     const [h, m] = time.split(':');
     const hour = parseInt(h);
     const ampm = hour >= 12 ? 'PM' : 'AM';
@@ -242,14 +393,14 @@ async function loadPrograms() {
         const itemsHtml = (p.program_items || []).map(item =>
             `<div class="flex gap-3 text-sm">
                 <span class="text-gray-500 font-mono w-16 shrink-0">${formatTime(item.time)}</span>
-                <span class="text-gray-900">${item.item}</span>
+                <span class="text-gray-900">${escapeHtml(item.item)}</span>
             </div>`
         ).join('');
 
         const partsHtml = (p.participants || []).map(pt =>
             `<div class="flex gap-3 text-sm">
-                <span class="text-gray-500 font-medium w-36 shrink-0">${pt.role}:</span>
-                <span class="text-gray-900">${pt.name}</span>
+                <span class="text-gray-500 font-medium w-36 shrink-0">${escapeHtml(pt.role)}:</span>
+                <span class="text-gray-900">${escapeHtml(pt.name)}</span>
             </div>`
         ).join('');
 
@@ -258,12 +409,12 @@ async function loadPrograms() {
             <div class="p-6">
                 <div class="flex items-start justify-between mb-4">
                     <div>
-                        <h3 class="text-lg font-bold text-gray-900">${p.title}</h3>
+                        <h3 class="text-lg font-bold text-gray-900">${escapeHtml(p.title)}</h3>
                         <p class="text-sm text-gray-500">${dateStr}</p>
                         ${isToday ? '<span class="inline-block mt-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
                     </div>
                     <div class="flex gap-2">
-                        <button onclick='showEditForm(${JSON.stringify(p)})'
+                        <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})'
                             class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">Edit</button>
                         <button onclick="deleteProgram(${p.id})"
                             class="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
@@ -285,7 +436,8 @@ async function loadPrograms() {
     }).join('');
 }
 
-// Load on page ready
+// Init
+loadMembers();
 loadPrograms();
 </script>
 {% endblock %}
