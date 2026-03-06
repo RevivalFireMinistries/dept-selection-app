@@ -60,8 +60,21 @@
             </div>
         </div>
 
-        <!-- New Selection Tile -->
-        <a href="/new" class="block bg-white rounded-2xl shadow-lg p-4 sm:p-6 active:scale-[0.98] hover:shadow-xl transition-all">
+        <!-- Selections Locked Banner (shown when results are published) -->
+        <div id="lockedBanner" class="hidden bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5">
+            <div class="flex items-start gap-3">
+                <svg class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                </svg>
+                <div>
+                    <h3 class="text-sm font-semibold text-amber-800">Selections are closed</h3>
+                    <p class="text-xs text-amber-700 mt-1">Results have been published. New submissions and edits are no longer accepted. Use the login above to view your results.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- New Selection Tile (hidden when results are published) -->
+        <a href="/new" id="newMemberTile" class="block bg-white rounded-2xl shadow-lg p-4 sm:p-6 active:scale-[0.98] hover:shadow-xl transition-all">
             <div class="flex items-center gap-3 sm:gap-4">
                 <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-r from-green-400 to-emerald-500 flex items-center justify-center flex-shrink-0">
                     <svg class="w-6 h-6 sm:w-7 sm:h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,8 +126,23 @@
 <script>
 const STORAGE_KEY = 'rfm_member_phone';
 
+// Check if selections are locked (results published)
+async function checkSelectionsLocked() {
+    try {
+        const res = await fetch('/api/settings');
+        const settings = await res.json();
+        if (settings.resultsPublished === 'true') {
+            document.getElementById('newMemberTile').classList.add('hidden');
+            document.getElementById('lockedBanner').classList.remove('hidden');
+        }
+    } catch (e) {
+        // Ignore - default to showing everything
+    }
+}
+
 // Check for saved login and show success message if redirected from submission
 document.addEventListener('DOMContentLoaded', function() {
+    checkSelectionsLocked();
     const urlParams = new URLSearchParams(window.location.search);
 
     // Show success message if just submitted

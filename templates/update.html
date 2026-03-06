@@ -87,6 +87,27 @@
 let memberId = null;
 let memberData = null;
 
+// Check if selections are locked on page load
+(async function checkLocked() {
+    try {
+        const res = await fetch('/api/settings');
+        const settings = await res.json();
+        if (settings.resultsPublished === 'true') {
+            document.getElementById('lookupSection').innerHTML = `
+                <div class="flex items-start gap-3">
+                    <svg class="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                    </svg>
+                    <div>
+                        <h3 class="text-base font-semibold text-amber-800">Selections are closed</h3>
+                        <p class="text-sm text-amber-700 mt-1">Results have been published. Edits are no longer accepted.</p>
+                        <a href="/" class="inline-block mt-3 text-sm text-indigo-600 font-medium hover:underline">Back to home</a>
+                    </div>
+                </div>`;
+        }
+    } catch (e) {}
+})();
+
 async function lookupMember() {
     const phone = document.getElementById('phoneInput').value.trim();
 

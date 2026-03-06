@@ -34,6 +34,16 @@ def validate_phone(phone: str) -> bool:
     return len(digits) == 10
 
 
+def check_selections_locked(db: Session):
+    """Raise 403 if results are published (selections are locked for non-admins)"""
+    setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
+    if setting and setting.value == "true":
+        raise HTTPException(
+            status_code=403,
+            detail="Department selections are locked. Results have been published."
+        )
+
+
 # ============ DEPARTMENTS ============
 
 @router.get("/departments")
@@ -319,6 +329,8 @@ def get_member_by_id(member_id: int, db: Session = Depends(get_db)):
 @router.put("/members/{member_id}")
 def update_member(member_id: int, data: dict, db: Session = Depends(get_db)):
     """Update a member's information and department selections"""
+    check_selections_locked(db)
+
     member = db.query(Member).filter(Member.id == member_id).first()
 
     if not member:
@@ -438,6 +450,8 @@ def update_setting(data: SettingUpdate, db: Session = Depends(get_db)):
 @router.post("/submit")
 def submit_form(data: MemberSubmission, db: Session = Depends(get_db)):
     """Submit member department selection form"""
+    check_selections_locked(db)
+
     # Validate required fields
     if not data.full_name or not data.phone or not data.address:
         raise HTTPException(status_code=400, detail="Full name, phone, and address are required")

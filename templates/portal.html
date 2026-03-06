@@ -437,6 +437,11 @@ function selectMember(member) {
     document.getElementById('posterRequestMenuLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
     document.getElementById('updateSelectionMenuLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
 
+    // Hide "Update Selection" when results are published (selections locked)
+    if (allData.published) {
+        document.getElementById('updateSelectionMenuLink').classList.add('hidden');
+    }
+
     if (allData.published) {
         document.getElementById('publishedState').classList.remove('hidden');
         document.getElementById('notPublishedState').classList.add('hidden');

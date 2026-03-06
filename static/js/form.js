@@ -14,6 +14,13 @@ async function loadData() {
             fetch('/api/settings').then(r => r.json())
         ]);
 
+        // Check if selections are locked
+        if (settingsRes.resultsPublished === 'true') {
+            document.getElementById('loadingState').classList.add('hidden');
+            showError('Department selections are closed. Results have been published. Please visit the <a href="/" class="underline font-medium">home page</a> to view your results.');
+            return;
+        }
+
         categories = deptRes.categories || [];
         uncategorized = deptRes.uncategorized || [];
         maxDepartments = parseInt(settingsRes.maxDepartments) || 3;

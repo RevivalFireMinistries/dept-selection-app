@@ -131,6 +131,13 @@ async function loadData() {
             })
         ]);
 
+        // Check if selections are locked
+        if (settingsRes.resultsPublished === 'true') {
+            document.getElementById('loadingState').classList.add('hidden');
+            showError('Department selections are closed. Results have been published. Edits are not accepted.');
+            return;
+        }
+
         categories = deptRes.categories || [];
         uncategorized = deptRes.uncategorized || [];
         maxDepartments = parseInt(settingsRes.maxDepartments) || 3;
