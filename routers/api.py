@@ -3734,8 +3734,13 @@ def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
 
 def _program_to_dict(program: ServiceProgram) -> dict:
     """Convert a ServiceProgram model to response dict"""
+    # Hash is the updated_at unix timestamp - changes on every edit
+    ts = program.updated_at or program.created_at
+    hashcode = str(int(ts.timestamp())) if ts else "0"
+
     return {
         "id": program.id,
+        "hash": hashcode,
         "title": program.title,
         "service_date": program.service_date.isoformat(),
         "program_items": json.loads(program.program_items) if isinstance(program.program_items, str) else program.program_items,
