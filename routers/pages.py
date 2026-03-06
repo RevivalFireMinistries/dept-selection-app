@@ -334,3 +334,11 @@ async def admin_programs(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
     return templates.TemplateResponse("admin/programs.html", {"request": request})
+
+
+@router.get("/admin/program-templates")
+async def admin_program_templates(request: Request):
+    """Admin program templates management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/program_templates.html", {"request": request})

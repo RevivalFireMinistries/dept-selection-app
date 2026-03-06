@@ -400,11 +400,24 @@ class Participant(BaseModel):
     role: str  # "Prayer"
     name: str  # "Dcns Gohodo"
 
+class ProgramTemplateCreate(BaseModel):
+    title: str
+    day_of_week: int  # 0=Monday ... 6=Sunday
+    program_items: List[ProgramItem]
+    participants: List[Participant]
+
+class ProgramTemplateUpdate(BaseModel):
+    title: Optional[str] = None
+    day_of_week: Optional[int] = None
+    program_items: Optional[List[ProgramItem]] = None
+    participants: Optional[List[Participant]] = None
+
 class ServiceProgramCreate(BaseModel):
     title: str  # "SUNDAY SERVICE"
     service_date: date
     program_items: List[ProgramItem]
     participants: List[Participant]
+    template_id: Optional[int] = None  # Track which template was used
 
 class ServiceProgramUpdate(BaseModel):
     title: Optional[str] = None

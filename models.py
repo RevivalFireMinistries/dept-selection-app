@@ -225,6 +225,21 @@ class PosterRequest(Base):
     acknowledged_by = relationship("Member", foreign_keys=[acknowledged_by_id])
 
 
+class ProgramTemplate(Base):
+    """Reusable program template tied to a day of week"""
+    __tablename__ = "program_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)  # e.g. "SUNDAY SERVICE"
+    day_of_week = Column(Integer, nullable=False)  # 0=Monday, 1=Tuesday, ... 6=Sunday (Python weekday)
+    # JSON array: [{"time": "09:30", "item": "Prayer"}, ...]
+    program_items = Column(Text, nullable=False)
+    # JSON array: [{"role": "Prayer", "name": "Dcns Gohodo"}, ...]
+    participants = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class ServiceProgram(Base):
     """Church service program/order of service"""
     __tablename__ = "service_programs"

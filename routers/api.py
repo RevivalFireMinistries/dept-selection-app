@@ -10,7 +10,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -22,7 +22,8 @@ from schemas import (
     MeetingCreate, MeetingUpdate, RSVPRequest,
     SMTPSettingsUpdate, NotificationConfigUpdate, TestEmailRequest,
     PosterRequestCreate, PosterRequestResponse,
-    ServiceProgramCreate, ServiceProgramUpdate, ServiceProgramResponse
+    ServiceProgramCreate, ServiceProgramUpdate, ServiceProgramResponse,
+    ProgramTemplateCreate, ProgramTemplateUpdate
 )
 
 router = APIRouter()
@@ -3845,6 +3846,152 @@ def delete_program(program_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Program not found")
 
     db.delete(program)
+    db.commit()
+
+    return {"success": True}
+
+
+# ============ PROGRAM TEMPLATE ENDPOINTS ============
+
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _template_to_dict(template: ProgramTemplate) -> dict:
+    """Convert a ProgramTemplate model to response dict"""
+    ts = template.updated_at or template.created_at
+    hashcode = str(int(ts.timestamp())) if ts else "0"
+
+    return {
+        "id": template.id,
+        "hash": hashcode,
+        "title": template.title,
+        "day_of_week": template.day_of_week,
+        "day_name": DAY_NAMES[template.day_of_week] if 0 <= template.day_of_week <= 6 else "Unknown",
+        "program_items": json.loads(template.program_items) if isinstance(template.program_items, str) else template.program_items,
+        "participants": json.loads(template.participants) if isinstance(template.participants, str) else template.participants,
+        "created_at": template.created_at.isoformat() if template.created_at else None,
+        "updated_at": template.updated_at.isoformat() if template.updated_at else None
+    }
+
+
+@router.get("/programs/templates")
+def get_public_templates(day: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """Public endpoint: get program templates, optionally filtered by day name or number.
+    Examples: /api/programs/templates?day=sunday, /api/programs/templates?day=6
+    If no day param, returns all templates."""
+    query = db.query(ProgramTemplate)
+
+    if day is not None:
+        # Try as day name first
+        day_lower = day.strip().lower()
+        day_num = None
+        for i, name in enumerate(DAY_NAMES):
+            if name.lower() == day_lower:
+                day_num = i
+                break
+        # Try as number
+        if day_num is None:
+            try:
+                day_num = int(day)
+            except ValueError:
+                pass
+
+        if day_num is not None and 0 <= day_num <= 6:
+            query = query.filter(ProgramTemplate.day_of_week == day_num)
+        else:
+            return {"templates": []}
+
+    templates = query.order_by(ProgramTemplate.day_of_week, ProgramTemplate.title).all()
+    return {"templates": [_template_to_dict(t) for t in templates]}
+
+
+@router.get("/programs/templates/today")
+def get_todays_templates(db: Session = Depends(get_db)):
+    """Public endpoint: get templates for today's day of week."""
+    today_dow = date.today().weekday()  # 0=Monday ... 6=Sunday
+    templates = db.query(ProgramTemplate).filter(
+        ProgramTemplate.day_of_week == today_dow
+    ).order_by(ProgramTemplate.title).all()
+
+    return {
+        "date": date.today().isoformat(),
+        "day_of_week": today_dow,
+        "day_name": DAY_NAMES[today_dow],
+        "templates": [_template_to_dict(t) for t in templates]
+    }
+
+
+@router.get("/admin/templates")
+def get_all_templates(db: Session = Depends(get_db)):
+    """Admin: list all program templates"""
+    templates = db.query(ProgramTemplate).order_by(
+        ProgramTemplate.day_of_week, ProgramTemplate.title
+    ).all()
+    return [_template_to_dict(t) for t in templates]
+
+
+@router.get("/admin/templates/{template_id}")
+def get_template(template_id: int, db: Session = Depends(get_db)):
+    """Admin: get a single template"""
+    template = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return _template_to_dict(template)
+
+
+@router.post("/admin/templates")
+def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
+    """Admin: create a new program template"""
+    if not data.title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    if data.day_of_week < 0 or data.day_of_week > 6:
+        raise HTTPException(status_code=400, detail="day_of_week must be 0 (Monday) to 6 (Sunday)")
+
+    template = ProgramTemplate(
+        title=data.title,
+        day_of_week=data.day_of_week,
+        program_items=json.dumps([item.model_dump() for item in (data.program_items or [])]),
+        participants=json.dumps([p.model_dump() for p in (data.participants or [])])
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+
+    return _template_to_dict(template)
+
+
+@router.put("/admin/templates/{template_id}")
+def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session = Depends(get_db)):
+    """Admin: update a template"""
+    template = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if data.title is not None:
+        template.title = data.title
+    if data.day_of_week is not None:
+        if data.day_of_week < 0 or data.day_of_week > 6:
+            raise HTTPException(status_code=400, detail="day_of_week must be 0 (Monday) to 6 (Sunday)")
+        template.day_of_week = data.day_of_week
+    if data.program_items is not None:
+        template.program_items = json.dumps([item.model_dump() for item in data.program_items])
+    if data.participants is not None:
+        template.participants = json.dumps([p.model_dump() for p in data.participants])
+
+    db.commit()
+    db.refresh(template)
+
+    return _template_to_dict(template)
+
+
+@router.delete("/admin/templates/{template_id}")
+def delete_template(template_id: int, db: Session = Depends(get_db)):
+    """Admin: delete a template"""
+    template = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    db.delete(template)
     db.commit()
 
     return {"success": True}

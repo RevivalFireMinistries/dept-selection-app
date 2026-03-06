@@ -1,0 +1,388 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Program Templates - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Program Templates</h2>
+        <button onclick="showCreateForm()"
+            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            Add Template
+        </button>
+    </div>
+
+    <p class="text-sm text-gray-600">
+        Create reusable templates for each day of the week. When creating a program, you can pick a template to pre-fill the form.
+        External systems can also pull templates via
+        <code class="bg-gray-100 px-1 py-0.5 rounded text-xs">/api/programs/templates/today</code>.
+    </p>
+
+    <!-- Create/Edit Form -->
+    <div id="formSection" class="hidden bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4" id="formTitle">Add Template</h3>
+        <div class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                    <input type="text" id="tplTitle" placeholder="e.g., SUNDAY SERVICE"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Day of Week</label>
+                    <select id="tplDay"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="0">Monday</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6">Sunday</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Program Items -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Default Program Items</label>
+                    <button type="button" onclick="addProgramItem()"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Item</button>
+                </div>
+                <div id="programItems" class="space-y-2"></div>
+            </div>
+
+            <!-- Participants -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Default Participants</label>
+                    <button type="button" onclick="addParticipant()"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Participant</button>
+                </div>
+                <p class="text-xs text-gray-500 mb-2">Type to search members or enter a custom name.</p>
+                <div id="participants" class="space-y-2"></div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="saveTemplate()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    Save Template
+                </button>
+                <button onclick="hideForm()"
+                    class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Templates List -->
+    <div id="templatesList" class="space-y-4">
+        <div class="text-center py-8 text-gray-500">Loading...</div>
+    </div>
+</div>
+
+<style>
+    .autocomplete-wrapper { position: relative; flex: 1; }
+    .autocomplete-dropdown {
+        position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+        background: white; border: 1px solid #d1d5db; border-top: none;
+        border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .autocomplete-dropdown .ac-item {
+        padding: 8px 12px; cursor: pointer; font-size: 14px;
+    }
+    .autocomplete-dropdown .ac-item:hover,
+    .autocomplete-dropdown .ac-item.active {
+        background-color: #eff6ff; color: #1d4ed8;
+    }
+    .autocomplete-dropdown .ac-item .ac-phone {
+        font-size: 12px; color: #9ca3af; margin-left: 8px;
+    }
+    .day-badge {
+        display: inline-block; padding: 2px 10px; border-radius: 9999px;
+        font-size: 12px; font-weight: 600;
+    }
+</style>
+
+<script>
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_COLORS = [
+    'bg-gray-100 text-gray-700',
+    'bg-gray-100 text-gray-700',
+    'bg-gray-100 text-gray-700',
+    'bg-gray-100 text-gray-700',
+    'bg-amber-100 text-amber-700',
+    'bg-blue-100 text-blue-700',
+    'bg-purple-100 text-purple-700'
+];
+
+let editingId = null;
+let allMembers = [];
+let participantCounter = 0;
+
+async function loadMembers() {
+    try {
+        const res = await fetch('/api/members');
+        allMembers = await res.json();
+    } catch (e) {}
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function addProgramItem(time = '', item = '') {
+    const container = document.getElementById('programItems');
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center program-item-row';
+    row.innerHTML = `
+        <input type="time" value="${time}" class="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-time">
+        <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-name">
+        <button type="button" onclick="this.parentElement.remove()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+}
+
+function addParticipant(role = '', name = '') {
+    const container = document.getElementById('participants');
+    const row = document.createElement('div');
+    const id = 'part-name-' + (participantCounter++);
+    row.className = 'flex gap-2 items-center participant-row';
+    row.innerHTML = `
+        <input type="text" value="${escapeHtml(role)}" placeholder="e.g., Prayer" class="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role">
+        <div class="autocomplete-wrapper">
+            <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name" id="${id}"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name" autocomplete="off">
+        </div>
+        <button type="button" onclick="this.parentElement.remove()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+    setupAutocomplete(row.querySelector('#' + id));
+}
+
+function setupAutocomplete(input) {
+    let dropdown = null;
+    let selectedIndex = -1;
+    let filtered = [];
+
+    function showDropdown(items) {
+        closeAllDropdowns();
+        filtered = items;
+        selectedIndex = -1;
+        if (items.length === 0) { hideDropdown(); return; }
+        dropdown = document.createElement('div');
+        dropdown.className = 'autocomplete-dropdown';
+        items.forEach((m, i) => {
+            const div = document.createElement('div');
+            div.className = 'ac-item';
+            div.innerHTML = `${escapeHtml(m.fullName)}<span class="ac-phone">${m.phone}</span>`;
+            div.addEventListener('mousedown', (e) => { e.preventDefault(); selectMember(m); });
+            dropdown.appendChild(div);
+        });
+        input.parentElement.appendChild(dropdown);
+    }
+
+    function hideDropdown() {
+        if (dropdown && dropdown.parentElement) dropdown.remove();
+        dropdown = null; selectedIndex = -1;
+    }
+
+    function selectMember(m) { input.value = m.fullName; hideDropdown(); }
+
+    function updateHighlight() {
+        if (!dropdown) return;
+        const items = dropdown.querySelectorAll('.ac-item');
+        items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
+        if (selectedIndex >= 0 && items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
+    }
+
+    input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        if (q.length < 1) { hideDropdown(); return; }
+        const matches = allMembers.filter(m => m.fullName.toLowerCase().includes(q) || m.phone.includes(q)).slice(0, 10);
+        showDropdown(matches);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (!dropdown) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1); updateHighlight(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); updateHighlight(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (selectedIndex >= 0 && filtered[selectedIndex]) selectMember(filtered[selectedIndex]); else hideDropdown(); }
+        else if (e.key === 'Escape') hideDropdown();
+    });
+
+    input.addEventListener('blur', () => setTimeout(hideDropdown, 150));
+}
+
+function closeAllDropdowns() { document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.remove()); }
+
+function showCreateForm() {
+    editingId = null;
+    document.getElementById('formTitle').textContent = 'Add Template';
+    document.getElementById('tplTitle').value = '';
+    document.getElementById('tplDay').value = '6'; // Default Sunday
+    document.getElementById('programItems').innerHTML = '';
+    document.getElementById('participants').innerHTML = '';
+    participantCounter = 0;
+    addProgramItem();
+    addProgramItem();
+    addParticipant();
+    addParticipant();
+    document.getElementById('formSection').classList.remove('hidden');
+}
+
+function showEditForm(tpl) {
+    editingId = tpl.id;
+    document.getElementById('formTitle').textContent = 'Edit Template';
+    document.getElementById('tplTitle').value = tpl.title;
+    document.getElementById('tplDay').value = tpl.day_of_week;
+    document.getElementById('programItems').innerHTML = '';
+    document.getElementById('participants').innerHTML = '';
+    participantCounter = 0;
+
+    (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
+    (tpl.participants || []).forEach(p => addParticipant(p.role, p.name));
+
+    document.getElementById('formSection').classList.remove('hidden');
+}
+
+function hideForm() {
+    document.getElementById('formSection').classList.add('hidden');
+    editingId = null;
+}
+
+function collectFormData() {
+    const title = document.getElementById('tplTitle').value.trim();
+    const day_of_week = parseInt(document.getElementById('tplDay').value);
+
+    const program_items = [];
+    document.querySelectorAll('.program-item-row').forEach(row => {
+        const time = row.querySelector('.prog-item-time').value.trim();
+        const item = row.querySelector('.prog-item-name').value.trim();
+        if (time && item) program_items.push({ time, item });
+    });
+
+    const participants = [];
+    document.querySelectorAll('.participant-row').forEach(row => {
+        const role = row.querySelector('.part-role').value.trim();
+        const name = row.querySelector('.part-name').value.trim();
+        if (role && name) participants.push({ role, name });
+    });
+
+    return { title, day_of_week, program_items, participants };
+}
+
+async function saveTemplate() {
+    const data = collectFormData();
+    if (!data.title) return alert('Title is required');
+
+    const url = editingId ? `/api/admin/templates/${editingId}` : '/api/admin/templates';
+    const method = editingId ? 'PUT' : 'POST';
+
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+
+    if (res.ok) {
+        hideForm();
+        loadTemplates();
+    } else {
+        const err = await res.json();
+        alert(err.detail || 'Failed to save template');
+    }
+}
+
+async function deleteTemplate(id) {
+    if (!confirm('Delete this template?')) return;
+    const res = await fetch(`/api/admin/templates/${id}`, { method: 'DELETE' });
+    if (res.ok) loadTemplates();
+    else alert('Failed to delete template');
+}
+
+function formatTime(time) {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const display = hour % 12 || 12;
+    return `${display}:${m} ${ampm}`;
+}
+
+async function loadTemplates() {
+    const res = await fetch('/api/admin/templates');
+    const templates = await res.json();
+    const container = document.getElementById('templatesList');
+
+    if (templates.length === 0) {
+        container.innerHTML = `<div class="bg-white rounded-xl shadow p-8 text-center text-gray-500">No templates yet. Click "Add Template" to create one.</div>`;
+        return;
+    }
+
+    // Group by day
+    const byDay = {};
+    templates.forEach(t => {
+        if (!byDay[t.day_of_week]) byDay[t.day_of_week] = [];
+        byDay[t.day_of_week].push(t);
+    });
+
+    let html = '';
+    for (let day = 0; day <= 6; day++) {
+        if (!byDay[day]) continue;
+        html += `<div>
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                <span class="day-badge ${DAY_COLORS[day]}">${DAY_NAMES[day]}</span>
+            </h3>
+            <div class="space-y-3">`;
+
+        byDay[day].forEach(t => {
+            const itemsHtml = (t.program_items || []).map(item =>
+                `<div class="flex gap-3 text-sm"><span class="text-gray-500 font-mono w-16 shrink-0">${formatTime(item.time)}</span><span class="text-gray-900">${escapeHtml(item.item)}</span></div>`
+            ).join('');
+
+            const partsHtml = (t.participants || []).map(pt =>
+                `<div class="flex gap-3 text-sm"><span class="text-gray-500 font-medium w-36 shrink-0">${escapeHtml(pt.role)}:</span><span class="text-gray-900">${escapeHtml(pt.name)}</span></div>`
+            ).join('');
+
+            html += `
+            <div class="bg-white rounded-xl shadow overflow-hidden">
+                <div class="p-6">
+                    <div class="flex items-start justify-between mb-4">
+                        <div>
+                            <h4 class="text-lg font-bold text-gray-900">${escapeHtml(t.title)}</h4>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick='showEditForm(${JSON.stringify(t).replace(/'/g, "&#39;")})'
+                                class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">Edit</button>
+                            <button onclick="deleteTemplate(${t.id})"
+                                class="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Program</h5>
+                            <div class="space-y-1">${itemsHtml || '<span class="text-gray-400 text-sm">No items</span>'}</div>
+                        </div>
+                        <div>
+                            <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Participants</h5>
+                            <div class="space-y-1">${partsHtml || '<span class="text-gray-400 text-sm">No participants</span>'}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        });
+        html += '</div></div>';
+    }
+
+    container.innerHTML = html;
+}
+
+loadMembers();
+loadTemplates();
+</script>
+{% endblock %}
