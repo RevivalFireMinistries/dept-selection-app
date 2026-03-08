@@ -229,6 +229,16 @@ function getActivityNames() {
         const item = row.querySelector('.prog-item-name').value.trim();
         if (item) names.push(item);
     });
+    // Include support roles from selected template
+    const tplSelect = document.getElementById('templateSelect');
+    if (tplSelect && tplSelect.value) {
+        const tpl = allTemplates.find(t => t.id === parseInt(tplSelect.value));
+        if (tpl && tpl.support_roles) {
+            tpl.support_roles.forEach(r => {
+                if (r && !names.includes(r)) names.push(r);
+            });
+        }
+    }
     return names;
 }
 
