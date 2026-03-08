@@ -771,6 +771,56 @@ function hideForm() {
 
 // ==================== TEMPLATE AUTO-APPLY ====================
 
+/**
+ * Given a template day_of_week (0=Mon..6=Sun), find the next occurrence.
+ * If today IS that day but the program's earliest start time has already passed, skip to next week.
+ * @param {number} templateDay - 0=Monday ... 6=Sunday (Python weekday convention)
+ * @param {Array} programItems - [{time: "09:30", item: "..."}, ...]
+ * @returns {string} ISO date string "YYYY-MM-DD"
+ */
+function getNextDateForDay(templateDay, programItems) {
+    // Convert Python weekday (0=Mon..6=Sun) to JS weekday (0=Sun..6=Sat)
+    const jsDay = (templateDay + 1) % 7; // Mon=1, Tue=2 ... Sun=0
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayJsDay = today.getDay(); // 0=Sun..6=Sat
+
+    // Days until the target day
+    let daysAhead = (jsDay - todayJsDay + 7) % 7;
+
+    // If today is the target day, check if the program start time has passed
+    if (daysAhead === 0) {
+        const earliestTime = getEarliestTime(programItems);
+        if (earliestTime) {
+            const [h, m] = earliestTime.split(':').map(Number);
+            const startMinutes = h * 60 + m;
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            if (nowMinutes >= startMinutes) {
+                daysAhead = 7; // Already past start time today, use next week
+            }
+        }
+    }
+
+    const target = new Date(today);
+    target.setDate(today.getDate() + daysAhead);
+    return target.toISOString().split('T')[0];
+}
+
+/**
+ * Get the earliest time from program items
+ */
+function getEarliestTime(programItems) {
+    if (!programItems || programItems.length === 0) return null;
+    let earliest = null;
+    programItems.forEach(item => {
+        if (item.time && (!earliest || item.time < earliest)) {
+            earliest = item.time;
+        }
+    });
+    return earliest;
+}
+
 function onTemplateChange() {
     const select = document.getElementById('templateSelect');
     const tplId = parseInt(select.value);
@@ -781,6 +831,10 @@ function onTemplateChange() {
 
     // Fill in title
     document.getElementById('progTitle').value = tpl.title;
+
+    // Auto-fill date based on template's day of week
+    const nextDate = getNextDateForDay(tpl.day_of_week, tpl.program_items || []);
+    document.getElementById('progDate').value = nextDate;
 
     // Clear and rebuild
     document.getElementById('programItems').innerHTML = '';
