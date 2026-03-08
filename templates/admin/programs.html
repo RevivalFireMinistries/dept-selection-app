@@ -64,10 +64,10 @@
             <div>
                 <div class="flex items-center justify-between mb-2">
                     <label class="block text-sm font-medium text-gray-700">Participants</label>
-                    <button type="button" onclick="addParticipant()"
-                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Participant</button>
+                    <button type="button" onclick="addParticipantGroup()"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Activity</button>
                 </div>
-                <p class="text-xs text-gray-500 mb-2">Select an activity from the program items above, or choose "Custom role" for a new one. Type to search members.</p>
+                <p class="text-xs text-gray-500 mb-2">Each activity can have multiple participants. Select an activity, then add people by searching or typing names.</p>
                 <div id="participants" class="space-y-2"></div>
             </div>
 
@@ -259,11 +259,16 @@ function refreshActivityDropdowns() {
 }
 
 let participantCounter = 0;
+let groupCounter = 0;
 
-function addParticipant(role = '', name = '') {
+/**
+ * Add a participant group: one activity with multiple name slots.
+ * @param {string} role - activity name
+ * @param {string[]} names - array of participant names
+ */
+function addParticipantGroup(role = '', names = ['']) {
     const container = document.getElementById('participants');
-    const row = document.createElement('div');
-    const id = 'part-name-' + (participantCounter++);
+    const groupId = 'part-group-' + (groupCounter++);
     const activities = getActivityNames();
     const isKnownActivity = activities.includes(role);
     const isCustom = role && !isKnownActivity;
@@ -275,32 +280,76 @@ function addParticipant(role = '', name = '') {
     });
     optionsHtml += `<option value="__custom__" ${isCustom ? 'selected' : ''}>+ Custom role...</option>`;
 
-    row.className = 'flex gap-2 items-center participant-row';
-    row.innerHTML = `
-        <div class="w-44 flex-shrink-0">
-            <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-select"
-                onchange="toggleCustomRole(this)">
-                ${optionsHtml}
-            </select>
-            <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Custom role..."
-                class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-custom ${isCustom ? '' : 'hidden'}">
+    const group = document.createElement('div');
+    group.className = 'participant-group bg-gray-50 rounded-lg p-3 space-y-2';
+    group.id = groupId;
+    group.innerHTML = `
+        <div class="flex gap-2 items-center">
+            <div class="flex-1">
+                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-select"
+                    onchange="toggleCustomRole(this)">
+                    ${optionsHtml}
+                </select>
+                <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Custom role..."
+                    class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-custom ${isCustom ? '' : 'hidden'}">
+            </div>
+            <button type="button" onclick="this.closest('.participant-group').remove()"
+                class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0" title="Remove activity">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
         </div>
-        <div class="autocomplete-wrapper">
-            <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name"
-                id="${id}"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name"
-                autocomplete="off">
-        </div>
-        <button type="button" onclick="this.parentElement.remove()"
-            class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        <div class="part-names-list space-y-1.5 ml-2 pl-3 border-l-2 border-blue-200"></div>
+        <button type="button" onclick="addNameSlot('${groupId}')"
+            class="ml-2 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Add person
         </button>
     `;
-    container.appendChild(row);
+    container.appendChild(group);
 
-    // Set up autocomplete on the name input
-    const input = row.querySelector('#' + id);
-    setupAutocomplete(input);
+    // Add name slots
+    const namesList = group.querySelector('.part-names-list');
+    if (names.length === 0) names = [''];
+    names.forEach(n => addNameSlot(groupId, n));
+}
+
+function addNameSlot(groupId, name = '') {
+    const group = document.getElementById(groupId);
+    if (!group) return;
+    const namesList = group.querySelector('.part-names-list');
+    const id = 'part-name-' + (participantCounter++);
+    const slot = document.createElement('div');
+    slot.className = 'flex gap-2 items-center part-name-slot';
+    slot.innerHTML = `
+        <div class="autocomplete-wrapper flex-1">
+            <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name"
+                id="${id}"
+                class="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name"
+                autocomplete="off">
+        </div>
+        <button type="button" onclick="removeNameSlot(this)"
+            class="p-1 text-gray-400 hover:text-red-500 rounded flex-shrink-0" title="Remove person">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    namesList.appendChild(slot);
+    setupAutocomplete(slot.querySelector('#' + id));
+}
+
+function removeNameSlot(btn) {
+    const slot = btn.closest('.part-name-slot');
+    const namesList = slot.parentElement;
+    slot.remove();
+    // Keep at least one slot
+    if (namesList.querySelectorAll('.part-name-slot').length === 0) {
+        const groupId = namesList.closest('.participant-group').id;
+        addNameSlot(groupId);
+    }
+}
+
+/** Backward compat: addParticipant(role, name) creates a group with one name */
+function addParticipant(role = '', name = '') {
+    addParticipantGroup(role, name ? [name] : ['']);
 }
 
 function toggleCustomRole(select) {
@@ -314,9 +363,9 @@ function toggleCustomRole(select) {
     }
 }
 
-function getParticipantRole(row) {
-    const select = row.querySelector('.part-role-select');
-    const customInput = row.querySelector('.part-role-custom');
+function getGroupRole(group) {
+    const select = group.querySelector('.part-role-select');
+    const customInput = group.querySelector('.part-role-custom');
     if (select.value === '__custom__') {
         return customInput.value.trim();
     }
@@ -456,8 +505,7 @@ function showCreateForm() {
     participantCounter = 0;
     addProgramItem();
     addProgramItem();
-    addParticipant();
-    addParticipant();
+    addParticipantGroup();
     document.getElementById('formSection').classList.remove('hidden');
 }
 
@@ -477,8 +525,14 @@ function showEditForm(program) {
     (program.program_items || []).forEach(item => {
         addProgramItem(item.time, item.item);
     });
+    // Group participants by role for multi-name display
+    const grouped = {};
     (program.participants || []).forEach(p => {
-        addParticipant(p.role, p.name);
+        if (!grouped[p.role]) grouped[p.role] = [];
+        grouped[p.role].push(p.name);
+    });
+    Object.entries(grouped).forEach(([role, names]) => {
+        addParticipantGroup(role, names);
     });
     (program.admin_announcements || []).forEach(a => {
         addAnnouncement('adminAnnouncements', a);
@@ -512,12 +566,13 @@ function collectFormData() {
     });
 
     const participants = [];
-    document.querySelectorAll('.participant-row').forEach(row => {
-        const role = getParticipantRole(row);
-        const name = row.querySelector('.part-name').value.trim();
-        if (role && name) {
-            participants.push({ role, name });
-        }
+    document.querySelectorAll('.participant-group').forEach(group => {
+        const role = getGroupRole(group);
+        if (!role) return;
+        group.querySelectorAll('.part-name-slot').forEach(slot => {
+            const name = slot.querySelector('.part-name').value.trim();
+            if (name) participants.push({ role, name });
+        });
     });
 
     const admin_announcements = [];
@@ -717,12 +772,12 @@ function applyTemplate() {
 
     if ((tpl.program_items || []).length === 0) { addProgramItem(); addProgramItem(); }
 
-    // Auto-create participant rows for activities that need participants
+    // Auto-create participant groups for activities that need participants
     const needsParticipant = (tpl.program_items || []).filter(item => item.requires_participant);
     if (needsParticipant.length > 0) {
-        needsParticipant.forEach(item => addParticipant(item.item, ''));
+        needsParticipant.forEach(item => addParticipantGroup(item.item, ['']));
     } else {
-        addParticipant();
+        addParticipantGroup();
     }
 }
 
