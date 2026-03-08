@@ -13,9 +13,8 @@
     </div>
 
     <p class="text-sm text-gray-600">
-        Create reusable templates for each day of the week. When creating a program, you can pick a template to pre-fill the form.
-        External systems can also pull templates via
-        <code class="bg-gray-100 px-1 py-0.5 rounded text-xs">/api/programs/templates/today</code>.
+        Create reusable templates for each day of the week. Define the order of service and mark which activities need participants.
+        When creating a program from a template, you'll be prompted to assign people to those activities.
     </p>
 
     <!-- Create/Edit Form -->
@@ -46,22 +45,12 @@
             <!-- Program Items -->
             <div>
                 <div class="flex items-center justify-between mb-2">
-                    <label class="block text-sm font-medium text-gray-700">Default Program Items</label>
+                    <label class="block text-sm font-medium text-gray-700">Program Items</label>
                     <button type="button" onclick="addProgramItem()"
                         class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Item</button>
                 </div>
+                <p class="text-xs text-gray-500 mb-2">Check "Needs participant" for activities that require someone to be assigned when creating a program.</p>
                 <div id="programItems" class="space-y-2"></div>
-            </div>
-
-            <!-- Participants -->
-            <div>
-                <div class="flex items-center justify-between mb-2">
-                    <label class="block text-sm font-medium text-gray-700">Default Participants</label>
-                    <button type="button" onclick="addParticipant()"
-                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Participant</button>
-                </div>
-                <p class="text-xs text-gray-500 mb-2">Select an activity from program items above, or choose "Custom role" for a new one. Type to search members.</p>
-                <div id="participants" class="space-y-2"></div>
             </div>
 
             <!-- Admin Announcements -->
@@ -104,26 +93,14 @@
 </div>
 
 <style>
-    .autocomplete-wrapper { position: relative; flex: 1; }
-    .autocomplete-dropdown {
-        position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
-        background: white; border: 1px solid #d1d5db; border-top: none;
-        border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-    .autocomplete-dropdown .ac-item {
-        padding: 8px 12px; cursor: pointer; font-size: 14px;
-    }
-    .autocomplete-dropdown .ac-item:hover,
-    .autocomplete-dropdown .ac-item.active {
-        background-color: #eff6ff; color: #1d4ed8;
-    }
-    .autocomplete-dropdown .ac-item .ac-phone {
-        font-size: 12px; color: #9ca3af; margin-left: 8px;
-    }
     .day-badge {
         display: inline-block; padding: 2px 10px; border-radius: 9999px;
         font-size: 12px; font-weight: 600;
+    }
+    .participant-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        background: #eff6ff; color: #1d4ed8; font-size: 11px;
+        padding: 1px 6px; border-radius: 4px; margin-left: 6px;
     }
 </style>
 
@@ -140,183 +117,30 @@ const DAY_COLORS = [
 ];
 
 let editingId = null;
-let allMembers = [];
-let participantCounter = 0;
-
-async function loadMembers() {
-    try {
-        const res = await fetch('/api/members');
-        allMembers = await res.json();
-    } catch (e) {}
-}
 
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function addProgramItem(time = '', item = '') {
+function addProgramItem(time = '', item = '', requiresParticipant = false) {
     const container = document.getElementById('programItems');
     const row = document.createElement('div');
     row.className = 'flex gap-2 items-center program-item-row';
     row.innerHTML = `
-        <input type="time" value="${time}" class="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-time">
+        <input type="time" value="${time}" class="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-time">
         <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-name">
-        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
+        <label class="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap cursor-pointer select-none px-2 py-2 rounded-lg hover:bg-blue-50 transition-colors">
+            <input type="checkbox" ${requiresParticipant ? 'checked' : ''} class="prog-item-needs-participant rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+            <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            Needs participant
+        </label>
+        <button type="button" onclick="this.parentElement.remove()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     container.appendChild(row);
-    const nameInput = row.querySelector('.prog-item-name');
-    nameInput.addEventListener('change', refreshActivityDropdowns);
-    nameInput.addEventListener('blur', refreshActivityDropdowns);
 }
-
-function getActivityNames() {
-    const names = [];
-    document.querySelectorAll('.program-item-row').forEach(row => {
-        const item = row.querySelector('.prog-item-name').value.trim();
-        if (item) names.push(item);
-    });
-    return names;
-}
-
-function refreshActivityDropdowns() {
-    const activities = getActivityNames();
-    document.querySelectorAll('.part-role-select').forEach(select => {
-        const currentVal = select.value;
-        const customInput = select.parentElement.querySelector('.part-role-custom');
-        const isCustom = currentVal === '__custom__';
-        const selectedActivity = isCustom ? '' : currentVal;
-
-        let html = '<option value="">-- Select activity --</option>';
-        activities.forEach(a => {
-            const escaped = escapeHtml(a);
-            html += `<option value="${escaped}" ${escaped === selectedActivity ? 'selected' : ''}>${escaped}</option>`;
-        });
-        html += '<option value="__custom__"' + (isCustom ? ' selected' : '') + '>+ Custom role...</option>';
-        select.innerHTML = html;
-
-        if (!isCustom && selectedActivity && !activities.includes(selectedActivity)) {
-            select.value = '__custom__';
-            customInput.value = selectedActivity;
-            customInput.classList.remove('hidden');
-        }
-    });
-}
-
-function toggleCustomRole(select) {
-    const customInput = select.parentElement.querySelector('.part-role-custom');
-    if (select.value === '__custom__') {
-        customInput.classList.remove('hidden');
-        customInput.focus();
-    } else {
-        customInput.classList.add('hidden');
-        customInput.value = '';
-    }
-}
-
-function getParticipantRole(row) {
-    const select = row.querySelector('.part-role-select');
-    const customInput = row.querySelector('.part-role-custom');
-    if (select.value === '__custom__') {
-        return customInput.value.trim();
-    }
-    return select.value;
-}
-
-function addParticipant(role = '', name = '') {
-    const container = document.getElementById('participants');
-    const row = document.createElement('div');
-    const id = 'part-name-' + (participantCounter++);
-    const activities = getActivityNames();
-    const isKnownActivity = activities.includes(role);
-    const isCustom = role && !isKnownActivity;
-
-    let optionsHtml = '<option value="">-- Select activity --</option>';
-    activities.forEach(a => {
-        const escaped = escapeHtml(a);
-        optionsHtml += `<option value="${escaped}" ${escaped === escapeHtml(role) && isKnownActivity ? 'selected' : ''}>${escaped}</option>`;
-    });
-    optionsHtml += `<option value="__custom__" ${isCustom ? 'selected' : ''}>+ Custom role...</option>`;
-
-    row.className = 'flex gap-2 items-center participant-row';
-    row.innerHTML = `
-        <div class="w-44 flex-shrink-0">
-            <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-select"
-                onchange="toggleCustomRole(this)">
-                ${optionsHtml}
-            </select>
-            <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Custom role..."
-                class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-custom ${isCustom ? '' : 'hidden'}">
-        </div>
-        <div class="autocomplete-wrapper">
-            <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name" id="${id}"
-                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name" autocomplete="off">
-        </div>
-        <button type="button" onclick="this.parentElement.remove()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-        </button>
-    `;
-    container.appendChild(row);
-    setupAutocomplete(row.querySelector('#' + id));
-}
-
-function setupAutocomplete(input) {
-    let dropdown = null;
-    let selectedIndex = -1;
-    let filtered = [];
-
-    function showDropdown(items) {
-        closeAllDropdowns();
-        filtered = items;
-        selectedIndex = -1;
-        if (items.length === 0) { hideDropdown(); return; }
-        dropdown = document.createElement('div');
-        dropdown.className = 'autocomplete-dropdown';
-        items.forEach((m, i) => {
-            const div = document.createElement('div');
-            div.className = 'ac-item';
-            div.innerHTML = `${escapeHtml(m.fullName)}<span class="ac-phone">${m.phone}</span>`;
-            div.addEventListener('mousedown', (e) => { e.preventDefault(); selectMember(m); });
-            dropdown.appendChild(div);
-        });
-        input.parentElement.appendChild(dropdown);
-    }
-
-    function hideDropdown() {
-        if (dropdown && dropdown.parentElement) dropdown.remove();
-        dropdown = null; selectedIndex = -1;
-    }
-
-    function selectMember(m) { input.value = m.fullName; hideDropdown(); }
-
-    function updateHighlight() {
-        if (!dropdown) return;
-        const items = dropdown.querySelectorAll('.ac-item');
-        items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
-        if (selectedIndex >= 0 && items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
-    }
-
-    input.addEventListener('input', () => {
-        const q = input.value.trim().toLowerCase();
-        if (q.length < 1) { hideDropdown(); return; }
-        const matches = allMembers.filter(m => m.fullName.toLowerCase().includes(q) || m.phone.includes(q)).slice(0, 10);
-        showDropdown(matches);
-    });
-
-    input.addEventListener('keydown', (e) => {
-        if (!dropdown) return;
-        if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1); updateHighlight(); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); updateHighlight(); }
-        else if (e.key === 'Enter') { e.preventDefault(); if (selectedIndex >= 0 && filtered[selectedIndex]) selectMember(filtered[selectedIndex]); else hideDropdown(); }
-        else if (e.key === 'Escape') hideDropdown();
-    });
-
-    input.addEventListener('blur', () => setTimeout(hideDropdown, 150));
-}
-
-function closeAllDropdowns() { document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.remove()); }
 
 function addAnnouncement(containerId, text = '') {
     const container = document.getElementById(containerId);
@@ -337,16 +161,12 @@ function showCreateForm() {
     editingId = null;
     document.getElementById('formTitle').textContent = 'Add Template';
     document.getElementById('tplTitle').value = '';
-    document.getElementById('tplDay').value = '6'; // Default Sunday
+    document.getElementById('tplDay').value = '6';
     document.getElementById('programItems').innerHTML = '';
-    document.getElementById('participants').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
-    participantCounter = 0;
     addProgramItem();
     addProgramItem();
-    addParticipant();
-    addParticipant();
     document.getElementById('formSection').classList.remove('hidden');
 }
 
@@ -356,13 +176,10 @@ function showEditForm(tpl) {
     document.getElementById('tplTitle').value = tpl.title;
     document.getElementById('tplDay').value = tpl.day_of_week;
     document.getElementById('programItems').innerHTML = '';
-    document.getElementById('participants').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
-    participantCounter = 0;
 
-    (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
-    (tpl.participants || []).forEach(p => addParticipant(p.role, p.name));
+    (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item, !!item.requires_participant));
     (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
 
@@ -382,14 +199,8 @@ function collectFormData() {
     document.querySelectorAll('.program-item-row').forEach(row => {
         const time = row.querySelector('.prog-item-time').value.trim();
         const item = row.querySelector('.prog-item-name').value.trim();
-        if (time && item) program_items.push({ time, item });
-    });
-
-    const participants = [];
-    document.querySelectorAll('.participant-row').forEach(row => {
-        const role = getParticipantRole(row);
-        const name = row.querySelector('.part-name').value.trim();
-        if (role && name) participants.push({ role, name });
+        const requires_participant = row.querySelector('.prog-item-needs-participant').checked;
+        if (time && item) program_items.push({ time, item, requires_participant });
     });
 
     const admin_announcements = [];
@@ -404,7 +215,7 @@ function collectFormData() {
         if (text) pastors_announcements.push(text);
     });
 
-    return { title, day_of_week, program_items, participants, admin_announcements, pastors_announcements };
+    return { title, day_of_week, program_items, participants: [], admin_announcements, pastors_announcements };
 }
 
 async function saveTemplate() {
@@ -468,13 +279,15 @@ async function loadTemplates() {
             <div class="space-y-3">`;
 
         byDay[day].forEach(t => {
-            const itemsHtml = (t.program_items || []).map(item =>
-                `<div class="flex gap-3 text-sm"><span class="text-gray-500 font-mono w-16 shrink-0">${formatTime(item.time)}</span><span class="text-gray-900">${escapeHtml(item.item)}</span></div>`
-            ).join('');
-
-            const partsHtml = (t.participants || []).map(pt =>
-                `<div class="flex gap-3 text-sm"><span class="text-gray-500 font-medium w-36 shrink-0">${escapeHtml(pt.role)}:</span><span class="text-gray-900">${escapeHtml(pt.name)}</span></div>`
-            ).join('');
+            const itemsHtml = (t.program_items || []).map(item => {
+                const badge = item.requires_participant
+                    ? '<span class="participant-badge"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>needs participant</span>'
+                    : '';
+                return `<div class="flex gap-3 text-sm items-center">
+                    <span class="text-gray-500 font-mono w-16 shrink-0">${formatTime(item.time)}</span>
+                    <span class="text-gray-900">${escapeHtml(item.item)}${badge}</span>
+                </div>`;
+            }).join('');
 
             html += `
             <div class="bg-white rounded-xl shadow overflow-hidden">
@@ -490,15 +303,9 @@ async function loadTemplates() {
                                 class="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Program</h5>
-                            <div class="space-y-1">${itemsHtml || '<span class="text-gray-400 text-sm">No items</span>'}</div>
-                        </div>
-                        <div>
-                            <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Participants</h5>
-                            <div class="space-y-1">${partsHtml || '<span class="text-gray-400 text-sm">No participants</span>'}</div>
-                        </div>
+                    <div>
+                        <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Order of Service</h5>
+                        <div class="space-y-1.5">${itemsHtml || '<span class="text-gray-400 text-sm">No items</span>'}</div>
                     </div>
                     ${(t.admin_announcements && t.admin_announcements.length > 0) ? `
                     <div class="mt-4 pt-4 border-t border-gray-100">
@@ -523,7 +330,6 @@ async function loadTemplates() {
     container.innerHTML = html;
 }
 
-loadMembers();
 loadTemplates();
 </script>
 {% endblock %}

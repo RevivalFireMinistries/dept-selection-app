@@ -395,6 +395,7 @@ class PosterRequestCreate(BaseModel):
 class ProgramItem(BaseModel):
     time: str  # "09:30"
     item: str  # "Prayer"
+    requires_participant: bool = False  # Whether this activity needs a participant assigned
 
 class Participant(BaseModel):
     role: str  # "Prayer"

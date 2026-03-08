@@ -652,7 +652,9 @@ async function loadTemplates() {
         allTemplates.forEach(t => {
             const opt = document.createElement('option');
             opt.value = t.id;
-            opt.textContent = `${t.title} (${DAY_NAMES[t.day_of_week]})`;
+            const needsCount = (t.program_items || []).filter(i => i.requires_participant).length;
+            const suffix = needsCount > 0 ? ` - ${needsCount} role${needsCount > 1 ? 's' : ''} to fill` : '';
+            opt.textContent = `${t.title} (${DAY_NAMES[t.day_of_week]})${suffix}`;
             select.appendChild(opt);
         });
     } catch (e) {}
@@ -673,13 +675,20 @@ function applyTemplate() {
     document.getElementById('pastorsAnnouncements').innerHTML = '';
     participantCounter = 0;
 
+    // Add program items from template
     (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
-    (tpl.participants || []).forEach(p => addParticipant(p.role, p.name));
     (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
 
     if ((tpl.program_items || []).length === 0) { addProgramItem(); addProgramItem(); }
-    if ((tpl.participants || []).length === 0) { addParticipant(); addParticipant(); }
+
+    // Auto-create participant rows for activities that need participants
+    const needsParticipant = (tpl.program_items || []).filter(item => item.requires_participant);
+    if (needsParticipant.length > 0) {
+        needsParticipant.forEach(item => addParticipant(item.item, ''));
+    } else {
+        addParticipant();
+    }
 }
 
 async function shareProgram(program) {
