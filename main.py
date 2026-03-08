@@ -245,6 +245,26 @@ def run_migrations():
         # service_programs table is created by create_all() - no migration needed
         # Auto-cleanup of past programs happens on GET /api/programs/today
 
+        # Add announcement columns to service_programs and program_templates
+        for table_name in ['service_programs', 'program_templates']:
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = :table AND column_name = 'admin_announcements'
+            """), {"table": table_name})
+            if not result.fetchone():
+                table_exists = conn.execute(text("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_name = :table
+                """), {"table": table_name}).fetchone()
+                if table_exists:
+                    conn.execute(text(f"""
+                        ALTER TABLE {table_name}
+                        ADD COLUMN IF NOT EXISTS admin_announcements TEXT NOT NULL DEFAULT '[]',
+                        ADD COLUMN IF NOT EXISTS pastors_announcements TEXT NOT NULL DEFAULT '[]'
+                    """))
+                    conn.commit()
+                    print(f"Migration: Added announcement columns to {table_name}")
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',
@@ -260,6 +280,7 @@ def run_migrations():
             'poster_request_submitted',
             'poster_request_acknowledged',
             'poster_request_completed',
+            'program_participant_added',
         ]
         # Check if notification_configs table exists (created by create_all)
         result = conn.execute(text("""

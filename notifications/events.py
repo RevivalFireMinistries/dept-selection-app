@@ -23,6 +23,7 @@ class EventType(str, Enum):
     POSTER_REQUEST_SUBMITTED = "poster_request_submitted"
     POSTER_REQUEST_ACKNOWLEDGED = "poster_request_acknowledged"
     POSTER_REQUEST_COMPLETED = "poster_request_completed"
+    PROGRAM_PARTICIPANT_ADDED = "program_participant_added"
 
 
 # Event display names for admin UI
@@ -40,6 +41,7 @@ EVENT_LABELS = {
     EventType.POSTER_REQUEST_SUBMITTED: "Poster Request Submitted",
     EventType.POSTER_REQUEST_ACKNOWLEDGED: "Poster Request Acknowledged",
     EventType.POSTER_REQUEST_COMPLETED: "Poster Request Completed",
+    EventType.PROGRAM_PARTICIPANT_ADDED: "Program Participant Added",
 }
 
 
@@ -58,6 +60,7 @@ EVENT_DESCRIPTIONS = {
     EventType.POSTER_REQUEST_SUBMITTED: "Sent to design team when a poster request is submitted",
     EventType.POSTER_REQUEST_ACKNOWLEDGED: "Sent to requester when their poster request is acknowledged",
     EventType.POSTER_REQUEST_COMPLETED: "Sent to requester when their poster is ready",
+    EventType.PROGRAM_PARTICIPANT_ADDED: "Sent to members when they are added as participants in a service program",
 }
 
 
@@ -76,6 +79,7 @@ EMAIL_SUBJECTS = {
     EventType.POSTER_REQUEST_SUBMITTED: "New Poster Request: {event_name}",
     EventType.POSTER_REQUEST_ACKNOWLEDGED: "Your Poster Request is Being Processed",
     EventType.POSTER_REQUEST_COMPLETED: "Your Poster is Ready: {event_name}",
+    EventType.PROGRAM_PARTICIPANT_ADDED: "You're on the Program: {title} - {service_date}",
 }
 
 

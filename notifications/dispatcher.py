@@ -515,6 +515,32 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_text="View My Requests" if portal_link else None,
             button_url=portal_link
         ),
+
+        EventType.PROGRAM_PARTICIPANT_ADDED: base_template(
+            title="You're on the Program!",
+            icon="&#127926;",  # Musical note
+            accent_color="#4f46e5",  # Indigo
+            content=f'''
+                {greeting(data.get('recipient_name', 'Member'))}
+                {paragraph(f"You have been added as a participant in an upcoming service program.")}
+                <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
+                    <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Service Program')}</h2>
+                    <table role="presentation" cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td style="padding-right: 24px;">
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Date</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('service_date', 'TBD')}</p>
+                            </td>
+                            <td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Your Role</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('role', 'Participant')}</p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                {paragraph("Please make sure you are prepared and arrive on time. If you have any questions or are unable to attend, please inform the service coordinator as soon as possible.")}
+            '''
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")

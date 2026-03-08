@@ -3739,13 +3739,23 @@ def _program_to_dict(program: ServiceProgram) -> dict:
     ts = program.updated_at or program.created_at
     hashcode = str(int(ts.timestamp())) if ts else "0"
 
+    def _parse_json(val):
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return val or []
+
     return {
         "id": program.id,
         "hash": hashcode,
         "title": program.title,
         "service_date": program.service_date.isoformat(),
-        "program_items": json.loads(program.program_items) if isinstance(program.program_items, str) else program.program_items,
-        "participants": json.loads(program.participants) if isinstance(program.participants, str) else program.participants,
+        "program_items": _parse_json(program.program_items),
+        "participants": _parse_json(program.participants),
+        "admin_announcements": _parse_json(program.admin_announcements),
+        "pastors_announcements": _parse_json(program.pastors_announcements),
         "created_at": program.created_at.isoformat() if program.created_at else None,
         "updated_at": program.updated_at.isoformat() if program.updated_at else None
     }
@@ -3795,6 +3805,53 @@ def get_program(program_id: int, db: Session = Depends(get_db)):
     return _program_to_dict(program)
 
 
+def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict):
+    """Notify participants who are members in the database about their program role.
+    participant_roles is a dict mapping lowercase name -> role string."""
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+
+    if not participant_names:
+        return
+
+    # Find members whose names match participants (case-insensitive)
+    members = db.query(Member).filter(
+        func.lower(Member.full_name).in_([n.lower() for n in participant_names])
+    ).all()
+
+    if not members:
+        return
+
+    date_str = service_date.strftime("%A, %d %B %Y") if hasattr(service_date, 'strftime') else str(service_date)
+
+    for member in members:
+        if not member.email:
+            continue
+        role = participant_roles.get(member.full_name.lower(), "Participant")
+        try:
+            dispatch_event(
+                db=db,
+                event_type=EventType.PROGRAM_PARTICIPANT_ADDED,
+                data={
+                    "title": program_title,
+                    "service_date": date_str,
+                    "role": role,
+                    "member_name": member.full_name,
+                    "member_email": member.email,
+                    "member_id": member.id,
+                    "member_phone": member.phone,
+                },
+                recipients=[{
+                    "id": member.id,
+                    "name": member.full_name,
+                    "email": member.email,
+                    "phone": member.phone,
+                }]
+            )
+        except Exception as e:
+            print(f"Failed to notify participant {member.full_name}: {e}")
+
+
 @router.post("/admin/programs")
 def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
     """Admin: create a new service program"""
@@ -3807,11 +3864,19 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         title=data.title,
         service_date=data.service_date,
         program_items=json.dumps([item.model_dump() for item in data.program_items]),
-        participants=json.dumps([p.model_dump() for p in (data.participants or [])])
+        participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
+        admin_announcements=json.dumps(data.admin_announcements or []),
+        pastors_announcements=json.dumps(data.pastors_announcements or [])
     )
     db.add(program)
     db.commit()
     db.refresh(program)
+
+    # Notify participants
+    if data.participants:
+        names = [p.name for p in data.participants]
+        roles = {p.name.lower(): p.role for p in data.participants}
+        _notify_program_participants(db, data.title, data.service_date, names, roles)
 
     return _program_to_dict(program)
 
@@ -3823,6 +3888,12 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
 
+    # Track old participants to only notify new ones
+    old_participant_names = set()
+    if data.participants is not None:
+        old_parts = json.loads(program.participants) if isinstance(program.participants, str) else (program.participants or [])
+        old_participant_names = {p.get("name", "").lower() for p in old_parts}
+
     if data.title is not None:
         program.title = data.title
     if data.service_date is not None:
@@ -3831,9 +3902,23 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
         program.program_items = json.dumps([item.model_dump() for item in data.program_items])
     if data.participants is not None:
         program.participants = json.dumps([p.model_dump() for p in data.participants])
+    if data.admin_announcements is not None:
+        program.admin_announcements = json.dumps(data.admin_announcements)
+    if data.pastors_announcements is not None:
+        program.pastors_announcements = json.dumps(data.pastors_announcements)
 
     db.commit()
     db.refresh(program)
+
+    # Notify only newly added participants
+    if data.participants is not None:
+        new_participants = [p for p in data.participants if p.name.lower() not in old_participant_names]
+        if new_participants:
+            names = [p.name for p in new_participants]
+            roles = {p.name.lower(): p.role for p in new_participants}
+            title = data.title or program.title
+            svc_date = data.service_date or program.service_date
+            _notify_program_participants(db, title, svc_date, names, roles)
 
     return _program_to_dict(program)
 
@@ -3861,14 +3946,24 @@ def _template_to_dict(template: ProgramTemplate) -> dict:
     ts = template.updated_at or template.created_at
     hashcode = str(int(ts.timestamp())) if ts else "0"
 
+    def _parse_json(val):
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return val or []
+
     return {
         "id": template.id,
         "hash": hashcode,
         "title": template.title,
         "day_of_week": template.day_of_week,
         "day_name": DAY_NAMES[template.day_of_week] if 0 <= template.day_of_week <= 6 else "Unknown",
-        "program_items": json.loads(template.program_items) if isinstance(template.program_items, str) else template.program_items,
-        "participants": json.loads(template.participants) if isinstance(template.participants, str) else template.participants,
+        "program_items": _parse_json(template.program_items),
+        "participants": _parse_json(template.participants),
+        "admin_announcements": _parse_json(template.admin_announcements),
+        "pastors_announcements": _parse_json(template.pastors_announcements),
         "created_at": template.created_at.isoformat() if template.created_at else None,
         "updated_at": template.updated_at.isoformat() if template.updated_at else None
     }
@@ -3951,7 +4046,9 @@ def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
         title=data.title,
         day_of_week=data.day_of_week,
         program_items=json.dumps([item.model_dump() for item in (data.program_items or [])]),
-        participants=json.dumps([p.model_dump() for p in (data.participants or [])])
+        participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
+        admin_announcements=json.dumps(data.admin_announcements or []),
+        pastors_announcements=json.dumps(data.pastors_announcements or [])
     )
     db.add(template)
     db.commit()
@@ -3977,6 +4074,10 @@ def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session =
         template.program_items = json.dumps([item.model_dump() for item in data.program_items])
     if data.participants is not None:
         template.participants = json.dumps([p.model_dump() for p in data.participants])
+    if data.admin_announcements is not None:
+        template.admin_announcements = json.dumps(data.admin_announcements)
+    if data.pastors_announcements is not None:
+        template.pastors_announcements = json.dumps(data.pastors_announcements)
 
     db.commit()
     db.refresh(template)

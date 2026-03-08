@@ -60,8 +60,28 @@
                     <button type="button" onclick="addParticipant()"
                         class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Participant</button>
                 </div>
-                <p class="text-xs text-gray-500 mb-2">Type to search members or enter a custom name.</p>
+                <p class="text-xs text-gray-500 mb-2">Select an activity from program items above, or choose "Custom role" for a new one. Type to search members.</p>
                 <div id="participants" class="space-y-2"></div>
+            </div>
+
+            <!-- Admin Announcements -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Default Admin Announcements</label>
+                    <button type="button" onclick="addAnnouncement('adminAnnouncements')"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add</button>
+                </div>
+                <div id="adminAnnouncements" class="space-y-2"></div>
+            </div>
+
+            <!-- Pastor's Announcements -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Default Pastor's Announcements</label>
+                    <button type="button" onclick="addAnnouncement('pastorsAnnouncements')"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add</button>
+                </div>
+                <div id="pastorsAnnouncements" class="space-y-2"></div>
             </div>
 
             <div class="flex gap-3">
@@ -142,20 +162,94 @@ function addProgramItem(time = '', item = '') {
     row.innerHTML = `
         <input type="time" value="${time}" class="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-time">
         <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-name">
-        <button type="button" onclick="this.parentElement.remove()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
+        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     container.appendChild(row);
+    const nameInput = row.querySelector('.prog-item-name');
+    nameInput.addEventListener('change', refreshActivityDropdowns);
+    nameInput.addEventListener('blur', refreshActivityDropdowns);
+}
+
+function getActivityNames() {
+    const names = [];
+    document.querySelectorAll('.program-item-row').forEach(row => {
+        const item = row.querySelector('.prog-item-name').value.trim();
+        if (item) names.push(item);
+    });
+    return names;
+}
+
+function refreshActivityDropdowns() {
+    const activities = getActivityNames();
+    document.querySelectorAll('.part-role-select').forEach(select => {
+        const currentVal = select.value;
+        const customInput = select.parentElement.querySelector('.part-role-custom');
+        const isCustom = currentVal === '__custom__';
+        const selectedActivity = isCustom ? '' : currentVal;
+
+        let html = '<option value="">-- Select activity --</option>';
+        activities.forEach(a => {
+            const escaped = escapeHtml(a);
+            html += `<option value="${escaped}" ${escaped === selectedActivity ? 'selected' : ''}>${escaped}</option>`;
+        });
+        html += '<option value="__custom__"' + (isCustom ? ' selected' : '') + '>+ Custom role...</option>';
+        select.innerHTML = html;
+
+        if (!isCustom && selectedActivity && !activities.includes(selectedActivity)) {
+            select.value = '__custom__';
+            customInput.value = selectedActivity;
+            customInput.classList.remove('hidden');
+        }
+    });
+}
+
+function toggleCustomRole(select) {
+    const customInput = select.parentElement.querySelector('.part-role-custom');
+    if (select.value === '__custom__') {
+        customInput.classList.remove('hidden');
+        customInput.focus();
+    } else {
+        customInput.classList.add('hidden');
+        customInput.value = '';
+    }
+}
+
+function getParticipantRole(row) {
+    const select = row.querySelector('.part-role-select');
+    const customInput = row.querySelector('.part-role-custom');
+    if (select.value === '__custom__') {
+        return customInput.value.trim();
+    }
+    return select.value;
 }
 
 function addParticipant(role = '', name = '') {
     const container = document.getElementById('participants');
     const row = document.createElement('div');
     const id = 'part-name-' + (participantCounter++);
+    const activities = getActivityNames();
+    const isKnownActivity = activities.includes(role);
+    const isCustom = role && !isKnownActivity;
+
+    let optionsHtml = '<option value="">-- Select activity --</option>';
+    activities.forEach(a => {
+        const escaped = escapeHtml(a);
+        optionsHtml += `<option value="${escaped}" ${escaped === escapeHtml(role) && isKnownActivity ? 'selected' : ''}>${escaped}</option>`;
+    });
+    optionsHtml += `<option value="__custom__" ${isCustom ? 'selected' : ''}>+ Custom role...</option>`;
+
     row.className = 'flex gap-2 items-center participant-row';
     row.innerHTML = `
-        <input type="text" value="${escapeHtml(role)}" placeholder="e.g., Prayer" class="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role">
+        <div class="w-44 flex-shrink-0">
+            <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-select"
+                onchange="toggleCustomRole(this)">
+                ${optionsHtml}
+            </select>
+            <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Custom role..."
+                class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-custom ${isCustom ? '' : 'hidden'}">
+        </div>
         <div class="autocomplete-wrapper">
             <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name" id="${id}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-name" autocomplete="off">
@@ -224,6 +318,21 @@ function setupAutocomplete(input) {
 
 function closeAllDropdowns() { document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.remove()); }
 
+function addAnnouncement(containerId, text = '') {
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center announcement-row';
+    row.innerHTML = `
+        <input type="text" value="${escapeHtml(text)}" placeholder="Enter announcement..."
+            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 ann-text">
+        <button type="button" onclick="this.parentElement.remove()"
+            class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+}
+
 function showCreateForm() {
     editingId = null;
     document.getElementById('formTitle').textContent = 'Add Template';
@@ -231,6 +340,8 @@ function showCreateForm() {
     document.getElementById('tplDay').value = '6'; // Default Sunday
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
     participantCounter = 0;
     addProgramItem();
     addProgramItem();
@@ -246,10 +357,14 @@ function showEditForm(tpl) {
     document.getElementById('tplDay').value = tpl.day_of_week;
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
     participantCounter = 0;
 
     (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
     (tpl.participants || []).forEach(p => addParticipant(p.role, p.name));
+    (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
+    (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
 
     document.getElementById('formSection').classList.remove('hidden');
 }
@@ -272,12 +387,24 @@ function collectFormData() {
 
     const participants = [];
     document.querySelectorAll('.participant-row').forEach(row => {
-        const role = row.querySelector('.part-role').value.trim();
+        const role = getParticipantRole(row);
         const name = row.querySelector('.part-name').value.trim();
         if (role && name) participants.push({ role, name });
     });
 
-    return { title, day_of_week, program_items, participants };
+    const admin_announcements = [];
+    document.querySelectorAll('#adminAnnouncements .announcement-row').forEach(row => {
+        const text = row.querySelector('.ann-text').value.trim();
+        if (text) admin_announcements.push(text);
+    });
+
+    const pastors_announcements = [];
+    document.querySelectorAll('#pastorsAnnouncements .announcement-row').forEach(row => {
+        const text = row.querySelector('.ann-text').value.trim();
+        if (text) pastors_announcements.push(text);
+    });
+
+    return { title, day_of_week, program_items, participants, admin_announcements, pastors_announcements };
 }
 
 async function saveTemplate() {
@@ -373,6 +500,20 @@ async function loadTemplates() {
                             <div class="space-y-1">${partsHtml || '<span class="text-gray-400 text-sm">No participants</span>'}</div>
                         </div>
                     </div>
+                    ${(t.admin_announcements && t.admin_announcements.length > 0) ? `
+                    <div class="mt-4 pt-4 border-t border-gray-100">
+                        <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Admin Announcements</h5>
+                        <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+                            ${t.admin_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                        </ul>
+                    </div>` : ''}
+                    ${(t.pastors_announcements && t.pastors_announcements.length > 0) ? `
+                    <div class="mt-4 pt-4 border-t border-gray-100">
+                        <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Pastor's Announcements</h5>
+                        <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+                            ${t.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                        </ul>
+                    </div>` : ''}
                 </div>
             </div>`;
         });

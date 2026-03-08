@@ -67,8 +67,28 @@
                     <button type="button" onclick="addParticipant()"
                         class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Participant</button>
                 </div>
-                <p class="text-xs text-gray-500 mb-2">Type to search members or enter a custom name.</p>
+                <p class="text-xs text-gray-500 mb-2">Select an activity from the program items above, or choose "Custom role" for a new one. Type to search members.</p>
                 <div id="participants" class="space-y-2"></div>
+            </div>
+
+            <!-- Admin Announcements -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Admin Announcements</label>
+                    <button type="button" onclick="addAnnouncement('adminAnnouncements')"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add</button>
+                </div>
+                <div id="adminAnnouncements" class="space-y-2"></div>
+            </div>
+
+            <!-- Pastor's Announcements -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Pastor's Announcements</label>
+                    <button type="button" onclick="addAnnouncement('pastorsAnnouncements')"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add</button>
+                </div>
+                <div id="pastorsAnnouncements" class="space-y-2"></div>
             </div>
 
             <div class="flex gap-3">
@@ -87,6 +107,40 @@
     <!-- Programs List -->
     <div id="programsList" class="space-y-4">
         <div class="text-center py-8 text-gray-500">Loading...</div>
+    </div>
+</div>
+
+<!-- Hidden shareable program card (rendered off-screen for image capture) -->
+<div id="shareCardContainer" style="position: fixed; left: -9999px; top: 0; z-index: -1;">
+    <div id="shareCard" style="width: 420px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #ffffff; border-radius: 0;">
+        <!-- Header -->
+        <div id="shareHeader" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%); padding: 32px 28px 24px; text-align: center;">
+            <div style="font-size: 12px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">Revival Fire Ministries</div>
+            <div id="shareTitle" style="font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 8px;"></div>
+            <div id="shareDate" style="font-size: 14px; color: rgba(255,255,255,0.85); font-weight: 500;"></div>
+        </div>
+        <!-- Program Items -->
+        <div style="padding: 24px 28px;">
+            <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Order of Service</div>
+            <div id="shareItems" style="margin-bottom: 24px;"></div>
+            <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+            <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Participants</div>
+            <div id="shareParticipants" style="margin-bottom: 20px;"></div>
+            <div id="shareAdminAnn" style="display: none;">
+                <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Admin Announcements</div>
+                <div id="shareAdminAnnItems"></div>
+            </div>
+            <div id="sharePastorAnn" style="display: none;">
+                <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Pastor's Announcements</div>
+                <div id="sharePastorAnnItems"></div>
+            </div>
+        </div>
+        <!-- Footer -->
+        <div style="background: #f9fafb; padding: 16px 28px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <div style="font-size: 11px; color: #9ca3af;">Stellenbosch, South Africa</div>
+        </div>
     </div>
 </div>
 
@@ -115,6 +169,7 @@
     }
 </style>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 let editingId = null;
@@ -139,14 +194,53 @@ function addProgramItem(time = '', item = '') {
     row.innerHTML = `
         <input type="time" value="${time}" placeholder="09:30"
             class="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-time">
-        <input type="text" value="${item}" placeholder="e.g., Prayer"
+        <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer"
             class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-name">
-        <button type="button" onclick="this.parentElement.remove()"
+        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns()"
             class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     container.appendChild(row);
+    // Refresh dropdowns when activity name changes
+    const nameInput = row.querySelector('.prog-item-name');
+    nameInput.addEventListener('change', refreshActivityDropdowns);
+    nameInput.addEventListener('blur', refreshActivityDropdowns);
+}
+
+function getActivityNames() {
+    const names = [];
+    document.querySelectorAll('.program-item-row').forEach(row => {
+        const item = row.querySelector('.prog-item-name').value.trim();
+        if (item) names.push(item);
+    });
+    return names;
+}
+
+function refreshActivityDropdowns() {
+    const activities = getActivityNames();
+    document.querySelectorAll('.part-role-select').forEach(select => {
+        const currentVal = select.value;
+        const customInput = select.parentElement.querySelector('.part-role-custom');
+        const isCustom = currentVal === '__custom__';
+        const selectedActivity = isCustom ? '' : currentVal;
+
+        // Rebuild options
+        let html = '<option value="">-- Select activity --</option>';
+        activities.forEach(a => {
+            const escaped = escapeHtml(a);
+            html += `<option value="${escaped}" ${escaped === selectedActivity ? 'selected' : ''}>${escaped}</option>`;
+        });
+        html += '<option value="__custom__"' + (isCustom ? ' selected' : '') + '>+ Custom role...</option>';
+        select.innerHTML = html;
+
+        // If the previously selected value is no longer in the list (and wasn't custom), check if it's a custom value
+        if (!isCustom && selectedActivity && !activities.includes(selectedActivity)) {
+            select.value = '__custom__';
+            customInput.value = selectedActivity;
+            customInput.classList.remove('hidden');
+        }
+    });
 }
 
 let participantCounter = 0;
@@ -155,10 +249,27 @@ function addParticipant(role = '', name = '') {
     const container = document.getElementById('participants');
     const row = document.createElement('div');
     const id = 'part-name-' + (participantCounter++);
+    const activities = getActivityNames();
+    const isKnownActivity = activities.includes(role);
+    const isCustom = role && !isKnownActivity;
+
+    let optionsHtml = '<option value="">-- Select activity --</option>';
+    activities.forEach(a => {
+        const escaped = escapeHtml(a);
+        optionsHtml += `<option value="${escaped}" ${escaped === escapeHtml(role) && isKnownActivity ? 'selected' : ''}>${escaped}</option>`;
+    });
+    optionsHtml += `<option value="__custom__" ${isCustom ? 'selected' : ''}>+ Custom role...</option>`;
+
     row.className = 'flex gap-2 items-center participant-row';
     row.innerHTML = `
-        <input type="text" value="${escapeHtml(role)}" placeholder="e.g., Prayer"
-            class="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role">
+        <div class="w-44 flex-shrink-0">
+            <select class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-select"
+                onchange="toggleCustomRole(this)">
+                ${optionsHtml}
+            </select>
+            <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Custom role..."
+                class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 part-role-custom ${isCustom ? '' : 'hidden'}">
+        </div>
         <div class="autocomplete-wrapper">
             <input type="text" value="${escapeHtml(name)}" placeholder="Search member or type name"
                 id="${id}"
@@ -175,6 +286,26 @@ function addParticipant(role = '', name = '') {
     // Set up autocomplete on the name input
     const input = row.querySelector('#' + id);
     setupAutocomplete(input);
+}
+
+function toggleCustomRole(select) {
+    const customInput = select.parentElement.querySelector('.part-role-custom');
+    if (select.value === '__custom__') {
+        customInput.classList.remove('hidden');
+        customInput.focus();
+    } else {
+        customInput.classList.add('hidden');
+        customInput.value = '';
+    }
+}
+
+function getParticipantRole(row) {
+    const select = row.querySelector('.part-role-select');
+    const customInput = row.querySelector('.part-role-custom');
+    if (select.value === '__custom__') {
+        return customInput.value.trim();
+    }
+    return select.value;
 }
 
 function escapeHtml(str) {
@@ -280,6 +411,21 @@ function closeAllDropdowns() {
     activeDropdown = null;
 }
 
+function addAnnouncement(containerId, text = '') {
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center announcement-row';
+    row.innerHTML = `
+        <input type="text" value="${escapeHtml(text)}" placeholder="Enter announcement..."
+            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 ann-text">
+        <button type="button" onclick="this.parentElement.remove()"
+            class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+}
+
 function showCreateForm() {
     editingId = null;
     document.getElementById('formTitle').textContent = 'Add Program';
@@ -289,6 +435,8 @@ function showCreateForm() {
     document.getElementById('templatePicker').classList.remove('hidden');
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
     participantCounter = 0;
     addProgramItem();
     addProgramItem();
@@ -305,6 +453,8 @@ function showEditForm(program) {
     document.getElementById('progDate').value = program.service_date;
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
     participantCounter = 0;
 
     (program.program_items || []).forEach(item => {
@@ -312,6 +462,12 @@ function showEditForm(program) {
     });
     (program.participants || []).forEach(p => {
         addParticipant(p.role, p.name);
+    });
+    (program.admin_announcements || []).forEach(a => {
+        addAnnouncement('adminAnnouncements', a);
+    });
+    (program.pastors_announcements || []).forEach(a => {
+        addAnnouncement('pastorsAnnouncements', a);
     });
 
     document.getElementById('formSection').classList.remove('hidden');
@@ -337,14 +493,26 @@ function collectFormData() {
 
     const participants = [];
     document.querySelectorAll('.participant-row').forEach(row => {
-        const role = row.querySelector('.part-role').value.trim();
+        const role = getParticipantRole(row);
         const name = row.querySelector('.part-name').value.trim();
         if (role && name) {
             participants.push({ role, name });
         }
     });
 
-    return { title, service_date, program_items, participants };
+    const admin_announcements = [];
+    document.querySelectorAll('#adminAnnouncements .announcement-row').forEach(row => {
+        const text = row.querySelector('.ann-text').value.trim();
+        if (text) admin_announcements.push(text);
+    });
+
+    const pastors_announcements = [];
+    document.querySelectorAll('#pastorsAnnouncements .announcement-row').forEach(row => {
+        const text = row.querySelector('.ann-text').value.trim();
+        if (text) pastors_announcements.push(text);
+    });
+
+    return { title, service_date, program_items, participants, admin_announcements, pastors_announcements };
 }
 
 async function saveProgram() {
@@ -434,6 +602,10 @@ async function loadPrograms() {
                         ${isToday ? '<span class="inline-block mt-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
                     </div>
                     <div class="flex gap-2">
+                        <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})'
+                            class="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                            Share</button>
                         <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})'
                             class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">Edit</button>
                         <button onclick="deleteProgram(${p.id})"
@@ -451,6 +623,20 @@ async function loadPrograms() {
                         <div class="space-y-1.5">${partsHtml || '<span class="text-gray-400 text-sm">No participants</span>'}</div>
                     </div>
                 </div>
+                ${(p.admin_announcements && p.admin_announcements.length > 0) ? `
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <h4 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Admin Announcements</h4>
+                    <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+                        ${p.admin_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul>
+                </div>` : ''}
+                ${(p.pastors_announcements && p.pastors_announcements.length > 0) ? `
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <h4 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Pastor's Announcements</h4>
+                    <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+                        ${p.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul>
+                </div>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -483,13 +669,115 @@ function applyTemplate() {
     document.getElementById('progTitle').value = tpl.title;
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
     participantCounter = 0;
 
     (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
     (tpl.participants || []).forEach(p => addParticipant(p.role, p.name));
+    (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
+    (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
 
     if ((tpl.program_items || []).length === 0) { addProgramItem(); addProgramItem(); }
     if ((tpl.participants || []).length === 0) { addParticipant(); addParticipant(); }
+}
+
+async function shareProgram(program) {
+    const card = document.getElementById('shareCard');
+    const container = document.getElementById('shareCardContainer');
+
+    // Populate card
+    const dateObj = new Date(program.service_date + 'T00:00:00');
+    const dateStr = dateObj.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    document.getElementById('shareTitle').textContent = program.title;
+    document.getElementById('shareDate').textContent = dateStr;
+
+    // Program items
+    const itemsDiv = document.getElementById('shareItems');
+    itemsDiv.innerHTML = (program.program_items || []).map(item => `
+        <div style="display: flex; gap: 12px; padding: 6px 0; font-size: 14px;">
+            <span style="color: #6b7280; font-family: monospace; width: 70px; flex-shrink: 0;">${formatTime(item.time)}</span>
+            <span style="color: #111827;">${escapeHtml(item.item)}</span>
+        </div>
+    `).join('');
+
+    // Participants
+    const partsDiv = document.getElementById('shareParticipants');
+    partsDiv.innerHTML = (program.participants || []).map(pt => `
+        <div style="display: flex; gap: 12px; padding: 4px 0; font-size: 14px;">
+            <span style="color: #6b7280; font-weight: 500; width: 140px; flex-shrink: 0;">${escapeHtml(pt.role)}:</span>
+            <span style="color: #111827;">${escapeHtml(pt.name)}</span>
+        </div>
+    `).join('');
+
+    // Admin Announcements
+    const adminAnnSection = document.getElementById('shareAdminAnn');
+    const adminAnnItems = document.getElementById('shareAdminAnnItems');
+    if (program.admin_announcements && program.admin_announcements.length > 0) {
+        adminAnnSection.style.display = 'block';
+        adminAnnItems.innerHTML = program.admin_announcements.map(a => `
+            <div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>
+        `).join('');
+    } else {
+        adminAnnSection.style.display = 'none';
+    }
+
+    // Pastor's Announcements
+    const pastorAnnSection = document.getElementById('sharePastorAnn');
+    const pastorAnnItems = document.getElementById('sharePastorAnnItems');
+    if (program.pastors_announcements && program.pastors_announcements.length > 0) {
+        pastorAnnSection.style.display = 'block';
+        pastorAnnItems.innerHTML = program.pastors_announcements.map(a => `
+            <div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>
+        `).join('');
+    } else {
+        pastorAnnSection.style.display = 'none';
+    }
+
+    // Move into view temporarily for capture
+    container.style.left = '0';
+    container.style.position = 'absolute';
+
+    try {
+        const canvas = await html2canvas(card, {
+            scale: 2,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+        });
+
+        canvas.toBlob(async (blob) => {
+            const fileName = `${program.title.replace(/[^a-zA-Z0-9]/g, '_')}_${program.service_date}.png`;
+
+            // Try native share (mobile)
+            if (navigator.share && navigator.canShare) {
+                const file = new File([blob], fileName, { type: 'image/png' });
+                const shareData = { files: [file], title: program.title };
+                try {
+                    if (navigator.canShare(shareData)) {
+                        await navigator.share(shareData);
+                        return;
+                    }
+                } catch (e) {
+                    if (e.name !== 'AbortError') console.log('Share failed, falling back to download');
+                }
+            }
+
+            // Fallback: download the image
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 'image/png');
+    } finally {
+        container.style.left = '-9999px';
+        container.style.position = 'fixed';
+    }
 }
 
 // Init
