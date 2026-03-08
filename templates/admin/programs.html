@@ -774,9 +774,13 @@ function applyTemplate() {
 
     // Auto-create participant groups for activities that need participants
     const needsParticipant = (tpl.program_items || []).filter(item => item.requires_participant);
-    if (needsParticipant.length > 0) {
-        needsParticipant.forEach(item => addParticipantGroup(item.item, ['']));
-    } else {
+    needsParticipant.forEach(item => addParticipantGroup(item.item, ['']));
+
+    // Auto-create participant groups for support roles (Projector, Livestreaming, etc.)
+    (tpl.support_roles || []).forEach(role => addParticipantGroup(role, ['']));
+
+    // If nothing was added, show one empty group
+    if (needsParticipant.length === 0 && !(tpl.support_roles && tpl.support_roles.length > 0)) {
         addParticipantGroup();
     }
 }

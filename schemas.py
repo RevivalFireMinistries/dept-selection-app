@@ -409,6 +409,7 @@ class ProgramTemplateCreate(BaseModel):
     admin_announcements: List[str] = []
     pastors_announcements: List[str] = []
     prayer_points: List[str] = []
+    support_roles: List[str] = []  # e.g. ["Projector", "Livestreaming"]
 
 class ProgramTemplateUpdate(BaseModel):
     title: Optional[str] = None
@@ -418,6 +419,7 @@ class ProgramTemplateUpdate(BaseModel):
     admin_announcements: Optional[List[str]] = None
     pastors_announcements: Optional[List[str]] = None
     prayer_points: Optional[List[str]] = None
+    support_roles: Optional[List[str]] = None
 
 class ServiceProgramCreate(BaseModel):
     title: str  # "SUNDAY SERVICE"

@@ -283,6 +283,24 @@ def run_migrations():
                     conn.commit()
                     print(f"Migration: Added prayer_points column to {table_name}")
 
+        # Add support_roles column to program_templates
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'program_templates' AND column_name = 'support_roles'
+        """))
+        if not result.fetchone():
+            table_exists = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_name = 'program_templates'
+            """)).fetchone()
+            if table_exists:
+                conn.execute(text("""
+                    ALTER TABLE program_templates
+                    ADD COLUMN IF NOT EXISTS support_roles TEXT NOT NULL DEFAULT '[]'
+                """))
+                conn.commit()
+                print("Migration: Added support_roles column to program_templates")
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',

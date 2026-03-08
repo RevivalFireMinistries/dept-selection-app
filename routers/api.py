@@ -3969,6 +3969,7 @@ def _template_to_dict(template: ProgramTemplate) -> dict:
         "admin_announcements": _parse_json(template.admin_announcements),
         "pastors_announcements": _parse_json(template.pastors_announcements),
         "prayer_points": _parse_json(template.prayer_points),
+        "support_roles": _parse_json(template.support_roles),
         "created_at": template.created_at.isoformat() if template.created_at else None,
         "updated_at": template.updated_at.isoformat() if template.updated_at else None
     }
@@ -4054,7 +4055,8 @@ def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
         participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
         admin_announcements=json.dumps(data.admin_announcements or []),
         pastors_announcements=json.dumps(data.pastors_announcements or []),
-        prayer_points=json.dumps(data.prayer_points or [])
+        prayer_points=json.dumps(data.prayer_points or []),
+        support_roles=json.dumps(data.support_roles or [])
     )
     db.add(template)
     db.commit()
@@ -4086,6 +4088,8 @@ def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session =
         template.pastors_announcements = json.dumps(data.pastors_announcements)
     if data.prayer_points is not None:
         template.prayer_points = json.dumps(data.prayer_points)
+    if data.support_roles is not None:
+        template.support_roles = json.dumps(data.support_roles)
 
     db.commit()
     db.refresh(template)

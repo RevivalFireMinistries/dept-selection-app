@@ -83,6 +83,17 @@
                 <div id="prayerPoints" class="space-y-2"></div>
             </div>
 
+            <!-- Support Roles -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Support Roles</label>
+                    <button type="button" onclick="addSupportRole()"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add Role</button>
+                </div>
+                <p class="text-xs text-gray-500 mb-2">Roles like Projector, Livestreaming, etc. that don't appear on the timed schedule but need participants assigned when creating a program.</p>
+                <div id="supportRoles" class="space-y-2"></div>
+            </div>
+
             <div class="flex gap-3">
                 <button onclick="saveTemplate()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
@@ -152,6 +163,21 @@ function addProgramItem(time = '', item = '', requiresParticipant = false) {
     container.appendChild(row);
 }
 
+function addSupportRole(name = '') {
+    const container = document.getElementById('supportRoles');
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center support-role-row';
+    row.innerHTML = `
+        <input type="text" value="${escapeHtml(name)}" placeholder="e.g., Projector, Livestreaming"
+            class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 support-role-name">
+        <button type="button" onclick="this.parentElement.remove()"
+            class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+}
+
 function addAnnouncement(containerId, text = '') {
     const container = document.getElementById(containerId);
     const row = document.createElement('div');
@@ -176,6 +202,7 @@ function showCreateForm() {
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
     document.getElementById('prayerPoints').innerHTML = '';
+    document.getElementById('supportRoles').innerHTML = '';
     addProgramItem();
     addProgramItem();
     document.getElementById('formSection').classList.remove('hidden');
@@ -190,11 +217,13 @@ function showEditForm(tpl) {
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
     document.getElementById('prayerPoints').innerHTML = '';
+    document.getElementById('supportRoles').innerHTML = '';
 
     (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item, !!item.requires_participant));
     (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
     (tpl.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
+    (tpl.support_roles || []).forEach(r => addSupportRole(r));
 
     document.getElementById('formSection').classList.remove('hidden');
 }
@@ -234,7 +263,13 @@ function collectFormData() {
         if (text) prayer_points.push(text);
     });
 
-    return { title, day_of_week, program_items, participants: [], admin_announcements, pastors_announcements, prayer_points };
+    const support_roles = [];
+    document.querySelectorAll('.support-role-row').forEach(row => {
+        const name = row.querySelector('.support-role-name').value.trim();
+        if (name) support_roles.push(name);
+    });
+
+    return { title, day_of_week, program_items, participants: [], admin_announcements, pastors_announcements, prayer_points, support_roles };
 }
 
 async function saveTemplate() {
@@ -346,6 +381,13 @@ async function loadTemplates() {
                         <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
                             ${t.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
                         </ul>
+                    </div>` : ''}
+                    ${(t.support_roles && t.support_roles.length > 0) ? `
+                    <div class="mt-4 pt-4 border-t border-gray-100">
+                        <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Support Roles</h5>
+                        <div class="flex flex-wrap gap-2">
+                            ${t.support_roles.map(r => '<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>' + escapeHtml(r) + '</span>').join('')}
+                        </div>
                     </div>` : ''}
                 </div>
             </div>`;

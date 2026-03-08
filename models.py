@@ -240,6 +240,8 @@ class ProgramTemplate(Base):
     admin_announcements = Column(Text, nullable=False, server_default="[]")
     pastors_announcements = Column(Text, nullable=False, server_default="[]")
     prayer_points = Column(Text, nullable=False, server_default="[]")
+    # JSON array of support role names: ["Projector", "Livestreaming"]
+    support_roles = Column(Text, nullable=False, server_default="[]")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
