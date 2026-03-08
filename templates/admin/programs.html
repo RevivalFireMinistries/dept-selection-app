@@ -779,15 +779,16 @@ function hideForm() {
  * @returns {string} ISO date string "YYYY-MM-DD"
  */
 function getNextDateForDay(templateDay, programItems) {
-    // Convert Python weekday (0=Mon..6=Sun) to JS weekday (0=Sun..6=Sat)
-    const jsDay = (templateDay + 1) % 7; // Mon=1, Tue=2 ... Sun=0
+    // Python weekday: 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri,5=Sat,6=Sun
+    // JS getDay():    0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+    // Convert: Python Mon(0)->JS 1, Tue(1)->JS 2, ... Sat(5)->JS 6, Sun(6)->JS 0
+    const jsTargetDay = templateDay === 6 ? 0 : templateDay + 1;
 
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayJsDay = today.getDay(); // 0=Sun..6=Sat
+    const todayJsDay = now.getDay();
 
-    // Days until the target day
-    let daysAhead = (jsDay - todayJsDay + 7) % 7;
+    // Days until the target day (0 = today if same day)
+    let daysAhead = (jsTargetDay - todayJsDay + 7) % 7;
 
     // If today is the target day, check if the program start time has passed
     if (daysAhead === 0) {
@@ -802,9 +803,12 @@ function getNextDateForDay(templateDay, programItems) {
         }
     }
 
-    const target = new Date(today);
-    target.setDate(today.getDate() + daysAhead);
-    return target.toISOString().split('T')[0];
+    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    // Format as YYYY-MM-DD using local date parts (avoid toISOString UTC shift)
+    const yyyy = target.getFullYear();
+    const mm = String(target.getMonth() + 1).padStart(2, '0');
+    const dd = String(target.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
