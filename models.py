@@ -232,6 +232,7 @@ class ProgramTemplate(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)  # e.g. "SUNDAY SERVICE"
     day_of_week = Column(Integer, nullable=False)  # 0=Monday, 1=Tuesday, ... 6=Sunday (Python weekday)
+    location_type = Column(String(20), nullable=False, server_default="onsite")  # "onsite" or "online"
     # JSON array: [{"time": "09:30", "item": "Prayer"}, ...]
     program_items = Column(Text, nullable=False)
     # JSON array: [{"role": "Prayer", "name": "Dcns Gohodo"}, ...]
@@ -253,6 +254,7 @@ class ServiceProgram(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(200), nullable=False)  # e.g. "SUNDAY SERVICE"
     service_date = Column(Date, nullable=False, index=True)
+    location_type = Column(String(20), nullable=False, server_default="onsite")  # "onsite" or "online"
     # JSON array: [{"time": "09:30", "item": "Prayer"}, ...]
     program_items = Column(Text, nullable=False)
     # JSON array: [{"role": "Prayer", "name": "Dcns Gohodo"}, ...]

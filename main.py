@@ -301,6 +301,25 @@ def run_migrations():
                 conn.commit()
                 print("Migration: Added support_roles column to program_templates")
 
+        # Add location_type column to program_templates and service_programs
+        for table_name in ['program_templates', 'service_programs']:
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = :table AND column_name = 'location_type'
+            """), {"table": table_name})
+            if not result.fetchone():
+                table_exists = conn.execute(text("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_name = :table
+                """), {"table": table_name}).fetchone()
+                if table_exists:
+                    conn.execute(text(f"""
+                        ALTER TABLE {table_name}
+                        ADD COLUMN IF NOT EXISTS location_type VARCHAR(20) NOT NULL DEFAULT 'onsite'
+                    """))
+                    conn.commit()
+                    print(f"Migration: Added location_type column to {table_name}")
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',

@@ -21,7 +21,7 @@
     <div id="formSection" class="hidden bg-white rounded-xl shadow p-6">
         <h3 class="text-lg font-semibold text-gray-900 mb-4" id="formTitle">Add Template</h3>
         <div class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Title</label>
                     <input type="text" id="tplTitle" placeholder="e.g., SUNDAY SERVICE"
@@ -39,6 +39,21 @@
                         <option value="5">Saturday</option>
                         <option value="6">Sunday</option>
                     </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <div class="flex rounded-lg border border-gray-300 overflow-hidden" id="tplLocationToggle">
+                        <button type="button" onclick="setLocationType('onsite')"
+                            class="flex-1 px-4 py-2 text-sm font-medium transition-colors location-btn" data-value="onsite">
+                            Onsite
+                        </button>
+                        <button type="button" onclick="setLocationType('online')"
+                            class="flex-1 px-4 py-2 text-sm font-medium transition-colors location-btn" data-value="online">
+                            Online
+                        </button>
+                    </div>
+                    <input type="hidden" id="tplLocationType" value="onsite">
+                    <p class="text-xs text-gray-400 mt-1">Online programs won't be pushed to the public API</p>
                 </div>
             </div>
 
@@ -139,6 +154,18 @@ const DAY_COLORS = [
 
 let editingId = null;
 
+function setLocationType(type) {
+    document.getElementById('tplLocationType').value = type;
+    document.querySelectorAll('#tplLocationToggle .location-btn').forEach(btn => {
+        if (btn.dataset.value === type) {
+            btn.className = 'flex-1 px-4 py-2 text-sm font-medium transition-colors location-btn ' +
+                (type === 'onsite' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white');
+        } else {
+            btn.className = 'flex-1 px-4 py-2 text-sm font-medium transition-colors location-btn bg-white text-gray-600 hover:bg-gray-50';
+        }
+    });
+}
+
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -198,6 +225,7 @@ function showCreateForm() {
     document.getElementById('formTitle').textContent = 'Add Template';
     document.getElementById('tplTitle').value = '';
     document.getElementById('tplDay').value = '6';
+    setLocationType('onsite');
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
@@ -213,6 +241,7 @@ function showEditForm(tpl) {
     document.getElementById('formTitle').textContent = 'Edit Template';
     document.getElementById('tplTitle').value = tpl.title;
     document.getElementById('tplDay').value = tpl.day_of_week;
+    setLocationType(tpl.location_type || 'onsite');
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
@@ -269,7 +298,9 @@ function collectFormData() {
         if (name) support_roles.push(name);
     });
 
-    return { title, day_of_week, program_items, participants: [], admin_announcements, pastors_announcements, prayer_points, support_roles };
+    const location_type = document.getElementById('tplLocationType').value;
+
+    return { title, day_of_week, location_type, program_items, participants: [], admin_announcements, pastors_announcements, prayer_points, support_roles };
 }
 
 async function saveTemplate() {
@@ -348,7 +379,12 @@ async function loadTemplates() {
                 <div class="p-6">
                     <div class="flex items-start justify-between mb-4">
                         <div>
-                            <h4 class="text-lg font-bold text-gray-900">${escapeHtml(t.title)}</h4>
+                            <div class="flex items-center gap-2">
+                                <h4 class="text-lg font-bold text-gray-900">${escapeHtml(t.title)}</h4>
+                                ${t.location_type === 'online'
+                                    ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
+                                    : '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Onsite</span>'}
+                            </div>
                         </div>
                         <div class="flex gap-2">
                             <button onclick='showEditForm(${JSON.stringify(t).replace(/'/g, "&#39;")})'

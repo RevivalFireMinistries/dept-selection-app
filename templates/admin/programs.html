@@ -73,6 +73,23 @@
                     <input type="date" id="progDate"
                         class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50">
                 </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">Location</label>
+                    <div class="flex rounded-xl border border-gray-200 overflow-hidden" id="progLocationToggle">
+                        <button type="button" onclick="setProgLocationType('onsite')"
+                            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn" data-value="onsite">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                            Onsite
+                        </button>
+                        <button type="button" onclick="setProgLocationType('online')"
+                            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn" data-value="online">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                            Online
+                        </button>
+                    </div>
+                    <input type="hidden" id="progLocationType" value="onsite">
+                    <p class="text-xs text-gray-400 mt-1">Online programs won't appear on the public display</p>
+                </div>
             </div>
         </div>
 
@@ -366,6 +383,18 @@ function formatTime(time) {
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const display = hour % 12 || 12;
     return `${display}:${m} ${ampm}`;
+}
+
+function setProgLocationType(type) {
+    document.getElementById('progLocationType').value = type;
+    document.querySelectorAll('#progLocationToggle .prog-location-btn').forEach(btn => {
+        if (btn.dataset.value === type) {
+            btn.className = 'flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn ' +
+                (type === 'onsite' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white');
+        } else {
+            btn.className = 'flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn bg-white text-gray-500 hover:bg-gray-50';
+        }
+    });
 }
 
 function toggleSection(bodyId) {
@@ -680,8 +709,10 @@ function showCreateForm() {
     editingId = null;
     document.getElementById('formTitle').textContent = 'New Program';
     document.getElementById('progTitle').value = '';
-    document.getElementById('progDate').value = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    document.getElementById('progDate').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     document.getElementById('templateSelect').value = '';
+    setProgLocationType('onsite');
     document.getElementById('templatePicker').classList.remove('hidden');
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
@@ -713,6 +744,7 @@ function showEditForm(program) {
     document.getElementById('templatePicker').classList.add('hidden');
     document.getElementById('progTitle').value = program.title;
     document.getElementById('progDate').value = program.service_date;
+    setProgLocationType(program.location_type || 'onsite');
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
@@ -840,6 +872,9 @@ function onTemplateChange() {
     const nextDate = getNextDateForDay(tpl.day_of_week, tpl.program_items || []);
     document.getElementById('progDate').value = nextDate;
 
+    // Carry over location type from template
+    setProgLocationType(tpl.location_type || 'onsite');
+
     // Clear and rebuild
     document.getElementById('programItems').innerHTML = '';
     document.getElementById('participants').innerHTML = '';
@@ -928,7 +963,9 @@ function collectFormData() {
         if (text) prayer_points.push(text);
     });
 
-    return { title, service_date, program_items, participants, admin_announcements, pastors_announcements, prayer_points };
+    const location_type = document.getElementById('progLocationType').value;
+
+    return { title, service_date, location_type, program_items, participants, admin_announcements, pastors_announcements, prayer_points };
 }
 
 async function saveProgram() {
@@ -1021,6 +1058,9 @@ async function loadPrograms() {
                     <div class="flex items-center gap-2 flex-wrap">
                         <h3 class="font-bold text-gray-900 text-base">${escapeHtml(p.title)}</h3>
                         ${isToday ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
+                        ${p.location_type === 'online'
+                            ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
+                            : ''}
                     </div>
                     <p class="text-xs text-gray-500 mt-0.5">${dateStr}</p>
                 </div>

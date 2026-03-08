@@ -404,6 +404,7 @@ class Participant(BaseModel):
 class ProgramTemplateCreate(BaseModel):
     title: str
     day_of_week: int  # 0=Monday ... 6=Sunday
+    location_type: str = "onsite"  # "onsite" or "online"
     program_items: List[ProgramItem]
     participants: List[Participant]
     admin_announcements: List[str] = []
@@ -414,6 +415,7 @@ class ProgramTemplateCreate(BaseModel):
 class ProgramTemplateUpdate(BaseModel):
     title: Optional[str] = None
     day_of_week: Optional[int] = None
+    location_type: Optional[str] = None
     program_items: Optional[List[ProgramItem]] = None
     participants: Optional[List[Participant]] = None
     admin_announcements: Optional[List[str]] = None
@@ -424,6 +426,7 @@ class ProgramTemplateUpdate(BaseModel):
 class ServiceProgramCreate(BaseModel):
     title: str  # "SUNDAY SERVICE"
     service_date: date
+    location_type: str = "onsite"  # "onsite" or "online"
     program_items: List[ProgramItem]
     participants: List[Participant]
     admin_announcements: List[str] = []
@@ -434,6 +437,7 @@ class ServiceProgramCreate(BaseModel):
 class ServiceProgramUpdate(BaseModel):
     title: Optional[str] = None
     service_date: Optional[date] = None
+    location_type: Optional[str] = None
     program_items: Optional[List[ProgramItem]] = None
     participants: Optional[List[Participant]] = None
     admin_announcements: Optional[List[str]] = None

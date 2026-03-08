@@ -3752,6 +3752,7 @@ def _program_to_dict(program: ServiceProgram) -> dict:
         "hash": hashcode,
         "title": program.title,
         "service_date": program.service_date.isoformat(),
+        "location_type": program.location_type or "onsite",
         "program_items": _parse_json(program.program_items),
         "participants": _parse_json(program.participants),
         "admin_announcements": _parse_json(program.admin_announcements),
@@ -3778,8 +3779,10 @@ def get_todays_programs(db: Session = Depends(get_db)):
     _cleanup_past_programs(db)
 
     today = date.today()
+    # Only return onsite programs via public API
     programs = db.query(ServiceProgram).filter(
-        ServiceProgram.service_date == today
+        ServiceProgram.service_date == today,
+        ServiceProgram.location_type.in_(["onsite", None])
     ).order_by(ServiceProgram.id).all()
 
     return {
@@ -3864,6 +3867,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
     program = ServiceProgram(
         title=data.title,
         service_date=data.service_date,
+        location_type=data.location_type or "onsite",
         program_items=json.dumps([item.model_dump() for item in data.program_items]),
         participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
         admin_announcements=json.dumps(data.admin_announcements or []),
@@ -3900,6 +3904,8 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
         program.title = data.title
     if data.service_date is not None:
         program.service_date = data.service_date
+    if data.location_type is not None:
+        program.location_type = data.location_type
     if data.program_items is not None:
         program.program_items = json.dumps([item.model_dump() for item in data.program_items])
     if data.participants is not None:
@@ -3970,6 +3976,7 @@ def _template_to_dict(template: ProgramTemplate) -> dict:
         "pastors_announcements": _parse_json(template.pastors_announcements),
         "prayer_points": _parse_json(template.prayer_points),
         "support_roles": _parse_json(template.support_roles),
+        "location_type": template.location_type or "onsite",
         "created_at": template.created_at.isoformat() if template.created_at else None,
         "updated_at": template.updated_at.isoformat() if template.updated_at else None
     }
@@ -4051,6 +4058,7 @@ def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
     template = ProgramTemplate(
         title=data.title,
         day_of_week=data.day_of_week,
+        location_type=data.location_type or "onsite",
         program_items=json.dumps([item.model_dump() for item in (data.program_items or [])]),
         participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
         admin_announcements=json.dumps(data.admin_announcements or []),
@@ -4078,6 +4086,8 @@ def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session =
         if data.day_of_week < 0 or data.day_of_week > 6:
             raise HTTPException(status_code=400, detail="day_of_week must be 0 (Monday) to 6 (Sunday)")
         template.day_of_week = data.day_of_week
+    if data.location_type is not None:
+        template.location_type = data.location_type
     if data.program_items is not None:
         template.program_items = json.dumps([item.model_dump() for item in data.program_items])
     if data.participants is not None:
