@@ -91,6 +91,16 @@
                 <div id="pastorsAnnouncements" class="space-y-2"></div>
             </div>
 
+            <!-- Prayer Points -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Prayer Points</label>
+                    <button type="button" onclick="addAnnouncement('prayerPoints')"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">+ Add</button>
+                </div>
+                <div id="prayerPoints" class="space-y-2"></div>
+            </div>
+
             <div class="flex gap-3">
                 <button onclick="saveProgram()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
@@ -135,6 +145,11 @@
                 <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
                 <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Pastor's Announcements</div>
                 <div id="sharePastorAnnItems"></div>
+            </div>
+            <div id="sharePrayer" style="display: none;">
+                <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Prayer Points</div>
+                <div id="sharePrayerItems"></div>
             </div>
         </div>
         <!-- Footer -->
@@ -437,6 +452,7 @@ function showCreateForm() {
     document.getElementById('participants').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
+    document.getElementById('prayerPoints').innerHTML = '';
     participantCounter = 0;
     addProgramItem();
     addProgramItem();
@@ -455,6 +471,7 @@ function showEditForm(program) {
     document.getElementById('participants').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
+    document.getElementById('prayerPoints').innerHTML = '';
     participantCounter = 0;
 
     (program.program_items || []).forEach(item => {
@@ -468,6 +485,9 @@ function showEditForm(program) {
     });
     (program.pastors_announcements || []).forEach(a => {
         addAnnouncement('pastorsAnnouncements', a);
+    });
+    (program.prayer_points || []).forEach(a => {
+        addAnnouncement('prayerPoints', a);
     });
 
     document.getElementById('formSection').classList.remove('hidden');
@@ -512,7 +532,13 @@ function collectFormData() {
         if (text) pastors_announcements.push(text);
     });
 
-    return { title, service_date, program_items, participants, admin_announcements, pastors_announcements };
+    const prayer_points = [];
+    document.querySelectorAll('#prayerPoints .announcement-row').forEach(row => {
+        const text = row.querySelector('.ann-text').value.trim();
+        if (text) prayer_points.push(text);
+    });
+
+    return { title, service_date, program_items, participants, admin_announcements, pastors_announcements, prayer_points };
 }
 
 async function saveProgram() {
@@ -637,6 +663,13 @@ async function loadPrograms() {
                         ${p.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
                     </ul>
                 </div>` : ''}
+                ${(p.prayer_points && p.prayer_points.length > 0) ? `
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <h4 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Prayer Points</h4>
+                    <ul class="list-disc list-inside space-y-1 text-sm text-gray-700">
+                        ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul>
+                </div>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -673,12 +706,14 @@ function applyTemplate() {
     document.getElementById('participants').innerHTML = '';
     document.getElementById('adminAnnouncements').innerHTML = '';
     document.getElementById('pastorsAnnouncements').innerHTML = '';
+    document.getElementById('prayerPoints').innerHTML = '';
     participantCounter = 0;
 
     // Add program items from template
     (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
     (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
+    (tpl.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
 
     if ((tpl.program_items || []).length === 0) { addProgramItem(); addProgramItem(); }
 
@@ -742,6 +777,18 @@ async function shareProgram(program) {
         `).join('');
     } else {
         pastorAnnSection.style.display = 'none';
+    }
+
+    // Prayer Points
+    const prayerSection = document.getElementById('sharePrayer');
+    const prayerItems = document.getElementById('sharePrayerItems');
+    if (program.prayer_points && program.prayer_points.length > 0) {
+        prayerSection.style.display = 'block';
+        prayerItems.innerHTML = program.prayer_points.map(a => `
+            <div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>
+        `).join('');
+    } else {
+        prayerSection.style.display = 'none';
     }
 
     // Move into view temporarily for capture

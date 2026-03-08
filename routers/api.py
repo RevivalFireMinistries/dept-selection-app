@@ -3756,6 +3756,7 @@ def _program_to_dict(program: ServiceProgram) -> dict:
         "participants": _parse_json(program.participants),
         "admin_announcements": _parse_json(program.admin_announcements),
         "pastors_announcements": _parse_json(program.pastors_announcements),
+        "prayer_points": _parse_json(program.prayer_points),
         "created_at": program.created_at.isoformat() if program.created_at else None,
         "updated_at": program.updated_at.isoformat() if program.updated_at else None
     }
@@ -3866,7 +3867,8 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         program_items=json.dumps([item.model_dump() for item in data.program_items]),
         participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
         admin_announcements=json.dumps(data.admin_announcements or []),
-        pastors_announcements=json.dumps(data.pastors_announcements or [])
+        pastors_announcements=json.dumps(data.pastors_announcements or []),
+        prayer_points=json.dumps(data.prayer_points or [])
     )
     db.add(program)
     db.commit()
@@ -3906,6 +3908,8 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
         program.admin_announcements = json.dumps(data.admin_announcements)
     if data.pastors_announcements is not None:
         program.pastors_announcements = json.dumps(data.pastors_announcements)
+    if data.prayer_points is not None:
+        program.prayer_points = json.dumps(data.prayer_points)
 
     db.commit()
     db.refresh(program)
@@ -3964,6 +3968,7 @@ def _template_to_dict(template: ProgramTemplate) -> dict:
         "participants": _parse_json(template.participants),
         "admin_announcements": _parse_json(template.admin_announcements),
         "pastors_announcements": _parse_json(template.pastors_announcements),
+        "prayer_points": _parse_json(template.prayer_points),
         "created_at": template.created_at.isoformat() if template.created_at else None,
         "updated_at": template.updated_at.isoformat() if template.updated_at else None
     }
@@ -4048,7 +4053,8 @@ def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
         program_items=json.dumps([item.model_dump() for item in (data.program_items or [])]),
         participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
         admin_announcements=json.dumps(data.admin_announcements or []),
-        pastors_announcements=json.dumps(data.pastors_announcements or [])
+        pastors_announcements=json.dumps(data.pastors_announcements or []),
+        prayer_points=json.dumps(data.prayer_points or [])
     )
     db.add(template)
     db.commit()
@@ -4078,6 +4084,8 @@ def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session =
         template.admin_announcements = json.dumps(data.admin_announcements)
     if data.pastors_announcements is not None:
         template.pastors_announcements = json.dumps(data.pastors_announcements)
+    if data.prayer_points is not None:
+        template.prayer_points = json.dumps(data.prayer_points)
 
     db.commit()
     db.refresh(template)

@@ -239,6 +239,7 @@ class ProgramTemplate(Base):
     # JSON array of announcement strings
     admin_announcements = Column(Text, nullable=False, server_default="[]")
     pastors_announcements = Column(Text, nullable=False, server_default="[]")
+    prayer_points = Column(Text, nullable=False, server_default="[]")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -257,5 +258,6 @@ class ServiceProgram(Base):
     # JSON array of announcement strings: ["Announcement 1", "Announcement 2"]
     admin_announcements = Column(Text, nullable=False, server_default="[]")
     pastors_announcements = Column(Text, nullable=False, server_default="[]")
+    prayer_points = Column(Text, nullable=False, server_default="[]")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

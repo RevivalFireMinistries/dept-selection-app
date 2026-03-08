@@ -408,6 +408,7 @@ class ProgramTemplateCreate(BaseModel):
     participants: List[Participant]
     admin_announcements: List[str] = []
     pastors_announcements: List[str] = []
+    prayer_points: List[str] = []
 
 class ProgramTemplateUpdate(BaseModel):
     title: Optional[str] = None
@@ -416,6 +417,7 @@ class ProgramTemplateUpdate(BaseModel):
     participants: Optional[List[Participant]] = None
     admin_announcements: Optional[List[str]] = None
     pastors_announcements: Optional[List[str]] = None
+    prayer_points: Optional[List[str]] = None
 
 class ServiceProgramCreate(BaseModel):
     title: str  # "SUNDAY SERVICE"
@@ -424,6 +426,7 @@ class ServiceProgramCreate(BaseModel):
     participants: List[Participant]
     admin_announcements: List[str] = []
     pastors_announcements: List[str] = []
+    prayer_points: List[str] = []
     template_id: Optional[int] = None  # Track which template was used
 
 class ServiceProgramUpdate(BaseModel):
@@ -433,6 +436,7 @@ class ServiceProgramUpdate(BaseModel):
     participants: Optional[List[Participant]] = None
     admin_announcements: Optional[List[str]] = None
     pastors_announcements: Optional[List[str]] = None
+    prayer_points: Optional[List[str]] = None
 
 class ServiceProgramResponse(BaseModel):
     id: int
@@ -442,6 +446,7 @@ class ServiceProgramResponse(BaseModel):
     participants: List[Participant]
     admin_announcements: List[str] = []
     pastors_announcements: List[str] = []
+    prayer_points: List[str] = []
     created_at: datetime
     updated_at: Optional[datetime] = None
 
