@@ -20,6 +20,10 @@ A mobile-friendly web app for church members to select departments they want to 
 ├── routers/
 │   ├── api.py                   # All API endpoints
 │   └── pages.py                 # HTML page routes
+├── notifications/
+│   ├── dispatcher.py            # Email dispatch with templates per event type
+│   └── events.py                # EventType enum, labels, subjects
+├── scheduler.py                 # Background scheduler for meeting reminders
 ├── templates/
 │   ├── base.html                # Base template with Tailwind
 │   ├── landing.html             # Home page with login/register
@@ -40,6 +44,11 @@ A mobile-friendly web app for church members to select departments they want to 
 │   │   ├── approvals.html       # Review/approve selections
 │   │   ├── publish.html         # Publish/unpublish results
 │   │   ├── appeals.html         # Manage member appeals
+│   │   ├── meetings.html        # Meeting management
+│   │   ├── notifications.html   # Notification settings
+│   │   ├── poster-requests.html # Design request management
+│   │   ├── program_templates.html # Reusable program templates
+│   │   ├── programs.html        # Service program CRUD (mobile-first)
 │   │   ├── department_stats.html
 │   │   └── department_detail.html
 │   └── desk/
@@ -78,12 +87,36 @@ A mobile-friendly web app for church members to select departments they want to 
 4. **View Profiles**: See member's approved departments
 5. **Lodge Appeals**: Submit appeals on behalf of members
 
+### Service Programs
+1. **Program Templates**: Reusable templates per day of week with order of service items
+   - Mark activities that need participants (`requires_participant` checkbox)
+   - Define support roles (Projector, Livestreaming, etc.) that need people but don't appear on the timed schedule
+   - Default announcements (admin + pastor's) and prayer points
+   - Location type: **onsite** or **online** (online programs excluded from public API)
+2. **Programs** (mobile-first form):
+   - Created from templates (auto-applies on selection, no Apply button)
+   - Auto-fills date to next occurrence of template's day (e.g., next Sunday); skips to following week if past start time
+   - Participants assigned per activity with member autocomplete + free-text names
+   - Multiple participants per activity (grouped UI)
+   - Support roles from template auto-create participant groups
+   - Collapsible accordion sections: Order of Service, Participants, Announcements, Prayer Points
+   - Sticky save bar on mobile, full-screen form overlay
+   - Email notifications sent to participants when added
+   - Share button generates mobile-friendly image (html2canvas) with Web Share API fallback to download
+3. **Public API**: `GET /api/programs/today` returns only **onsite** programs for today
+4. **Poster Requests**: Members submit design requests; design team acknowledges/completes
+
+### Notifications
+- Email via SMTP or Resend (configurable per event type)
+- Events: member approved/rejected, results published, appeal submitted/resolved, meeting CRUD, poster requests, program participant added
+- Notification configs and audit logs in DB
+
 ## Database Schema
 
 ### Models
 - **Category**: Groups departments with max selection limit
 - **Department**: Ministry/service area (optionally in category)
-- **Member**: Person with name, phone, email, address
+- **Member**: Person with name, phone, email, address, leadership_roles (JSON)
 - **MemberDepartment**: Selection with approval status
   - `status`: "pending", "approved", "rejected"
   - `source`: "member" or "admin" (who made the selection)
@@ -94,6 +127,24 @@ A mobile-friendly web app for church members to select departments they want to 
   - `wanted_department_id`: Department they want instead
   - `reason`: Explanation
   - `status`: "pending", "approved", "rejected"
+- **Meeting**: Department/general meetings with RSVP, recurrence, targeting (departments/members/leadership roles)
+- **MeetingRSVP**: Member RSVP responses
+- **NotificationConfig**: Per-event-type notification settings (email/sms/push toggles)
+- **NotificationLog**: Audit log of sent notifications
+- **PosterRequest**: Design request with speakers, output formats, workflow (pending→acknowledged→completed)
+- **ProgramTemplate**: Reusable program template
+  - `day_of_week`: 0=Mon..6=Sun
+  - `location_type`: "onsite" or "online"
+  - `program_items`: JSON array `[{time, item, requires_participant}]`
+  - `participants`: JSON array (unused, assignment happens on programs)
+  - `support_roles`: JSON array of role names `["Projector", "Livestreaming"]`
+  - `admin_announcements`, `pastors_announcements`, `prayer_points`: JSON arrays
+- **ServiceProgram**: Actual service program for a date
+  - `location_type`: "onsite" or "online"
+  - `program_items`: JSON array `[{time, item}]`
+  - `participants`: JSON array `[{role, name}]` (flat, grouped in UI by role)
+  - `admin_announcements`, `pastors_announcements`, `prayer_points`: JSON arrays
+  - Past programs auto-deleted on GET /api/programs/today
 - **Settings**: Key-value configuration store
 
 ### Key Settings
@@ -103,6 +154,9 @@ A mobile-friendly web app for church members to select departments they want to 
 - `resultsPublished`: "true"/"false" - controls member visibility
 - `appealWindowOpen`: "true"/"false" - allows appeals
 - `selectionYear`: Current selection year (e.g., "2026")
+- `smtp_enabled`, `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password`, `smtp_from_name`, `smtp_from_email`: SMTP email config
+- `resend_enabled`, `resend_api_key`, `resend_from_name`, `resend_from_email`: Resend email config
+- `poster_request_department_id`: Department handling poster requests
 
 ## API Endpoints
 
@@ -112,6 +166,8 @@ A mobile-friendly web app for church members to select departments they want to 
 - `GET /api/results?phone=XXX` - Get member results (all family members)
 - `POST /api/results/accept/{id}?phone=XXX` - Accept admin-added department
 - `POST /api/appeals` - Submit appeal
+- `GET /api/programs/today` - Today's onsite programs (auto-cleans past programs)
+- `GET /api/programs/templates?day=sunday` - Templates filtered by day
 
 ### Admin
 - `GET /api/admin/reviews` - All members with selection status
@@ -126,6 +182,11 @@ A mobile-friendly web app for church members to select departments they want to 
 - `PUT /api/admin/appeals/{id}` - Resolve appeal
 - `POST /api/admin/appeals/window?open=true/false` - Toggle appeal window
 - `GET /api/export?type=department|member&approved_only=true` - Excel export
+- `GET/POST/PUT/DELETE /api/admin/programs` - Service program CRUD
+- `GET/POST/PUT/DELETE /api/admin/templates` - Program template CRUD
+- `GET/POST /api/admin/meetings` - Meeting management
+- `GET/POST /api/admin/poster-requests` - Poster request management
+- `GET/PUT /api/admin/notifications/config` - Notification settings
 
 ## Local Development
 
