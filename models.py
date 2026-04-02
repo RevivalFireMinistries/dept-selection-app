@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Date, Text, ForeignKey, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -263,5 +263,47 @@ class ServiceProgram(Base):
     admin_announcements = Column(Text, nullable=False, server_default="[]")
     pastors_announcements = Column(Text, nullable=False, server_default="[]")
     prayer_points = Column(Text, nullable=False, server_default="[]")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DisplaySubmission(Base):
+    """
+    Media/content submissions for FirePresenter display.
+    Any team leader can submit content to be displayed during services.
+    """
+    __tablename__ = "display_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Who submitted
+    submitter_name = Column(String, nullable=False)
+    submitter_dept = Column(String, nullable=True)
+    submitter_phone = Column(String, nullable=True)
+
+    # What to display
+    content_type = Column(String, nullable=False)            # sermon_info, scripture, nugget, image, video, powerpoint, announcement
+    title = Column(String, nullable=False)
+    body = Column(Text, nullable=True)                       # Main text content
+    subtitle = Column(String, nullable=True)
+    comments = Column(Text, nullable=True)                   # Instructions for the operator
+
+    # File attachment
+    file_path = Column(String, nullable=True)
+    file_name = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+
+    # When to display
+    service_date = Column(Date, nullable=False)
+    display_slot = Column(String, nullable=False, server_default="announcements")
+    display_duration = Column(Integer, nullable=True)
+    display_order = Column(Integer, nullable=True)
+
+    # Workflow
+    status = Column(String, nullable=False, server_default="pending")
+    reviewed_by = Column(String, nullable=True)
+    review_note = Column(String, nullable=True)
+    fetched = Column(Boolean, nullable=False, server_default="false")
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

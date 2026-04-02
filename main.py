@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages
+from routers import api, pages, display
 
 
 def run_migrations():
@@ -320,6 +320,41 @@ def run_migrations():
                     conn.commit()
                     print(f"Migration: Added location_type column to {table_name}")
 
+        # Create display_submissions table for FirePresenter integration
+        result = conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'display_submissions'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                CREATE TABLE display_submissions (
+                    id SERIAL PRIMARY KEY,
+                    submitter_name VARCHAR NOT NULL,
+                    submitter_dept VARCHAR,
+                    submitter_phone VARCHAR,
+                    content_type VARCHAR NOT NULL,
+                    title VARCHAR NOT NULL,
+                    body TEXT,
+                    subtitle VARCHAR,
+                    comments TEXT,
+                    file_path VARCHAR,
+                    file_name VARCHAR,
+                    file_size INTEGER,
+                    service_date DATE NOT NULL,
+                    display_slot VARCHAR NOT NULL DEFAULT 'announcements',
+                    display_duration INTEGER,
+                    display_order INTEGER,
+                    status VARCHAR NOT NULL DEFAULT 'pending',
+                    reviewed_by VARCHAR,
+                    review_note VARCHAR,
+                    fetched BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
+            conn.commit()
+            print("Migration: Created display_submissions table")
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',
@@ -379,6 +414,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
 app.include_router(api.router, prefix="/api", tags=["api"])
+app.include_router(display.router, prefix="/api/display", tags=["display"])
 app.include_router(pages.router, tags=["pages"])
 
 
