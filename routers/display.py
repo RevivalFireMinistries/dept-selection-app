@@ -130,6 +130,7 @@ async def submit_display_content(
         display_slot=display_slot,
         display_duration=display_duration,
         display_order=display_order,
+        status="approved",  # Auto-approved — no review needed
     )
 
     db.add(submission)
