@@ -96,7 +96,38 @@
       <p id="fileSizeHint" class="text-xs text-gray-400 mt-1"></p>
     </div>
 
-    <!-- Text body (scripture/nugget/sermon) -->
+    <!-- Scripture picker (scripture type only) -->
+    <div id="scriptureRow" class="hidden mb-3">
+      <div class="mb-2">
+        <select id="bibleVersion" class="w-full px-3 py-2 border rounded-md text-sm">
+          <option value="KJV">KJV - King James Version</option>
+          <option value="NIV">NIV - New International Version</option>
+          <option value="NKJV">NKJV - New King James Version</option>
+          <option value="ESV">ESV - English Standard Version</option>
+          <option value="NLT">NLT - New Living Translation</option>
+          <option value="AMP">AMP - Amplified Bible</option>
+          <option value="MSG">MSG - The Message</option>
+          <option value="ASV">ASV - American Standard Version</option>
+        </select>
+      </div>
+      <div class="flex gap-2 mb-2">
+        <div class="relative flex-1">
+          <input id="bookInput" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Book (e.g., Romans)" autocomplete="off">
+          <div id="bookSuggestions" class="hidden absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-lg max-h-40 overflow-y-auto z-10"></div>
+        </div>
+        <input id="chapterInput" type="number" min="1" class="w-20 px-3 py-2 border rounded-md text-sm" placeholder="Ch">
+        <span class="self-center text-gray-400">:</span>
+        <input id="verseStartInput" type="number" min="1" class="w-20 px-3 py-2 border rounded-md text-sm" placeholder="From">
+        <span class="self-center text-gray-400">-</span>
+        <input id="verseEndInput" type="number" min="1" class="w-20 px-3 py-2 border rounded-md text-sm" placeholder="To">
+      </div>
+      <button type="button" onclick="addVerse()" class="w-full py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-xs font-medium hover:bg-blue-100">
+        + Add Verse
+      </button>
+      <div id="verseList" class="mt-2 space-y-1"></div>
+    </div>
+
+    <!-- Text body (nugget/sermon/announcement) -->
     <div id="bodyRow" class="hidden mb-3">
       <textarea id="itemBody" rows="3" class="w-full px-3 py-2 border rounded-md text-sm" placeholder=""></textarea>
     </div>
@@ -132,6 +163,90 @@
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
   const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 
+  // ─── Bible books data ──────────────────────────────────────────
+  const BIBLE_BOOKS = [
+    'Genesis','Exodus','Leviticus','Numbers','Deuteronomy','Joshua','Judges','Ruth',
+    '1 Samuel','2 Samuel','1 Kings','2 Kings','1 Chronicles','2 Chronicles',
+    'Ezra','Nehemiah','Esther','Job','Psalms','Proverbs','Ecclesiastes',
+    'Song of Solomon','Isaiah','Jeremiah','Lamentations','Ezekiel','Daniel',
+    'Hosea','Joel','Amos','Obadiah','Jonah','Micah','Nahum','Habakkuk',
+    'Zephaniah','Haggai','Zechariah','Malachi',
+    'Matthew','Mark','Luke','John','Acts','Romans',
+    '1 Corinthians','2 Corinthians','Galatians','Ephesians','Philippians',
+    'Colossians','1 Thessalonians','2 Thessalonians','1 Timothy','2 Timothy',
+    'Titus','Philemon','Hebrews','James','1 Peter','2 Peter',
+    '1 John','2 John','3 John','Jude','Revelation'
+  ];
+
+  let selectedVerses = [];
+
+  // Book autocomplete
+  const bookInput = document.getElementById('bookInput');
+  const bookSuggestions = document.getElementById('bookSuggestions');
+
+  bookInput.addEventListener('input', () => {
+    const val = bookInput.value.toLowerCase();
+    if (!val) { bookSuggestions.classList.add('hidden'); return; }
+    const matches = BIBLE_BOOKS.filter(b => b.toLowerCase().startsWith(val)).slice(0, 8);
+    if (matches.length === 0) { bookSuggestions.classList.add('hidden'); return; }
+    bookSuggestions.innerHTML = matches.map(b =>
+      '<div class="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer" onclick="selectBook(\'' + b + '\')">' + b + '</div>'
+    ).join('');
+    bookSuggestions.classList.remove('hidden');
+  });
+
+  bookInput.addEventListener('blur', () => {
+    setTimeout(() => bookSuggestions.classList.add('hidden'), 200);
+  });
+
+  function selectBook(name) {
+    bookInput.value = name;
+    bookSuggestions.classList.add('hidden');
+    document.getElementById('chapterInput').focus();
+  }
+
+  function addVerse() {
+    const book = bookInput.value.trim();
+    const ch = document.getElementById('chapterInput').value;
+    const vStart = document.getElementById('verseStartInput').value;
+    const vEnd = document.getElementById('verseEndInput').value;
+    const version = document.getElementById('bibleVersion').value;
+
+    if (!book || !ch) { bookInput.focus(); return; }
+
+    let ref = book + ' ' + ch;
+    if (vStart) {
+      ref += ':' + vStart;
+      if (vEnd && parseInt(vEnd) > parseInt(vStart)) ref += '-' + vEnd;
+    }
+    ref += ' (' + version + ')';
+
+    selectedVerses.push(ref);
+    renderVerseList();
+
+    // Clear inputs for next verse
+    bookInput.value = '';
+    document.getElementById('chapterInput').value = '';
+    document.getElementById('verseStartInput').value = '';
+    document.getElementById('verseEndInput').value = '';
+    bookInput.focus();
+  }
+
+  function removeVerse(idx) {
+    selectedVerses.splice(idx, 1);
+    renderVerseList();
+  }
+
+  function renderVerseList() {
+    const list = document.getElementById('verseList');
+    if (selectedVerses.length === 0) { list.innerHTML = ''; return; }
+    list.innerHTML = selectedVerses.map((v, i) =>
+      '<div class="flex items-center justify-between px-3 py-1.5 bg-blue-50 rounded text-sm">' +
+      '<span class="text-blue-800">📖 ' + escapeHtml(v) + '</span>' +
+      '<button onclick="removeVerse(' + i + ')" class="text-red-400 hover:text-red-600 text-lg leading-none">&times;</button></div>'
+    ).join('');
+  }
+
   function showForm(type) {
     const form = document.getElementById('itemForm');
     const fileRow = document.getElementById('fileRow');
@@ -153,6 +268,9 @@
     fileRow.classList.add('hidden');
     bodyRow.classList.add('hidden');
     subtitleRow.classList.add('hidden');
+    document.getElementById('scriptureRow').classList.add('hidden');
+    selectedVerses = [];
+    renderVerseList();
 
     switch (type) {
       case 'image':
@@ -171,9 +289,8 @@
         break;
       case 'scripture':
         formTitle.textContent = 'Add Scripture';
-        titleInput.placeholder = 'Title (e.g., Opening Scripture)';
-        bodyRow.classList.remove('hidden');
-        bodyInput.placeholder = 'Enter verse references, one per line:\nRomans 8:28\nJeremiah 29:11\nJohn 3:16';
+        titleInput.placeholder = 'Label (e.g., Opening Scripture)';
+        document.getElementById('scriptureRow').classList.remove('hidden');
         break;
       case 'sermon_info':
         formTitle.textContent = 'Add Sermon Title';
@@ -243,7 +360,11 @@
       formData.append('service_date', document.getElementById('serviceDate').value);
       formData.append('display_slot', document.getElementById('displaySlot').value);
 
-      const body = document.getElementById('itemBody').value.trim();
+      let body = document.getElementById('itemBody').value.trim();
+      // For scripture, use the selected verses list
+      if (type === 'scripture' && selectedVerses.length > 0) {
+        body = selectedVerses.join('\n');
+      }
       if (body) formData.append('body', body);
 
       const subtitle = document.getElementById('itemSubtitle').value.trim();
