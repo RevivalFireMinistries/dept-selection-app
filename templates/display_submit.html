@@ -1,253 +1,309 @@
 {% extends "base.html" %}
-{% block title %}Submit Content for Display | RFM{% endblock %}
+{% block title %}Submit for Display | RFM{% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto p-4 pb-20">
-  <div class="text-center mb-6">
-    <h1 class="text-2xl font-bold text-gray-900">Submit Content for Display</h1>
-    <p class="text-gray-500 text-sm mt-1">Submit images, videos, announcements, sermon info, or scriptures to be displayed on FirePresenter during services.</p>
+<div class="max-w-lg mx-auto p-4 pb-20">
+  <div class="text-center mb-5">
+    <h1 class="text-xl font-bold text-gray-900">Submit for Display</h1>
+    <p class="text-gray-500 text-xs mt-1">Add items to be displayed on screen during services</p>
   </div>
 
-  <!-- Success message -->
-  <div id="successMsg" class="hidden mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
-    <strong>Submitted!</strong> Your content has been received and will be reviewed by the media team.
+  <!-- Success toast -->
+  <div id="toast" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-green-600 text-white text-sm rounded-lg shadow-lg">
+    Item submitted!
   </div>
 
-  <!-- Error message -->
-  <div id="errorMsg" class="hidden mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"></div>
-
-  <form id="submitForm" class="space-y-4" enctype="multipart/form-data">
-
-    <!-- Who -->
-    <div class="bg-white rounded-lg border p-4 space-y-3">
-      <h2 class="font-semibold text-gray-800 text-sm uppercase tracking-wide">Your Info</h2>
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Your Name *</label>
-          <input name="submitter_name" required class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500" placeholder="e.g., John Smith">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Department / Team</label>
-          <select name="submitter_dept" class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500">
-            <option value="">Select team...</option>
-            <option value="Pastor">Pastor</option>
-            <option value="Worship Team">Worship Team</option>
-            <option value="Media Team">Media Team</option>
-            <option value="Youth">Youth</option>
-            <option value="Children">Children</option>
-            <option value="Events">Events</option>
-            <option value="Admin">Admin</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-      </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
-        <input name="submitter_phone" type="tel" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="e.g., 072 123 4567">
-      </div>
-    </div>
-
-    <!-- What -->
-    <div class="bg-white rounded-lg border p-4 space-y-3">
-      <h2 class="font-semibold text-gray-800 text-sm uppercase tracking-wide">Content</h2>
-
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Content Type *</label>
-        <select name="content_type" id="contentType" required class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500" onchange="updateFields()">
-          <option value="announcement">Announcement / Text</option>
-          <option value="image">Image / Poster</option>
-          <option value="video">Video</option>
-          <option value="powerpoint">PowerPoint Presentation</option>
-          <option value="sermon_info">Sermon Title & Info</option>
-          <option value="scripture">Scripture Reference</option>
-          <option value="nugget">Sermon Point / Nugget</option>
+  <!-- Your Info (collapsed by default, remembered) -->
+  <details id="infoSection" class="mb-4 bg-white rounded-lg border">
+    <summary class="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer">Your Info</summary>
+    <div class="px-4 pb-3 space-y-2">
+      <input id="submitterName" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Your name *">
+      <select id="submitterDept" class="w-full px-3 py-2 border rounded-md text-sm">
+        <option value="">Team / Department</option>
+        <option>Pastor</option>
+        <option>Worship</option>
+        <option>Media</option>
+        <option>Youth</option>
+        <option>Children</option>
+        <option>Events</option>
+        <option>Admin</option>
+        <option>Other</option>
+      </select>
+      <div class="flex gap-2">
+        <input id="serviceDate" type="date" class="flex-1 px-3 py-2 border rounded-md text-sm">
+        <select id="displaySlot" class="flex-1 px-3 py-2 border rounded-md text-sm">
+          <option value="before_service">Before Service</option>
+          <option value="during_worship">During Worship</option>
+          <option value="announcements" selected>Announcements</option>
+          <option value="during_sermon">During Sermon</option>
+          <option value="after_service">After Service</option>
+          <option value="any">Any Time</option>
         </select>
       </div>
-
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Title *</label>
-        <input name="title" required class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500" placeholder="e.g., Youth Camp 2026 Promo">
-      </div>
-
-      <div id="bodyField">
-        <label class="block text-xs font-medium text-gray-600 mb-1" id="bodyLabel">Text Content</label>
-        <textarea name="body" rows="3" class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500" placeholder="Enter the text to display..." id="bodyInput"></textarea>
-      </div>
-
-      <div id="subtitleField">
-        <label class="block text-xs font-medium text-gray-600 mb-1">Subtitle / Attribution</label>
-        <input name="subtitle" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="e.g., Pastor James, Romans 8:28">
-      </div>
-
-      <!-- File upload -->
-      <div id="fileField">
-        <label class="block text-xs font-medium text-gray-600 mb-1" id="fileLabel">Upload File</label>
-        <input name="file" type="file" id="fileInput" class="w-full px-3 py-2 border rounded-md text-sm bg-gray-50" accept="image/*,video/*,.pptx">
-        <p class="text-xs text-gray-400 mt-1">Supported: Images (JPG, PNG, WebP), Videos (MP4, WebM, MOV), PowerPoint (.pptx)</p>
-      </div>
     </div>
+  </details>
 
-    <!-- When -->
-    <div class="bg-white rounded-lg border p-4 space-y-3">
-      <h2 class="font-semibold text-gray-800 text-sm uppercase tracking-wide">When to Display</h2>
-
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Service Date *</label>
-          <input name="service_date" type="date" required class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500">
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Display Slot *</label>
-          <select name="display_slot" class="w-full px-3 py-2 border rounded-md text-sm focus:ring-2 focus:ring-orange-500">
-            <option value="before_service">Before Service</option>
-            <option value="during_worship">During Worship</option>
-            <option value="announcements" selected>Announcements</option>
-            <option value="during_sermon">During Sermon</option>
-            <option value="after_service">After Service</option>
-            <option value="any">Any Time (operator decides)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Display Duration</label>
-          <select name="display_duration" class="w-full px-3 py-2 border rounded-md text-sm">
-            <option value="">Operator decides</option>
-            <option value="5">5 seconds</option>
-            <option value="10">10 seconds</option>
-            <option value="15">15 seconds</option>
-            <option value="30">30 seconds</option>
-            <option value="60">1 minute</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Order Priority</label>
-          <select name="display_order" class="w-full px-3 py-2 border rounded-md text-sm">
-            <option value="">No preference</option>
-            <option value="1">First</option>
-            <option value="2">Second</option>
-            <option value="3">Third</option>
-            <option value="10">Last</option>
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <label class="block text-xs font-medium text-gray-600 mb-1">Comments / Instructions for Media Team</label>
-        <textarea name="comments" rows="2" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="e.g., Please display this during announcement time for about 30 seconds. The video has sound."></textarea>
-      </div>
+  <!-- Submitted items list -->
+  <div id="submittedList" class="hidden mb-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-medium text-gray-500 uppercase">Submitted Items</span>
+      <span id="submittedCount" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">0</span>
     </div>
+    <div id="submittedItems" class="space-y-1"></div>
+  </div>
 
-    <button type="submit" id="submitBtn" class="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-lg text-sm transition-colors">
-      Submit for Review
+  <!-- Add Item Buttons -->
+  <div class="grid grid-cols-2 gap-2 mb-4">
+    <button onclick="showForm('image')" class="flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed rounded-lg text-sm font-medium text-gray-600 hover:border-orange-400 hover:text-orange-600 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Image / Poster
     </button>
-  </form>
+    <button onclick="showForm('video')" class="flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed rounded-lg text-sm font-medium text-gray-600 hover:border-orange-400 hover:text-orange-600 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+      Video
+    </button>
+    <button onclick="showForm('scripture')" class="flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed rounded-lg text-sm font-medium text-gray-600 hover:border-orange-400 hover:text-orange-600 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+      Scripture
+    </button>
+    <button onclick="showForm('sermon_info')" class="flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed rounded-lg text-sm font-medium text-gray-600 hover:border-orange-400 hover:text-orange-600 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+      Sermon Title
+    </button>
+    <button onclick="showForm('nugget')" class="col-span-2 flex items-center justify-center gap-2 p-3 bg-white border-2 border-dashed rounded-lg text-sm font-medium text-gray-600 hover:border-orange-400 hover:text-orange-600 transition-colors">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      Sermon Point / Nugget
+    </button>
+  </div>
+
+  <!-- Dynamic Form (shown when a type is selected) -->
+  <div id="itemForm" class="hidden bg-white rounded-lg border p-4 mb-4">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="formTitle" class="text-sm font-semibold text-gray-800"></h3>
+      <button onclick="hideForm()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+    </div>
+
+    <input type="hidden" id="formType">
+
+    <!-- Title (always shown) -->
+    <div class="mb-3">
+      <input id="itemTitle" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Title *">
+    </div>
+
+    <!-- File upload (image/video only) -->
+    <div id="fileRow" class="hidden mb-3">
+      <input id="itemFile" type="file" class="w-full px-3 py-2 border rounded-md text-sm bg-gray-50">
+      <p id="fileSizeHint" class="text-xs text-gray-400 mt-1"></p>
+    </div>
+
+    <!-- Text body (scripture/nugget/sermon) -->
+    <div id="bodyRow" class="hidden mb-3">
+      <textarea id="itemBody" rows="3" class="w-full px-3 py-2 border rounded-md text-sm" placeholder=""></textarea>
+    </div>
+
+    <!-- Subtitle (sermon/nugget) -->
+    <div id="subtitleRow" class="hidden mb-3">
+      <input id="itemSubtitle" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Subtitle / Speaker">
+    </div>
+
+    <!-- Comments -->
+    <div class="mb-3">
+      <input id="itemComments" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Notes for the operator (optional)">
+    </div>
+
+    <button onclick="submitItem()" id="submitBtn" class="w-full py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-lg text-sm transition-colors">
+      Add Item
+    </button>
+  </div>
 </div>
 
 <script>
-  // Set default service date to next Sunday
+  // Remember user info
+  const saved = JSON.parse(localStorage.getItem('displaySubmitter') || '{}');
+  if (saved.name) document.getElementById('submitterName').value = saved.name;
+  if (saved.dept) document.getElementById('submitterDept').value = saved.dept;
+
+  // Default to next Sunday
   const today = new Date();
-  const daysUntilSunday = (7 - today.getDay()) % 7 || 7;
-  const nextSunday = new Date(today.getTime() + daysUntilSunday * 86400000);
-  document.querySelector('[name="service_date"]').value = nextSunday.toISOString().split('T')[0];
+  const d = (7 - today.getDay()) % 7 || 7;
+  document.getElementById('serviceDate').value = new Date(today.getTime() + d * 86400000).toISOString().split('T')[0];
 
-  function updateFields() {
-    const type = document.getElementById('contentType').value;
-    const bodyField = document.getElementById('bodyField');
-    const bodyLabel = document.getElementById('bodyLabel');
-    const bodyInput = document.getElementById('bodyInput');
-    const fileField = document.getElementById('fileField');
-    const fileLabel = document.getElementById('fileLabel');
-    const fileInput = document.getElementById('fileInput');
-    const subtitleField = document.getElementById('subtitleField');
+  let submittedCount = 0;
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 
-    // Show/hide fields based on content type
-    bodyField.classList.remove('hidden');
-    fileField.classList.remove('hidden');
-    subtitleField.classList.remove('hidden');
+  function showForm(type) {
+    const form = document.getElementById('itemForm');
+    const fileRow = document.getElementById('fileRow');
+    const bodyRow = document.getElementById('bodyRow');
+    const subtitleRow = document.getElementById('subtitleRow');
+    const fileInput = document.getElementById('itemFile');
+    const bodyInput = document.getElementById('itemBody');
+    const titleInput = document.getElementById('itemTitle');
+    const formTitle = document.getElementById('formTitle');
+    const fileSizeHint = document.getElementById('fileSizeHint');
+
+    // Reset
+    document.getElementById('formType').value = type;
+    titleInput.value = '';
+    bodyInput.value = '';
+    document.getElementById('itemSubtitle').value = '';
+    document.getElementById('itemComments').value = '';
+    fileInput.value = '';
+    fileRow.classList.add('hidden');
+    bodyRow.classList.add('hidden');
+    subtitleRow.classList.add('hidden');
 
     switch (type) {
       case 'image':
-        bodyField.classList.add('hidden');
-        subtitleField.classList.add('hidden');
-        fileLabel.textContent = 'Upload Image *';
+        formTitle.textContent = 'Add Image / Poster';
+        titleInput.placeholder = 'Title (e.g., Youth Camp Poster)';
+        fileRow.classList.remove('hidden');
         fileInput.accept = 'image/*';
+        fileSizeHint.textContent = 'Max 10MB. JPG, PNG, WebP supported.';
         break;
       case 'video':
-        bodyField.classList.add('hidden');
-        subtitleField.classList.add('hidden');
-        fileLabel.textContent = 'Upload Video *';
+        formTitle.textContent = 'Add Video';
+        titleInput.placeholder = 'Title (e.g., Welcome Video)';
+        fileRow.classList.remove('hidden');
         fileInput.accept = 'video/*';
-        break;
-      case 'powerpoint':
-        bodyField.classList.add('hidden');
-        subtitleField.classList.add('hidden');
-        fileLabel.textContent = 'Upload PowerPoint *';
-        fileInput.accept = '.pptx';
-        break;
-      case 'sermon_info':
-        bodyLabel.textContent = 'Sermon Description / Key Points';
-        bodyInput.placeholder = 'Brief description or key points for the sermon...';
-        fileField.classList.add('hidden');
+        fileSizeHint.textContent = 'Max 100MB. MP4, WebM, MOV supported.';
         break;
       case 'scripture':
-        bodyLabel.textContent = 'Scripture References';
-        bodyInput.placeholder = 'e.g., Romans 8:28, Jeremiah 29:11, John 3:16\n(one per line or comma-separated)';
-        fileField.classList.add('hidden');
+        formTitle.textContent = 'Add Scripture';
+        titleInput.placeholder = 'Title (e.g., Opening Scripture)';
+        bodyRow.classList.remove('hidden');
+        bodyInput.placeholder = 'Enter verse references, one per line:\nRomans 8:28\nJeremiah 29:11\nJohn 3:16';
+        break;
+      case 'sermon_info':
+        formTitle.textContent = 'Add Sermon Title';
+        titleInput.placeholder = 'Sermon title (e.g., Walking in Faith)';
+        bodyRow.classList.remove('hidden');
+        bodyInput.placeholder = 'Key points or description (optional)';
+        subtitleRow.classList.remove('hidden');
         break;
       case 'nugget':
-        bodyLabel.textContent = 'Sermon Point / Quote Text';
-        bodyInput.placeholder = 'The main text to display on screen...';
-        fileField.classList.add('hidden');
-        break;
-      case 'announcement':
-      default:
-        bodyLabel.textContent = 'Announcement Text';
-        bodyInput.placeholder = 'The text to display...';
-        fileField.classList.add('hidden');
+        formTitle.textContent = 'Add Sermon Point';
+        titleInput.placeholder = 'Label (e.g., Point 1, Key Quote)';
+        bodyRow.classList.remove('hidden');
+        bodyInput.placeholder = 'The text to display on screen';
+        subtitleRow.classList.remove('hidden');
         break;
     }
+
+    form.classList.remove('hidden');
+    titleInput.focus();
   }
 
-  document.getElementById('submitForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('submitBtn');
-    const successMsg = document.getElementById('successMsg');
-    const errorMsg = document.getElementById('errorMsg');
+  function hideForm() {
+    document.getElementById('itemForm').classList.add('hidden');
+  }
 
+  async function submitItem() {
+    const name = document.getElementById('submitterName').value.trim();
+    if (!name) {
+      document.getElementById('infoSection').open = true;
+      document.getElementById('submitterName').focus();
+      alert('Please enter your name first');
+      return;
+    }
+
+    const type = document.getElementById('formType').value;
+    const title = document.getElementById('itemTitle').value.trim();
+    if (!title) { document.getElementById('itemTitle').focus(); return; }
+
+    // File size check
+    const fileInput = document.getElementById('itemFile');
+    if ((type === 'image' || type === 'video') && fileInput.files.length > 0) {
+      const file = fileInput.files[0];
+      const maxSize = type === 'image' ? MAX_IMAGE_SIZE : MAX_VIDEO_SIZE;
+      if (file.size > maxSize) {
+        const maxMB = Math.round(maxSize / 1024 / 1024);
+        alert('File is too large. Maximum size is ' + maxMB + 'MB.');
+        return;
+      }
+    }
+
+    // Save user info
+    localStorage.setItem('displaySubmitter', JSON.stringify({
+      name: name,
+      dept: document.getElementById('submitterDept').value,
+    }));
+
+    const btn = document.getElementById('submitBtn');
     btn.disabled = true;
     btn.textContent = 'Submitting...';
-    successMsg.classList.add('hidden');
-    errorMsg.classList.add('hidden');
 
     try {
-      const formData = new FormData(e.target);
+      const formData = new FormData();
+      formData.append('submitter_name', name);
+      formData.append('submitter_dept', document.getElementById('submitterDept').value);
+      formData.append('content_type', type);
+      formData.append('title', title);
+      formData.append('service_date', document.getElementById('serviceDate').value);
+      formData.append('display_slot', document.getElementById('displaySlot').value);
+
+      const body = document.getElementById('itemBody').value.trim();
+      if (body) formData.append('body', body);
+
+      const subtitle = document.getElementById('itemSubtitle').value.trim();
+      if (subtitle) formData.append('subtitle', subtitle);
+
+      const comments = document.getElementById('itemComments').value.trim();
+      if (comments) formData.append('comments', comments);
+
+      if (fileInput.files.length > 0) {
+        formData.append('file', fileInput.files[0]);
+      }
+
       const resp = await fetch('/api/display/submit', { method: 'POST', body: formData });
       const data = await resp.json();
 
       if (resp.ok && data.status === 'success') {
-        successMsg.classList.remove('hidden');
-        e.target.reset();
-        updateFields();
-        // Re-set default date
-        const today = new Date();
-        const d = (7 - today.getDay()) % 7 || 7;
-        document.querySelector('[name="service_date"]').value = new Date(today.getTime() + d * 86400000).toISOString().split('T')[0];
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Show success
+        showToast();
+        addToSubmittedList(type, title);
+        hideForm();
       } else {
-        errorMsg.textContent = data.detail || 'Submission failed. Please try again.';
-        errorMsg.classList.remove('hidden');
+        alert(data.detail || 'Failed to submit. Please try again.');
       }
     } catch (err) {
-      errorMsg.textContent = 'Network error. Please check your connection.';
-      errorMsg.classList.remove('hidden');
+      alert('Network error. Please check your connection.');
     }
 
     btn.disabled = false;
-    btn.textContent = 'Submit for Review';
-  });
+    btn.textContent = 'Add Item';
+  }
 
-  updateFields();
+  function showToast() {
+    const toast = document.getElementById('toast');
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 2000);
+  }
+
+  function addToSubmittedList(type, title) {
+    submittedCount++;
+    const list = document.getElementById('submittedList');
+    const items = document.getElementById('submittedItems');
+    const count = document.getElementById('submittedCount');
+
+    list.classList.remove('hidden');
+    count.textContent = submittedCount;
+
+    const icons = { image: '🖼️', video: '🎬', scripture: '📖', sermon_info: '📝', nugget: '⚡' };
+    const labels = { image: 'Image', video: 'Video', scripture: 'Scripture', sermon_info: 'Sermon', nugget: 'Nugget' };
+
+    items.innerHTML += '<div class="flex items-center gap-2 px-3 py-2 bg-green-50 rounded-md text-sm">' +
+      '<span>' + (icons[type] || '📄') + '</span>' +
+      '<span class="font-medium text-green-800">' + escapeHtml(title) + '</span>' +
+      '<span class="text-xs text-green-600 ml-auto">' + (labels[type] || type) + '</span>' +
+      '<span class="text-green-500">✓</span></div>';
+  }
+
+  function escapeHtml(t) {
+    const d = document.createElement('div');
+    d.textContent = t;
+    return d.innerHTML;
+  }
 </script>
 {% endblock %}
