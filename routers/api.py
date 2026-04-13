@@ -4043,15 +4043,35 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
     if not participant_names:
         return
 
-    # Find members whose names match participants (case-insensitive)
+    # Strip title prefixes for DB lookup
+    title_prefixes = ("pastor ", "elder ", "deacon ")
+    def _strip_title(name):
+        lower = name.lower()
+        for prefix in title_prefixes:
+            if lower.startswith(prefix):
+                return name[len(prefix):]
+        return name
+
+    # Build lookup names (both titled and plain) for matching
+    plain_names = [_strip_title(n).lower() for n in participant_names]
+
+    # Find members whose names match participants (case-insensitive, using plain names)
     members = db.query(Member).filter(
-        func.lower(Member.full_name).in_([n.lower() for n in participant_names])
+        func.lower(Member.full_name).in_(plain_names)
     ).all()
 
     if not members:
         return
 
     date_str = service_date.strftime("%A, %d %B %Y") if hasattr(service_date, 'strftime') else str(service_date)
+
+    # Build a role lookup that works with both titled and plain name keys
+    def _get_roles_for_member(member):
+        name_lower = member.full_name.lower()
+        titled_lower = _get_titled_name(member).lower()
+        return (participant_roles.get(name_lower)
+                or participant_roles.get(titled_lower)
+                or ["Participant"])
 
     # Role keywords that qualify for announcements
     admin_keywords = {"admin", "administrator", "mc", "emcee"}
@@ -4060,7 +4080,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
     for member in members:
         if not member.email:
             continue
-        roles = participant_roles.get(member.full_name.lower(), ["Participant"])
+        roles = _get_roles_for_member(member)
         if isinstance(roles, str):
             roles = [roles]
 
