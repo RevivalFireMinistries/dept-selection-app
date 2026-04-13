@@ -932,6 +932,48 @@ def replace_department(
     return {"success": True, "original_id": member_department_id, "new_id": new_md.id}
 
 
+@router.post("/admin/members")
+def admin_create_member(data: dict = Body(...), db: Session = Depends(get_db)):
+    """Admin: create a new member without requiring department selections"""
+    full_name = (data.get("full_name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip()
+    address = (data.get("address") or "").strip()
+
+    if not full_name or not phone:
+        raise HTTPException(status_code=400, detail="Full name and phone are required")
+
+    # Validate phone format (10 digits)
+    if not validate_phone(phone):
+        raise HTTPException(status_code=400, detail="Phone number must be 10 digits (e.g., 0711234456)")
+
+    # Check if member with same phone and name already exists
+    existing = db.query(Member).filter(
+        Member.phone == phone,
+        func.lower(Member.full_name) == full_name.lower()
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A member with this name and phone already exists")
+
+    member = Member(
+        full_name=full_name,
+        phone=phone,
+        email=email,
+        address=address
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
+    return {
+        "id": member.id,
+        "fullName": member.full_name,
+        "phone": member.phone,
+        "email": member.email,
+        "address": member.address
+    }
+
+
 @router.post("/admin/members/{member_id}/assign")
 def assign_department(
     member_id: int,

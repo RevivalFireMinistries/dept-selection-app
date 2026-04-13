@@ -4,7 +4,57 @@
 
 {% block admin_content %}
 <div class="space-y-6">
-    <h2 class="text-2xl font-bold text-gray-900">Search Members</h2>
+    <div class="flex items-center justify-between">
+        <h2 class="text-2xl font-bold text-gray-900">Search Members</h2>
+        <button onclick="showNewMemberForm()"
+            class="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors text-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            New Member
+        </button>
+    </div>
+
+    <!-- New Member Form (hidden by default) -->
+    <div id="newMemberForm" class="hidden bg-white rounded-xl shadow p-6 border-2 border-green-200">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-900">Add New Member</h3>
+            <button onclick="hideNewMemberForm()" class="text-gray-400 hover:text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Full Name <span class="text-red-500">*</span></label>
+                <input type="text" id="newFullName" placeholder="e.g., John Smith"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Phone <span class="text-red-500">*</span></label>
+                <input type="tel" id="newPhone" placeholder="e.g., 0711234456" maxlength="10"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="newEmail" placeholder="e.g., john@example.com"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <input type="text" id="newAddress" placeholder="e.g., 123 Main St"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+            </div>
+        </div>
+        <div id="newMemberError" class="hidden mt-3 text-sm text-red-600 bg-red-50 px-4 py-2 rounded-lg"></div>
+        <div class="flex items-center justify-end gap-3 mt-4">
+            <button onclick="hideNewMemberForm()"
+                class="px-4 py-2.5 text-gray-600 font-medium rounded-lg hover:bg-gray-100 transition-colors text-sm">
+                Cancel
+            </button>
+            <button onclick="createMember()" id="createMemberBtn"
+                class="px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors text-sm">
+                Create Member
+            </button>
+        </div>
+    </div>
 
     <!-- Search Card -->
     <div class="bg-white rounded-xl shadow p-6">
@@ -184,6 +234,73 @@ function renderResults() {
     document.getElementById('noResults').classList.add('hidden');
     document.getElementById('searchResults').classList.remove('hidden');
     applyFilter();
+}
+
+// New Member Form functions
+function showNewMemberForm() {
+    document.getElementById('newMemberForm').classList.remove('hidden');
+    document.getElementById('newMemberError').classList.add('hidden');
+    document.getElementById('newFullName').focus();
+}
+
+function hideNewMemberForm() {
+    document.getElementById('newMemberForm').classList.add('hidden');
+    document.getElementById('newFullName').value = '';
+    document.getElementById('newPhone').value = '';
+    document.getElementById('newEmail').value = '';
+    document.getElementById('newAddress').value = '';
+    document.getElementById('newMemberError').classList.add('hidden');
+}
+
+async function createMember() {
+    const fullName = document.getElementById('newFullName').value.trim();
+    const phone = document.getElementById('newPhone').value.trim();
+    const email = document.getElementById('newEmail').value.trim();
+    const address = document.getElementById('newAddress').value.trim();
+    const errorDiv = document.getElementById('newMemberError');
+    const btn = document.getElementById('createMemberBtn');
+
+    // Validation
+    if (!fullName || !phone) {
+        errorDiv.textContent = 'Full name and phone number are required.';
+        errorDiv.classList.remove('hidden');
+        return;
+    }
+    if (!/^\d{10}$/.test(phone)) {
+        errorDiv.textContent = 'Phone number must be exactly 10 digits.';
+        errorDiv.classList.remove('hidden');
+        return;
+    }
+
+    errorDiv.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    try {
+        const res = await fetch('/api/admin/members', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: fullName, phone, email, address })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            throw new Error(data.detail || 'Failed to create member');
+        }
+
+        // Success - hide form, reload data, search for new member
+        hideNewMemberForm();
+        await loadData();
+        document.getElementById('searchInput').value = phone;
+        searchMembers();
+
+    } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Member';
+    }
 }
 
 function renderMemberList(members) {
