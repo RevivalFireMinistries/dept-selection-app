@@ -218,6 +218,7 @@
             <div style="font-size: 12px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">Revival Fire Ministries</div>
             <div id="shareTitle" style="font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 8px;"></div>
             <div id="shareDate" style="font-size: 14px; color: rgba(255,255,255,0.85); font-weight: 500;"></div>
+            <div id="shareManager" style="display: none; margin-top: 10px; font-size: 12px; color: rgba(255,255,255,0.7);">Service Manager: <span id="shareManagerName" style="color: rgba(255,255,255,0.95); font-weight: 600;"></span></div>
         </div>
         <div style="padding: 24px 28px;">
             <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Order of Service</div>
@@ -1164,6 +1165,15 @@ async function shareProgram(program) {
 
     document.getElementById('shareTitle').textContent = program.title;
     document.getElementById('shareDate').textContent = dateStr;
+
+    // Service Manager
+    const shareManagerEl = document.getElementById('shareManager');
+    if (program.created_by_name) {
+        shareManagerEl.style.display = 'block';
+        document.getElementById('shareManagerName').textContent = program.created_by_name;
+    } else {
+        shareManagerEl.style.display = 'none';
+    }
 
     document.getElementById('shareItems').innerHTML = (program.program_items || []).map(item => `
         <div style="display: flex; gap: 12px; padding: 6px 0; font-size: 14px;">
