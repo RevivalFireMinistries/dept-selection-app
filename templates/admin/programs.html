@@ -665,7 +665,7 @@ function setupAutocomplete(input) {
         items.forEach((m, i) => {
             const div = document.createElement('div');
             div.className = 'ac-item';
-            div.innerHTML = `${escapeHtml(m.fullName)}<span class="ac-phone">${m.phone}</span>`;
+            div.innerHTML = `${escapeHtml(m.titledName || m.fullName)}<span class="ac-phone">${m.phone}</span>`;
             div.addEventListener('mousedown', (e) => { e.preventDefault(); selectMember(m); });
             div.addEventListener('touchstart', (e) => { selectMember(m); }, { passive: true });
             dropdown.appendChild(div);
@@ -680,7 +680,7 @@ function setupAutocomplete(input) {
     }
 
     function selectMember(m) {
-        input.value = m.fullName;
+        input.value = m.titledName || m.fullName;
         hideDropdown();
         updateCounts();
     }
@@ -696,7 +696,7 @@ function setupAutocomplete(input) {
         const query = input.value.trim().toLowerCase();
         if (query.length < 1) { hideDropdown(); return; }
         const matches = allMembers.filter(m =>
-            m.fullName.toLowerCase().includes(query) || m.phone.includes(query)
+            m.fullName.toLowerCase().includes(query) || (m.titledName && m.titledName.toLowerCase().includes(query)) || m.phone.includes(query)
         ).slice(0, 10);
         showDropdown(matches);
     });

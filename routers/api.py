@@ -214,6 +214,7 @@ def get_members(db: Session = Depends(get_db)):
         {
             "id": m.id,
             "fullName": m.full_name,
+            "titledName": _get_titled_name(m),
             "phone": m.phone,
             "email": m.email,
             "address": m.address,
