@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from database import get_db
-from models import Settings
+from models import Settings, Member
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -272,6 +272,47 @@ async def admin_appeals(request: Request):
 async def member_portal(request: Request):
     """Member portal - view results, update, appeal"""
     return templates.TemplateResponse("portal.html", {"request": request})
+
+
+@router.get("/programs")
+async def member_programs(request: Request, phone: str = None, db: Session = Depends(get_db)):
+    """Service programs page for service managers, HODs, and elders"""
+    import json
+
+    if not phone:
+        return RedirectResponse(url="/", status_code=302)
+
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        return RedirectResponse(url="/", status_code=302)
+
+    # Check leadership roles
+    roles = []
+    if member.leadership_roles:
+        try:
+            roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+        except (ValueError, TypeError):
+            roles = []
+
+    allowed_roles = {"service_manager", "elder", "deacon"}
+    is_hod = db.query(Settings).filter(False).first() is None  # placeholder
+    # Check if member is HOD of any department
+    from models import Department
+    hod_depts = db.query(Department).filter(Department.hod_member_id == member.id).all()
+    is_hod = len(hod_depts) > 0
+
+    if not (set(roles) & allowed_roles) and not is_hod:
+        return RedirectResponse(url=f"/portal?phone={phone}", status_code=302)
+
+    return templates.TemplateResponse("admin/programs.html", {"request": request})
 
 
 @router.get("/results")
