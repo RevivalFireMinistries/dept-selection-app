@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages, display
+from routers import api, pages, display, songlist
 
 
 def run_migrations():
@@ -443,6 +443,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Include routers
 app.include_router(api.router, prefix="/api", tags=["api"])
 app.include_router(display.router, prefix="/api/display", tags=["display"])
+app.include_router(songlist.router, tags=["songlist"])
 app.include_router(pages.router, tags=["pages"])
 
 

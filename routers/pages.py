@@ -395,3 +395,8 @@ async def admin_program_templates(request: Request):
 async def display_submit_page(request: Request):
     """Public page for submitting content to FirePresenter"""
     return templates.TemplateResponse("display_submit.html", {"request": request})
+
+@router.get("/songlist")
+async def songlist_page(request: Request):
+    """Public page for the music team to submit song lists and new songs"""
+    return templates.TemplateResponse("songlist_submit.html", {"request": request})

@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block title %}Worship Song List | RFM{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto p-4 pb-20">
+  <div class="text-center mb-5">
+    <h1 class="text-xl font-bold text-gray-900">Worship Song List</h1>
+    <p class="text-gray-500 text-xs mt-1">Submit songs for upcoming services or add new songs to the library</p>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-green-600 text-white text-sm rounded-lg shadow-lg"></div>
+
+  <!-- Your Info -->
+  <details id="infoSection" class="mb-4 bg-white rounded-lg border">
+    <summary class="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer">Your Info & Service Date</summary>
+    <div class="px-4 pb-3 space-y-2">
+      <input id="submitterName" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Your name *">
+      <input id="serviceDate" type="date" class="w-full px-3 py-2 border rounded-md text-sm">
+    </div>
+  </details>
+
+  <!-- Tab toggle: Pick Songs / Add New Song -->
+  <div class="flex bg-gray-100 rounded-lg p-1 mb-4">
+    <button id="tabPick" onclick="switchTab('pick')" class="flex-1 py-2 text-sm font-medium rounded-md bg-white shadow text-gray-900">Pick Songs</button>
+    <button id="tabNew" onclick="switchTab('new')" class="flex-1 py-2 text-sm font-medium rounded-md text-gray-500">Add New Song</button>
+  </div>
+
+  <!-- ═══ TAB: Pick Existing Songs ═══ -->
+  <div id="pickTab">
+    <!-- Song search/picker -->
+    <div class="bg-white rounded-lg border p-4 mb-4">
+      <label class="text-xs font-medium text-gray-500 uppercase mb-2 block">Search & Add Songs</label>
+      <div class="relative">
+        <input id="songSearch" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Type to search songs..." autocomplete="off" oninput="searchCatalog()">
+        <div id="songDropdown" class="hidden absolute left-0 right-0 top-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto z-20"></div>
+      </div>
+      <div class="mt-2">
+        <input id="songNotes" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Notes (key, tempo, arrangement...)">
+      </div>
+    </div>
+
+    <!-- Set list -->
+    <div id="setListSection" class="mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-medium text-gray-500 uppercase">Set List</span>
+        <span id="setListCount" class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">0</span>
+      </div>
+      <div id="setList" class="space-y-2"></div>
+    </div>
+
+    <button onclick="submitSetList()" class="w-full py-3 bg-indigo-600 text-white font-medium rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-50" id="submitSetListBtn" disabled>Submit Song List</button>
+  </div>
+
+  <!-- ═══ TAB: Add New Song ═══ -->
+  <div id="newTab" class="hidden">
+    <div class="bg-white rounded-lg border p-4 space-y-3">
+      <div>
+        <label class="text-xs font-medium text-gray-500 uppercase">Song Title *</label>
+        <input id="newTitle" class="w-full px-3 py-2 border rounded-md text-sm mt-1" placeholder="Song title">
+      </div>
+      <div class="flex gap-2">
+        <div class="flex-1">
+          <label class="text-xs font-medium text-gray-500 uppercase">Author / Artist</label>
+          <input id="newAuthor" class="w-full px-3 py-2 border rounded-md text-sm mt-1" placeholder="Optional">
+        </div>
+        <div class="flex-1">
+          <label class="text-xs font-medium text-gray-500 uppercase">Category</label>
+          <select id="newCategory" class="w-full px-3 py-2 border rounded-md text-sm mt-1">
+            <option>General</option><option>Worship</option><option>Praise</option><option>Hymn</option><option>Gospel</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Sections editor -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-xs font-medium text-gray-500 uppercase">Song Sections</label>
+          <button onclick="addSection()" class="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-md hover:bg-indigo-100">+ Add Section</button>
+        </div>
+        <div id="sectionsEditor" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <button onclick="submitNewSong()" class="w-full py-3 bg-green-600 text-white font-medium rounded-lg text-sm hover:bg-green-700 mt-4">Submit New Song</button>
+  </div>
+
+  <!-- Previously submitted for this date -->
+  <div id="previousSection" class="mt-6 hidden">
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-medium text-gray-500 uppercase">Previously Submitted</span>
+    </div>
+    <div id="previousList" class="space-y-1"></div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────
+let catalog = [];
+let setList = []; // [{song_id, song_title, notes}]
+let sectionCount = 0;
+
+// ─── Init ────────────────────────────────────────────────
+(function init() {
+  // Load saved info
+  const saved = JSON.parse(localStorage.getItem('songlistSubmitter') || '{}');
+  if (saved.name) document.getElementById('submitterName').value = saved.name;
+
+  // Default to next Sunday
+  const d = new Date();
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7 || 7));
+  document.getElementById('serviceDate').value = d.toISOString().split('T')[0];
+  if (saved.date) document.getElementById('serviceDate').value = saved.date;
+
+  loadCatalog();
+  addSection(); // start with one section
+  loadPrevious();
+})();
+
+function saveInfo() {
+  localStorage.setItem('songlistSubmitter', JSON.stringify({
+    name: document.getElementById('submitterName').value,
+    date: document.getElementById('serviceDate').value,
+  }));
+}
+
+// ─── Tabs ────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('pickTab').classList.toggle('hidden', tab !== 'pick');
+  document.getElementById('newTab').classList.toggle('hidden', tab !== 'new');
+  document.getElementById('tabPick').className = tab === 'pick'
+    ? 'flex-1 py-2 text-sm font-medium rounded-md bg-white shadow text-gray-900'
+    : 'flex-1 py-2 text-sm font-medium rounded-md text-gray-500';
+  document.getElementById('tabNew').className = tab === 'new'
+    ? 'flex-1 py-2 text-sm font-medium rounded-md bg-white shadow text-gray-900'
+    : 'flex-1 py-2 text-sm font-medium rounded-md text-gray-500';
+}
+
+// ─── Catalog ─────────────────────────────────────────────
+async function loadCatalog() {
+  try {
+    const res = await fetch('/api/songs/catalog');
+    catalog = await res.json();
+  } catch { catalog = []; }
+}
+
+function searchCatalog() {
+  const q = document.getElementById('songSearch').value.toLowerCase().trim();
+  const dd = document.getElementById('songDropdown');
+  if (!q || q.length < 2) { dd.classList.add('hidden'); return; }
+
+  const matches = catalog.filter(s =>
+    s.title.toLowerCase().includes(q) ||
+    (s.author || '').toLowerCase().includes(q)
+  ).slice(0, 15);
+
+  if (matches.length === 0) {
+    dd.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No songs found</div>';
+  } else {
+    dd.innerHTML = matches.map(s => `
+      <div class="px-3 py-2 text-sm hover:bg-indigo-50 cursor-pointer border-b last:border-0"
+           onclick="pickSong(${s.id}, '${s.title.replace(/'/g, "\\'")}')">
+        <div class="font-medium text-gray-900">${s.title}</div>
+        ${s.author ? `<div class="text-xs text-gray-400">${s.author}</div>` : ''}
+      </div>
+    `).join('');
+  }
+  dd.classList.remove('hidden');
+}
+
+function pickSong(id, title) {
+  const notes = document.getElementById('songNotes').value.trim();
+  setList.push({ song_id: id, song_title: title, notes: notes || null });
+  document.getElementById('songSearch').value = '';
+  document.getElementById('songNotes').value = '';
+  document.getElementById('songDropdown').classList.add('hidden');
+  renderSetList();
+}
+
+function removeSong(idx) {
+  setList.splice(idx, 1);
+  renderSetList();
+}
+
+function moveSong(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= setList.length) return;
+  [setList[idx], setList[newIdx]] = [setList[newIdx], setList[idx]];
+  renderSetList();
+}
+
+function renderSetList() {
+  const el = document.getElementById('setList');
+  document.getElementById('setListCount').textContent = setList.length;
+  document.getElementById('submitSetListBtn').disabled = setList.length === 0;
+
+  el.innerHTML = setList.map((s, i) => `
+    <div class="flex items-center gap-2 bg-white border rounded-lg px-3 py-2">
+      <span class="text-xs font-bold text-indigo-400 w-5">${i + 1}</span>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-gray-900 truncate">${s.song_title}</div>
+        ${s.notes ? `<div class="text-xs text-gray-400 truncate">${s.notes}</div>` : ''}
+      </div>
+      <button onclick="moveSong(${i},-1)" class="text-gray-300 hover:text-gray-600 text-lg px-1" ${i === 0 ? 'disabled' : ''}>&#x25B2;</button>
+      <button onclick="moveSong(${i},1)" class="text-gray-300 hover:text-gray-600 text-lg px-1" ${i === setList.length - 1 ? 'disabled' : ''}>&#x25BC;</button>
+      <button onclick="removeSong(${i})" class="text-red-300 hover:text-red-600 text-sm px-1">&times;</button>
+    </div>
+  `).join('');
+}
+
+// ─── Submit set list ─────────────────────────────────────
+async function submitSetList() {
+  const name = document.getElementById('submitterName').value.trim();
+  const svcDate = document.getElementById('serviceDate').value;
+  if (!name) return alert('Please enter your name');
+  if (setList.length === 0) return;
+  saveInfo();
+
+  const body = {
+    submitter_name: name,
+    service_date: svcDate,
+    songs: setList.map((s, i) => ({ song_id: s.song_id, song_title: s.song_title, notes: s.notes, song_order: i + 1 })),
+  };
+
+  try {
+    const res = await fetch('/api/songlist/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      showToast(`${setList.length} song(s) submitted!`);
+      setList = [];
+      renderSetList();
+      loadPrevious();
+    }
+  } catch (e) { alert('Failed to submit: ' + e.message); }
+}
+
+// ─── Sections editor (new song) ──────────────────────────
+function addSection() {
+  const idx = sectionCount++;
+  const el = document.getElementById('sectionsEditor');
+  const div = document.createElement('div');
+  div.className = 'bg-gray-50 rounded-lg p-3 border';
+  div.id = `section-${idx}`;
+  div.innerHTML = `
+    <div class="flex items-center gap-2 mb-2">
+      <select id="secType-${idx}" class="px-2 py-1 border rounded text-xs" onchange="updateSecLabel(${idx})">
+        <option value="verse">Verse</option>
+        <option value="chorus">Chorus</option>
+        <option value="bridge">Bridge</option>
+        <option value="pre-chorus">Pre-Chorus</option>
+        <option value="intro">Intro</option>
+        <option value="outro">Outro</option>
+        <option value="tag">Tag</option>
+      </select>
+      <input id="secLabel-${idx}" class="flex-1 px-2 py-1 border rounded text-xs" value="Verse 1" placeholder="Label">
+      <button onclick="document.getElementById('section-${idx}').remove()" class="text-red-300 hover:text-red-600 text-sm">&times;</button>
+    </div>
+    <textarea id="secLyrics-${idx}" class="w-full px-3 py-2 border rounded-md text-sm" rows="4" placeholder="Paste or type lyrics for this section..."></textarea>
+  `;
+  el.appendChild(div);
+}
+
+function updateSecLabel(idx) {
+  const type = document.getElementById(`secType-${idx}`).value;
+  const label = type.charAt(0).toUpperCase() + type.slice(1);
+  // Count existing sections of same type
+  const existing = document.querySelectorAll(`[id^="secType-"]`);
+  let count = 0;
+  existing.forEach(sel => { if (sel.value === type) count++; });
+  document.getElementById(`secLabel-${idx}`).value = count > 1 ? `${label} ${count}` : label;
+}
+
+// ─── Submit new song ─────────────────────────────────────
+async function submitNewSong() {
+  const name = document.getElementById('submitterName').value.trim();
+  if (!name) return alert('Please enter your name');
+
+  const title = document.getElementById('newTitle').value.trim();
+  if (!title) return alert('Please enter the song title');
+
+  const sections = [];
+  document.querySelectorAll('[id^="section-"]').forEach((div, i) => {
+    const idx = div.id.replace('section-', '');
+    const type = document.getElementById(`secType-${idx}`)?.value || 'verse';
+    const label = document.getElementById(`secLabel-${idx}`)?.value || `Section ${i + 1}`;
+    const lyrics = document.getElementById(`secLyrics-${idx}`)?.value || '';
+    if (lyrics.trim()) {
+      sections.push({ type, label, lyrics: lyrics.trim(), orderIndex: sections.length });
+    }
+  });
+
+  if (sections.length === 0) return alert('Please add at least one section with lyrics');
+  saveInfo();
+
+  const body = {
+    submitter_name: name,
+    title,
+    author: document.getElementById('newAuthor').value.trim() || null,
+    category: document.getElementById('newCategory').value,
+    sections,
+  };
+
+  try {
+    const res = await fetch('/api/songs/new', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      showToast('New song submitted!');
+      document.getElementById('newTitle').value = '';
+      document.getElementById('newAuthor').value = '';
+      document.getElementById('sectionsEditor').innerHTML = '';
+      sectionCount = 0;
+      addSection();
+    }
+  } catch (e) { alert('Failed to submit: ' + e.message); }
+}
+
+// ─── Load previously submitted ───────────────────────────
+async function loadPrevious() {
+  const svcDate = document.getElementById('serviceDate').value;
+  if (!svcDate) return;
+  try {
+    const res = await fetch(`/api/songlist/submissions?service_date=${svcDate}`);
+    const items = await res.json();
+    const sec = document.getElementById('previousSection');
+    const list = document.getElementById('previousList');
+    if (items.length > 0) {
+      sec.classList.remove('hidden');
+      list.innerHTML = items.map(s => `
+        <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 text-sm">
+          <span class="text-xs font-bold text-gray-400 w-5">${s.song_order}</span>
+          <div class="flex-1">
+            <span class="font-medium">${s.song_title}</span>
+            ${s.notes ? `<span class="text-gray-400 ml-1">— ${s.notes}</span>` : ''}
+          </div>
+          <span class="text-xs ${s.fetched ? 'text-green-500' : 'text-yellow-500'}">${s.fetched ? 'Sent' : 'Pending'}</span>
+          <button onclick="deleteSong(${s.id})" class="text-red-300 hover:text-red-600">&times;</button>
+        </div>
+      `).join('');
+    } else {
+      sec.classList.add('hidden');
+    }
+  } catch {}
+}
+
+async function deleteSong(id) {
+  await fetch(`/api/songlist/${id}`, { method: 'DELETE' });
+  loadPrevious();
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// Reload previous when date changes
+document.getElementById('serviceDate').addEventListener('change', () => { saveInfo(); loadPrevious(); });
+
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#songSearch') && !e.target.closest('#songDropdown')) {
+    document.getElementById('songDropdown').classList.add('hidden');
+  }
+});
+</script>
+{% endblock %}

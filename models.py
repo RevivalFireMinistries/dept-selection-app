@@ -310,3 +310,52 @@ class DisplaySubmission(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SyncedSong(Base):
+    """
+    Song catalog pushed from FirePresenter.
+    The music team picks from these when building a service song list.
+    """
+    __tablename__ = "synced_songs"
+
+    id = Column(Integer, primary_key=True)  # matches FirePresenter song.id
+    title = Column(String, nullable=False)
+    author = Column(String, nullable=True)
+    category = Column(String, nullable=True)
+    synced_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SongListSubmission(Base):
+    """
+    Service song list submitted by the music/worship team.
+    Each row is one song pick linked to a synced_songs entry.
+    """
+    __tablename__ = "song_list_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    submitter_name = Column(String, nullable=False)
+    service_date = Column(Date, nullable=False, index=True)
+    song_id = Column(Integer, nullable=False)   # FK to synced_songs.id
+    song_title = Column(String, nullable=False)  # denormalized for display
+    notes = Column(String, nullable=True)        # "key of G", "acoustic", etc.
+    song_order = Column(Integer, nullable=False, server_default="0")
+    fetched = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class NewSongSubmission(Base):
+    """
+    Brand-new songs submitted by the music team with full lyrics.
+    FirePresenter imports these into its local database.
+    """
+    __tablename__ = "new_song_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    submitter_name = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    author = Column(String, nullable=True)
+    category = Column(String, nullable=True, server_default="General")
+    sections_json = Column(Text, nullable=False)  # JSON: [{type, label, lyrics, orderIndex}]
+    fetched = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
