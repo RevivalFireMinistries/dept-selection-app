@@ -977,6 +977,39 @@ def admin_create_member(data: dict = Body(...), db: Session = Depends(get_db)):
     }
 
 
+@router.put("/admin/members/{member_id}")
+def admin_update_member(member_id: int, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Admin: update a member's personal details (name, phone, email, address)"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    if "full_name" in data and data["full_name"].strip():
+        member.full_name = data["full_name"].strip()
+    if "phone" in data and data["phone"].strip():
+        # Check for phone conflict
+        existing = db.query(Member).filter(Member.phone == data["phone"].strip(), Member.id != member_id).first()
+        if existing:
+            # Allow shared phones (family members)
+            pass
+        member.phone = data["phone"].strip()
+    if "email" in data:
+        member.email = (data["email"] or "").strip()
+    if "address" in data:
+        member.address = (data["address"] or "").strip()
+
+    db.commit()
+    db.refresh(member)
+
+    return {
+        "id": member.id,
+        "full_name": member.full_name,
+        "phone": member.phone,
+        "email": member.email,
+        "address": member.address
+    }
+
+
 @router.post("/admin/members/{member_id}/assign")
 def assign_department(
     member_id: int,
