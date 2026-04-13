@@ -88,6 +88,21 @@ def log_notification(
     return log
 
 
+def _format_prayer_points_html(prayer_points: list) -> str:
+    """Format prayer points as HTML list items, showing linked activity if present."""
+    items = []
+    for pp in prayer_points:
+        if isinstance(pp, dict):
+            text = pp.get("text", "")
+            linked = pp.get("linked_activity", "")
+            if text:
+                linked_html = f' <span style="font-size: 12px; color: #e11d48; font-style: italic;">({linked})</span>' if linked else ""
+                items.append(f'<li style="margin-bottom: 8px; font-size: 14px; line-height: 1.5;">{text}{linked_html}</li>')
+        elif pp:
+            items.append(f'<li style="margin-bottom: 8px; font-size: 14px; line-height: 1.5;">{pp}</li>')
+    return "".join(items)
+
+
 def render_email_template(event_type: EventType, data: Dict[str, Any]) -> str:
     """Render email template for an event type"""
     template_path = os.path.join(
@@ -560,7 +575,7 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 <div style="background: #fef2f2; border-radius: 12px; padding: 20px; margin: 20px 0; border-left: 4px solid #e11d48;">
                     <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #9f1239; text-transform: uppercase; letter-spacing: 0.05em;">&#128591; Prayer Points for Your Session</p>
                     <ul style="margin: 0; padding: 0 0 0 20px; color: #1f2937;">
-                        {''.join(f'<li style="margin-bottom: 8px; font-size: 14px; line-height: 1.5;">{pp}</li>' for pp in data.get('prayer_points', []))}
+                        {_format_prayer_points_html(data.get('prayer_points', []))}
                     </ul>
                 </div>
                 """ if data.get('prayer_points') else ''}

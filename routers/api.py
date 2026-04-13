@@ -213,7 +213,7 @@ def get_members(db: Session = Depends(get_db)):
     return [
         {
             "id": m.id,
-            "fullName": m.full_name,
+            "fullName": _title_case_name(m.full_name),
             "titledName": _get_titled_name(m),
             "phone": m.phone,
             "email": m.email,
@@ -341,7 +341,7 @@ def update_member(member_id: int, data: dict, source: Optional[str] = Query(None
 
     # Update basic info
     if "full_name" in data:
-        member.full_name = data["full_name"]
+        member.full_name = _title_case_name(data["full_name"])
     if "email" in data:
         member.email = data["email"]
     if "address" in data:
@@ -504,7 +504,7 @@ def submit_form(data: MemberSubmission, source: Optional[str] = Query(None), db:
 
     # Create member
     member = Member(
-        full_name=data.full_name,
+        full_name=_title_case_name(data.full_name),
         phone=data.phone,
         email=data.email or "",
         address=data.address
@@ -938,7 +938,7 @@ def replace_department(
 @router.post("/admin/members")
 def admin_create_member(data: dict = Body(...), db: Session = Depends(get_db)):
     """Admin: create a new member without requiring department selections"""
-    full_name = (data.get("full_name") or "").strip()
+    full_name = _title_case_name((data.get("full_name") or "").strip())
     phone = (data.get("phone") or "").strip()
     email = (data.get("email") or "").strip()
     address = (data.get("address") or "").strip()
@@ -985,7 +985,7 @@ def admin_update_member(member_id: int, data: dict = Body(...), db: Session = De
         raise HTTPException(status_code=404, detail="Member not found")
 
     if "full_name" in data and data["full_name"].strip():
-        member.full_name = data["full_name"].strip()
+        member.full_name = _title_case_name(data["full_name"].strip())
     if "phone" in data and data["phone"].strip():
         # Check for phone conflict
         existing = db.query(Member).filter(Member.phone == data["phone"].strip(), Member.id != member_id).first()
@@ -3819,16 +3819,24 @@ def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
 
 # ============ SERVICE PROGRAM ENDPOINTS ============
 
+def _title_case_name(name: str) -> str:
+    """Normalize a name to title case (first letter uppercase, rest lowercase per word)."""
+    if not name:
+        return name
+    return " ".join(w.capitalize() for w in name.split())
+
+
 def _get_titled_name(member: "Member") -> str:
     """Get member's full name with leadership title prefix (e.g., 'Pastor John Smith')"""
+    name = _title_case_name(member.full_name)
     roles = member.leadership_roles or []
     if "pastor" in roles:
-        return f"Pastor {member.full_name}"
+        return f"Pastor {name}"
     elif "elder" in roles:
-        return f"Elder {member.full_name}"
+        return f"Elder {name}"
     elif "deacon" in roles:
-        return f"Deacon {member.full_name}"
-    return member.full_name
+        return f"Deacon {name}"
+    return name
 
 
 def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session = None) -> dict:
@@ -3913,6 +3921,9 @@ def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session 
                         break
                 if lookup_name in title_map:
                     pt["name"] = title_map[lookup_name]
+                else:
+                    # Apply title case even for non-member names
+                    pt["name"] = _title_case_name(name)
 
     return {
         "id": program.id,
@@ -4017,7 +4028,8 @@ def get_program(program_id: int, db: Session = Depends(get_db)):
 
 
 def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
-    """Get prayer point texts linked to a specific activity/role.
+    """Get prayer points linked to a specific activity/role.
+    Returns list of dicts {text, linked_activity} to preserve the link info for display.
     Prayer points can be plain strings (no link) or dicts with {text, linked_activity}."""
     if not prayer_points or not role:
         return []
@@ -4027,9 +4039,10 @@ def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
         if isinstance(pp, dict):
             linked = (pp.get("linked_activity") or "").lower()
             if linked and linked == role_lower:
-                result.append(pp.get("text", ""))
-        # Plain strings are not linked to any specific role
-    return [t for t in result if t]
+                text = pp.get("text", "")
+                if text:
+                    result.append({"text": text, "linked_activity": pp.get("linked_activity", "")})
+    return result
 
 
 def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None, prayer_points: list = None, admin_announcements: list = None, pastors_announcements: list = None):
@@ -4088,11 +4101,13 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
         linked_prayer_points = []
         for role in roles:
             linked_prayer_points.extend(_get_prayer_points_for_role(prayer_points or [], role))
-        seen = set()
+        # Deduplicate by text (prayer points are now dicts with text + linked_activity)
+        seen_texts = set()
         unique_prayer_points = []
         for pp in linked_prayer_points:
-            if pp not in seen:
-                seen.add(pp)
+            text = pp.get("text", "") if isinstance(pp, dict) else pp
+            if text and text not in seen_texts:
+                seen_texts.add(text)
                 unique_prayer_points.append(pp)
 
         # Determine which announcements this participant should receive
