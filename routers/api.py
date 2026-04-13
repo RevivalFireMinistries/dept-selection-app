@@ -1644,17 +1644,24 @@ def remove_department_hod(
 
 @router.get("/hod/departments")
 def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
-    """Get departments where this member is HOD or Elder, with member lists and statuses"""
+    """Get departments where this member is HOD, with member lists and statuses"""
     hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
     is_elder = _is_elder(hod_member)
-    departments = _get_accessible_departments(db, hod_member)
+
+    # Always show only departments where member is actual HOD (not all for elders)
+    # Elder access to all departments is only for meeting booking
+    departments = db.query(Department).options(
+        joinedload(Department.category),
+        joinedload(Department.member_departments).joinedload(MemberDepartment.member)
+    ).filter(Department.hod_member_id == hod_member.id).order_by(Department.name).all()
 
     if not departments:
         return {
             "hod_name": hod_member.full_name,
+            "is_elder": is_elder,
             "role": "elder" if is_elder else "hod",
             "departments": []
         }
@@ -1702,6 +1709,7 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
 
     return {
         "hod_name": hod_member.full_name,
+        "is_elder": is_elder,
         "role": "elder" if is_elder else "hod",
         "departments": dept_views
     }

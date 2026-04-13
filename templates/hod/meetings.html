@@ -399,14 +399,29 @@ async function loadHODData() {
         }
         const data = await res.json();
 
-        if (data.departments.length === 0) {
-            document.getElementById('phoneError').textContent = 'You are not assigned as HOD or Elder of any department';
+        const isElder = data.is_elder || false;
+
+        if (data.departments.length === 0 && !isElder) {
+            document.getElementById('phoneError').textContent = 'You are not assigned as HOD of any department';
             document.getElementById('phoneError').classList.remove('hidden');
             return;
         }
 
-        departments = data.departments;
-        const roleLabel = data.role === 'elder' ? 'Elder' : 'HOD';
+        // Elders can manage meetings for all departments
+        if (isElder) {
+            const allDeptsRes = await fetch('/api/departments');
+            const allDeptsData = await allDeptsRes.json();
+            departments = [];
+            (allDeptsData.categories || []).forEach(cat => {
+                cat.departments.forEach(d => departments.push({ id: d.id, name: d.name }));
+            });
+            (allDeptsData.uncategorized || []).forEach(d => departments.push({ id: d.id, name: d.name }));
+            departments.sort((a, b) => a.name.localeCompare(b.name));
+        } else {
+            departments = data.departments;
+        }
+
+        const roleLabel = isElder ? 'Elder' : 'HOD';
         document.getElementById('hodName').textContent = `${roleLabel}: ${data.hod_name}`;
 
         // Save phone to localStorage for persistent login
