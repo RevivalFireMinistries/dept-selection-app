@@ -320,7 +320,13 @@
             <div class="max-w-lg mx-auto px-4 py-4 pb-8">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-lg font-bold text-gray-900">Meetings</h2>
-                    <span class="text-sm text-gray-400" id="meetingsTabMonth"></span>
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm text-gray-400" id="meetingsTabMonth"></span>
+                        <a id="meetingsTabNewBtn" href="#" class="hidden inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg pressable">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            New
+                        </a>
+                    </div>
                 </div>
                 <div id="meetingsTabContent" class="space-y-3"></div>
                 <div id="noMeetingsTabMsg" class="hidden text-center py-12">
@@ -1038,6 +1044,21 @@ function renderActions() {
         sub: 'Request a design'
     });
 
+    // HOD or leadership: show New Meeting in quick actions
+    const isHod = hodData && hodData.departments && hodData.departments.length > 0;
+    const leadershipRoles = currentMember.leadership_roles ? (typeof currentMember.leadership_roles === 'string' ? JSON.parse(currentMember.leadership_roles) : currentMember.leadership_roles) : [];
+    const isLeader = Array.isArray(leadershipRoles) && leadershipRoles.length > 0;
+
+    if (isHod || isLeader) {
+        actions.push({
+            href: `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`,
+            icon: `<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>`,
+            bg: 'bg-green-50',
+            label: 'New Meeting',
+            sub: 'Schedule a meeting'
+        });
+    }
+
     // Pre-publish: show Edit Selection prominently
     if (!allData.published) {
         actions.push({
@@ -1076,7 +1097,20 @@ function renderActions() {
 // ==================== HOD CARD ====================
 function renderHodCard() {
     const card = document.getElementById('hodCard');
-    if (!hodData || !hodData.departments || hodData.departments.length === 0) {
+    const isHod = hodData && hodData.departments && hodData.departments.length > 0;
+    const leadershipRoles = currentMember.leadership_roles ? (typeof currentMember.leadership_roles === 'string' ? JSON.parse(currentMember.leadership_roles) : currentMember.leadership_roles) : [];
+    const isLeader = Array.isArray(leadershipRoles) && leadershipRoles.length > 0;
+    const meetingsNewBtn = document.getElementById('meetingsTabNewBtn');
+
+    // Show "New Meeting" button on Meetings tab for HODs and leaders
+    if (isHod || isLeader) {
+        meetingsNewBtn.classList.remove('hidden');
+        meetingsNewBtn.href = `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`;
+    } else {
+        meetingsNewBtn.classList.add('hidden');
+    }
+
+    if (!isHod) {
         card.classList.add('hidden');
         return;
     }
@@ -1088,16 +1122,14 @@ function renderHodCard() {
     document.getElementById('hodTitle').textContent = `HOD: ${deptNames}`;
     document.getElementById('hodSubtitle').textContent = `${totalMembers} members${pendingCount > 0 ? ` — ${pendingCount} pending` : ''}`;
 
-    // HOD meetings links
-    if (hodData.departments.length > 0) {
-        const link = document.getElementById('hodMeetingsLink');
-        link.classList.remove('hidden');
-        link.href = `/hod/meetings?phone=${encodeURIComponent(phone)}`;
+    // HOD meetings links in HOD sheet
+    const link = document.getElementById('hodMeetingsLink');
+    link.classList.remove('hidden');
+    link.href = `/hod/meetings?phone=${encodeURIComponent(phone)}`;
 
-        const createLink = document.getElementById('hodCreateMeetingLink');
-        createLink.classList.remove('hidden');
-        createLink.href = `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`;
-    }
+    const createLink = document.getElementById('hodCreateMeetingLink');
+    createLink.classList.remove('hidden');
+    createLink.href = `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`;
 }
 
 function renderDesignTeamBanner() {
