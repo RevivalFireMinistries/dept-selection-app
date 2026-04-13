@@ -113,6 +113,25 @@
                         <span class="font-medium text-gray-700">Service Manager</span>
                     </label>
                 </div>
+
+                <p class="text-xs text-gray-400 mt-1 mb-1">Honorific Titles</p>
+                <div class="flex flex-wrap gap-3">
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleDr" value="dr" onchange="updateLeadershipRoles()"
+                               class="rounded text-teal-600 focus:ring-teal-500">
+                        <span class="font-medium text-gray-700">Dr</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleMr" value="mr" onchange="updateLeadershipRoles()"
+                               class="rounded text-gray-600 focus:ring-gray-500">
+                        <span class="font-medium text-gray-700">Mr</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleMrs" value="mrs" onchange="updateLeadershipRoles()"
+                               class="rounded text-pink-600 focus:ring-pink-500">
+                        <span class="font-medium text-gray-700">Mrs</span>
+                    </label>
+                </div>
                 <p id="roleUpdateStatus" class="text-sm text-green-600 hidden">Roles updated successfully</p>
             </div>
         </div>
@@ -597,6 +616,9 @@ async function loadLeadershipRoles() {
         document.getElementById('roleDeacon').checked = data.roles.includes('deacon');
         document.getElementById('roleElder').checked = data.roles.includes('elder');
         document.getElementById('roleServiceManager').checked = data.roles.includes('service_manager');
+        document.getElementById('roleDr').checked = data.roles.includes('dr');
+        document.getElementById('roleMr').checked = data.roles.includes('mr');
+        document.getElementById('roleMrs').checked = data.roles.includes('mrs');
 
         // Show HOD status if applicable
         if (data.is_hod && data.hod_departments.length > 0) {
@@ -614,6 +636,9 @@ async function updateLeadershipRoles() {
     if (document.getElementById('roleDeacon').checked) roles.push('deacon');
     if (document.getElementById('roleElder').checked) roles.push('elder');
     if (document.getElementById('roleServiceManager').checked) roles.push('service_manager');
+    if (document.getElementById('roleDr').checked) roles.push('dr');
+    if (document.getElementById('roleMr').checked) roles.push('mr');
+    if (document.getElementById('roleMrs').checked) roles.push('mrs');
 
     try {
         const res = await fetch(`/api/admin/members/${memberId}/leadership-roles`, {

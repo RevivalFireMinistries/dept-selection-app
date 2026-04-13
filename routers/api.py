@@ -1121,7 +1121,7 @@ def update_member_leadership_roles(
         raise HTTPException(status_code=404, detail="Member not found")
 
     # Validate roles
-    valid_roles = ["pastor", "deacon", "elder", "service_manager"]  # HOD is derived from departments
+    valid_roles = ["pastor", "deacon", "elder", "service_manager", "dr", "mr", "mrs"]  # HOD is derived from departments
     invalid = [r for r in roles if r not in valid_roles]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
@@ -3836,6 +3836,12 @@ def _get_titled_name(member: "Member") -> str:
         return f"Elder {name}"
     elif "deacon" in roles:
         return f"Deacon {name}"
+    elif "dr" in roles:
+        return f"Dr {name}"
+    elif "mr" in roles:
+        return f"Mr {name}"
+    elif "mrs" in roles:
+        return f"Mrs {name}"
     return name
 
 
@@ -3893,7 +3899,7 @@ def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session 
     # Enrich participant names with leadership titles
     if db and participants:
         # Collect unique plain names (strip existing titles for lookup)
-        title_prefixes = ("pastor ", "elder ", "deacon ")
+        title_prefixes = ("pastor ", "elder ", "deacon ", "dr ", "mr ", "mrs ")
         plain_names = set()
         for pt in participants:
             name = (pt.get("name") or "").strip()
@@ -4057,7 +4063,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
         return
 
     # Strip title prefixes for DB lookup
-    title_prefixes = ("pastor ", "elder ", "deacon ")
+    title_prefixes = ("pastor ", "elder ", "deacon ", "dr ", "mr ", "mrs ")
     def _strip_title(name):
         lower = name.lower()
         for prefix in title_prefixes:
