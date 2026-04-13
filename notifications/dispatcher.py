@@ -555,37 +555,27 @@ def dispatch_event(
 
         try:
             if is_resend:
-                from notifications.channels.resend import send_email as send_resend
-                from_name = os.getenv('RESEND_FROM_NAME') or settings.get('resend_from_name', 'RFM Stellenbosch')
-                from_email = os.getenv('RESEND_FROM_EMAIL') or settings.get('resend_from_email', '')
-
-                if from_email:
-                    send_resend(
-                        api_key=os.getenv('RESEND_API_KEY') or settings.get('resend_api_key', ''),
-                        from_email=f"{from_name} <{from_email}>",
-                        to_email=recipient_email,
-                        subject=subject,
-                        html_content=html_content
-                    )
-                    log_notification(db, event_type, 'resend',
-                                   recipient_id=recipient.get('id'),
-                                   recipient_email=recipient_email)
+                from notifications.channels.resend import ResendChannel
+                channel = ResendChannel(settings)
+                if channel.is_configured():
+                    success, error = channel.send(recipient_email, subject, html_content)
+                    if success:
+                        log_notification(db, event_type, 'resend',
+                                       recipient_id=recipient.get('id'),
+                                       recipient_email=recipient_email)
+                    else:
+                        raise Exception(error or "Resend send failed")
             elif is_smtp:
-                from notifications.channels.email import send_email as send_smtp
-                send_smtp(
-                    host=os.getenv('SMTP_HOST') or settings.get('smtp_host', ''),
-                    port=int(os.getenv('SMTP_PORT') or settings.get('smtp_port', '587')),
-                    username=os.getenv('SMTP_USERNAME') or settings.get('smtp_username', ''),
-                    password=os.getenv('SMTP_PASSWORD') or settings.get('smtp_password', ''),
-                    from_name=os.getenv('SMTP_FROM_NAME') or settings.get('smtp_from_name', 'RFM Stellenbosch'),
-                    from_email=os.getenv('SMTP_FROM_EMAIL') or settings.get('smtp_from_email', ''),
-                    to_email=recipient_email,
-                    subject=subject,
-                    html_content=html_content
-                )
-                log_notification(db, event_type, 'smtp',
-                               recipient_id=recipient.get('id'),
-                               recipient_email=recipient_email)
+                from notifications.channels.email import EmailChannel
+                channel = EmailChannel(settings)
+                if channel.is_configured():
+                    success, error = channel.send(recipient_email, subject, html_content)
+                    if success:
+                        log_notification(db, event_type, 'smtp',
+                                       recipient_id=recipient.get('id'),
+                                       recipient_email=recipient_email)
+                    else:
+                        raise Exception(error or "SMTP send failed")
 
         except Exception as e:
             print(f"Failed to send {event_type.value} to {recipient_email}: {e}")
