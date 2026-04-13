@@ -255,7 +255,11 @@ async function loadProgram() {
             document.getElementById('prayerCard').classList.remove('hidden');
             document.getElementById('prayerContent').innerHTML = `
                 <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
-                    ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    ${p.prayer_points.map(a => {
+                        const text = typeof a === 'string' ? a : (a.text || '');
+                        const linked = typeof a === 'object' && a.linked_activity ? a.linked_activity : '';
+                        return '<li>' + escapeHtml(text) + (linked ? ' <span class="text-xs text-rose-400">(' + escapeHtml(linked) + ')</span>' : '') + '</li>';
+                    }).join('')}
                 </ul>`;
         }
 

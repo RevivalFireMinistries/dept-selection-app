@@ -542,6 +542,14 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                         </tr>
                     </table>
                 </div>
+                {f"""
+                <div style="background: #fef2f2; border-radius: 12px; padding: 20px; margin: 20px 0; border-left: 4px solid #e11d48;">
+                    <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #9f1239; text-transform: uppercase; letter-spacing: 0.05em;">&#128591; Prayer Points for Your Session</p>
+                    <ul style="margin: 0; padding: 0 0 0 20px; color: #1f2937;">
+                        {''.join(f'<li style="margin-bottom: 8px; font-size: 14px; line-height: 1.5;">{pp}</li>' for pp in data.get('prayer_points', []))}
+                    </ul>
+                </div>
+                """ if data.get('prayer_points') else ''}
                 {paragraph("Please make sure you are prepared and arrive on time. If you have any questions or are unable to attend, please inform the service coordinator as soon as possible.")}
             ''',
             button_text="View Program" if data.get('app_url') and data.get('program_id') else None,

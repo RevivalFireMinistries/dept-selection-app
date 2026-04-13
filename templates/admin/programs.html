@@ -193,7 +193,7 @@
             </button>
             <div id="prayerBody" class="border-t border-gray-100 p-4 pt-3 hidden">
                 <div id="prayerPoints" class="space-y-2"></div>
-                <button type="button" onclick="addAnnouncement('prayerPoints')"
+                <button type="button" onclick="addPrayerPoint()"
                     class="mt-2 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-rose-300 hover:text-rose-600 active:bg-rose-50 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     Add Prayer Point
@@ -470,14 +470,14 @@ function addProgramItem(time = '', item = '') {
     row.innerHTML = `
         <input type="time" value="${time}" placeholder="09:30" class="prog-item-time">
         <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="prog-item-name">
-        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns(); updateCounts()" class="btn-remove" title="Remove">
+        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts()" class="btn-remove" title="Remove">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     container.appendChild(row);
     const nameInput = row.querySelector('.prog-item-name');
-    nameInput.addEventListener('change', () => { refreshActivityDropdowns(); updateCounts(); });
-    nameInput.addEventListener('blur', () => { refreshActivityDropdowns(); updateCounts(); });
+    nameInput.addEventListener('change', () => { refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts(); });
+    nameInput.addEventListener('blur', () => { refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts(); });
     updateCounts();
 }
 
@@ -714,6 +714,78 @@ function addAnnouncement(containerId, text = '') {
     updateCounts();
 }
 
+// ==================== PRAYER POINTS ====================
+
+function getPrayerActivities() {
+    const activities = [];
+    document.querySelectorAll('.prog-item-name').forEach(input => {
+        const name = input.value.trim();
+        if (name && name.toLowerCase().includes('pray')) {
+            activities.push(name);
+        }
+    });
+    return activities;
+}
+
+function addPrayerPoint(text = '', linkedActivity = '') {
+    const container = document.getElementById('prayerPoints');
+    const activities = getPrayerActivities();
+    const row = document.createElement('div');
+    row.className = 'prayer-point-row flex items-start gap-2';
+
+    let selectHtml = '';
+    if (activities.length > 0) {
+        const opts = activities.map(a =>
+            `<option value="${escapeHtml(a)}" ${a === linkedActivity ? 'selected' : ''}>${escapeHtml(a)}</option>`
+        ).join('');
+        selectHtml = `
+            <select class="prayer-linked-activity flex-shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" style="max-width: 140px;">
+                <option value="">No link</option>
+                ${opts}
+            </select>`;
+    }
+
+    row.innerHTML = `
+        <div class="flex-1">
+            <input type="text" value="${escapeHtml(text)}" placeholder="Type prayer point..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
+        </div>
+        ${selectHtml}
+        <button type="button" onclick="this.parentElement.remove(); updateCounts()" class="btn-remove flex-shrink-0 mt-1" title="Remove">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+    row.querySelector('input').focus();
+    updateCounts();
+}
+
+function refreshPrayerActivityDropdowns() {
+    const activities = getPrayerActivities();
+    document.querySelectorAll('.prayer-point-row').forEach(row => {
+        const existingSelect = row.querySelector('.prayer-linked-activity');
+        const currentVal = existingSelect ? existingSelect.value : '';
+
+        if (activities.length > 0) {
+            const opts = activities.map(a =>
+                `<option value="${escapeHtml(a)}" ${a === currentVal ? 'selected' : ''}>${escapeHtml(a)}</option>`
+            ).join('');
+            const selectHtml = `
+                <select class="prayer-linked-activity flex-shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" style="max-width: 140px;">
+                    <option value="">No link</option>
+                    ${opts}
+                </select>`;
+            if (existingSelect) {
+                existingSelect.outerHTML = selectHtml;
+            } else {
+                const removeBtn = row.querySelector('.btn-remove');
+                removeBtn.insertAdjacentHTML('beforebegin', selectHtml);
+            }
+        } else if (existingSelect) {
+            existingSelect.remove();
+        }
+    });
+}
+
 // ==================== FORM SHOW/HIDE ====================
 
 function showCreateForm() {
@@ -775,7 +847,10 @@ function showEditForm(program) {
 
     (program.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (program.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
-    (program.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
+    (program.prayer_points || []).forEach(pp => {
+        if (typeof pp === 'string') addPrayerPoint(pp, '');
+        else addPrayerPoint(pp.text || '', pp.linked_activity || '');
+    });
 
     document.getElementById('listView').classList.add('hidden');
     document.getElementById('formView').classList.remove('hidden');
@@ -912,7 +987,10 @@ function onTemplateChange() {
     // Announcements
     (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
-    (tpl.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
+    (tpl.prayer_points || []).forEach(pp => {
+        if (typeof pp === 'string') addPrayerPoint(pp, '');
+        else addPrayerPoint(pp.text || '', pp.linked_activity || '');
+    });
 
     // Open announcements/prayer sections if they have content
     if ((tpl.admin_announcements && tpl.admin_announcements.length) || (tpl.pastors_announcements && tpl.pastors_announcements.length)) {
@@ -969,9 +1047,16 @@ function collectFormData() {
     });
 
     const prayer_points = [];
-    document.querySelectorAll('#prayerPoints .announcement-row').forEach(row => {
-        const text = row.querySelector('input').value.trim();
-        if (text) prayer_points.push(text);
+    document.querySelectorAll('#prayerPoints .prayer-point-row').forEach(row => {
+        const text = row.querySelector('input[type="text"]').value.trim();
+        if (!text) return;
+        const select = row.querySelector('.prayer-linked-activity');
+        const linked = select ? select.value : '';
+        if (linked) {
+            prayer_points.push({ text, linked_activity: linked });
+        } else {
+            prayer_points.push(text);
+        }
     });
 
     const location_type = document.getElementById('progLocationType').value;
@@ -1145,7 +1230,11 @@ async function loadPrograms() {
                     <div class="mt-3 pt-3 border-t border-gray-100">
                         <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Prayer Points</div>
                         <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
-                            ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                            ${p.prayer_points.map(a => {
+                                const text = typeof a === 'string' ? a : (a.text || '');
+                                const linked = typeof a === 'object' && a.linked_activity ? a.linked_activity : '';
+                                return '<li>' + escapeHtml(text) + (linked ? ' <span class="text-xs text-rose-400">(' + escapeHtml(linked) + ')</span>' : '') + '</li>';
+                            }).join('')}
                         </ul>
                     </div>` : ''}
                 </div>
@@ -1207,7 +1296,10 @@ async function shareProgram(program) {
     const prayerItems = document.getElementById('sharePrayerItems');
     if (program.prayer_points && program.prayer_points.length > 0) {
         prayerSection.style.display = 'block';
-        prayerItems.innerHTML = program.prayer_points.map(a => `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>`).join('');
+        prayerItems.innerHTML = program.prayer_points.map(a => {
+            const text = typeof a === 'string' ? a : (a.text || '');
+            return `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(text)}</div>`;
+        }).join('');
     } else { prayerSection.style.display = 'none'; }
 
     container.style.left = '0';

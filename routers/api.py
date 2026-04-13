@@ -3917,9 +3917,26 @@ def get_program(program_id: int, db: Session = Depends(get_db)):
     return _program_to_dict(program)
 
 
-def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None):
+def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
+    """Get prayer point texts linked to a specific activity/role.
+    Prayer points can be plain strings (no link) or dicts with {text, linked_activity}."""
+    if not prayer_points or not role:
+        return []
+    result = []
+    role_lower = role.lower()
+    for pp in prayer_points:
+        if isinstance(pp, dict):
+            linked = (pp.get("linked_activity") or "").lower()
+            if linked and linked == role_lower:
+                result.append(pp.get("text", ""))
+        # Plain strings are not linked to any specific role
+    return [t for t in result if t]
+
+
+def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None, prayer_points: list = None):
     """Notify participants who are members in the database about their program role.
-    participant_roles is a dict mapping lowercase name -> role string."""
+    participant_roles is a dict mapping lowercase name -> role string.
+    prayer_points is the program's prayer points list (may include linked activities)."""
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType
 
@@ -3940,6 +3957,8 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
         if not member.email:
             continue
         role = participant_roles.get(member.full_name.lower(), "Participant")
+        # Find prayer points linked to this participant's role
+        linked_prayer_points = _get_prayer_points_for_role(prayer_points or [], role)
         try:
             dispatch_event(
                 db=db,
@@ -3954,6 +3973,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "member_phone": member.phone,
                     "created_by": created_by_name or "Admin",
                     "program_id": program_id,
+                    "prayer_points": linked_prayer_points,
                 },
                 recipients=[{
                     "id": member.id,
@@ -3998,7 +4018,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         names = [p.name for p in data.participants]
         roles = {p.name.lower(): p.role for p in data.participants}
         creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
-        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id)
+        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=data.prayer_points)
 
     return _program_to_dict(program)
 
@@ -4049,7 +4069,9 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
             title = data.title or program.title
             svc_date = data.service_date or program.service_date
             creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and program.created_by else None
-            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id)
+            # Get prayer points from updated data or existing program
+            pp_raw = data.prayer_points if data.prayer_points is not None else json.loads(program.prayer_points or "[]")
+            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=pp_raw)
 
     return _program_to_dict(program)
 

@@ -431,7 +431,7 @@ class ServiceProgramCreate(BaseModel):
     participants: List[Participant]
     admin_announcements: List[str] = []
     pastors_announcements: List[str] = []
-    prayer_points: List[str] = []
+    prayer_points: List[Any] = []  # List of {text, linked_activity} dicts or plain strings
     template_id: Optional[int] = None  # Track which template was used
     created_by_member_id: Optional[int] = None  # Service manager who created the program
 
@@ -443,7 +443,7 @@ class ServiceProgramUpdate(BaseModel):
     participants: Optional[List[Participant]] = None
     admin_announcements: Optional[List[str]] = None
     pastors_announcements: Optional[List[str]] = None
-    prayer_points: Optional[List[str]] = None
+    prayer_points: Optional[List[Any]] = None  # List of {text, linked_activity} dicts or plain strings
 
 class ServiceProgramResponse(BaseModel):
     id: int
