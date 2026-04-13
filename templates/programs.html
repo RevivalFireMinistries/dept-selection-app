@@ -1,0 +1,1215 @@
+{% extends "base.html" %}
+
+{% block title %}Service Programs{% endblock %}
+
+{% block head %}
+<style>
+    .programs-container { max-width: 640px; margin: 0 auto; padding: 0 16px 100px; }
+    .portal-header {
+        position: sticky; top: 0; z-index: 40;
+        background: linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%);
+        padding: 16px 20px;
+        display: flex; align-items: center; gap: 12px;
+    }
+    .portal-header .back-btn {
+        display: flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; border-radius: 12px;
+        background: rgba(255,255,255,0.15); color: white;
+        transition: background 0.15s;
+    }
+    .portal-header .back-btn:hover { background: rgba(255,255,255,0.25); }
+    .portal-header h1 { font-size: 18px; font-weight: 700; color: white; }
+    .portal-header .subtitle { font-size: 12px; color: rgba(255,255,255,0.7); }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Portal-style header -->
+<div class="portal-header">
+    <a href="javascript:void(0)" onclick="goBack()" class="back-btn">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    </a>
+    <div>
+        <h1>Service Programs</h1>
+        <div class="subtitle">Create, edit & share programs</div>
+    </div>
+</div>
+
+<div class="programs-container">
+    <div class="py-4">
+        <!-- Programs List View -->
+        <div id="listView">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-gray-900">Programs</h2>
+                <button onclick="showCreateForm()"
+                    class="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 active:bg-blue-800 transition-colors text-sm font-semibold shadow-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    New Program
+                </button>
+            </div>
+
+            <div id="programsList">
+                <div class="text-center py-12 text-gray-400">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Create/Edit Form (full-screen overlay on mobile) -->
+        <div id="formView" class="hidden">
+            <!-- Top bar -->
+            <div class="sticky top-0 z-20 bg-white border-b border-gray-200 -mx-4 px-4 py-3 flex items-center justify-between shadow-sm">
+                <button onclick="hideForm()" class="flex items-center gap-1 text-gray-600 hover:text-gray-900 active:text-gray-900 py-1 -ml-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    <span class="text-sm font-medium">Back</span>
+                </button>
+                <h3 class="text-base font-bold text-gray-900" id="formTitle">New Program</h3>
+                <button onclick="saveProgram()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
+                    Save
+                </button>
+            </div>
+
+            <div class="py-4 space-y-3 pb-24">
+                <!-- Step 1: Template Picker -->
+                <div id="templatePicker" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-4">
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-gray-900 text-sm">Start from Template</div>
+                                <div class="text-xs text-gray-500">Pick a template to pre-fill everything</div>
+                            </div>
+                        </div>
+                        <select id="templateSelect" onchange="onTemplateChange()"
+                            class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50 appearance-none"
+                            style="background-image: url('data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236b7280%22 stroke-width=%222%22%3E%3Cpath d=%22M6 9l6 6 6-6%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 12px center; background-size: 20px;">
+                            <option value="">Start from scratch...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Step 2: Basic Info -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-4 space-y-3">
+                        <div class="flex items-center gap-3 mb-1">
+                            <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <div class="font-semibold text-gray-900 text-sm">Basic Info</div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">Program Title</label>
+                            <input type="text" id="progTitle" placeholder="e.g., SUNDAY SERVICE"
+                                class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">Service Date</label>
+                            <input type="date" id="progDate"
+                                class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-gray-50">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1 ml-1">Location</label>
+                            <div class="flex rounded-xl border border-gray-200 overflow-hidden" id="progLocationToggle">
+                                <button type="button" onclick="setProgLocationType('onsite')"
+                                    class="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn" data-value="onsite">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                                    Onsite
+                                </button>
+                                <button type="button" onclick="setProgLocationType('online')"
+                                    class="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn" data-value="online">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                    Online
+                                </button>
+                            </div>
+                            <input type="hidden" id="progLocationType" value="onsite">
+                            <p class="text-xs text-gray-400 mt-1">Online programs won't appear on the public display</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Order of Service (collapsible) -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden" id="sectionProgItems">
+                    <button type="button" onclick="toggleSection('progItemsBody')" class="w-full p-4 flex items-center justify-between text-left">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-gray-900 text-sm">Order of Service</div>
+                                <div class="text-xs text-gray-500" id="progItemsCount">No items yet</div>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 section-chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div id="progItemsBody" class="border-t border-gray-100 p-4 pt-3">
+                        <div id="programItems" class="space-y-2"></div>
+                        <button type="button" onclick="addProgramItem()"
+                            class="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-blue-300 hover:text-blue-600 active:bg-blue-50 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Add Item
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Participants (collapsible) -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden" id="sectionParticipants">
+                    <button type="button" onclick="toggleSection('participantsBody')" class="w-full p-4 flex items-center justify-between text-left">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-gray-900 text-sm">Participants</div>
+                                <div class="text-xs text-gray-500" id="participantsCount">Assign people to activities</div>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 section-chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div id="participantsBody" class="border-t border-gray-100 p-4 pt-3">
+                        <div id="participants" class="space-y-3"></div>
+                        <button type="button" onclick="addParticipantGroup()"
+                            class="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-amber-300 hover:text-amber-600 active:bg-amber-50 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Add Activity / Role
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 5: Announcements (collapsible) -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <button type="button" onclick="toggleSection('announcementsBody')" class="w-full p-4 flex items-center justify-between text-left">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-gray-900 text-sm">Announcements</div>
+                                <div class="text-xs text-gray-500" id="announcementsCount">Admin & Pastor's announcements</div>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 section-chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div id="announcementsBody" class="border-t border-gray-100 p-4 pt-3 hidden">
+                        <!-- Admin Announcements -->
+                        <div class="mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Admin Announcements</label>
+                                <button type="button" onclick="addAnnouncement('adminAnnouncements')"
+                                    class="text-xs text-blue-600 font-semibold px-2 py-1 rounded-lg hover:bg-blue-50 active:bg-blue-100">+ Add</button>
+                            </div>
+                            <div id="adminAnnouncements" class="space-y-2"></div>
+                        </div>
+                        <!-- Pastor's Announcements -->
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pastor's Announcements</label>
+                                <button type="button" onclick="addAnnouncement('pastorsAnnouncements')"
+                                    class="text-xs text-blue-600 font-semibold px-2 py-1 rounded-lg hover:bg-blue-50 active:bg-blue-100">+ Add</button>
+                            </div>
+                            <div id="pastorsAnnouncements" class="space-y-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 6: Prayer Points (collapsible) -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <button type="button" onclick="toggleSection('prayerBody')" class="w-full p-4 flex items-center justify-between text-left">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-gray-900 text-sm">Prayer Points</div>
+                                <div class="text-xs text-gray-500" id="prayerCount">Optional</div>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-400 section-chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div id="prayerBody" class="border-t border-gray-100 p-4 pt-3 hidden">
+                        <div id="prayerPoints" class="space-y-2"></div>
+                        <button type="button" onclick="addAnnouncement('prayerPoints')"
+                            class="mt-2 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-rose-300 hover:text-rose-600 active:bg-rose-50 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                            Add Prayer Point
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sticky bottom save bar (mobile) -->
+            <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 shadow-lg z-30 sm:hidden" id="bottomSaveBar">
+                <button onclick="saveProgram()"
+                    class="w-full py-3.5 bg-blue-600 text-white rounded-xl text-base font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm">
+                    Save Program
+                </button>
+            </div>
+        </div>
+
+        <!-- Hidden shareable program card -->
+        <div id="shareCardContainer" style="position: fixed; left: -9999px; top: 0; z-index: -1;">
+            <div id="shareCard" style="width: 420px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #ffffff; border-radius: 0;">
+                <div id="shareHeader" style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%); padding: 32px 28px 24px; text-align: center;">
+                    <div style="font-size: 12px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">Revival Fire Ministries</div>
+                    <div id="shareTitle" style="font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 8px;"></div>
+                    <div id="shareDate" style="font-size: 14px; color: rgba(255,255,255,0.85); font-weight: 500;"></div>
+                </div>
+                <div style="padding: 24px 28px;">
+                    <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Order of Service</div>
+                    <div id="shareItems" style="margin-bottom: 24px;"></div>
+                    <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                    <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Participants</div>
+                    <div id="shareParticipants" style="margin-bottom: 20px;"></div>
+                    <div id="shareAdminAnn" style="display: none;">
+                        <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Admin Announcements</div>
+                        <div id="shareAdminAnnItems"></div>
+                    </div>
+                    <div id="sharePastorAnn" style="display: none;">
+                        <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Pastor's Announcements</div>
+                        <div id="sharePastorAnnItems"></div>
+                    </div>
+                    <div id="sharePrayer" style="display: none;">
+                        <div style="height: 1px; background: #e5e7eb; margin: 20px 0;"></div>
+                        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;">Prayer Points</div>
+                        <div id="sharePrayerItems"></div>
+                    </div>
+                </div>
+                <div style="background: #f9fafb; padding: 16px 28px; text-align: center; border-top: 1px solid #e5e7eb;">
+                    <div style="font-size: 11px; color: #9ca3af;">Stellenbosch, South Africa</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+    /* Autocomplete */
+    .autocomplete-wrapper { position: relative; flex: 1; }
+    .autocomplete-dropdown {
+        position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+        background: white; border: 1px solid #d1d5db; border-top: none;
+        border-radius: 0 0 12px 12px; max-height: 200px; overflow-y: auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .autocomplete-dropdown .ac-item {
+        padding: 12px 16px; cursor: pointer; font-size: 14px;
+    }
+    .autocomplete-dropdown .ac-item:hover,
+    .autocomplete-dropdown .ac-item.active {
+        background-color: #eff6ff; color: #1d4ed8;
+    }
+    .autocomplete-dropdown .ac-item .ac-phone {
+        font-size: 12px; color: #9ca3af; margin-left: 8px;
+    }
+
+    /* Section toggle animation */
+    .section-chevron.rotated { transform: rotate(180deg); }
+
+    /* Program item rows - mobile friendly */
+    .prog-item-row {
+        display: flex; gap: 8px; align-items: center;
+        background: #f9fafb; border-radius: 12px; padding: 8px;
+    }
+    .prog-item-row input[type="time"] {
+        width: 110px; padding: 10px 8px; border: 1px solid #e5e7eb;
+        border-radius: 8px; font-size: 14px; background: white;
+        text-align: center;
+    }
+    .prog-item-row input[type="text"] {
+        flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #e5e7eb;
+        border-radius: 8px; font-size: 14px; background: white;
+    }
+    .prog-item-row input:focus {
+        outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+    }
+
+    /* Participant group card */
+    .participant-group {
+        background: #fafbfc; border: 1px solid #e5e7eb;
+        border-radius: 16px; padding: 12px; overflow: hidden;
+    }
+    .participant-group .role-header {
+        display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+    }
+    .participant-group .role-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        background: #dbeafe; color: #1e40af; font-size: 12px;
+        font-weight: 600; padding: 4px 10px; border-radius: 999px;
+    }
+
+    /* Name slot */
+    .part-name-slot {
+        display: flex; gap: 8px; align-items: center;
+    }
+    .part-name-slot input {
+        flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #e5e7eb;
+        border-radius: 10px; font-size: 14px; background: white;
+    }
+    .part-name-slot input:focus {
+        outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+    }
+
+    /* Announcement rows */
+    .announcement-row {
+        display: flex; gap: 8px; align-items: center;
+    }
+    .announcement-row input {
+        flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #e5e7eb;
+        border-radius: 10px; font-size: 14px; background: white;
+    }
+    .announcement-row input:focus {
+        outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
+    }
+
+    /* Delete button - larger touch target */
+    .btn-remove {
+        display: flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; min-width: 36px; border-radius: 10px;
+        color: #ef4444; background: transparent; border: none; cursor: pointer;
+        transition: background 0.15s;
+    }
+    .btn-remove:hover { background: #fef2f2; }
+    .btn-remove:active { background: #fee2e2; }
+
+    /* Program list cards */
+    .program-card {
+        background: white; border-radius: 16px; overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #f0f0f0;
+    }
+    .program-card-header {
+        padding: 16px; display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .program-card-actions {
+        display: flex; gap: 6px; flex-shrink: 0;
+    }
+    .program-card-actions button {
+        padding: 8px 12px; border-radius: 10px; font-size: 13px;
+        font-weight: 500; border: none; cursor: pointer; transition: background 0.15s;
+        display: flex; align-items: center; gap: 4px;
+    }
+
+    /* Hide bottom bar in form when on desktop */
+    @media (min-width: 640px) {
+        #bottomSaveBar { display: none !important; }
+    }
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+// Get phone from URL for back navigation
+const urlParams = new URLSearchParams(window.location.search);
+const phoneParam = urlParams.get('phone');
+
+function goBack() {
+    if (phoneParam) {
+        window.location.href = '/portal?phone=' + encodeURIComponent(phoneParam);
+    } else {
+        window.location.href = '/';
+    }
+}
+
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+let editingId = null;
+let allMembers = [];
+let allTemplates = [];
+let activeDropdown = null;
+let participantCounter = 0;
+let groupCounter = 0;
+
+// ==================== UTILITY ====================
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function formatTime(time) {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const display = hour % 12 || 12;
+    return `${display}:${m} ${ampm}`;
+}
+
+function setProgLocationType(type) {
+    document.getElementById('progLocationType').value = type;
+    document.querySelectorAll('#progLocationToggle .prog-location-btn').forEach(btn => {
+        if (btn.dataset.value === type) {
+            btn.className = 'flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn ' +
+                (type === 'onsite' ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white');
+        } else {
+            btn.className = 'flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors prog-location-btn bg-white text-gray-500 hover:bg-gray-50';
+        }
+    });
+}
+
+function toggleSection(bodyId) {
+    const body = document.getElementById(bodyId);
+    const btn = body.previousElementSibling;
+    const chevron = btn.querySelector('.section-chevron');
+    body.classList.toggle('hidden');
+    chevron.classList.toggle('rotated');
+}
+
+function updateCounts() {
+    const itemCount = document.querySelectorAll('.prog-item-row').length;
+    document.getElementById('progItemsCount').textContent = itemCount > 0 ? `${itemCount} item${itemCount !== 1 ? 's' : ''}` : 'No items yet';
+
+    let partCount = 0;
+    document.querySelectorAll('.participant-group').forEach(g => {
+        g.querySelectorAll('.part-name-slot input.part-name').forEach(inp => {
+            if (inp.value.trim()) partCount++;
+        });
+    });
+    document.getElementById('participantsCount').textContent = partCount > 0 ? `${partCount} person${partCount !== 1 ? 's' : ''} assigned` : 'Assign people to activities';
+
+    const annCount = document.querySelectorAll('#adminAnnouncements .announcement-row, #pastorsAnnouncements .announcement-row').length;
+    document.getElementById('announcementsCount').textContent = annCount > 0 ? `${annCount} announcement${annCount !== 1 ? 's' : ''}` : 'Admin & Pastor\'s announcements';
+
+    const prayerCount = document.querySelectorAll('#prayerPoints .announcement-row').length;
+    document.getElementById('prayerCount').textContent = prayerCount > 0 ? `${prayerCount} point${prayerCount !== 1 ? 's' : ''}` : 'Optional';
+}
+
+// ==================== LOAD DATA ====================
+
+async function loadMembers() {
+    try {
+        const res = await fetch('/api/members');
+        allMembers = await res.json();
+    } catch (e) { console.error('Failed to load members:', e); }
+}
+
+async function loadTemplates() {
+    try {
+        const res = await fetch('/api/admin/templates');
+        allTemplates = await res.json();
+        const select = document.getElementById('templateSelect');
+        select.innerHTML = '<option value="">Start from scratch...</option>';
+        allTemplates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            const rolesCount = ((t.program_items || []).filter(i => i.requires_participant).length) + ((t.support_roles || []).length);
+            const suffix = rolesCount > 0 ? ` \u2022 ${rolesCount} role${rolesCount > 1 ? 's' : ''}` : '';
+            opt.textContent = `${t.title} (${DAY_NAMES[t.day_of_week]})${suffix}`;
+            select.appendChild(opt);
+        });
+    } catch (e) {}
+}
+
+// ==================== PROGRAM ITEMS ====================
+
+function addProgramItem(time = '', item = '') {
+    const container = document.getElementById('programItems');
+    const row = document.createElement('div');
+    row.className = 'prog-item-row program-item-row';
+    row.innerHTML = `
+        <input type="time" value="${time}" placeholder="09:30" class="prog-item-time">
+        <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="prog-item-name">
+        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns(); updateCounts()" class="btn-remove" title="Remove">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+    const nameInput = row.querySelector('.prog-item-name');
+    nameInput.addEventListener('change', () => { refreshActivityDropdowns(); updateCounts(); });
+    nameInput.addEventListener('blur', () => { refreshActivityDropdowns(); updateCounts(); });
+    updateCounts();
+}
+
+// ==================== ACTIVITY DROPDOWN ====================
+
+function getActivityNames() {
+    const names = [];
+    document.querySelectorAll('.program-item-row').forEach(row => {
+        const item = row.querySelector('.prog-item-name').value.trim();
+        if (item) names.push(item);
+    });
+    const tplSelect = document.getElementById('templateSelect');
+    if (tplSelect && tplSelect.value) {
+        const tpl = allTemplates.find(t => t.id === parseInt(tplSelect.value));
+        if (tpl && tpl.support_roles) {
+            tpl.support_roles.forEach(r => {
+                if (r && !names.includes(r)) names.push(r);
+            });
+        }
+    }
+    return names;
+}
+
+function refreshActivityDropdowns() {
+    const activities = getActivityNames();
+    document.querySelectorAll('.part-role-select').forEach(select => {
+        const currentVal = select.value;
+        const customInput = select.parentElement.querySelector('.part-role-custom');
+        const isCustom = currentVal === '__custom__';
+        const selectedActivity = isCustom ? '' : currentVal;
+
+        let html = '<option value="">-- Select activity --</option>';
+        activities.forEach(a => {
+            const escaped = escapeHtml(a);
+            html += `<option value="${escaped}" ${escaped === selectedActivity ? 'selected' : ''}>${escaped}</option>`;
+        });
+        html += '<option value="__custom__"' + (isCustom ? ' selected' : '') + '>+ Custom role...</option>';
+        select.innerHTML = html;
+
+        if (!isCustom && selectedActivity && !activities.includes(selectedActivity)) {
+            select.value = '__custom__';
+            customInput.value = selectedActivity;
+            customInput.classList.remove('hidden');
+        }
+    });
+}
+
+// ==================== PARTICIPANTS ====================
+
+function addParticipantGroup(role = '', names = ['']) {
+    const container = document.getElementById('participants');
+    const groupId = 'part-group-' + (groupCounter++);
+    const activities = getActivityNames();
+    const isKnownActivity = activities.includes(role);
+    const isCustom = role && !isKnownActivity;
+
+    let optionsHtml = '<option value="">-- Select activity --</option>';
+    activities.forEach(a => {
+        const escaped = escapeHtml(a);
+        optionsHtml += `<option value="${escaped}" ${escaped === escapeHtml(role) && isKnownActivity ? 'selected' : ''}>${escaped}</option>`;
+    });
+    optionsHtml += `<option value="__custom__" ${isCustom ? 'selected' : ''}>+ Custom role...</option>`;
+
+    const group = document.createElement('div');
+    group.className = 'participant-group';
+    group.id = groupId;
+    group.innerHTML = `
+        <div class="role-header">
+            <div class="flex-1">
+                <select class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white part-role-select"
+                    onchange="toggleCustomRole(this)"
+                    style="appearance: none; background-image: url('data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236b7280%22 stroke-width=%222%22%3E%3Cpath d=%22M6 9l6 6 6-6%22/%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 10px center; background-size: 18px;">
+                    ${optionsHtml}
+                </select>
+                <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Type role name..."
+                    class="w-full mt-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white part-role-custom ${isCustom ? '' : 'hidden'}">
+            </div>
+            <button type="button" onclick="this.closest('.participant-group').remove(); updateCounts()" class="btn-remove" title="Remove activity">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+        </div>
+        <div class="part-names-list space-y-2 ml-1 pl-3 border-l-2 border-blue-200"></div>
+        <button type="button" onclick="addNameSlot('${groupId}')"
+            class="mt-2 ml-1 flex items-center gap-1.5 px-3 py-2 text-xs text-blue-600 font-semibold rounded-lg hover:bg-blue-50 active:bg-blue-100 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Add person
+        </button>
+    `;
+    container.appendChild(group);
+
+    if (names.length === 0) names = [''];
+    names.forEach(n => addNameSlot(groupId, n));
+    updateCounts();
+}
+
+function addNameSlot(groupId, name = '') {
+    const group = document.getElementById(groupId);
+    if (!group) return;
+    const namesList = group.querySelector('.part-names-list');
+    const id = 'part-name-' + (participantCounter++);
+    const slot = document.createElement('div');
+    slot.className = 'part-name-slot';
+    slot.innerHTML = `
+        <div class="autocomplete-wrapper">
+            <input type="text" value="${escapeHtml(name)}" placeholder="Search or type name..."
+                id="${id}" class="part-name" autocomplete="off">
+        </div>
+        <button type="button" onclick="removeNameSlot(this)" class="btn-remove" style="width:32px;height:32px;min-width:32px;" title="Remove person">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    namesList.appendChild(slot);
+    setupAutocomplete(slot.querySelector('#' + id));
+}
+
+function removeNameSlot(btn) {
+    const slot = btn.closest('.part-name-slot');
+    const namesList = slot.parentElement;
+    slot.remove();
+    if (namesList.querySelectorAll('.part-name-slot').length === 0) {
+        const groupId = namesList.closest('.participant-group').id;
+        addNameSlot(groupId);
+    }
+    updateCounts();
+}
+
+function addParticipant(role = '', name = '') {
+    addParticipantGroup(role, name ? [name] : ['']);
+}
+
+function toggleCustomRole(select) {
+    const customInput = select.parentElement.querySelector('.part-role-custom');
+    if (select.value === '__custom__') {
+        customInput.classList.remove('hidden');
+        customInput.focus();
+    } else {
+        customInput.classList.add('hidden');
+        customInput.value = '';
+    }
+}
+
+function getGroupRole(group) {
+    const select = group.querySelector('.part-role-select');
+    const customInput = group.querySelector('.part-role-custom');
+    if (select.value === '__custom__') return customInput.value.trim();
+    return select.value;
+}
+
+// ==================== AUTOCOMPLETE ====================
+
+function setupAutocomplete(input) {
+    let dropdown = null;
+    let selectedIndex = -1;
+    let filtered = [];
+
+    function showDropdown(items) {
+        closeAllDropdowns();
+        filtered = items;
+        selectedIndex = -1;
+        if (items.length === 0) { hideDropdown(); return; }
+
+        dropdown = document.createElement('div');
+        dropdown.className = 'autocomplete-dropdown';
+        items.forEach((m, i) => {
+            const div = document.createElement('div');
+            div.className = 'ac-item';
+            div.innerHTML = `${escapeHtml(m.fullName)}<span class="ac-phone">${m.phone}</span>`;
+            div.addEventListener('mousedown', (e) => { e.preventDefault(); selectMember(m); });
+            div.addEventListener('touchstart', (e) => { selectMember(m); }, { passive: true });
+            dropdown.appendChild(div);
+        });
+        input.parentElement.appendChild(dropdown);
+        activeDropdown = dropdown;
+    }
+
+    function hideDropdown() {
+        if (dropdown && dropdown.parentElement) dropdown.remove();
+        dropdown = null; activeDropdown = null; selectedIndex = -1;
+    }
+
+    function selectMember(m) {
+        input.value = m.fullName;
+        hideDropdown();
+        updateCounts();
+    }
+
+    function updateHighlight() {
+        if (!dropdown) return;
+        const items = dropdown.querySelectorAll('.ac-item');
+        items.forEach((el, i) => el.classList.toggle('active', i === selectedIndex));
+        if (selectedIndex >= 0 && items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
+    }
+
+    input.addEventListener('input', () => {
+        const query = input.value.trim().toLowerCase();
+        if (query.length < 1) { hideDropdown(); return; }
+        const matches = allMembers.filter(m =>
+            m.fullName.toLowerCase().includes(query) || m.phone.includes(query)
+        ).slice(0, 10);
+        showDropdown(matches);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (!dropdown) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1); updateHighlight(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); updateHighlight(); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (selectedIndex >= 0 && filtered[selectedIndex]) selectMember(filtered[selectedIndex]); else hideDropdown(); }
+        else if (e.key === 'Escape') hideDropdown();
+    });
+
+    input.addEventListener('blur', () => { setTimeout(hideDropdown, 200); });
+    input.addEventListener('change', updateCounts);
+}
+
+function closeAllDropdowns() {
+    document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.remove());
+    activeDropdown = null;
+}
+
+// ==================== ANNOUNCEMENTS ====================
+
+function addAnnouncement(containerId, text = '') {
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'announcement-row';
+    row.innerHTML = `
+        <input type="text" value="${escapeHtml(text)}" placeholder="Type here...">
+        <button type="button" onclick="this.parentElement.remove(); updateCounts()" class="btn-remove" title="Remove">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+    `;
+    container.appendChild(row);
+    row.querySelector('input').focus();
+    updateCounts();
+}
+
+// ==================== FORM SHOW/HIDE ====================
+
+function showCreateForm() {
+    editingId = null;
+    document.getElementById('formTitle').textContent = 'New Program';
+    document.getElementById('progTitle').value = '';
+    const now = new Date();
+    document.getElementById('progDate').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    document.getElementById('templateSelect').value = '';
+    setProgLocationType('onsite');
+    document.getElementById('templatePicker').classList.remove('hidden');
+    document.getElementById('programItems').innerHTML = '';
+    document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
+    document.getElementById('prayerPoints').innerHTML = '';
+    participantCounter = 0;
+    groupCounter = 0;
+    addProgramItem();
+    addProgramItem();
+    addParticipantGroup();
+
+    // Show form, hide list
+    document.getElementById('listView').classList.add('hidden');
+    document.getElementById('formView').classList.remove('hidden');
+    document.getElementById('bottomSaveBar').classList.remove('hidden');
+
+    // Expand key sections
+    ensureSectionOpen('progItemsBody');
+    ensureSectionOpen('participantsBody');
+
+    updateCounts();
+    window.scrollTo(0, 0);
+}
+
+function showEditForm(program) {
+    editingId = program.id;
+    document.getElementById('formTitle').textContent = 'Edit Program';
+    document.getElementById('templatePicker').classList.add('hidden');
+    document.getElementById('progTitle').value = program.title;
+    document.getElementById('progDate').value = program.service_date;
+    setProgLocationType(program.location_type || 'onsite');
+    document.getElementById('programItems').innerHTML = '';
+    document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
+    document.getElementById('prayerPoints').innerHTML = '';
+    participantCounter = 0;
+    groupCounter = 0;
+
+    (program.program_items || []).forEach(item => addProgramItem(item.time, item.item));
+
+    const grouped = {};
+    (program.participants || []).forEach(p => {
+        if (!grouped[p.role]) grouped[p.role] = [];
+        grouped[p.role].push(p.name);
+    });
+    Object.entries(grouped).forEach(([role, names]) => addParticipantGroup(role, names));
+
+    (program.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
+    (program.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
+    (program.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
+
+    document.getElementById('listView').classList.add('hidden');
+    document.getElementById('formView').classList.remove('hidden');
+    document.getElementById('bottomSaveBar').classList.remove('hidden');
+
+    ensureSectionOpen('progItemsBody');
+    ensureSectionOpen('participantsBody');
+
+    // Open announcements/prayer if they have content
+    if ((program.admin_announcements && program.admin_announcements.length) || (program.pastors_announcements && program.pastors_announcements.length)) {
+        ensureSectionOpen('announcementsBody');
+    }
+    if (program.prayer_points && program.prayer_points.length) {
+        ensureSectionOpen('prayerBody');
+    }
+
+    updateCounts();
+    window.scrollTo(0, 0);
+}
+
+function ensureSectionOpen(bodyId) {
+    const body = document.getElementById(bodyId);
+    if (body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        const chevron = body.previousElementSibling.querySelector('.section-chevron');
+        if (chevron) chevron.classList.add('rotated');
+    }
+}
+
+function hideForm() {
+    document.getElementById('formView').classList.add('hidden');
+    document.getElementById('bottomSaveBar').classList.add('hidden');
+    document.getElementById('listView').classList.remove('hidden');
+    editingId = null;
+}
+
+// ==================== TEMPLATE AUTO-APPLY ====================
+
+function getNextDateForDay(templateDay, programItems) {
+    const jsTargetDay = templateDay === 6 ? 0 : templateDay + 1;
+    const now = new Date();
+    const todayJsDay = now.getDay();
+    let daysAhead = (jsTargetDay - todayJsDay + 7) % 7;
+
+    if (daysAhead === 0) {
+        const earliestTime = getEarliestTime(programItems);
+        if (earliestTime) {
+            const [h, m] = earliestTime.split(':').map(Number);
+            const startMinutes = h * 60 + m;
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            if (nowMinutes >= startMinutes) {
+                daysAhead = 7;
+            }
+        }
+    }
+
+    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    const yyyy = target.getFullYear();
+    const mm = String(target.getMonth() + 1).padStart(2, '0');
+    const dd = String(target.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+function getEarliestTime(programItems) {
+    if (!programItems || programItems.length === 0) return null;
+    let earliest = null;
+    programItems.forEach(item => {
+        if (item.time && (!earliest || item.time < earliest)) {
+            earliest = item.time;
+        }
+    });
+    return earliest;
+}
+
+function onTemplateChange() {
+    const select = document.getElementById('templateSelect');
+    const tplId = parseInt(select.value);
+    if (!tplId) return;
+
+    const tpl = allTemplates.find(t => t.id === tplId);
+    if (!tpl) return;
+
+    document.getElementById('progTitle').value = tpl.title;
+    const nextDate = getNextDateForDay(tpl.day_of_week, tpl.program_items || []);
+    document.getElementById('progDate').value = nextDate;
+    setProgLocationType(tpl.location_type || 'onsite');
+
+    document.getElementById('programItems').innerHTML = '';
+    document.getElementById('participants').innerHTML = '';
+    document.getElementById('adminAnnouncements').innerHTML = '';
+    document.getElementById('pastorsAnnouncements').innerHTML = '';
+    document.getElementById('prayerPoints').innerHTML = '';
+    participantCounter = 0;
+
+    (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
+    if ((tpl.program_items || []).length === 0) { addProgramItem(); addProgramItem(); }
+
+    const needsParticipant = (tpl.program_items || []).filter(item => item.requires_participant);
+    needsParticipant.forEach(item => addParticipantGroup(item.item, ['']));
+
+    (tpl.support_roles || []).forEach(role => addParticipantGroup(role, ['']));
+
+    if (needsParticipant.length === 0 && !(tpl.support_roles && tpl.support_roles.length > 0)) {
+        addParticipantGroup();
+    }
+
+    (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
+    (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
+    (tpl.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
+
+    if ((tpl.admin_announcements && tpl.admin_announcements.length) || (tpl.pastors_announcements && tpl.pastors_announcements.length)) {
+        ensureSectionOpen('announcementsBody');
+    }
+    if (tpl.prayer_points && tpl.prayer_points.length) {
+        ensureSectionOpen('prayerBody');
+    }
+
+    updateCounts();
+
+    setTimeout(() => {
+        document.getElementById('sectionParticipants').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 300);
+}
+
+function applyTemplate() { onTemplateChange(); }
+
+// ==================== SAVE ====================
+
+function collectFormData() {
+    const title = document.getElementById('progTitle').value.trim();
+    const service_date = document.getElementById('progDate').value;
+
+    const program_items = [];
+    document.querySelectorAll('.program-item-row').forEach(row => {
+        const time = row.querySelector('.prog-item-time').value.trim();
+        const item = row.querySelector('.prog-item-name').value.trim();
+        if (time && item) program_items.push({ time, item });
+    });
+
+    const participants = [];
+    document.querySelectorAll('.participant-group').forEach(group => {
+        const role = getGroupRole(group);
+        if (!role) return;
+        group.querySelectorAll('.part-name-slot').forEach(slot => {
+            const name = slot.querySelector('.part-name').value.trim();
+            if (name) participants.push({ role, name });
+        });
+    });
+
+    const admin_announcements = [];
+    document.querySelectorAll('#adminAnnouncements .announcement-row').forEach(row => {
+        const text = row.querySelector('input').value.trim();
+        if (text) admin_announcements.push(text);
+    });
+
+    const pastors_announcements = [];
+    document.querySelectorAll('#pastorsAnnouncements .announcement-row').forEach(row => {
+        const text = row.querySelector('input').value.trim();
+        if (text) pastors_announcements.push(text);
+    });
+
+    const prayer_points = [];
+    document.querySelectorAll('#prayerPoints .announcement-row').forEach(row => {
+        const text = row.querySelector('input').value.trim();
+        if (text) prayer_points.push(text);
+    });
+
+    const location_type = document.getElementById('progLocationType').value;
+
+    return { title, service_date, location_type, program_items, participants, admin_announcements, pastors_announcements, prayer_points };
+}
+
+async function saveProgram() {
+    const data = collectFormData();
+    if (!data.title) return alert('Title is required');
+    if (!data.service_date) return alert('Service date is required');
+    if (data.program_items.length === 0) return alert('Add at least one program item');
+
+    const url = editingId ? `/api/admin/programs/${editingId}` : '/api/admin/programs';
+    const method = editingId ? 'PUT' : 'POST';
+
+    const btn = document.querySelectorAll('[onclick="saveProgram()"]');
+    btn.forEach(b => { b.disabled = true; b.textContent = 'Saving...'; });
+
+    try {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+            hideForm();
+            loadPrograms();
+        } else {
+            const err = await res.json();
+            alert(err.detail || 'Failed to save program');
+        }
+    } finally {
+        btn.forEach(b => { b.disabled = false; b.textContent = 'Save'; });
+    }
+}
+
+async function deleteProgram(id) {
+    if (!confirm('Delete this program?')) return;
+    const res = await fetch(`/api/admin/programs/${id}`, { method: 'DELETE' });
+    if (res.ok) loadPrograms();
+    else alert('Failed to delete program');
+}
+
+// ==================== PROGRAMS LIST ====================
+
+async function loadPrograms() {
+    const res = await fetch('/api/admin/programs');
+    const programs = await res.json();
+    const container = document.getElementById('programsList');
+
+    if (programs.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-16">
+                <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                </div>
+                <p class="text-gray-500 text-sm mb-1">No programs yet</p>
+                <p class="text-gray-400 text-xs">Tap "New Program" to create one</p>
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = programs.map(p => {
+        const dateObj = new Date(p.service_date + 'T00:00:00');
+        const dateStr = dateObj.toLocaleDateString('en-ZA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+        const isToday = p.service_date === new Date().toISOString().split('T')[0];
+
+        const itemsHtml = (p.program_items || []).slice(0, 6).map(item =>
+            `<div class="flex gap-2 text-sm py-0.5">
+                <span class="text-gray-400 font-mono text-xs w-14 shrink-0 pt-0.5">${formatTime(item.time)}</span>
+                <span class="text-gray-800">${escapeHtml(item.item)}</span>
+            </div>`
+        ).join('');
+        const moreItems = (p.program_items || []).length > 6 ? `<div class="text-xs text-gray-400 mt-1">+${(p.program_items || []).length - 6} more...</div>` : '';
+
+        const partsByRole = {};
+        (p.participants || []).forEach(pt => {
+            if (!partsByRole[pt.role]) partsByRole[pt.role] = [];
+            partsByRole[pt.role].push(pt.name);
+        });
+        const partsHtml = Object.entries(partsByRole).map(([role, names]) =>
+            `<div class="text-sm py-0.5">
+                <span class="text-gray-400 text-xs">${escapeHtml(role)}:</span>
+                <span class="text-gray-800 ml-1">${names.map(n => escapeHtml(n)).join(', ')}</span>
+            </div>`
+        ).join('');
+
+        return `
+        <div class="program-card mb-3">
+            <div class="program-card-header">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h3 class="font-bold text-gray-900 text-base">${escapeHtml(p.title)}</h3>
+                        ${isToday ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
+                        ${p.location_type === 'online'
+                            ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
+                            : ''}
+                    </div>
+                    <p class="text-xs text-gray-500 mt-0.5">${dateStr}</p>
+                </div>
+                <div class="program-card-actions">
+                    <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="background:#eef2ff;color:#4f46e5;" title="Share">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                    </button>
+                    <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="background:#f3f4f6;color:#374151;" title="Edit">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <button onclick="deleteProgram(${p.id})" style="background:#fef2f2;color:#dc2626;" title="Delete">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-4 pb-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Program</div>
+                        ${itemsHtml || '<span class="text-gray-300 text-sm">No items</span>'}
+                        ${moreItems}
+                    </div>
+                    <div>
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Participants</div>
+                        ${partsHtml || '<span class="text-gray-300 text-sm">None</span>'}
+                    </div>
+                </div>
+
+                ${(p.admin_announcements && p.admin_announcements.length > 0) ? `
+                <div class="mt-3 pt-3 border-t border-gray-100">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Admin Announcements</div>
+                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                        ${p.admin_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul>
+                </div>` : ''}
+                ${(p.pastors_announcements && p.pastors_announcements.length > 0) ? `
+                <div class="mt-3 pt-3 border-t border-gray-100">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Pastor's Announcements</div>
+                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                        ${p.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul>
+                </div>` : ''}
+                ${(p.prayer_points && p.prayer_points.length > 0) ? `
+                <div class="mt-3 pt-3 border-t border-gray-100">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Prayer Points</div>
+                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                        ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul>
+                </div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ==================== SHARE ====================
+
+async function shareProgram(program) {
+    const card = document.getElementById('shareCard');
+    const container = document.getElementById('shareCardContainer');
+
+    const dateObj = new Date(program.service_date + 'T00:00:00');
+    const dateStr = dateObj.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    document.getElementById('shareTitle').textContent = program.title;
+    document.getElementById('shareDate').textContent = dateStr;
+
+    document.getElementById('shareItems').innerHTML = (program.program_items || []).map(item => `
+        <div style="display: flex; gap: 12px; padding: 6px 0; font-size: 14px;">
+            <span style="color: #6b7280; font-family: monospace; width: 70px; flex-shrink: 0;">${formatTime(item.time)}</span>
+            <span style="color: #111827;">${escapeHtml(item.item)}</span>
+        </div>
+    `).join('');
+
+    document.getElementById('shareParticipants').innerHTML = (program.participants || []).map(pt => `
+        <div style="display: flex; gap: 12px; padding: 4px 0; font-size: 14px;">
+            <span style="color: #6b7280; font-weight: 500; width: 140px; flex-shrink: 0;">${escapeHtml(pt.role)}:</span>
+            <span style="color: #111827;">${escapeHtml(pt.name)}</span>
+        </div>
+    `).join('');
+
+    const adminAnnSection = document.getElementById('shareAdminAnn');
+    const adminAnnItems = document.getElementById('shareAdminAnnItems');
+    if (program.admin_announcements && program.admin_announcements.length > 0) {
+        adminAnnSection.style.display = 'block';
+        adminAnnItems.innerHTML = program.admin_announcements.map(a => `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>`).join('');
+    } else { adminAnnSection.style.display = 'none'; }
+
+    const pastorAnnSection = document.getElementById('sharePastorAnn');
+    const pastorAnnItems = document.getElementById('sharePastorAnnItems');
+    if (program.pastors_announcements && program.pastors_announcements.length > 0) {
+        pastorAnnSection.style.display = 'block';
+        pastorAnnItems.innerHTML = program.pastors_announcements.map(a => `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>`).join('');
+    } else { pastorAnnSection.style.display = 'none'; }
+
+    const prayerSection = document.getElementById('sharePrayer');
+    const prayerItems = document.getElementById('sharePrayerItems');
+    if (program.prayer_points && program.prayer_points.length > 0) {
+        prayerSection.style.display = 'block';
+        prayerItems.innerHTML = program.prayer_points.map(a => `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>`).join('');
+    } else { prayerSection.style.display = 'none'; }
+
+    container.style.left = '0';
+    container.style.position = 'absolute';
+
+    try {
+        const canvas = await html2canvas(card, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+        canvas.toBlob(async (blob) => {
+            const fileName = `${program.title.replace(/[^a-zA-Z0-9]/g, '_')}_${program.service_date}.png`;
+            if (navigator.share && navigator.canShare) {
+                const file = new File([blob], fileName, { type: 'image/png' });
+                const shareData = { files: [file], title: program.title };
+                try {
+                    if (navigator.canShare(shareData)) { await navigator.share(shareData); return; }
+                } catch (e) { if (e.name !== 'AbortError') console.log('Share failed, falling back to download'); }
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = fileName;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+        }, 'image/png');
+    } finally {
+        container.style.left = '-9999px';
+        container.style.position = 'fixed';
+    }
+}
+
+// ==================== INIT ====================
+loadMembers();
+loadTemplates();
+loadPrograms();
+</script>
+{% endblock %}

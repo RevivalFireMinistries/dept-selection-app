@@ -312,7 +312,7 @@ async def member_programs(request: Request, phone: str = None, db: Session = Dep
     if not (set(roles) & allowed_roles) and not is_hod:
         return RedirectResponse(url=f"/portal?phone={phone}", status_code=302)
 
-    return templates.TemplateResponse("admin/programs.html", {"request": request})
+    return templates.TemplateResponse("programs.html", {"request": request})
 
 
 @router.get("/results")

@@ -111,6 +111,13 @@ A mobile-friendly web app for church members to select departments they want to 
 - Events: member approved/rejected, results published, appeal submitted/resolved, meeting CRUD, poster requests, program participant added
 - Notification configs and audit logs in DB
 
+## Testing Requirements
+- Every new feature must have unit tests before marking complete
+- Integration tests required for all API endpoints
+- Test coverage must not drop below 80%
+- Run tests before considering any task done
+- Tests must be green — never leave failing tests
+
 ## Database Schema
 
 ### Models
