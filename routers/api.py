@@ -3864,7 +3864,7 @@ def get_program(program_id: int, db: Session = Depends(get_db)):
     return _program_to_dict(program)
 
 
-def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None):
+def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None):
     """Notify participants who are members in the database about their program role.
     participant_roles is a dict mapping lowercase name -> role string."""
     from notifications.dispatcher import dispatch_event
@@ -3900,6 +3900,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "member_id": member.id,
                     "member_phone": member.phone,
                     "created_by": created_by_name or "Admin",
+                    "program_id": program_id,
                 },
                 recipients=[{
                     "id": member.id,
@@ -3944,7 +3945,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         names = [p.name for p in data.participants]
         roles = {p.name.lower(): p.role for p in data.participants}
         creator_name = program.created_by.full_name if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
-        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name)
+        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id)
 
     return _program_to_dict(program)
 
@@ -3995,7 +3996,7 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
             title = data.title or program.title
             svc_date = data.service_date or program.service_date
             creator_name = program.created_by.full_name if program.created_by_member_id and program.created_by else None
-            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name)
+            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id)
 
     return _program_to_dict(program)
 

@@ -522,7 +522,7 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             accent_color="#4f46e5",  # Indigo
             content=f'''
                 {greeting(data.get('recipient_name', 'Member'))}
-                {paragraph(f"You have been added as a participant in an upcoming service program.")}
+                {paragraph(f"You have been added as a participant in an upcoming service program{(' by <strong>' + data.get('created_by') + '</strong>') if data.get('created_by') and data.get('created_by') != 'Admin' else ''}.")}
                 <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
                     <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Service Program')}</h2>
                     <table role="presentation" cellspacing="0" cellpadding="0">
@@ -531,15 +531,21 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                                 <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Date</p>
                                 <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('service_date', 'TBD')}</p>
                             </td>
-                            <td>
+                            <td style="padding-right: 24px;">
                                 <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Your Role</p>
                                 <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('role', 'Participant')}</p>
                             </td>
+                            {f"""<td>
+                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Service Manager</p>
+                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('created_by', '')}</p>
+                            </td>""" if data.get('created_by') and data.get('created_by') != 'Admin' else ''}
                         </tr>
                     </table>
                 </div>
                 {paragraph("Please make sure you are prepared and arrive on time. If you have any questions or are unable to attend, please inform the service coordinator as soon as possible.")}
-            '''
+            ''',
+            button_text="View Program" if data.get('app_url') and data.get('program_id') else None,
+            button_url=f"{data.get('app_url')}/program/{data.get('program_id')}?phone={data.get('recipient_phone', '')}" if data.get('app_url') and data.get('program_id') else None
         ),
     }
 
