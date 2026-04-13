@@ -243,6 +243,14 @@
                 <div id="thisWeekList" class="space-y-2"></div>
             </div>
 
+            <!-- ===== MY PROGRAMS (programs where member is a participant) ===== -->
+            <div id="myProgramsSection" class="hidden">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">My Programs</h3>
+                </div>
+                <div id="myProgramsList" class="space-y-2"></div>
+            </div>
+
             <!-- ===== POST-PUBLISH: Departments row (compact — opens bottom sheet) ===== -->
             <div id="postPublishSection" class="hidden">
                 <button onclick="openMyDeptsSheet()" class="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 pressable text-left">
@@ -881,6 +889,7 @@ function selectMember(member) {
     // Render sections
     renderMainContent();
     renderThisWeek();
+    renderMyPrograms();
     renderActions();
     renderHodCard();
     renderDesignTeamBanner();
@@ -1019,6 +1028,67 @@ function renderThisWeek() {
     } else {
         dot.classList.remove('show');
     }
+}
+
+// ==================== MY PROGRAMS SECTION ====================
+async function renderMyPrograms() {
+    const section = document.getElementById('myProgramsSection');
+    const list = document.getElementById('myProgramsList');
+
+    if (!phone) return;
+
+    try {
+        const res = await fetch(`/api/programs/mine?phone=${encodeURIComponent(phone)}`);
+        if (!res.ok) return;
+        const programs = await res.json();
+
+        if (programs.length > 0) {
+            section.classList.remove('hidden');
+            list.innerHTML = programs.map(p => {
+                const d = new Date(p.service_date + 'T00:00:00');
+                const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+                const day = d.getDate();
+                const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+                const isToday = p.service_date === new Date().toISOString().split('T')[0];
+
+                // Find this member's role(s)
+                const memberNames = (allData && allData.members || []).map(m => (m.full_name || m.fullName || '').toLowerCase());
+                const myRoles = (p.participants || [])
+                    .filter(pt => memberNames.includes(pt.name.toLowerCase()))
+                    .map(pt => pt.role);
+                const roleText = myRoles.length > 0 ? myRoles.join(', ') : 'Participant';
+
+                return `
+                    <a href="/program/${p.id}?phone=${encodeURIComponent(phone)}" class="block bg-white rounded-xl border border-gray-100 shadow-sm p-3 pressable">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-12 ${isToday ? 'bg-green-50' : 'bg-teal-50'} rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                                <span class="text-[9px] ${isToday ? 'text-green-500' : 'text-teal-500'} font-medium leading-none">${monthShort}</span>
+                                <span class="text-base ${isToday ? 'text-green-700' : 'text-teal-700'} font-bold leading-tight">${day}</span>
+                                <span class="text-[9px] ${isToday ? 'text-green-400' : 'text-teal-400'} leading-none">${dayName}</span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(p.title)}</p>
+                                    ${isToday ? '<span class="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] font-semibold rounded-full flex-shrink-0">TODAY</span>' : ''}
+                                </div>
+                                <p class="text-xs text-gray-400">${escapeHtml(roleText)}${p.created_by_name ? ' \u00b7 by ' + escapeHtml(p.created_by_name) : ''}</p>
+                            </div>
+                            <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </div>
+                    </a>
+                `;
+            }).join('');
+        } else {
+            section.classList.add('hidden');
+        }
+    } catch (e) {
+        console.error('Failed to load my programs:', e);
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // ==================== QUICK ACTIONS ====================

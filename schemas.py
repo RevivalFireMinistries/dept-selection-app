@@ -433,6 +433,7 @@ class ServiceProgramCreate(BaseModel):
     pastors_announcements: List[str] = []
     prayer_points: List[str] = []
     template_id: Optional[int] = None  # Track which template was used
+    created_by_member_id: Optional[int] = None  # Service manager who created the program
 
 class ServiceProgramUpdate(BaseModel):
     title: Optional[str] = None

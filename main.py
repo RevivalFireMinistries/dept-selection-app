@@ -302,6 +302,24 @@ def run_migrations():
                 conn.commit()
                 print("Migration: Added support_roles column to program_templates")
 
+        # Add created_by_member_id column to service_programs
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'service_programs' AND column_name = 'created_by_member_id'
+        """))
+        if not result.fetchone():
+            table_exists = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_name = 'service_programs'
+            """)).fetchone()
+            if table_exists:
+                conn.execute(text("""
+                    ALTER TABLE service_programs
+                    ADD COLUMN IF NOT EXISTS created_by_member_id INTEGER REFERENCES members(id) ON DELETE SET NULL
+                """))
+                conn.commit()
+                print("Migration: Added created_by_member_id column to service_programs")
+
         # Add location_type column to program_templates and service_programs
         for table_name in ['program_templates', 'service_programs']:
             result = conn.execute(text("""

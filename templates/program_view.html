@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Program Details{% endblock %}
+
+{% block head %}
+<style>
+    .program-view-container { max-width: 640px; margin: 0 auto; padding: 0 16px 40px; }
+    .portal-header {
+        position: sticky; top: 0; z-index: 40;
+        background: linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%);
+        padding: 16px 20px;
+        display: flex; align-items: center; gap: 12px;
+    }
+    .portal-header .back-btn {
+        display: flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px; border-radius: 12px;
+        background: rgba(255,255,255,0.15); color: white;
+        transition: background 0.15s;
+    }
+    .portal-header .back-btn:hover { background: rgba(255,255,255,0.25); }
+    .portal-header h1 { font-size: 18px; font-weight: 700; color: white; }
+    .portal-header .subtitle { font-size: 12px; color: rgba(255,255,255,0.7); }
+    .info-card {
+        background: white; border-radius: 16px; overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #f0f0f0;
+    }
+    .section-label {
+        font-size: 11px; font-weight: 600; color: #9ca3af;
+        text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="portal-header">
+    <a href="javascript:void(0)" onclick="goBack()" class="back-btn">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    </a>
+    <div>
+        <h1 id="headerTitle">Program</h1>
+        <div class="subtitle" id="headerSubtitle">Loading...</div>
+    </div>
+</div>
+
+<div class="program-view-container">
+    <div id="loadingState" class="text-center py-16 text-gray-400">Loading program...</div>
+    <div id="errorState" class="hidden text-center py-16">
+        <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-red-50 flex items-center justify-center">
+            <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+        </div>
+        <p class="text-gray-500 text-sm">Program not found or has passed</p>
+    </div>
+
+    <div id="programContent" class="hidden py-4 space-y-3">
+        <!-- Service Manager -->
+        <div id="managerCard" class="hidden info-card p-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-500">Service Manager</div>
+                    <div class="font-semibold text-gray-900" id="managerName"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Basic Info -->
+        <div class="info-card p-4">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <div>
+                    <div class="font-bold text-gray-900" id="progTitle"></div>
+                    <div class="text-sm text-gray-500" id="progDate"></div>
+                </div>
+                <span id="locationBadge" class="hidden ml-auto px-2.5 py-1 text-xs font-semibold rounded-full"></span>
+            </div>
+        </div>
+
+        <!-- Order of Service -->
+        <div class="info-card overflow-hidden">
+            <div class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    </div>
+                    <div class="font-semibold text-gray-900 text-sm">Order of Service</div>
+                </div>
+                <div id="orderOfService" class="space-y-1"></div>
+            </div>
+        </div>
+
+        <!-- Participants -->
+        <div class="info-card overflow-hidden">
+            <div class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </div>
+                    <div class="font-semibold text-gray-900 text-sm">Participants</div>
+                </div>
+                <div id="participantsList" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- Announcements -->
+        <div id="announcementsCard" class="hidden info-card overflow-hidden">
+            <div class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+                    </div>
+                    <div class="font-semibold text-gray-900 text-sm">Announcements</div>
+                </div>
+                <div id="announcementsContent"></div>
+            </div>
+        </div>
+
+        <!-- Prayer Points -->
+        <div id="prayerCard" class="hidden info-card overflow-hidden">
+            <div class="p-4">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+                    </div>
+                    <div class="font-semibold text-gray-900 text-sm">Prayer Points</div>
+                </div>
+                <div id="prayerContent"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const phoneParam = new URLSearchParams(window.location.search).get('phone');
+const programId = window.location.pathname.split('/').pop();
+
+function goBack() {
+    if (phoneParam) {
+        window.location.href = '/portal?phone=' + encodeURIComponent(phoneParam);
+    } else {
+        window.history.back();
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function formatTime(time) {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const display = hour % 12 || 12;
+    return `${display}:${m} ${ampm}`;
+}
+
+async function loadProgram() {
+    try {
+        const res = await fetch(`/api/admin/programs/${programId}`);
+        if (!res.ok) {
+            document.getElementById('loadingState').classList.add('hidden');
+            document.getElementById('errorState').classList.remove('hidden');
+            return;
+        }
+
+        const p = await res.json();
+
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('programContent').classList.remove('hidden');
+
+        // Header
+        document.getElementById('headerTitle').textContent = p.title;
+        const dateObj = new Date(p.service_date + 'T00:00:00');
+        const dateStr = dateObj.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        document.getElementById('headerSubtitle').textContent = dateStr;
+
+        // Basic info
+        document.getElementById('progTitle').textContent = p.title;
+        document.getElementById('progDate').textContent = dateStr;
+
+        if (p.location_type === 'online') {
+            const badge = document.getElementById('locationBadge');
+            badge.classList.remove('hidden');
+            badge.textContent = 'Online';
+            badge.className += ' bg-purple-100 text-purple-700';
+        }
+
+        // Service Manager
+        if (p.created_by_name) {
+            document.getElementById('managerCard').classList.remove('hidden');
+            document.getElementById('managerName').textContent = p.created_by_name;
+        }
+
+        // Order of Service
+        const orderDiv = document.getElementById('orderOfService');
+        if (p.program_items && p.program_items.length > 0) {
+            orderDiv.innerHTML = p.program_items.map(item => `
+                <div class="flex gap-3 py-1.5">
+                    <span class="text-gray-400 font-mono text-xs w-16 shrink-0 pt-0.5 text-right">${formatTime(item.time)}</span>
+                    <span class="text-sm text-gray-800">${escapeHtml(item.item)}</span>
+                </div>
+            `).join('');
+        } else {
+            orderDiv.innerHTML = '<p class="text-sm text-gray-400">No items</p>';
+        }
+
+        // Participants
+        const partsDiv = document.getElementById('participantsList');
+        if (p.participants && p.participants.length > 0) {
+            const grouped = {};
+            p.participants.forEach(pt => {
+                if (!grouped[pt.role]) grouped[pt.role] = [];
+                grouped[pt.role].push(pt.name);
+            });
+            partsDiv.innerHTML = Object.entries(grouped).map(([role, names]) => `
+                <div class="bg-gray-50 rounded-xl p-3">
+                    <div class="text-xs font-semibold text-blue-600 mb-1">${escapeHtml(role)}</div>
+                    <div class="text-sm text-gray-800">${names.map(n => escapeHtml(n)).join(', ')}</div>
+                </div>
+            `).join('');
+        } else {
+            partsDiv.innerHTML = '<p class="text-sm text-gray-400">No participants assigned</p>';
+        }
+
+        // Announcements
+        const hasAdminAnn = p.admin_announcements && p.admin_announcements.length > 0;
+        const hasPastorAnn = p.pastors_announcements && p.pastors_announcements.length > 0;
+        if (hasAdminAnn || hasPastorAnn) {
+            document.getElementById('announcementsCard').classList.remove('hidden');
+            let html = '';
+            if (hasAdminAnn) {
+                html += `<div class="mb-3"><div class="section-label">Admin</div>
+                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
+                        ${p.admin_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul></div>`;
+            }
+            if (hasPastorAnn) {
+                html += `<div><div class="section-label">Pastor's</div>
+                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
+                        ${p.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                    </ul></div>`;
+            }
+            document.getElementById('announcementsContent').innerHTML = html;
+        }
+
+        // Prayer Points
+        if (p.prayer_points && p.prayer_points.length > 0) {
+            document.getElementById('prayerCard').classList.remove('hidden');
+            document.getElementById('prayerContent').innerHTML = `
+                <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
+                    ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                </ul>`;
+        }
+
+    } catch (e) {
+        console.error('Failed to load program:', e);
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('errorState').classList.remove('hidden');
+    }
+}
+
+loadProgram();
+</script>
+{% endblock %}

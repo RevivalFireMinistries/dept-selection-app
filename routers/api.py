@@ -3756,6 +3756,12 @@ def _program_to_dict(program: ServiceProgram) -> dict:
                 return []
         return val or []
 
+    # Get creator info
+    created_by_name = None
+    created_by_id = getattr(program, 'created_by_member_id', None)
+    if created_by_id and hasattr(program, 'created_by') and program.created_by:
+        created_by_name = program.created_by.full_name
+
     return {
         "id": program.id,
         "hash": hashcode,
@@ -3767,6 +3773,8 @@ def _program_to_dict(program: ServiceProgram) -> dict:
         "admin_announcements": _parse_json(program.admin_announcements),
         "pastors_announcements": _parse_json(program.pastors_announcements),
         "prayer_points": _parse_json(program.prayer_points),
+        "created_by_member_id": created_by_id,
+        "created_by_name": created_by_name,
         "created_at": program.created_at.isoformat() if program.created_at else None,
         "updated_at": program.updated_at.isoformat() if program.updated_at else None
     }
@@ -3780,6 +3788,42 @@ def _cleanup_past_programs(db: Session):
         db.commit()
         print(f"[Cleanup] Deleted {deleted} past service program(s)")
     return deleted
+
+
+@router.get("/programs/mine")
+def get_my_programs(phone: str, db: Session = Depends(get_db)):
+    """Get programs where the member (by phone) is listed as a participant"""
+    _cleanup_past_programs(db)
+
+    if not phone:
+        return []
+
+    # Find all members with this phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member_names = set()
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member_names.add(m.full_name.lower())
+
+    if not member_names:
+        return []
+
+    # Get all upcoming programs and filter by participant name match
+    from sqlalchemy.orm import joinedload
+    all_programs = db.query(ServiceProgram).options(
+        joinedload(ServiceProgram.created_by)
+    ).order_by(ServiceProgram.service_date).all()
+
+    result = []
+    for p in all_programs:
+        participants = json.loads(p.participants) if isinstance(p.participants, str) else (p.participants or [])
+        for pt in participants:
+            if pt.get("name", "").lower() in member_names:
+                result.append(_program_to_dict(p))
+                break
+
+    return result
 
 
 @router.get("/programs/today")
@@ -3805,20 +3849,22 @@ def get_all_programs(db: Session = Depends(get_db)):
     """Admin: list all programs (upcoming and today)"""
     _cleanup_past_programs(db)
 
-    programs = db.query(ServiceProgram).order_by(ServiceProgram.service_date).all()
+    from sqlalchemy.orm import joinedload
+    programs = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).order_by(ServiceProgram.service_date).all()
     return [_program_to_dict(p) for p in programs]
 
 
 @router.get("/admin/programs/{program_id}")
 def get_program(program_id: int, db: Session = Depends(get_db)):
     """Admin: get a single program by ID"""
-    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    from sqlalchemy.orm import joinedload
+    program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
     return _program_to_dict(program)
 
 
-def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict):
+def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None):
     """Notify participants who are members in the database about their program role.
     participant_roles is a dict mapping lowercase name -> role string."""
     from notifications.dispatcher import dispatch_event
@@ -3853,6 +3899,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "member_email": member.email,
                     "member_id": member.id,
                     "member_phone": member.phone,
+                    "created_by": created_by_name or "Admin",
                 },
                 recipients=[{
                     "id": member.id,
@@ -3881,17 +3928,23 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         participants=json.dumps([p.model_dump() for p in (data.participants or [])]),
         admin_announcements=json.dumps(data.admin_announcements or []),
         pastors_announcements=json.dumps(data.pastors_announcements or []),
-        prayer_points=json.dumps(data.prayer_points or [])
+        prayer_points=json.dumps(data.prayer_points or []),
+        created_by_member_id=data.created_by_member_id
     )
     db.add(program)
     db.commit()
     db.refresh(program)
+    # Eager-load creator for dict conversion
+    if program.created_by_member_id:
+        from sqlalchemy.orm import joinedload
+        program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
 
     # Notify participants
     if data.participants:
         names = [p.name for p in data.participants]
         roles = {p.name.lower(): p.role for p in data.participants}
-        _notify_program_participants(db, data.title, data.service_date, names, roles)
+        creator_name = program.created_by.full_name if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
+        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name)
 
     return _program_to_dict(program)
 
@@ -3929,6 +3982,10 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
     db.commit()
     db.refresh(program)
 
+    # Eager-load creator for dict conversion
+    from sqlalchemy.orm import joinedload
+    program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
+
     # Notify only newly added participants
     if data.participants is not None:
         new_participants = [p for p in data.participants if p.name.lower() not in old_participant_names]
@@ -3937,7 +3994,8 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
             roles = {p.name.lower(): p.role for p in new_participants}
             title = data.title or program.title
             svc_date = data.service_date or program.service_date
-            _notify_program_participants(db, title, svc_date, names, roles)
+            creator_name = program.created_by.full_name if program.created_by_member_id and program.created_by else None
+            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name)
 
     return _program_to_dict(program)
 

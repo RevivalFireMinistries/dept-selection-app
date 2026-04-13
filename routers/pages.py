@@ -315,6 +315,12 @@ async def member_programs(request: Request, phone: str = None, db: Session = Dep
     return templates.TemplateResponse("programs.html", {"request": request})
 
 
+@router.get("/program/{program_id}")
+async def view_program(request: Request, program_id: int):
+    """Read-only program view for participants"""
+    return templates.TemplateResponse("program_view.html", {"request": request})
+
+
 @router.get("/results")
 async def member_results(request: Request):
     """Member results lookup page (legacy - redirects to portal)"""
