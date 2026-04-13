@@ -3,44 +3,139 @@
 {% block content %}
 <div class="min-h-screen bg-gray-50">
     <!-- Navigation -->
-    <nav class="bg-white shadow-sm sticky top-0 z-10">
+    <nav class="bg-white shadow-sm sticky top-0 z-30">
         <div class="max-w-6xl mx-auto px-4">
-            <div class="flex items-center justify-between h-16">
+            <div class="flex items-center justify-between h-14">
                 <div class="flex items-center gap-3">
                     {% if request.url.path != '/admin' %}
-                    <a href="/admin" class="text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                    <a href="/admin" class="text-gray-400 hover:text-gray-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                         </svg>
-                        <span class="text-sm">Back</span>
                     </a>
                     {% endif %}
-                    <h1 class="text-xl font-bold text-gray-900">Admin Panel</h1>
+                    <h1 class="text-lg font-bold text-gray-900">Admin</h1>
                 </div>
-                <div class="flex items-center gap-4">
-                    <a href="/" class="text-blue-600 hover:text-blue-700 text-sm font-medium">View Form</a>
-                    <a href="/admin/logout" class="text-gray-500 hover:text-gray-700 text-sm">Logout</a>
-                </div>
-            </div>
+                <div class="flex items-center gap-2">
+                    <!-- Primary nav items (always visible) -->
+                    <a href="/admin" class="admin-nav-btn {% if request.url.path == '/admin' %}active{% endif %}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4"/></svg>
+                        <span class="hidden sm:inline">Home</span>
+                    </a>
+                    <a href="/admin/members" class="admin-nav-btn {% if request.url.path == '/admin/members' or '/admin/member/' in request.url.path %}active{% endif %}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        <span class="hidden sm:inline">Members</span>
+                    </a>
+                    <a href="/admin/approvals" class="admin-nav-btn {% if request.url.path == '/admin/approvals' %}active{% endif %}">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                        <span class="hidden sm:inline">Approvals</span>
+                    </a>
 
-            <!-- Tabs -->
-            <div class="flex gap-1 overflow-x-auto pb-2 -mb-px">
-                <a href="/admin" class="nav-tab {% if request.url.path == '/admin' %}active{% endif %}">Dashboard</a>
-                <a href="/admin/members" class="nav-tab {% if request.url.path == '/admin/members' or '/admin/member/' in request.url.path %}active{% endif %}">Members</a>
-                <a href="/admin/approvals" class="nav-tab {% if request.url.path == '/admin/approvals' %}active{% endif %}">Approvals</a>
-                <a href="/admin/publish" class="nav-tab {% if request.url.path == '/admin/publish' %}active{% endif %}">Publish</a>
-                <a href="/admin/appeals" class="nav-tab {% if request.url.path == '/admin/appeals' %}active{% endif %}">Appeals</a>
-                <a href="/admin/meetings" class="nav-tab {% if request.url.path == '/admin/meetings' %}active{% endif %}">Meetings</a>
-                <a href="/admin/poster-requests" class="nav-tab {% if request.url.path == '/admin/poster-requests' %}active{% endif %}">Posters</a>
-                <a href="/admin/program-templates" class="nav-tab {% if request.url.path == '/admin/program-templates' %}active{% endif %}">Templates</a>
-                <a href="/admin/programs" class="nav-tab {% if request.url.path == '/admin/programs' %}active{% endif %}">Programs</a>
-                <a href="/admin/departments" class="nav-tab {% if request.url.path == '/admin/departments' %}active{% endif %}">Departments</a>
-                <a href="/admin/categories" class="nav-tab {% if request.url.path == '/admin/categories' %}active{% endif %}">Categories</a>
-                <a href="/admin/notifications" class="nav-tab {% if request.url.path == '/admin/notifications' %}active{% endif %}">Notifications</a>
-                <a href="/admin/settings" class="nav-tab {% if request.url.path == '/admin/settings' %}active{% endif %}">Settings</a>
+                    <!-- Menu button -->
+                    <button onclick="toggleAdminMenu()" class="admin-nav-btn relative" id="menuBtn">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                        <span class="hidden sm:inline">More</span>
+                        <svg class="w-3 h-3 ml-0.5 hidden sm:inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                </div>
             </div>
         </div>
     </nav>
+
+    <!-- Dropdown Menu Overlay -->
+    <div id="adminMenuOverlay" class="fixed inset-0 bg-black/20 z-40 hidden" onclick="closeAdminMenu()"></div>
+
+    <!-- Dropdown Menu Panel -->
+    <div id="adminMenuPanel" class="fixed top-14 right-0 w-72 bg-white shadow-xl rounded-bl-2xl z-50 hidden overflow-hidden border-l border-b border-gray-200">
+        <div class="max-h-[calc(100vh-4rem)] overflow-y-auto">
+            <!-- Publishing -->
+            <div class="px-3 pt-3 pb-1">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2">Publishing</p>
+            </div>
+            <a href="/admin/publish" class="menu-item {% if request.url.path == '/admin/publish' %}menu-active{% endif %}">
+                <div class="menu-icon bg-green-100 text-green-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Publish Results</div><div class="text-xs text-gray-400">Preview & publish to members</div></div>
+            </a>
+            <a href="/admin/appeals" class="menu-item {% if request.url.path == '/admin/appeals' %}menu-active{% endif %}">
+                <div class="menu-icon bg-orange-100 text-orange-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Appeals</div><div class="text-xs text-gray-400">Manage member appeals</div></div>
+            </a>
+
+            <div class="border-t border-gray-100 mx-3"></div>
+
+            <!-- Services -->
+            <div class="px-3 pt-3 pb-1">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2">Services</p>
+            </div>
+            <a href="/admin/programs" class="menu-item {% if request.url.path == '/admin/programs' %}menu-active{% endif %}">
+                <div class="menu-icon bg-blue-100 text-blue-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Programs</div><div class="text-xs text-gray-400">Manage service programs</div></div>
+            </a>
+            <a href="/admin/program-templates" class="menu-item {% if request.url.path == '/admin/program-templates' %}menu-active{% endif %}">
+                <div class="menu-icon bg-indigo-100 text-indigo-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Templates</div><div class="text-xs text-gray-400">Reusable program templates</div></div>
+            </a>
+            <a href="/admin/meetings" class="menu-item {% if request.url.path == '/admin/meetings' %}menu-active{% endif %}">
+                <div class="menu-icon bg-purple-100 text-purple-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Meetings</div><div class="text-xs text-gray-400">Schedule & manage meetings</div></div>
+            </a>
+            <a href="/admin/poster-requests" class="menu-item {% if request.url.path == '/admin/poster-requests' %}menu-active{% endif %}">
+                <div class="menu-icon bg-pink-100 text-pink-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Posters</div><div class="text-xs text-gray-400">Design requests</div></div>
+            </a>
+
+            <div class="border-t border-gray-100 mx-3"></div>
+
+            <!-- Setup -->
+            <div class="px-3 pt-3 pb-1">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-2">Setup</p>
+            </div>
+            <a href="/admin/departments" class="menu-item {% if request.url.path == '/admin/departments' or '/admin/department/' in request.url.path %}menu-active{% endif %}">
+                <div class="menu-icon bg-teal-100 text-teal-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Departments</div><div class="text-xs text-gray-400">Manage departments & HODs</div></div>
+            </a>
+            <a href="/admin/categories" class="menu-item {% if request.url.path == '/admin/categories' %}menu-active{% endif %}">
+                <div class="menu-icon bg-amber-100 text-amber-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Categories</div><div class="text-xs text-gray-400">Group departments</div></div>
+            </a>
+            <a href="/admin/notifications" class="menu-item {% if request.url.path == '/admin/notifications' %}menu-active{% endif %}">
+                <div class="menu-icon bg-cyan-100 text-cyan-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Notifications</div><div class="text-xs text-gray-400">Email & notification settings</div></div>
+            </a>
+            <a href="/admin/settings" class="menu-item {% if request.url.path == '/admin/settings' %}menu-active{% endif %}">
+                <div class="menu-icon bg-gray-100 text-gray-600">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                </div>
+                <div><div class="text-sm font-medium text-gray-900">Settings</div><div class="text-xs text-gray-400">App configuration</div></div>
+            </a>
+
+            <div class="border-t border-gray-100 mx-3"></div>
+
+            <!-- Footer links -->
+            <div class="p-3 flex items-center justify-between">
+                <a href="/" class="text-xs text-blue-600 hover:text-blue-700 font-medium">View Form</a>
+                <a href="/admin/logout" class="text-xs text-gray-400 hover:text-red-500 font-medium">Logout</a>
+            </div>
+        </div>
+    </div>
 
     <!-- Main Content -->
     <main class="max-w-6xl mx-auto px-4 py-6">
@@ -49,11 +144,47 @@
 </div>
 
 <style>
-    .nav-tab {
-        @apply px-4 py-2 text-sm font-medium text-gray-600 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap;
+    .admin-nav-btn {
+        @apply flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-500 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap;
     }
-    .nav-tab.active {
+    .admin-nav-btn.active {
         @apply bg-blue-600 text-white hover:bg-blue-700;
     }
+    .menu-item {
+        @apply flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors;
+    }
+    .menu-item.menu-active {
+        @apply bg-blue-50;
+    }
+    .menu-item.menu-active .text-sm {
+        @apply text-blue-700;
+    }
+    .menu-icon {
+        @apply w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0;
+    }
 </style>
+
+<script>
+function toggleAdminMenu() {
+    const panel = document.getElementById('adminMenuPanel');
+    const overlay = document.getElementById('adminMenuOverlay');
+    const isOpen = !panel.classList.contains('hidden');
+    if (isOpen) {
+        closeAdminMenu();
+    } else {
+        panel.classList.remove('hidden');
+        overlay.classList.remove('hidden');
+    }
+}
+
+function closeAdminMenu() {
+    document.getElementById('adminMenuPanel').classList.add('hidden');
+    document.getElementById('adminMenuOverlay').classList.add('hidden');
+}
+
+// Close menu on Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAdminMenu();
+});
+</script>
 {% endblock %}
