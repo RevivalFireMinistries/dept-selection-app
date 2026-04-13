@@ -3962,8 +3962,9 @@ def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
 
 
 def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None, prayer_points: list = None):
-    """Notify participants who are members in the database about their program role.
-    participant_roles is a dict mapping lowercase name -> role string.
+    """Notify participants who are members in the database about their program roles.
+    participant_roles is a dict mapping lowercase name -> list of role strings.
+    A person with multiple roles gets one email summarising all their roles.
     prayer_points is the program's prayer points list (may include linked activities)."""
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType
@@ -3984,9 +3985,21 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
     for member in members:
         if not member.email:
             continue
-        role = participant_roles.get(member.full_name.lower(), "Participant")
-        # Find prayer points linked to this participant's role
-        linked_prayer_points = _get_prayer_points_for_role(prayer_points or [], role)
+        roles = participant_roles.get(member.full_name.lower(), ["Participant"])
+        # Ensure roles is always a list (backward compat if passed a string)
+        if isinstance(roles, str):
+            roles = [roles]
+        # Collect prayer points linked to any of this participant's roles
+        linked_prayer_points = []
+        for role in roles:
+            linked_prayer_points.extend(_get_prayer_points_for_role(prayer_points or [], role))
+        # Deduplicate while preserving order
+        seen = set()
+        unique_prayer_points = []
+        for pp in linked_prayer_points:
+            if pp not in seen:
+                seen.add(pp)
+                unique_prayer_points.append(pp)
         try:
             dispatch_event(
                 db=db,
@@ -3994,14 +4007,15 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                 data={
                     "title": program_title,
                     "service_date": date_str,
-                    "role": role,
+                    "roles": roles,
+                    "role": ", ".join(roles),  # backward compat for subject line
                     "member_name": member.full_name,
                     "member_email": member.email,
                     "member_id": member.id,
                     "member_phone": member.phone,
                     "created_by": created_by_name or "Admin",
                     "program_id": program_id,
-                    "prayer_points": linked_prayer_points,
+                    "prayer_points": unique_prayer_points,
                 },
                 recipients=[{
                     "id": member.id,
@@ -4041,10 +4055,12 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         from sqlalchemy.orm import joinedload
         program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
 
-    # Notify participants
+    # Notify participants (aggregate roles per person)
     if data.participants:
-        names = [p.name for p in data.participants]
-        roles = {p.name.lower(): p.role for p in data.participants}
+        names = list({p.name for p in data.participants})
+        roles = {}
+        for p in data.participants:
+            roles.setdefault(p.name.lower(), []).append(p.role)
         creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
         _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=data.prayer_points)
 
@@ -4088,12 +4104,14 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
     from sqlalchemy.orm import joinedload
     program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
 
-    # Notify only newly added participants
+    # Notify only newly added participants (aggregate roles per person)
     if data.participants is not None:
         new_participants = [p for p in data.participants if p.name.lower() not in old_participant_names]
         if new_participants:
-            names = [p.name for p in new_participants]
-            roles = {p.name.lower(): p.role for p in new_participants}
+            names = list({p.name for p in new_participants})
+            roles = {}
+            for p in new_participants:
+                roles.setdefault(p.name.lower(), []).append(p.role)
             title = data.title or program.title
             svc_date = data.service_date or program.service_date
             creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and program.created_by else None

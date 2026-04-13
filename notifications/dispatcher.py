@@ -522,18 +522,14 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             accent_color="#4f46e5",  # Indigo
             content=f'''
                 {greeting(data.get('recipient_name', 'Member'))}
-                {paragraph(f"You have been added as a participant in an upcoming service program{(' by <strong>' + data.get('created_by') + '</strong>') if data.get('created_by') and data.get('created_by') != 'Admin' else ''}.")}
+                {paragraph(f"You have been added as a participant for <strong>{data.get('title', 'the service program')}</strong> on <strong>{data.get('service_date', 'TBD')}</strong>{(' by <strong>' + data.get('created_by') + '</strong>') if data.get('created_by') and data.get('created_by') != 'Admin' else ''}.")}
                 <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 12px; padding: 24px; margin: 24px 0;">
                     <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 20px; font-weight: 600;">{data.get('title', 'Service Program')}</h2>
-                    <table role="presentation" cellspacing="0" cellpadding="0">
+                    <table role="presentation" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
                         <tr>
                             <td style="padding-right: 24px;">
                                 <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Date</p>
                                 <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('service_date', 'TBD')}</p>
-                            </td>
-                            <td style="padding-right: 24px;">
-                                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Your Role</p>
-                                <p style="margin: 4px 0 0 0; color: #ffffff; font-size: 16px; font-weight: 500;">{data.get('role', 'Participant')}</p>
                             </td>
                             {f"""<td>
                                 <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">Service Manager</p>
@@ -541,6 +537,8 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                             </td>""" if data.get('created_by') and data.get('created_by') != 'Admin' else ''}
                         </tr>
                     </table>
+                    <p style="margin: 0 0 8px 0; color: rgba(255,255,255,0.8); font-size: 12px; text-transform: uppercase;">{"Your Roles" if len(data.get('roles', [])) > 1 else "Your Role"}</p>
+                    {''.join(f'<div style="display: inline-block; background: rgba(255,255,255,0.2); border-radius: 8px; padding: 6px 14px; margin: 0 8px 8px 0;"><span style="color: #ffffff; font-size: 15px; font-weight: 500;">{role}</span></div>' for role in data.get('roles', [data.get('role', 'Participant')]))}
                 </div>
                 {f"""
                 <div style="background: #fef2f2; border-radius: 12px; padding: 20px; margin: 20px 0; border-left: 4px solid #e11d48;">
