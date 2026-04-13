@@ -3831,10 +3831,11 @@ def _get_titled_name(member: "Member") -> str:
     return member.full_name
 
 
-def _program_to_dict(program: ServiceProgram, public: bool = False) -> dict:
+def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session = None) -> dict:
     """Convert a ServiceProgram model to response dict.
     If public=True, the Close marker item is stripped and its time is used
-    to calculate the duration of the last real program item."""
+    to calculate the duration of the last real program item.
+    If db is provided, participant names are enriched with leadership titles."""
     # Hash is the updated_at unix timestamp - changes on every edit
     ts = program.updated_at or program.created_at
     hashcode = str(int(ts.timestamp())) if ts else "0"
@@ -3879,6 +3880,40 @@ def _program_to_dict(program: ServiceProgram, public: bool = False) -> dict:
                     pass
         items = real_items
 
+    participants = _parse_json(program.participants)
+
+    # Enrich participant names with leadership titles
+    if db and participants:
+        # Collect unique plain names (strip existing titles for lookup)
+        title_prefixes = ("pastor ", "elder ", "deacon ")
+        plain_names = set()
+        for pt in participants:
+            name = (pt.get("name") or "").strip()
+            name_lower = name.lower()
+            # Strip existing title prefix for DB lookup
+            for prefix in title_prefixes:
+                if name_lower.startswith(prefix):
+                    name = name[len(prefix):]
+                    break
+            if name:
+                plain_names.add(name.lower())
+        if plain_names:
+            members = db.query(Member).filter(
+                func.lower(Member.full_name).in_(list(plain_names))
+            ).all()
+            title_map = {m.full_name.lower(): _get_titled_name(m) for m in members}
+            for pt in participants:
+                name = (pt.get("name") or "").strip()
+                name_lower = name.lower()
+                # Strip existing title for lookup
+                lookup_name = name_lower
+                for prefix in title_prefixes:
+                    if lookup_name.startswith(prefix):
+                        lookup_name = lookup_name[len(prefix):]
+                        break
+                if lookup_name in title_map:
+                    pt["name"] = title_map[lookup_name]
+
     return {
         "id": program.id,
         "hash": hashcode,
@@ -3886,7 +3921,7 @@ def _program_to_dict(program: ServiceProgram, public: bool = False) -> dict:
         "service_date": program.service_date.isoformat(),
         "location_type": program.location_type or "onsite",
         "program_items": items,
-        "participants": _parse_json(program.participants),
+        "participants": participants,
         "admin_announcements": _parse_json(program.admin_announcements),
         "pastors_announcements": _parse_json(program.pastors_announcements),
         "prayer_points": _parse_json(program.prayer_points),
@@ -3937,7 +3972,7 @@ def get_my_programs(phone: str, db: Session = Depends(get_db)):
         participants = json.loads(p.participants) if isinstance(p.participants, str) else (p.participants or [])
         for pt in participants:
             if pt.get("name", "").lower() in member_names:
-                result.append(_program_to_dict(p))
+                result.append(_program_to_dict(p, db=db))
                 break
 
     return result
@@ -3957,7 +3992,7 @@ def get_todays_programs(db: Session = Depends(get_db)):
 
     return {
         "date": today.isoformat(),
-        "programs": [_program_to_dict(p, public=True) for p in programs]
+        "programs": [_program_to_dict(p, public=True, db=db) for p in programs]
     }
 
 
@@ -3968,7 +4003,7 @@ def get_all_programs(db: Session = Depends(get_db)):
 
     from sqlalchemy.orm import joinedload
     programs = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).order_by(ServiceProgram.service_date).all()
-    return [_program_to_dict(p) for p in programs]
+    return [_program_to_dict(p, db=db) for p in programs]
 
 
 @router.get("/admin/programs/{program_id}")
@@ -3978,7 +4013,7 @@ def get_program(program_id: int, db: Session = Depends(get_db)):
     program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
-    return _program_to_dict(program)
+    return _program_to_dict(program, db=db)
 
 
 def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
@@ -4116,7 +4151,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
         _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=data.prayer_points, admin_announcements=data.admin_announcements, pastors_announcements=data.pastors_announcements)
 
-    return _program_to_dict(program)
+    return _program_to_dict(program, db=db)
 
 
 @router.put("/admin/programs/{program_id}")
@@ -4173,7 +4208,7 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
             pastor_ann = data.pastors_announcements if data.pastors_announcements is not None else json.loads(program.pastors_announcements or "[]")
             _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=pp_raw, admin_announcements=admin_ann, pastors_announcements=pastor_ann)
 
-    return _program_to_dict(program)
+    return _program_to_dict(program, db=db)
 
 
 @router.delete("/admin/programs/{program_id}")
