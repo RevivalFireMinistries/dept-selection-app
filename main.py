@@ -339,6 +339,19 @@ def run_migrations():
                     conn.commit()
                     print(f"Migration: Added location_type column to {table_name}")
 
+        # Add status column to service_programs for draft/published workflow
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'service_programs' AND column_name = 'status'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE service_programs
+                ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'draft'
+            """))
+            conn.commit()
+            print("Migration: Added status column to service_programs")
+
         # Create display_submissions table for FirePresenter integration
         result = conn.execute(text("""
             SELECT table_name FROM information_schema.tables

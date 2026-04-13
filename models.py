@@ -263,6 +263,7 @@ class ServiceProgram(Base):
     admin_announcements = Column(Text, nullable=False, server_default="[]")
     pastors_announcements = Column(Text, nullable=False, server_default="[]")
     prayer_points = Column(Text, nullable=False, server_default="[]")
+    status = Column(String(20), nullable=False, server_default="draft")  # "draft", "published"
     created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

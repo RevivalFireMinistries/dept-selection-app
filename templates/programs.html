@@ -1194,6 +1194,27 @@ async function deleteProgram(id) {
     else alert('Failed to delete program');
 }
 
+async function publishProgram(id) {
+    if (!confirm('Publish this program and send notifications to all participants?')) return;
+    const res = await fetch(`/api/admin/programs/${id}/publish`, { method: 'POST' });
+    if (res.ok) { loadPrograms(); alert('Program published! Notifications sent.'); }
+    else alert('Failed to publish program');
+}
+
+async function unpublishProgram(id) {
+    if (!confirm('Unpublish this program? It will revert to draft.')) return;
+    const res = await fetch(`/api/admin/programs/${id}/unpublish`, { method: 'POST' });
+    if (res.ok) loadPrograms();
+    else alert('Failed to unpublish program');
+}
+
+async function renotifyProgram(id) {
+    if (!confirm('Re-send notifications to all participants?')) return;
+    const res = await fetch(`/api/admin/programs/${id}/notify`, { method: 'POST' });
+    if (res.ok) alert('Notifications re-sent to all participants!');
+    else alert('Failed to send notifications');
+}
+
 // ==================== PROGRAMS LIST ====================
 
 async function loadPrograms() {
@@ -1252,6 +1273,9 @@ async function loadPrograms() {
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                         <h3 class="font-bold text-gray-900 text-base">${escapeHtml(p.title)}</h3>
+                        ${p.status === 'draft'
+                            ? '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">Draft</span>'
+                            : '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">Published</span>'}
                         ${isToday ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
                         ${p.location_type === 'online'
                             ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
@@ -1276,7 +1300,21 @@ async function loadPrograms() {
                     <span class="text-xs text-gray-500">Service Manager:</span>
                     <span class="text-xs font-semibold text-gray-700">${escapeHtml(p.created_by_name)}</span>
                 </div>` : ''}
-                <div class="px-4 pb-2 flex gap-2 justify-end">
+                <div class="px-4 pb-2 flex gap-2 justify-end flex-wrap">
+                    ${p.status === 'draft'
+                        ? `<button onclick="publishProgram(${p.id})" class="program-action-btn" style="background:#ecfdf5;color:#059669;" title="Publish &amp; notify participants">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span class="text-xs font-medium">Publish</span>
+                          </button>`
+                        : `<button onclick="unpublishProgram(${p.id})" class="program-action-btn" style="background:#fefce8;color:#ca8a04;" title="Unpublish (back to draft)">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                            <span class="text-xs font-medium">Unpublish</span>
+                          </button>
+                          <button onclick="renotifyProgram(${p.id})" class="program-action-btn" style="background:#eff6ff;color:#2563eb;" title="Re-send notifications">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                            <span class="text-xs font-medium">Re-notify</span>
+                          </button>`
+                    }
                     <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#eef2ff;color:#4f46e5;" title="Share">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
                         <span class="text-xs font-medium">Share</span>

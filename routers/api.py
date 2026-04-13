@@ -3942,6 +3942,7 @@ def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session 
         "admin_announcements": _parse_json(program.admin_announcements),
         "pastors_announcements": _parse_json(program.pastors_announcements),
         "prayer_points": _parse_json(program.prayer_points),
+        "status": getattr(program, 'status', 'draft') or 'draft',
         "created_by_member_id": created_by_id,
         "created_by_name": created_by_name,
         "created_at": program.created_at.isoformat() if program.created_at else None,
@@ -4001,10 +4002,11 @@ def get_todays_programs(db: Session = Depends(get_db)):
     _cleanup_past_programs(db)
 
     today = date.today()
-    # Only return onsite programs via public API
+    # Only return published onsite programs via public API
     programs = db.query(ServiceProgram).filter(
         ServiceProgram.service_date == today,
-        ServiceProgram.location_type.in_(["onsite", None])
+        ServiceProgram.location_type.in_(["onsite", None]),
+        ServiceProgram.status == "published"
     ).order_by(ServiceProgram.id).all()
 
     return {
@@ -4183,15 +4185,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         from sqlalchemy.orm import joinedload
         program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
 
-    # Notify participants (aggregate roles per person)
-    if data.participants:
-        names = list({p.name for p in data.participants})
-        roles = {}
-        for p in data.participants:
-            roles.setdefault(p.name.lower(), []).append(p.role)
-        creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
-        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=data.prayer_points, admin_announcements=data.admin_announcements, pastors_announcements=data.pastors_announcements)
-
+    # Emails are NOT sent on create — only when the program is published
     return _program_to_dict(program, db=db)
 
 
@@ -4201,12 +4195,6 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
-
-    # Track old participants to only notify new ones
-    old_participant_names = set()
-    if data.participants is not None:
-        old_parts = json.loads(program.participants) if isinstance(program.participants, str) else (program.participants or [])
-        old_participant_names = {p.get("name", "").lower() for p in old_parts}
 
     if data.title is not None:
         program.title = data.title
@@ -4232,23 +4220,7 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
     from sqlalchemy.orm import joinedload
     program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
 
-    # Notify only newly added participants (aggregate roles per person)
-    if data.participants is not None:
-        new_participants = [p for p in data.participants if p.name.lower() not in old_participant_names]
-        if new_participants:
-            names = list({p.name for p in new_participants})
-            roles = {}
-            for p in new_participants:
-                roles.setdefault(p.name.lower(), []).append(p.role)
-            title = data.title or program.title
-            svc_date = data.service_date or program.service_date
-            creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and program.created_by else None
-            # Get prayer points and announcements from updated data or existing program
-            pp_raw = data.prayer_points if data.prayer_points is not None else json.loads(program.prayer_points or "[]")
-            admin_ann = data.admin_announcements if data.admin_announcements is not None else json.loads(program.admin_announcements or "[]")
-            pastor_ann = data.pastors_announcements if data.pastors_announcements is not None else json.loads(program.pastors_announcements or "[]")
-            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=pp_raw, admin_announcements=admin_ann, pastors_announcements=pastor_ann)
-
+    # Emails are NOT sent on update — use publish or re-notify instead
     return _program_to_dict(program, db=db)
 
 
@@ -4263,6 +4235,75 @@ def delete_program(program_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return {"success": True}
+
+
+def _send_program_notifications(db: Session, program: ServiceProgram):
+    """Send email notifications to all participants of a program."""
+    participants = json.loads(program.participants) if isinstance(program.participants, str) else (program.participants or [])
+    if not participants:
+        return
+
+    names = list({p.get("name", "") for p in participants})
+    roles = {}
+    for p in participants:
+        roles.setdefault((p.get("name") or "").lower(), []).append(p.get("role", ""))
+
+    from sqlalchemy.orm import joinedload
+    prog = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
+    creator_name = _get_titled_name(prog.created_by) if prog and prog.created_by_member_id and prog.created_by else None
+
+    pp = json.loads(program.prayer_points or "[]") if isinstance(program.prayer_points, str) else (program.prayer_points or [])
+    admin_ann = json.loads(program.admin_announcements or "[]") if isinstance(program.admin_announcements, str) else (program.admin_announcements or [])
+    pastor_ann = json.loads(program.pastors_announcements or "[]") if isinstance(program.pastors_announcements, str) else (program.pastors_announcements or [])
+
+    _notify_program_participants(
+        db, program.title, program.service_date, names, roles,
+        created_by_name=creator_name, program_id=program.id,
+        prayer_points=pp, admin_announcements=admin_ann, pastors_announcements=pastor_ann
+    )
+
+
+@router.post("/admin/programs/{program_id}/publish")
+def publish_program(program_id: int, db: Session = Depends(get_db)):
+    """Admin: publish a program and send notifications to all participants"""
+    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    program.status = "published"
+    db.commit()
+    db.refresh(program)
+
+    # Send notifications to all participants
+    _send_program_notifications(db, program)
+
+    return _program_to_dict(program, db=db)
+
+
+@router.post("/admin/programs/{program_id}/unpublish")
+def unpublish_program(program_id: int, db: Session = Depends(get_db)):
+    """Admin: unpublish a program (back to draft)"""
+    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    program.status = "draft"
+    db.commit()
+    db.refresh(program)
+
+    return _program_to_dict(program, db=db)
+
+
+@router.post("/admin/programs/{program_id}/notify")
+def renotify_program(program_id: int, db: Session = Depends(get_db)):
+    """Admin: re-send notifications to all participants of a published program"""
+    program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+
+    _send_program_notifications(db, program)
+
+    return {"success": True, "message": "Notifications sent to all participants"}
 
 
 # ============ PROGRAM TEMPLATE ENDPOINTS ============
