@@ -3795,8 +3795,10 @@ def _get_titled_name(member: "Member") -> str:
     return member.full_name
 
 
-def _program_to_dict(program: ServiceProgram) -> dict:
-    """Convert a ServiceProgram model to response dict"""
+def _program_to_dict(program: ServiceProgram, public: bool = False) -> dict:
+    """Convert a ServiceProgram model to response dict.
+    If public=True, the Close marker item is stripped and its time is used
+    to calculate the duration of the last real program item."""
     # Hash is the updated_at unix timestamp - changes on every edit
     ts = program.updated_at or program.created_at
     hashcode = str(int(ts.timestamp())) if ts else "0"
@@ -3815,13 +3817,39 @@ def _program_to_dict(program: ServiceProgram) -> dict:
     if created_by_id and hasattr(program, 'created_by') and program.created_by:
         created_by_name = _get_titled_name(program.created_by)
 
+    items = _parse_json(program.program_items)
+
+    if public and items:
+        # Find and remove the Close marker, use its time for last item duration
+        close_item = None
+        real_items = []
+        for it in items:
+            if isinstance(it, dict) and (it.get("item") or "").lower() == "close":
+                close_item = it
+            else:
+                real_items.append(it)
+        # Calculate duration for the last real item using close time
+        if close_item and real_items and close_item.get("time"):
+            last = real_items[-1]
+            if last.get("time"):
+                try:
+                    from datetime import datetime as _dt
+                    start = _dt.strptime(last["time"], "%H:%M")
+                    end = _dt.strptime(close_item["time"], "%H:%M")
+                    diff_min = int((end - start).total_seconds() // 60)
+                    if diff_min > 0:
+                        last["duration_minutes"] = diff_min
+                except (ValueError, TypeError):
+                    pass
+        items = real_items
+
     return {
         "id": program.id,
         "hash": hashcode,
         "title": program.title,
         "service_date": program.service_date.isoformat(),
         "location_type": program.location_type or "onsite",
-        "program_items": _parse_json(program.program_items),
+        "program_items": items,
         "participants": _parse_json(program.participants),
         "admin_announcements": _parse_json(program.admin_announcements),
         "pastors_announcements": _parse_json(program.pastors_announcements),
@@ -3893,7 +3921,7 @@ def get_todays_programs(db: Session = Depends(get_db)):
 
     return {
         "date": today.isoformat(),
-        "programs": [_program_to_dict(p) for p in programs]
+        "programs": [_program_to_dict(p, public=True) for p in programs]
     }
 
 

@@ -173,6 +173,7 @@ function escapeHtml(str) {
 
 function addProgramItem(time = '', item = '', requiresParticipant = false) {
     const container = document.getElementById('programItems');
+    const closeRow = container.querySelector('.close-item-row');
     const row = document.createElement('div');
     row.className = 'flex gap-2 items-center program-item-row';
     row.innerHTML = `
@@ -186,6 +187,26 @@ function addProgramItem(time = '', item = '', requiresParticipant = false) {
         <button type="button" onclick="this.parentElement.remove()" class="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
+    `;
+    if (closeRow) {
+        container.insertBefore(row, closeRow);
+    } else {
+        container.appendChild(row);
+    }
+}
+
+function ensureCloseItem(time = '') {
+    const container = document.getElementById('programItems');
+    if (container.querySelector('.close-item-row')) return;
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center program-item-row close-item-row';
+    row.style.background = '#fef3c7';
+    row.style.borderRadius = '8px';
+    row.style.padding = '4px';
+    row.innerHTML = `
+        <input type="time" value="${time}" class="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 prog-item-time">
+        <input type="text" value="Close" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm prog-item-name" readonly style="font-weight:600; color:#92400e; background:transparent; cursor:default;">
+        <span class="flex items-center px-2 text-xs text-amber-600 font-medium whitespace-nowrap" title="Required item">Required</span>
     `;
     container.appendChild(row);
 }
@@ -233,6 +254,7 @@ function showCreateForm() {
     document.getElementById('supportRoles').innerHTML = '';
     addProgramItem();
     addProgramItem();
+    ensureCloseItem();
     document.getElementById('formSection').classList.remove('hidden');
 }
 
@@ -248,7 +270,14 @@ function showEditForm(tpl) {
     document.getElementById('prayerPoints').innerHTML = '';
     document.getElementById('supportRoles').innerHTML = '';
 
-    (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item, !!item.requires_participant));
+    (tpl.program_items || []).forEach(item => {
+        if (item.item && item.item.toLowerCase() === 'close') {
+            ensureCloseItem(item.time);
+        } else {
+            addProgramItem(item.time, item.item, !!item.requires_participant);
+        }
+    });
+    ensureCloseItem(); // ensure it exists even if not in data
     (tpl.admin_announcements || []).forEach(a => addAnnouncement('adminAnnouncements', a));
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
     (tpl.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
@@ -270,7 +299,8 @@ function collectFormData() {
     document.querySelectorAll('.program-item-row').forEach(row => {
         const time = row.querySelector('.prog-item-time').value.trim();
         const item = row.querySelector('.prog-item-name').value.trim();
-        const requires_participant = row.querySelector('.prog-item-needs-participant').checked;
+        const chk = row.querySelector('.prog-item-needs-participant');
+        const requires_participant = chk ? chk.checked : false;
         if (time && item) program_items.push({ time, item, requires_participant });
     });
 

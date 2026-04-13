@@ -536,6 +536,8 @@ async function loadTemplates() {
 
 function addProgramItem(time = '', item = '') {
     const container = document.getElementById('programItems');
+    // Insert before the close item if it exists
+    const closeRow = container.querySelector('.close-item-row');
     const row = document.createElement('div');
     row.className = 'prog-item-row program-item-row';
     row.innerHTML = `
@@ -545,10 +547,30 @@ function addProgramItem(time = '', item = '') {
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
-    container.appendChild(row);
+    if (closeRow) {
+        container.insertBefore(row, closeRow);
+    } else {
+        container.appendChild(row);
+    }
     const nameInput = row.querySelector('.prog-item-name');
     nameInput.addEventListener('change', () => { refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts(); });
     nameInput.addEventListener('blur', () => { refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts(); });
+    updateCounts();
+}
+
+function ensureCloseItem(time = '') {
+    const container = document.getElementById('programItems');
+    if (container.querySelector('.close-item-row')) return; // already exists
+    const row = document.createElement('div');
+    row.className = 'prog-item-row program-item-row close-item-row';
+    row.style.background = '#fef3c7';
+    row.style.borderRadius = '8px';
+    row.innerHTML = `
+        <input type="time" value="${time}" placeholder="End time" class="prog-item-time">
+        <input type="text" value="Close" class="prog-item-name" readonly style="font-weight:600; color:#92400e; background:transparent; cursor:default;">
+        <span class="flex items-center px-2 text-xs text-amber-600 font-medium" title="Required item">Required</span>
+    `;
+    container.appendChild(row);
     updateCounts();
 }
 
@@ -880,6 +902,7 @@ function showCreateForm() {
     groupCounter = 0;
     addProgramItem();
     addProgramItem();
+    ensureCloseItem();
     addParticipantGroup();
 
     // Show form, hide list
@@ -910,7 +933,14 @@ function showEditForm(program) {
     participantCounter = 0;
     groupCounter = 0;
 
-    (program.program_items || []).forEach(item => addProgramItem(item.time, item.item));
+    (program.program_items || []).forEach(item => {
+        if (item.item && item.item.toLowerCase() === 'close') {
+            ensureCloseItem(item.time);
+        } else {
+            addProgramItem(item.time, item.item);
+        }
+    });
+    ensureCloseItem(); // ensure it exists even if not in data
 
     const grouped = {};
     (program.participants || []).forEach(p => {
@@ -1022,7 +1052,14 @@ function onTemplateChange() {
     document.getElementById('prayerPoints').innerHTML = '';
     participantCounter = 0;
 
-    (tpl.program_items || []).forEach(item => addProgramItem(item.time, item.item));
+    (tpl.program_items || []).forEach(item => {
+        if (item.item && item.item.toLowerCase() === 'close') {
+            ensureCloseItem(item.time);
+        } else {
+            addProgramItem(item.time, item.item);
+        }
+    });
+    ensureCloseItem();
     if ((tpl.program_items || []).length === 0) { addProgramItem(); addProgramItem(); }
 
     const needsParticipant = (tpl.program_items || []).filter(item => item.requires_participant);
