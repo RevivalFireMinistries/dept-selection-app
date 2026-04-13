@@ -3785,6 +3785,16 @@ def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
 
 # ============ SERVICE PROGRAM ENDPOINTS ============
 
+def _get_titled_name(member: "Member") -> str:
+    """Get member's full name with leadership title prefix (e.g., 'Elder John Smith')"""
+    roles = member.leadership_roles or []
+    if "elder" in roles:
+        return f"Elder {member.full_name}"
+    elif "deacon" in roles:
+        return f"Deacon {member.full_name}"
+    return member.full_name
+
+
 def _program_to_dict(program: ServiceProgram) -> dict:
     """Convert a ServiceProgram model to response dict"""
     # Hash is the updated_at unix timestamp - changes on every edit
@@ -3799,11 +3809,11 @@ def _program_to_dict(program: ServiceProgram) -> dict:
                 return []
         return val or []
 
-    # Get creator info
+    # Get creator info with title
     created_by_name = None
     created_by_id = getattr(program, 'created_by_member_id', None)
     if created_by_id and hasattr(program, 'created_by') and program.created_by:
-        created_by_name = program.created_by.full_name
+        created_by_name = _get_titled_name(program.created_by)
 
     return {
         "id": program.id,
@@ -3987,7 +3997,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
     if data.participants:
         names = [p.name for p in data.participants]
         roles = {p.name.lower(): p.role for p in data.participants}
-        creator_name = program.created_by.full_name if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
+        creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
         _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id)
 
     return _program_to_dict(program)
@@ -4038,7 +4048,7 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
             roles = {p.name.lower(): p.role for p in new_participants}
             title = data.title or program.title
             svc_date = data.service_date or program.service_date
-            creator_name = program.created_by.full_name if program.created_by_member_id and program.created_by else None
+            creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and program.created_by else None
             _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id)
 
     return _program_to_dict(program)
