@@ -1043,7 +1043,7 @@ def update_member_leadership_roles(
         raise HTTPException(status_code=404, detail="Member not found")
 
     # Validate roles
-    valid_roles = ["deacon", "elder"]  # HOD is derived from departments
+    valid_roles = ["deacon", "elder", "service_manager"]  # HOD is derived from departments
     invalid = [r for r in roles if r not in valid_roles]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
@@ -1255,10 +1255,19 @@ def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
         # Check for admin-added departments that haven't been accepted (source=admin)
         admin_added = [s for s in selections if s["source"] == "admin"]
 
+        # Parse leadership roles
+        member_leadership_roles = []
+        if member.leadership_roles:
+            try:
+                member_leadership_roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+            except (ValueError, TypeError):
+                member_leadership_roles = []
+
         members_data.append({
             "id": member.id,
             "full_name": member.full_name,
             "email": member.email,
+            "leadership_roles": member_leadership_roles,
             "all_selections": selections,
             "approved_departments": approved,
             "pending_departments": pending,
@@ -1797,7 +1806,7 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
     if meeting.is_general:
         dept_name = "All Leaders"
     elif target_leadership_roles:
-        role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders"}
+        role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders", "service_manager": "Service Managers"}
         dept_name = ", ".join([role_labels.get(r, r.title()) for r in target_leadership_roles])
     elif target_member_ids:
         dept_name = f"{target_member_count} Selected Members"
@@ -2538,7 +2547,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
         pass
     elif data.target_leadership_roles and len(data.target_leadership_roles) > 0:
         # Leadership roles meeting (HODs, Deacons, Elders)
-        valid_roles = ["hod", "deacon", "elder"]
+        valid_roles = ["hod", "deacon", "elder", "service_manager"]
         invalid = [r for r in data.target_leadership_roles if r not in valid_roles]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
@@ -2666,7 +2675,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             target_dept_ids = [d[0] for d in all_depts]
         elif data.target_leadership_roles:
             # Members with specific leadership roles
-            role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders"}
+            role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders", "service_manager": "Service Managers"}
             dept_name = ", ".join([role_labels.get(r, r.title()) for r in data.target_leadership_roles])
             members_set = set()
 

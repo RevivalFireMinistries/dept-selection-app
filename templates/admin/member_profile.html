@@ -102,6 +102,11 @@
                                class="rounded text-purple-600 focus:ring-purple-500">
                         <span class="font-medium text-gray-700">Elder</span>
                     </label>
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleServiceManager" value="service_manager" onchange="updateLeadershipRoles()"
+                               class="rounded text-purple-600 focus:ring-purple-500">
+                        <span class="font-medium text-gray-700">Service Manager</span>
+                    </label>
                 </div>
                 <p id="roleUpdateStatus" class="text-sm text-green-600 hidden">Roles updated successfully</p>
             </div>
@@ -490,6 +495,7 @@ async function loadLeadershipRoles() {
         // Set checkboxes based on current roles
         document.getElementById('roleDeacon').checked = data.roles.includes('deacon');
         document.getElementById('roleElder').checked = data.roles.includes('elder');
+        document.getElementById('roleServiceManager').checked = data.roles.includes('service_manager');
 
         // Show HOD status if applicable
         if (data.is_hod && data.hod_departments.length > 0) {
@@ -505,6 +511,7 @@ async function updateLeadershipRoles() {
     const roles = [];
     if (document.getElementById('roleDeacon').checked) roles.push('deacon');
     if (document.getElementById('roleElder').checked) roles.push('elder');
+    if (document.getElementById('roleServiceManager').checked) roles.push('service_manager');
 
     try {
         const res = await fetch(`/api/admin/members/${memberId}/leadership-roles`, {
