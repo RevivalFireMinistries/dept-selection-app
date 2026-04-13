@@ -393,10 +393,10 @@ def run_migrations():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Run migrations first
-    run_migrations()
-    # Create any new tables on startup
+    # Create any new tables on startup (before migrations that alter them)
     models.Base.metadata.create_all(bind=engine)
+    # Run migrations to add columns to existing tables
+    run_migrations()
 
     # Start background scheduler for reminders
     from scheduler import start_scheduler, shutdown_scheduler

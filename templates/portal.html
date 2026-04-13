@@ -2,315 +2,474 @@
 
 {% block title %}My Portal - RFM Stellenbosch 2026{% endblock %}
 
+{% block head %}
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+    /* Native mobile feel */
+    * { -webkit-tap-highlight-color: transparent; }
+    body { overscroll-behavior: none; }
+
+    /* Smooth transitions */
+    .slide-up { transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1); }
+    .slide-right { transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
+    .fade-in { animation: fadeIn 0.2s ease; }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    /* Bottom sheet */
+    .bottom-sheet-overlay {
+        transition: opacity 0.3s ease;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .bottom-sheet-overlay.open { opacity: 1; pointer-events: auto; }
+    .bottom-sheet-panel {
+        transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+        transform: translateY(100%);
+    }
+    .bottom-sheet-overlay.open .bottom-sheet-panel { transform: translateY(0); }
+
+    /* Profile drawer */
+    .drawer-overlay {
+        transition: opacity 0.25s ease;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .drawer-panel {
+        transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+        transform: translateX(100%);
+    }
+    .drawer-overlay.open .drawer-panel { transform: translateX(0); }
+
+    /* Press feedback */
+    .pressable { transition: transform 0.1s ease, box-shadow 0.1s ease; }
+    .pressable:active { transform: scale(0.97); }
+
+    /* Scroll snapping for horizontal items */
+    .snap-x { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+    .snap-start { scroll-snap-align: start; }
+
+    /* Hide scrollbar */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Safe area padding for mobile */
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
-    <!-- Header -->
-    <div class="sticky top-0 z-10 backdrop-blur-lg bg-white/70 shadow-sm">
-        <div class="max-w-md mx-auto px-4 py-4 sm:py-6">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <a href="/" class="text-gray-500 hover:text-gray-700 p-1">
-                        <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-                        </svg>
-                    </a>
-                    <div>
-                        <h1 class="text-xl sm:text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                            My Portal
-                        </h1>
-                        <p class="text-gray-600 text-xs sm:text-sm">RFM Stellenbosch <span id="yearDisplay">2026</span></p>
-                    </div>
-                </div>
-                <button onclick="logout()" id="logoutBtn" class="hidden text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
-                    </svg>
-                    Logout
-                </button>
-            </div>
+<div class="min-h-screen bg-gray-50" id="app">
+    <!-- Loading -->
+    <div id="loading" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
+        <div class="text-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-3"></div>
+            <p class="text-sm text-gray-500">Loading your portal...</p>
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="max-w-md mx-auto px-4 py-6 space-y-4">
-        <!-- Loading -->
-        <div id="loading" class="flex justify-center py-12">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-        </div>
-
-        <!-- Error State -->
-        <div id="errorState" class="hidden bg-white rounded-2xl shadow-lg p-6 text-center">
-            <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <!-- Error State -->
+    <div id="errorState" class="hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 px-6">
+        <div class="bg-white rounded-2xl shadow-lg p-6 text-center max-w-sm w-full">
+            <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                 </svg>
             </div>
             <h3 class="text-lg font-semibold text-gray-900" id="errorTitle">Error</h3>
-            <p class="text-gray-500 mt-2" id="errorMessage"></p>
-            <a href="/" class="inline-block mt-4 text-indigo-600 hover:underline">Back to Home</a>
+            <p class="text-gray-500 mt-2 text-sm" id="errorMessage"></p>
+            <a href="/" class="inline-block mt-4 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium">Back to Home</a>
         </div>
+    </div>
 
-        <!-- Family Profile Selector -->
-        <div id="profileSelector" class="hidden bg-white rounded-2xl shadow-lg p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Select Profile</h3>
-            <p class="text-sm text-gray-500 mb-4">Multiple members found with this phone number. Please select your profile:</p>
-            <div id="profileList" class="space-y-2"></div>
+    <!-- Family Profile Selector -->
+    <div id="profileSelector" class="hidden min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 px-6 py-12">
+        <div class="max-w-sm mx-auto">
+            <div class="text-center mb-8">
+                <h2 class="text-2xl font-bold text-gray-900">Who's here?</h2>
+                <p class="text-sm text-gray-500 mt-1">Select your profile to continue</p>
+            </div>
+            <div id="profileList" class="space-y-3"></div>
         </div>
+    </div>
 
-        <!-- Main Portal Content -->
-        <div id="portalContent" class="hidden space-y-4">
-            <!-- Member Info Card -->
-            <div class="bg-white rounded-2xl shadow-lg p-5">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h2 class="text-lg font-semibold text-gray-900" id="memberName"></h2>
-                        <p class="text-sm text-gray-500" id="memberPhone"></p>
-                    </div>
-                    <button onclick="showProfileSelector()" id="switchProfileBtn" class="hidden text-sm text-indigo-600 hover:underline">
-                        Switch Profile
+    <!-- ==================== MAIN PORTAL ==================== -->
+    <div id="portalContent" class="hidden min-h-screen bg-gray-50">
+
+        <!-- Sticky Header -->
+        <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-lg border-b border-gray-100">
+            <div class="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+                <div class="min-w-0">
+                    <p class="text-[11px] text-gray-400 uppercase tracking-wider font-medium">RFM Stellenbosch</p>
+                    <h1 class="text-base font-bold text-gray-900 truncate" id="memberName"></h1>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <!-- Notification bell (future use) -->
+                    <button id="switchProfileBtn" onclick="showProfileSelector()" class="hidden w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center pressable" title="Switch Profile">
+                        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+                        </svg>
+                    </button>
+                    <!-- Profile avatar -->
+                    <button onclick="openDrawer()" class="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold pressable" id="avatarBtn">
                     </button>
                 </div>
             </div>
+        </header>
 
-            <!-- Quick Actions Menu -->
-            <div class="grid grid-cols-2 gap-3">
-                <a id="posterRequestMenuLink" href="#" class="bg-white rounded-xl shadow p-4 flex items-center gap-3 hover:shadow-md transition-shadow">
-                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="font-medium text-gray-900 text-sm">Request Poster</p>
-                        <p class="text-xs text-gray-500">Design request</p>
-                    </div>
-                </a>
-                <a id="projectorSubmitLink" href="/display/submit" class="bg-white rounded-xl shadow p-4 flex items-center gap-3 hover:shadow-md transition-shadow">
-                    <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                        <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="font-medium text-gray-900 text-sm">Submit to Projector</p>
-                        <p class="text-xs text-gray-500">Images, videos, verses</p>
-                    </div>
-                </a>
-                <a id="updateSelectionMenuLink" href="#" class="bg-white rounded-xl shadow p-4 flex items-center gap-3 hover:shadow-md transition-shadow">
-                    <div class="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="font-medium text-gray-900 text-sm">Update Selection</p>
-                        <p class="text-xs text-gray-500">Edit departments</p>
-                    </div>
-                </a>
-            </div>
+        <!-- Scrollable Content -->
+        <main class="max-w-lg mx-auto px-4 py-4 pb-8 space-y-4">
 
-            <!-- Results Not Published -->
-            <div id="notPublishedState" class="hidden bg-yellow-50 border border-yellow-200 rounded-2xl p-6 text-center">
-                <div class="w-14 h-14 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg class="w-7 h-7 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
-                </div>
-                <h3 class="text-lg font-semibold text-gray-900">Results Pending</h3>
-                <p class="text-gray-600 mt-2 text-sm">
-                    Your department selections are being reviewed. Results will be published soon.
-                </p>
-            </div>
-
-            <!-- Published Results Section -->
-            <div id="publishedState" class="hidden space-y-4">
-                <!-- My Departments (Compact Menu Style) -->
-                <div class="bg-white rounded-2xl shadow-lg p-5">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">My Departments</h3>
-                        <a href="#" id="updateLink" class="text-xs text-indigo-600 hover:underline">Edit</a>
-                    </div>
-                    <div id="approvedList" class="flex flex-wrap gap-2"></div>
-                    <div id="noApprovedMessage" class="hidden text-sm text-gray-500">
-                        No departments assigned yet.
-                    </div>
-                    <!-- Pending/Rejected inline -->
-                    <div id="pendingSection" class="hidden mt-3 pt-3 border-t border-gray-100">
-                        <p class="text-xs text-gray-500 mb-2">Pending review:</p>
-                        <div id="pendingList" class="flex flex-wrap gap-2"></div>
-                    </div>
-                </div>
-
-                <!-- Provisional Notice (compact) -->
-                <div id="provisionalNotice" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-3">
-                    <p class="text-xs text-amber-800">
-                        <span class="font-medium">Appeal window open:</span> You can request changes to your assignments.
-                    </p>
-                </div>
-
-                <!-- Admin Added Departments (need acceptance) -->
-                <div id="adminAddedSection" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-4">
-                    <p class="text-sm font-medium text-blue-900 mb-2">New assignments from admin:</p>
-                    <div id="adminAddedList" class="space-y-2"></div>
-                </div>
-
-                <!-- Rejected Departments (compact) -->
-                <div id="rejectedSection" class="hidden bg-red-50 rounded-xl p-3">
-                    <p class="text-xs text-red-700 mb-2">Not approved:</p>
-                    <div id="rejectedList" class="flex flex-wrap gap-2"></div>
-                </div>
-            </div>
-
-            <!-- Monthly Meetings Section (PRIMARY) -->
-            <div id="meetingsSection" class="hidden bg-white rounded-2xl shadow-lg p-6">
-                <div class="flex items-center justify-between mb-4">
+            <!-- ===== ADMIN-ADDED BANNER (interrupts — shown first if any) ===== -->
+            <div id="adminAddedBanner" class="hidden">
+                <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
                     <div class="flex items-center gap-2">
-                        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                        </svg>
-                        <h3 class="text-lg font-semibold text-gray-900">Meetings - <span id="meetingsMonth"></span></h3>
-                    </div>
-                    <a href="#" id="hodMeetingsLink" class="hidden text-sm text-indigo-600 hover:underline">Manage</a>
-                </div>
-                <div id="meetingsList" class="space-y-3">
-                    <p class="text-gray-500 text-sm">Loading meetings...</p>
-                </div>
-                <div id="noMeetingsMessage" class="hidden text-center py-6">
-                    <svg class="w-10 h-10 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                    </svg>
-                    <p class="text-gray-500 text-sm">No meetings this month</p>
-                </div>
-            </div>
-
-            <!-- HOD Dashboard Section -->
-            <div id="hodSection" class="hidden space-y-4">
-                <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-5 text-white">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                             </svg>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold">My Departments (HOD)</h3>
-                            <p class="text-sm text-white/80">View and manage your department members</p>
+                            <p class="text-sm font-semibold text-blue-900">New assignments from admin</p>
+                            <p class="text-xs text-blue-600">Please accept or appeal these</p>
                         </div>
                     </div>
+                    <div id="adminAddedList" class="space-y-2"></div>
                 </div>
-
-                <div id="hodDepartmentsList" class="space-y-4"></div>
             </div>
 
-            <!-- Poster Request Section -->
-            <div id="posterRequestSection" class="bg-white rounded-2xl shadow-lg p-5">
-                <div class="flex items-center justify-between mb-4">
-                    <div class="flex items-center gap-2">
-                        <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            <!-- ===== PRE-PUBLISH: Selection Status (prominent) ===== -->
+            <div id="prePublishSection" class="hidden">
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center">
+                    <div class="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <svg class="w-7 h-7 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
-                        <h3 class="text-lg font-semibold text-gray-900">Poster Requests</h3>
                     </div>
-                    <a id="newPosterRequestLink" href="#" class="text-sm text-purple-600 hover:underline">+ New Request</a>
+                    <h2 class="text-lg font-bold text-gray-900 mb-1">Under Review</h2>
+                    <p class="text-sm text-gray-500 mb-4">Your selections are being reviewed. You'll be notified when results are published.</p>
+
+                    <div class="bg-gray-50 rounded-xl p-3 text-left space-y-2">
+                        <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider">Your Selections</p>
+                        <div id="prePublishSelections" class="space-y-2"></div>
+                    </div>
+
+                    <a href="#" id="editSelectionBtnPre" class="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl pressable">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                        Edit Selection
+                    </a>
+                </div>
+            </div>
+
+            <!-- ===== POST-PUBLISH: Departments Summary (compact) ===== -->
+            <div id="postPublishSection" class="hidden">
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">My Departments</h3>
+                        <span class="text-[11px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium">Published</span>
+                    </div>
+                    <div id="approvedChips" class="flex flex-wrap gap-2"></div>
+                    <div id="noApprovedMsg" class="hidden text-sm text-gray-400 py-2">No departments assigned yet.</div>
+
+                    <!-- Pending inline (small) -->
+                    <div id="pendingInline" class="hidden mt-3 pt-3 border-t border-gray-50">
+                        <p class="text-[11px] text-gray-400 mb-1.5">Pending review:</p>
+                        <div id="pendingChips" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <!-- Rejected inline (small) -->
+                    <div id="rejectedInline" class="hidden mt-2 pt-2 border-t border-gray-50">
+                        <p class="text-[11px] text-gray-400 mb-1.5">Not approved:</p>
+                        <div id="rejectedChips" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <!-- Appeal hint -->
+                    <div id="appealHint" class="hidden mt-3 pt-3 border-t border-gray-50 flex items-center gap-1.5 text-xs text-amber-600">
+                        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span>Appeal window open — tap a department to appeal</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== COMING UP (contextual — meetings & service duties) ===== -->
+            <div id="comingUpSection" class="hidden">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Coming Up</h3>
+                    <button onclick="openMeetingsSheet()" class="text-xs text-indigo-600 font-medium">See all</button>
+                </div>
+                <div id="comingUpList" class="space-y-2"></div>
+            </div>
+
+            <!-- ===== QUICK ACTIONS GRID ===== -->
+            <div>
+                <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1" id="actionsLabel">Quick Actions</h3>
+                <div id="actionsGrid" class="grid grid-cols-2 gap-3"></div>
+            </div>
+
+            <!-- ===== HOD CARD (only for HODs) ===== -->
+            <div id="hodCard" class="hidden">
+                <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-4 pressable" onclick="openHodSheet()">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-white" id="hodTitle"></p>
+                                <p class="text-xs text-white/70" id="hodSubtitle"></p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== DESIGN TEAM BANNER (only for design team members) ===== -->
+            <div id="designTeamBanner" class="hidden">
+                <div class="bg-purple-50 border border-purple-200 rounded-2xl p-4 pressable" onclick="openPosterSheet()">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-purple-900">Design Team Requests</p>
+                                <p class="text-xs text-purple-600" id="designTeamCount"></p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+</div>
+
+<!-- ==================== PROFILE DRAWER ==================== -->
+<div id="drawerOverlay" class="drawer-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closeDrawer()"></div>
+    <div class="drawer-panel absolute top-0 right-0 bottom-0 w-[85%] max-w-[340px] bg-white shadow-2xl safe-bottom">
+        <div class="h-full overflow-y-auto">
+            <div class="p-5 space-y-5">
+                <!-- Profile header -->
+                <div class="flex items-center gap-3 pb-4 border-b border-gray-100">
+                    <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-lg font-bold" id="drawerAvatar"></div>
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-bold text-gray-900 truncate" id="drawerName"></h2>
+                        <p class="text-sm text-gray-500" id="drawerPhone"></p>
+                    </div>
+                    <button onclick="closeDrawer()" class="ml-auto p-2 text-gray-400 hover:text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
                 </div>
 
-                <!-- Design Team Pending Requests -->
-                <div id="designTeamRequests" class="hidden space-y-3 mb-4">
-                    <p class="text-sm text-purple-700 font-medium">Pending requests to acknowledge:</p>
-                    <div id="pendingRequestsList" class="space-y-2"></div>
+                <!-- Family switcher -->
+                <div id="familySwitcher" class="hidden">
+                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2">Family Profiles</p>
+                    <div id="familyList" class="space-y-2"></div>
                 </div>
 
-                <!-- Design Team Recently Acknowledged -->
-                <div id="recentlyAcknowledgedSection" class="hidden space-y-3 mb-4">
-                    <p class="text-sm text-blue-700 font-medium">Recently acknowledged (past 7 days):</p>
-                    <div id="recentlyAcknowledgedList" class="space-y-2"></div>
+                <!-- Menu items -->
+                <div class="space-y-1">
+                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2">Services</p>
+
+                    <a id="drawerProjLink" href="/display/submit" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                        <div class="w-9 h-9 bg-orange-50 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <span class="text-sm text-gray-700">Submit to Projector</span>
+                    </a>
+
+                    <a id="drawerPosterLink" href="#" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                        <div class="w-9 h-9 bg-purple-50 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1 flex items-center justify-between">
+                            <span class="text-sm text-gray-700">My Poster Requests</span>
+                            <span id="drawerPosterBadge" class="hidden text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full"></span>
+                        </div>
+                    </a>
+
+                    <a id="drawerEditLink" href="#" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                        <div class="w-9 h-9 bg-indigo-50 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                            </svg>
+                        </div>
+                        <span class="text-sm text-gray-700">Edit Department Selection</span>
+                    </a>
+
+                    <button id="drawerAppealLink" onclick="closeDrawer(); openAppealModal();" class="hidden w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors text-left">
+                        <div class="w-9 h-9 bg-amber-50 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+                            </svg>
+                        </div>
+                        <span class="text-sm text-gray-700">Submit an Appeal</span>
+                    </button>
                 </div>
 
-                <!-- My Requests -->
-                <div id="myPosterRequests">
-                    <div id="myRequestsList" class="space-y-2"></div>
-                    <p id="noPosterRequests" class="text-gray-500 text-sm hidden">No poster requests yet.</p>
+                <!-- Logout -->
+                <div class="pt-4 border-t border-gray-100">
+                    <button onclick="logout()" class="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-red-50 active:bg-red-100 transition-colors text-left">
+                        <div class="w-9 h-9 bg-red-50 rounded-lg flex items-center justify-center">
+                            <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                            </svg>
+                        </div>
+                        <span class="text-sm text-red-600">Log Out</span>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Appeal Modal -->
-<div id="appealModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div class="p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Submit Appeal</h3>
+<!-- ==================== MEETINGS BOTTOM SHEET ==================== -->
+<div id="meetingsSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closeMeetingsSheet()"></div>
+    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 85vh;">
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+        <div class="px-5 pb-2 flex items-center justify-between">
+            <h2 class="text-lg font-bold text-gray-900">Meetings</h2>
+            <span class="text-sm text-gray-400" id="meetingsMonthLabel"></span>
+        </div>
+        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(85vh - 80px);">
+            <div id="meetingsSheetList" class="space-y-3 pb-4"></div>
+            <div id="noMeetingsMsg" class="hidden text-center py-8">
+                <svg class="w-12 h-12 text-gray-200 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <p class="text-sm text-gray-400">No meetings this month</p>
+            </div>
+        </div>
+    </div>
+</div>
 
+<!-- ==================== HOD BOTTOM SHEET ==================== -->
+<div id="hodSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closeHodSheet()"></div>
+    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 90vh;">
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+        <div class="px-5 pb-2 flex items-center justify-between">
+            <h2 class="text-lg font-bold text-gray-900">HOD Dashboard</h2>
+            <a href="#" id="hodMeetingsLink" class="hidden text-sm text-indigo-600 font-medium">Meetings</a>
+        </div>
+        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(90vh - 80px);">
+            <div id="hodSheetContent" class="space-y-4 pb-4"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== POSTER REQUESTS BOTTOM SHEET ==================== -->
+<div id="posterSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closePosterSheet()"></div>
+    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 90vh;">
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+        <div class="px-5 pb-2 flex items-center justify-between">
+            <h2 class="text-lg font-bold text-gray-900">Poster Requests</h2>
+            <a href="#" id="newPosterLink" class="text-sm text-purple-600 font-medium">+ New</a>
+        </div>
+        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(90vh - 80px);">
+            <div id="posterSheetContent" class="space-y-4 pb-4"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== DEPARTMENT DETAIL BOTTOM SHEET ==================== -->
+<div id="deptSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closeDeptSheet()"></div>
+    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 70vh;">
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(70vh - 40px);">
+            <div id="deptSheetContent" class="space-y-4 pb-4"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== APPEAL MODAL ==================== -->
+<div id="appealModal" class="bottom-sheet-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closeAppealModal()"></div>
+    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 85vh;">
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(85vh - 40px);">
+            <h3 class="text-lg font-bold text-gray-900 mb-4" id="appealTitle">Submit Appeal</h3>
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                        Department you want to appeal
-                    </label>
-                    <select id="appealDept" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500">
-                        <option value="">-- Select department --</option>
-                    </select>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Department you want to appeal</label>
+                    <select id="appealDept" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-gray-50 text-sm"></select>
                 </div>
-
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                        Department you want instead <span class="text-gray-400">(optional)</span>
-                    </label>
-                    <select id="wantedDept" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500">
-                        <option value="">-- Select department --</option>
-                    </select>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Department you want instead <span class="text-gray-400">(optional)</span></label>
+                    <select id="wantedDept" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-gray-50 text-sm"></select>
                 </div>
-
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                        Reason for appeal <span class="text-gray-400">(optional)</span>
-                    </label>
-                    <textarea id="appealReason" rows="3" placeholder="Explain why you're appealing..."
-                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Reason <span class="text-gray-400">(optional)</span></label>
+                    <textarea id="appealReason" rows="3" placeholder="Why are you appealing..."
+                        class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-gray-50 text-sm resize-none"></textarea>
                 </div>
-
-                <div id="appealError" class="hidden text-sm text-red-600"></div>
+                <div id="appealError" class="hidden text-sm text-red-600 bg-red-50 rounded-lg p-2"></div>
             </div>
-
             <div class="flex gap-3 mt-6">
-                <button onclick="closeAppealModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
-                    Cancel
-                </button>
-                <button onclick="submitAppeal()" id="submitAppealBtn" class="flex-1 py-3 bg-amber-600 text-white font-medium rounded-xl hover:bg-amber-700">
-                    Submit Appeal
-                </button>
+                <button onclick="closeAppealModal()" class="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl active:bg-gray-50">Cancel</button>
+                <button onclick="submitAppeal()" id="submitAppealBtn" class="flex-1 py-3 bg-amber-600 text-white font-medium rounded-xl active:bg-amber-700">Submit Appeal</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Poster Request Detail Modal -->
-<div id="posterDetailModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div class="p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-900">Poster Request Details</h3>
-                <button onclick="closePosterDetailModal()" class="text-gray-400 hover:text-gray-600">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-
-            <div id="posterDetailContent" class="space-y-4">
-                <!-- Content will be injected here -->
-            </div>
-
-            <div id="posterDetailActions" class="flex gap-3 mt-6">
-                <!-- Actions will be injected here -->
-            </div>
+<!-- ==================== POSTER DETAIL MODAL ==================== -->
+<div id="posterDetailModal" class="bottom-sheet-overlay fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" onclick="closePosterDetailModal()"></div>
+    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 90vh;">
+        <div class="flex justify-center pt-3 pb-1">
+            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+        </div>
+        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(90vh - 40px);">
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Poster Request Details</h3>
+            <div id="posterDetailContent" class="space-y-4"></div>
+            <div id="posterDetailActions" class="flex gap-3 mt-6"></div>
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ==================== STATE ====================
 let phone = '';
 let allData = null;
 let hodData = null;
@@ -318,47 +477,27 @@ let meetingsData = null;
 let posterData = null;
 let currentMember = null;
 let allDepartments = [];
-
 const STORAGE_KEY = 'rfm_member_phone';
 
+// ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-    // Get phone from URL first, then check localStorage
     const params = new URLSearchParams(window.location.search);
     phone = params.get('phone');
-
-    // If no phone in URL, check localStorage
     if (!phone) {
         phone = localStorage.getItem(STORAGE_KEY);
-        // If found in localStorage, update URL for consistency
-        if (phone) {
-            window.history.replaceState({}, '', `/portal?phone=${encodeURIComponent(phone)}`);
-        }
+        if (phone) window.history.replaceState({}, '', `/portal?phone=${encodeURIComponent(phone)}`);
     }
-
-    if (!phone) {
-        showError('Missing Information', 'Please access this page from the home page.');
-        return;
-    }
+    if (!phone) { showError('Missing Information', 'Please access this page from the home page.'); return; }
 
     try {
-        // Fetch data (include HOD data and meetings)
         const [resultsRes, deptsRes, hodRes, meetingsRes, posterRes] = await Promise.all([
             fetch(`/api/results?phone=${encodeURIComponent(phone)}`).then(r => r.json()),
             fetch('/api/departments').then(r => r.json()),
-            fetch(`/api/hod/departments?phone=${encodeURIComponent(phone)}`).then(r => {
-                if (r.ok) return r.json();
-                return null;
-            }).catch(() => null),
-            fetch(`/api/meetings?phone=${encodeURIComponent(phone)}`).then(r => {
-                if (r.ok) return r.json();
-                return { meetings: [] };
-            }).catch(() => ({ meetings: [] })),
-            fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => {
-                if (r.ok) return r.json();
-                return { requests: [], is_design_team: false };
-            }).catch(() => ({ requests: [], is_design_team: false }))
+            fetch(`/api/hod/departments?phone=${encodeURIComponent(phone)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`/api/meetings?phone=${encodeURIComponent(phone)}`).then(r => r.ok ? r.json() : { meetings: [] }).catch(() => ({ meetings: [] })),
+            fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => r.ok ? r.json() : { requests: [], is_design_team: false }).catch(() => ({ requests: [], is_design_team: false }))
         ]);
 
         allData = resultsRes;
@@ -366,48 +505,31 @@ async function init() {
         meetingsData = meetingsRes;
         posterData = posterRes;
 
-        // Flatten departments for appeal dropdown
         allDepartments = [];
-        (deptsRes.categories || []).forEach(cat => {
-            cat.departments.forEach(d => {
-                allDepartments.push({ ...d, categoryName: cat.name });
-            });
-        });
-        (deptsRes.uncategorized || []).forEach(d => {
-            allDepartments.push({ ...d, categoryName: null });
-        });
-
-        document.getElementById('yearDisplay').textContent = allData.year || '2026';
+        (deptsRes.categories || []).forEach(cat => cat.departments.forEach(d => allDepartments.push({ ...d, categoryName: cat.name })));
+        (deptsRes.uncategorized || []).forEach(d => allDepartments.push({ ...d, categoryName: null }));
 
         if (!allData.members || allData.members.length === 0) {
-            // Clear invalid phone from storage
             localStorage.removeItem(STORAGE_KEY);
             showError('Not Found', 'No registration found for this phone number.');
             return;
         }
 
-        // Save phone to localStorage for persistent login
         localStorage.setItem(STORAGE_KEY, phone);
-
-        // Show logout button
-        document.getElementById('logoutBtn').classList.remove('hidden');
-
         document.getElementById('loading').classList.add('hidden');
 
-        // If multiple members (family), show profile selector
         if (allData.is_family && allData.members.length > 1) {
             showProfileSelector();
         } else {
-            // Single member, show portal directly
             selectMember(allData.members[0]);
         }
-
     } catch (error) {
         console.error('Init error:', error);
         showError('Error', 'Failed to load data. Please try again.');
     }
 }
 
+// ==================== ERROR / PROFILE SELECTOR ====================
 function showError(title, message) {
     document.getElementById('loading').classList.add('hidden');
     document.getElementById('errorState').classList.remove('hidden');
@@ -418,713 +540,715 @@ function showError(title, message) {
 function showProfileSelector() {
     document.getElementById('profileSelector').classList.remove('hidden');
     document.getElementById('portalContent').classList.add('hidden');
-
     const list = document.getElementById('profileList');
     list.innerHTML = allData.members.map(m => `
-        <button onclick="selectMember(${JSON.stringify(m).replace(/"/g, '&quot;')})"
-            class="w-full p-4 bg-gray-50 rounded-xl hover:bg-indigo-50 hover:border-indigo-300 border-2 border-transparent transition-all text-left">
-            <p class="font-medium text-gray-900">${m.full_name}</p>
-            <p class="text-sm text-gray-500">${m.approved_departments.length} approved department(s)</p>
+        <button onclick='selectMember(${JSON.stringify(m).replace(/'/g, "&#39;")})'
+            class="w-full p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-indigo-300 transition-all text-left pressable flex items-center gap-4">
+            <div class="w-12 h-12 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                ${getInitials(m.full_name)}
+            </div>
+            <div>
+                <p class="font-semibold text-gray-900">${m.full_name}</p>
+                <p class="text-xs text-gray-500 mt-0.5">${m.approved_departments.length} department(s) approved</p>
+            </div>
         </button>
     `).join('');
 }
 
+function getInitials(name) {
+    return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+}
+
+// ==================== SELECT MEMBER & RENDER ====================
 function selectMember(member) {
     currentMember = member;
-
     document.getElementById('profileSelector').classList.add('hidden');
     document.getElementById('portalContent').classList.remove('hidden');
 
-    // Show switch button if family
+    const initials = getInitials(member.full_name);
+
+    // Header
+    document.getElementById('memberName').textContent = member.full_name;
+    document.getElementById('avatarBtn').textContent = initials;
+
+    // Drawer
+    document.getElementById('drawerAvatar').textContent = initials;
+    document.getElementById('drawerName').textContent = member.full_name;
+    document.getElementById('drawerPhone').textContent = phone;
+
+    // Family switcher
     if (allData.is_family && allData.members.length > 1) {
         document.getElementById('switchProfileBtn').classList.remove('hidden');
-    }
-
-    // Member info
-    document.getElementById('memberName').textContent = member.full_name;
-    document.getElementById('memberPhone').textContent = phone;
-
-    // Set Quick Actions links
-    document.getElementById('posterRequestMenuLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
-    document.getElementById('updateSelectionMenuLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
-
-    // Hide "Update Selection" when results are published (selections locked)
-    if (allData.published) {
-        document.getElementById('updateSelectionMenuLink').classList.add('hidden');
-    }
-
-    if (allData.published) {
-        document.getElementById('publishedState').classList.remove('hidden');
-        document.getElementById('notPublishedState').classList.add('hidden');
-
-        // Show provisional notice if appeal window is open
-        if (allData.appeal_window_open) {
-            document.getElementById('provisionalNotice').classList.remove('hidden');
-        }
-
-        renderDepartments(member);
-    } else {
-        document.getElementById('publishedState').classList.add('hidden');
-        document.getElementById('notPublishedState').classList.remove('hidden');
-    }
-
-    // Render HOD dashboard if applicable
-    renderHodDashboard();
-
-    // Render meetings
-    renderMeetings();
-
-    // Render poster requests
-    renderPosterRequests();
-}
-
-function renderDepartments(member) {
-    const canAppeal = allData.appeal_window_open;
-
-    // Update link
-    document.getElementById('updateLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
-
-    // Approved departments - render as compact chips
-    const approvedList = document.getElementById('approvedList');
-    if (member.approved_departments.length > 0) {
-        approvedList.innerHTML = member.approved_departments.map(d => {
-            const isAdminAdded = d.source === 'admin';
-            const bgClass = isAdminAdded ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
-            const appealBtn = canAppeal ? `
-                <button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', ${isAdminAdded})"
-                    class="ml-1 text-amber-600 hover:text-amber-800" title="Appeal">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                    </svg>
-                </button>
-            ` : '';
+        document.getElementById('familySwitcher').classList.remove('hidden');
+        document.getElementById('familyList').innerHTML = allData.members.map(m => {
+            const isActive = m.id === member.id;
             return `
-                <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium ${bgClass}">
-                    ${d.department_name}
-                    ${isAdminAdded ? '<span class="ml-1 text-xs opacity-70">(Admin)</span>' : ''}
-                    ${appealBtn}
-                </span>
+                <button onclick='closeDrawer(); selectMember(${JSON.stringify(m).replace(/'/g, "&#39;")})' class="w-full flex items-center gap-3 p-3 rounded-xl border-2 ${isActive ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-100 hover:bg-gray-100'} transition-colors">
+                    <div class="w-8 h-8 ${isActive ? 'bg-indigo-200 text-indigo-700' : 'bg-gray-200 text-gray-500'} rounded-full flex items-center justify-center text-xs font-bold">${getInitials(m.full_name)}</div>
+                    <span class="text-sm ${isActive ? 'font-medium text-indigo-900' : 'text-gray-700'}">${m.full_name}</span>
+                    ${isActive ? '<svg class="w-4 h-4 text-indigo-500 ml-auto" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>' : ''}
+                </button>
             `;
         }).join('');
-        document.getElementById('noApprovedMessage').classList.add('hidden');
-    } else {
-        approvedList.innerHTML = '';
-        document.getElementById('noApprovedMessage').classList.remove('hidden');
     }
 
-    // Admin added (unapproved, source=admin) - need acceptance
-    const adminAdded = member.all_selections.filter(s => s.source === 'admin' && s.status !== 'approved');
+    // Drawer links
+    document.getElementById('drawerPosterLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
+    document.getElementById('drawerEditLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
+    document.getElementById('newPosterLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
+
+    // Poster badge
+    if (posterData && posterData.requests) {
+        const myCount = posterData.requests.filter(r => r.requester_id === member.id).length;
+        const badge = document.getElementById('drawerPosterBadge');
+        if (myCount > 0) { badge.textContent = myCount; badge.classList.remove('hidden'); }
+        else badge.classList.add('hidden');
+    }
+
+    // Hide edit selection in drawer when published
+    if (allData.published) {
+        document.getElementById('drawerEditLink').classList.add('hidden');
+    } else {
+        document.getElementById('drawerEditLink').classList.remove('hidden');
+    }
+
+    // Show appeal in drawer when window open
+    if (allData.appeal_window_open) {
+        document.getElementById('drawerAppealLink').classList.remove('hidden');
+    }
+
+    // Render sections
+    renderMainContent();
+    renderComingUp();
+    renderActions();
+    renderHodCard();
+    renderDesignTeamBanner();
+}
+
+function renderMainContent() {
+    const preSection = document.getElementById('prePublishSection');
+    const postSection = document.getElementById('postPublishSection');
+
+    if (allData.published) {
+        preSection.classList.add('hidden');
+        postSection.classList.remove('hidden');
+        renderPublishedDepartments();
+    } else {
+        preSection.classList.remove('hidden');
+        postSection.classList.add('hidden');
+        renderPrePublishSelections();
+    }
+
+    renderAdminAdded();
+}
+
+function renderPrePublishSelections() {
+    const container = document.getElementById('prePublishSelections');
+    document.getElementById('editSelectionBtnPre').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${currentMember.id}`;
+
+    const all = currentMember.all_selections || [];
+    if (all.length === 0) {
+        container.innerHTML = '<p class="text-sm text-gray-400">No selections yet.</p>';
+        return;
+    }
+    container.innerHTML = all.filter(s => s.source === 'member').map(d => {
+        const statusCls = { pending: 'bg-amber-400', approved: 'bg-green-400', rejected: 'bg-red-400' };
+        const statusLabel = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
+        return `
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full ${statusCls[d.status] || 'bg-gray-300'}"></div>
+                <span class="text-sm text-gray-700 flex-1">${d.department_name}</span>
+                <span class="text-[11px] ${d.status === 'pending' ? 'text-amber-600 bg-amber-50' : d.status === 'approved' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'} px-2 py-0.5 rounded-full">${statusLabel[d.status] || d.status}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderPublishedDepartments() {
+    const chipsEl = document.getElementById('approvedChips');
+    const noMsg = document.getElementById('noApprovedMsg');
+    const canAppeal = allData.appeal_window_open;
+
+    if (currentMember.approved_departments.length > 0) {
+        noMsg.classList.add('hidden');
+        chipsEl.innerHTML = currentMember.approved_departments.map(d => {
+            const isAdmin = d.source === 'admin';
+            return `
+                <button onclick="openDeptDetail(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', 'approved', ${isAdmin})"
+                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium pressable ${isAdmin ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'}">
+                    ${d.department_name}
+                    ${isAdmin ? '<span class="text-[10px] opacity-60">(Admin)</span>' : ''}
+                    <svg class="w-3 h-3 opacity-40 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+            `;
+        }).join('');
+    } else {
+        chipsEl.innerHTML = '';
+        noMsg.classList.remove('hidden');
+    }
+
+    // Pending
+    if (currentMember.pending_departments.length > 0) {
+        document.getElementById('pendingInline').classList.remove('hidden');
+        document.getElementById('pendingChips').innerHTML = currentMember.pending_departments.map(d => `
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                ${d.department_name}
+            </span>
+        `).join('');
+    } else {
+        document.getElementById('pendingInline').classList.add('hidden');
+    }
+
+    // Rejected
+    if (currentMember.rejected_departments.length > 0) {
+        document.getElementById('rejectedInline').classList.remove('hidden');
+        document.getElementById('rejectedChips').innerHTML = currentMember.rejected_departments.map(d => `
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-600" ${d.admin_note ? `title="${d.admin_note}"` : ''}>
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                ${d.department_name}
+            </span>
+        `).join('');
+    } else {
+        document.getElementById('rejectedInline').classList.add('hidden');
+    }
+
+    // Appeal hint
+    if (canAppeal) {
+        document.getElementById('appealHint').classList.remove('hidden');
+    } else {
+        document.getElementById('appealHint').classList.add('hidden');
+    }
+}
+
+function renderAdminAdded() {
+    const banner = document.getElementById('adminAddedBanner');
+    const list = document.getElementById('adminAddedList');
+    const canAppeal = allData.appeal_window_open;
+    const adminAdded = currentMember.all_selections.filter(s => s.source === 'admin' && s.status !== 'approved');
+
     if (adminAdded.length > 0) {
-        document.getElementById('adminAddedSection').classList.remove('hidden');
-        document.getElementById('adminAddedList').innerHTML = adminAdded.map(d => `
-            <div class="flex items-center justify-between p-2 bg-white rounded-lg">
+        banner.classList.remove('hidden');
+        list.innerHTML = adminAdded.map(d => `
+            <div class="flex items-center justify-between p-3 bg-white rounded-xl">
                 <span class="text-sm font-medium text-gray-900">${d.department_name}</span>
                 <div class="flex gap-2">
-                    <button onclick="acceptAssignment(${d.id})"
-                        class="px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700">
-                        Accept
-                    </button>
-                    ${canAppeal ? `
-                        <button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', true)"
-                            class="px-3 py-1 bg-amber-500 text-white text-xs font-medium rounded-lg hover:bg-amber-600">
-                            Appeal
-                        </button>
-                    ` : ''}
+                    <button onclick="acceptAssignment(${d.id})" class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg pressable">Accept</button>
+                    ${canAppeal ? `<button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', true)" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg pressable">Appeal</button>` : ''}
                 </div>
             </div>
         `).join('');
     } else {
-        document.getElementById('adminAddedSection').classList.add('hidden');
-    }
-
-    // Pending departments - compact chips
-    if (member.pending_departments.length > 0) {
-        document.getElementById('pendingSection').classList.remove('hidden');
-        document.getElementById('pendingList').innerHTML = member.pending_departments.map(d => `
-            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                ${d.department_name}
-            </span>
-        `).join('');
-    } else {
-        document.getElementById('pendingSection').classList.add('hidden');
-    }
-
-    // Rejected departments - compact chips
-    if (member.rejected_departments.length > 0) {
-        document.getElementById('rejectedSection').classList.remove('hidden');
-        document.getElementById('rejectedList').innerHTML = member.rejected_departments.map(d => `
-            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800"
-                ${d.admin_note ? `title="${d.admin_note}"` : ''}>
-                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-                ${d.department_name}
-            </span>
-        `).join('');
-    } else {
-        document.getElementById('rejectedSection').classList.add('hidden');
+        banner.classList.add('hidden');
     }
 }
 
-function renderHodDashboard() {
-    const section = document.getElementById('hodSection');
-    const list = document.getElementById('hodDepartmentsList');
+// ==================== COMING UP SECTION ====================
+function renderComingUp() {
+    const section = document.getElementById('comingUpSection');
+    const list = document.getElementById('comingUpList');
+    const items = [];
 
-    if (!hodData || !hodData.departments || hodData.departments.length === 0) {
-        section.classList.add('hidden');
-        return;
+    // Add meetings (next 2-3)
+    if (meetingsData && meetingsData.meetings) {
+        meetingsData.meetings.slice(0, 3).forEach(m => {
+            const d = new Date(m.meeting_date);
+            const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+            const day = d.getDate();
+            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+
+            items.push({
+                date: d,
+                html: `
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 pressable" onclick="openMeetingsSheet()">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-12 bg-blue-50 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                                <span class="text-[9px] text-blue-500 font-medium leading-none">${monthShort}</span>
+                                <span class="text-base text-blue-700 font-bold leading-tight">${day}</span>
+                                <span class="text-[9px] text-blue-400 leading-none">${dayName}</span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 truncate">${m.title}</p>
+                                <p class="text-xs text-gray-400">${m.start_time}${m.location ? ' — ' + m.location : ''}</p>
+                            </div>
+                            ${!m.my_rsvp ? '<span class="text-[11px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap flex-shrink-0">RSVP</span>' :
+                              m.my_rsvp === 'attending' ? '<span class="text-[11px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap flex-shrink-0">Going</span>' :
+                              '<span class="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium whitespace-nowrap flex-shrink-0">Not going</span>'}
+                        </div>
+                    </div>
+                `
+            });
+        });
     }
 
-    section.classList.remove('hidden');
+    if (items.length > 0) {
+        section.classList.remove('hidden');
+        list.innerHTML = items.map(i => i.html).join('');
+    } else {
+        section.classList.add('hidden');
+    }
+}
 
-    list.innerHTML = hodData.departments.map(dept => {
-        const statusColors = {
-            approved: { bg: 'bg-green-100', text: 'text-green-700', label: 'Approved' },
-            pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Pending' },
-            rejected: { bg: 'bg-red-100', text: 'text-red-700', label: 'Rejected' }
-        };
+// ==================== QUICK ACTIONS ====================
+function renderActions() {
+    const grid = document.getElementById('actionsGrid');
+    const actions = [];
 
+    // Always show: Projector
+    actions.push({
+        href: '/display/submit',
+        icon: `<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
+        bg: 'bg-orange-50',
+        label: 'Projector',
+        sub: 'Submit content'
+    });
+
+    // Always show: Poster request
+    actions.push({
+        href: `/poster-request?phone=${encodeURIComponent(phone)}`,
+        icon: `<svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>`,
+        bg: 'bg-purple-50',
+        label: 'Poster',
+        sub: 'Request a design'
+    });
+
+    // Pre-publish: show Edit Selection prominently
+    if (!allData.published) {
+        actions.push({
+            href: `/update?phone=${encodeURIComponent(phone)}&member_id=${currentMember.id}`,
+            icon: `<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
+            bg: 'bg-indigo-50',
+            label: 'Edit Selection',
+            sub: 'Change departments'
+        });
+    }
+
+    // Post-publish with appeal window: show Appeal
+    if (allData.published && allData.appeal_window_open) {
+        actions.push({
+            onclick: 'openAppealModal()',
+            icon: `<svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>`,
+            bg: 'bg-amber-50',
+            label: 'Appeal',
+            sub: 'Request changes'
+        });
+    }
+
+    // Meetings shortcut (if there are meetings)
+    if (meetingsData && meetingsData.meetings && meetingsData.meetings.length > 0) {
+        actions.push({
+            onclick: 'openMeetingsSheet()',
+            icon: `<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>`,
+            bg: 'bg-blue-50',
+            label: 'Meetings',
+            sub: meetingsData.meetings.length + ' this month'
+        });
+    }
+
+    grid.innerHTML = actions.map(a => {
+        const tag = a.href ? 'a' : 'button';
+        const attr = a.href ? `href="${a.href}"` : `onclick="${a.onclick}"`;
+        return `
+            <${tag} ${attr} class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-left pressable">
+                <div class="w-10 h-10 ${a.bg} rounded-lg flex items-center justify-center mb-2.5">${a.icon}</div>
+                <p class="text-sm font-medium text-gray-900">${a.label}</p>
+                <p class="text-xs text-gray-400 mt-0.5">${a.sub}</p>
+            </${tag}>
+        `;
+    }).join('');
+}
+
+// ==================== HOD CARD ====================
+function renderHodCard() {
+    const card = document.getElementById('hodCard');
+    if (!hodData || !hodData.departments || hodData.departments.length === 0) {
+        card.classList.add('hidden');
+        return;
+    }
+    card.classList.remove('hidden');
+    const totalMembers = hodData.departments.reduce((sum, d) => sum + d.total_members, 0);
+    const pendingCount = hodData.departments.reduce((sum, d) => sum + d.pending_count, 0);
+    const deptNames = hodData.departments.map(d => d.name).join(', ');
+
+    document.getElementById('hodTitle').textContent = `HOD: ${deptNames}`;
+    document.getElementById('hodSubtitle').textContent = `${totalMembers} members${pendingCount > 0 ? ` — ${pendingCount} pending` : ''}`;
+
+    // HOD meetings link
+    if (hodData.departments.length > 0) {
+        const link = document.getElementById('hodMeetingsLink');
+        link.classList.remove('hidden');
+        link.href = `/hod/meetings?phone=${encodeURIComponent(phone)}`;
+    }
+}
+
+function renderDesignTeamBanner() {
+    const banner = document.getElementById('designTeamBanner');
+    if (!posterData || !posterData.is_design_team) {
+        banner.classList.add('hidden');
+        return;
+    }
+    const pending = posterData.requests.filter(r => r.status === 'pending').length;
+    if (pending > 0) {
+        banner.classList.remove('hidden');
+        document.getElementById('designTeamCount').textContent = `${pending} pending request${pending > 1 ? 's' : ''}`;
+    } else {
+        banner.classList.add('hidden');
+    }
+}
+
+// ==================== DEPARTMENT DETAIL SHEET ====================
+function openDeptDetail(deptId, deptName, status, isAdminAdded) {
+    const content = document.getElementById('deptSheetContent');
+    const canAppeal = allData.appeal_window_open;
+
+    // Find meeting for this department
+    let meetingHtml = '';
+    if (meetingsData && meetingsData.meetings) {
+        const deptMeeting = meetingsData.meetings.find(m => {
+            // Match by department name in title (rough match)
+            return m.department_name && m.department_name.toLowerCase().includes(deptName.toLowerCase().split(' ')[0]);
+        });
+        if (deptMeeting) {
+            const d = new Date(deptMeeting.meeting_date);
+            meetingHtml = `
+                <div class="bg-blue-50 rounded-xl p-3 flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+                        <span class="text-[9px] text-blue-500 font-medium">${d.toLocaleDateString('en-US', {month:'short'}).toUpperCase()}</span>
+                        <span class="text-sm text-blue-700 font-bold">${d.getDate()}</span>
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium text-blue-900">Next: ${deptMeeting.title}</p>
+                        <p class="text-xs text-blue-600">${deptMeeting.start_time}${deptMeeting.location ? ' — ' + deptMeeting.location : ''}</p>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Find category
+    const dept = allDepartments.find(d => d.id === deptId);
+    const category = dept ? dept.categoryName : null;
+
+    content.innerHTML = `
+        <div class="flex items-center gap-3">
+            <div class="w-12 h-12 ${isAdminAdded ? 'bg-blue-100' : 'bg-indigo-100'} rounded-xl flex items-center justify-center">
+                <svg class="w-6 h-6 ${isAdminAdded ? 'text-blue-600' : 'text-indigo-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+            </div>
+            <div>
+                <h2 class="text-lg font-bold text-gray-900">${deptName}</h2>
+                <span class="text-xs ${status === 'approved' ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'} px-2 py-0.5 rounded-full font-medium">${status === 'approved' ? 'Approved' : 'Pending'}</span>
+            </div>
+        </div>
+
+        <div class="bg-gray-50 rounded-xl p-3 space-y-2">
+            <div class="flex justify-between text-sm">
+                <span class="text-gray-500">Status</span>
+                <span class="font-medium ${status === 'approved' ? 'text-green-600' : 'text-amber-600'}">${status === 'approved' ? 'Approved' : 'Pending'}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+                <span class="text-gray-500">Added by</span>
+                <span class="text-gray-700">${isAdminAdded ? 'Church Admin' : 'You'}</span>
+            </div>
+            ${category ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Category</span><span class="text-gray-700">${category}</span></div>` : ''}
+        </div>
+
+        ${meetingHtml}
+
+        ${canAppeal ? `
+            <button onclick="closeDeptSheet(); openAppealForDept(${deptId}, '${deptName.replace(/'/g, "\\'")}', ${isAdminAdded})"
+                class="w-full py-3 border-2 border-amber-200 text-amber-700 font-medium rounded-xl bg-amber-50 pressable">
+                Appeal This Assignment
+            </button>
+        ` : ''}
+    `;
+
+    document.getElementById('deptSheet').classList.add('open');
+}
+function closeDeptSheet() { document.getElementById('deptSheet').classList.remove('open'); }
+
+// ==================== MEETINGS SHEET ====================
+function openMeetingsSheet() {
+    const list = document.getElementById('meetingsSheetList');
+    const noMsg = document.getElementById('noMeetingsMsg');
+    const monthLabel = document.getElementById('meetingsMonthLabel');
+
+    monthLabel.textContent = meetingsData?.month || new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    if (!meetingsData || !meetingsData.meetings || meetingsData.meetings.length === 0) {
+        list.classList.add('hidden');
+        noMsg.classList.remove('hidden');
+    } else {
+        list.classList.remove('hidden');
+        noMsg.classList.add('hidden');
+        list.innerHTML = meetingsData.meetings.map(m => {
+            const d = new Date(m.meeting_date);
+            const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+            const day = d.getDate();
+            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+
+            const rsvpHtml = m.my_rsvp
+                ? `<div class="flex items-center gap-2">
+                       <span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'} px-2 py-0.5 rounded-full font-medium">${m.my_rsvp === 'attending' ? 'Going' : 'Not going'}</span>
+                       <button onclick="changeRsvp(${m.id})" class="text-xs text-indigo-600">Change</button>
+                   </div>`
+                : `<div class="flex gap-2">
+                       <button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-medium pressable">Going</button>
+                       <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg font-medium pressable">Can't go</button>
+                   </div>`;
+
+            return `
+                <div class="bg-gray-50 rounded-xl p-4">
+                    <div class="flex gap-3">
+                        <div class="w-12 h-14 bg-white rounded-lg flex flex-col items-center justify-center flex-shrink-0 shadow-sm">
+                            <span class="text-[9px] text-blue-500 font-medium leading-none">${dayName}</span>
+                            <span class="text-lg text-gray-900 font-bold leading-tight">${day}</span>
+                            <span class="text-[9px] text-gray-400 leading-none">${monthShort}</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h4 class="text-sm font-semibold text-gray-900">${m.title}</h4>
+                            <p class="text-xs text-indigo-600">${m.department_name || ''}</p>
+                            <p class="text-xs text-gray-400 mt-0.5">${m.start_time} - ${m.end_time}${m.location ? ' — ' + m.location : ''}</p>
+                            ${m.meeting_link ? `<a href="${m.meeting_link}" target="_blank" class="text-xs text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-200/50">
+                        <span class="text-xs text-gray-400">${m.attending_count} attending</span>
+                        ${rsvpHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    document.getElementById('meetingsSheet').classList.add('open');
+}
+function closeMeetingsSheet() { document.getElementById('meetingsSheet').classList.remove('open'); }
+
+// ==================== HOD SHEET ====================
+function openHodSheet() {
+    const content = document.getElementById('hodSheetContent');
+    if (!hodData || !hodData.departments) return;
+
+    const statusColors = {
+        approved: { bg: 'bg-green-50', text: 'text-green-600', label: 'Approved' },
+        pending: { bg: 'bg-amber-50', text: 'text-amber-600', label: 'Pending' },
+        rejected: { bg: 'bg-red-50', text: 'text-red-600', label: 'Rejected' }
+    };
+
+    content.innerHTML = hodData.departments.map(dept => {
         const membersHtml = dept.members.length > 0
             ? dept.members.map(m => {
                 const sc = statusColors[m.status] || statusColors.pending;
                 return `
-                    <div class="flex items-center justify-between py-2 px-3 ${m.status === 'pending' ? 'bg-yellow-50' : ''}">
+                    <div class="flex items-center justify-between py-2.5 px-3 ${m.status === 'pending' ? 'bg-amber-50/50' : ''}">
                         <div class="flex-1 min-w-0">
                             <p class="text-sm font-medium text-gray-900 truncate">${m.full_name}</p>
-                            <p class="text-xs text-gray-500">${m.phone}</p>
+                            <p class="text-xs text-gray-400">${m.phone}</p>
                         </div>
-                        <div class="flex items-center gap-2 ml-2">
-                            ${m.source === 'admin' ? '<span class="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Admin</span>' : ''}
-                            <span class="text-xs ${sc.bg} ${sc.text} px-2 py-0.5 rounded-full font-medium">${sc.label}</span>
+                        <div class="flex items-center gap-1.5 ml-2">
+                            ${m.source === 'admin' ? '<span class="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Admin</span>' : ''}
+                            <span class="text-[10px] ${sc.bg} ${sc.text} px-2 py-0.5 rounded-full font-medium">${sc.label}</span>
                         </div>
                     </div>
                 `;
             }).join('')
-            : '<p class="text-sm text-gray-400 text-center py-4">No members in this department yet.</p>';
+            : '<p class="text-sm text-gray-400 text-center py-4">No members yet</p>';
 
         return `
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-                <div class="p-4 border-b border-gray-100">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h4 class="font-semibold text-gray-900">${dept.name}</h4>
-                            ${dept.category_name ? `<p class="text-xs text-gray-500">${dept.category_name}</p>` : ''}
+            <div class="bg-gray-50 rounded-xl overflow-hidden">
+                <button onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')" class="w-full p-4 flex items-center justify-between text-left">
+                    <div>
+                        <h4 class="font-semibold text-gray-900">${dept.name}</h4>
+                        <div class="flex gap-3 mt-1 text-xs">
+                            <span class="text-gray-500">${dept.total_members} total</span>
+                            <span class="text-green-600">${dept.approved_count} approved</span>
+                            ${dept.pending_count > 0 ? `<span class="text-amber-600">${dept.pending_count} pending</span>` : ''}
                         </div>
-                        <button onclick="toggleHodDept(this)" class="text-gray-400 hover:text-gray-600">
-                            <svg class="w-5 h-5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                            </svg>
-                        </button>
                     </div>
-                    <div class="flex gap-3 mt-2 text-xs">
-                        <span class="text-gray-600">${dept.total_members} total</span>
-                        <span class="text-green-600">${dept.approved_count} approved</span>
-                        ${dept.pending_count > 0 ? `<span class="text-yellow-600">${dept.pending_count} pending</span>` : ''}
-                        ${dept.rejected_count > 0 ? `<span class="text-red-600">${dept.rejected_count} rejected</span>` : ''}
-                    </div>
-                </div>
-                <div class="divide-y divide-gray-100 hod-member-list">
-                    ${membersHtml}
-                </div>
+                    <svg class="w-5 h-5 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                </button>
+                <div class="divide-y divide-gray-100 bg-white">${membersHtml}</div>
             </div>
         `;
     }).join('');
+
+    document.getElementById('hodSheet').classList.add('open');
 }
+function closeHodSheet() { document.getElementById('hodSheet').classList.remove('open'); }
 
-function toggleHodDept(btn) {
-    const memberList = btn.closest('.bg-white').querySelector('.hod-member-list');
-    const icon = btn.querySelector('svg');
-    memberList.classList.toggle('hidden');
-    icon.classList.toggle('rotate-180');
+// ==================== POSTER REQUESTS SHEET ====================
+function openPosterSheet() {
+    renderPosterSheetContent();
+    document.getElementById('posterSheet').classList.add('open');
 }
+function closePosterSheet() { document.getElementById('posterSheet').classList.remove('open'); }
 
-function formatMeetingDate(dateStr) {
-    const d = new Date(dateStr);
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+function renderPosterSheetContent() {
+    const content = document.getElementById('posterSheetContent');
+    if (!posterData) { content.innerHTML = '<p class="text-gray-400 text-sm text-center py-4">No poster requests.</p>'; return; }
 
-    if (d.toDateString() === today.toDateString()) {
-        return 'Today';
-    } else if (d.toDateString() === tomorrow.toDateString()) {
-        return 'Tomorrow';
-    }
-    return d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
-}
+    const statusColors = { pending: 'bg-amber-50 text-amber-600', acknowledged: 'bg-blue-50 text-blue-600', completed: 'bg-green-50 text-green-600' };
+    const statusLabels = { pending: 'Pending', acknowledged: 'Processing', completed: 'Done' };
+    let html = '';
 
-function renderMeetings() {
-    const section = document.getElementById('meetingsSection');
-    const list = document.getElementById('meetingsList');
-    const noMeetings = document.getElementById('noMeetingsMessage');
-    const hodLink = document.getElementById('hodMeetingsLink');
-    const monthSpan = document.getElementById('meetingsMonth');
-
-    // Display month name
-    if (meetingsData && meetingsData.month) {
-        monthSpan.textContent = meetingsData.month;
-    } else {
-        // Fallback to current month
-        monthSpan.textContent = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    }
-
-    // Show HOD meetings link if user is HOD
-    if (hodData && hodData.departments && hodData.departments.length > 0) {
-        hodLink.classList.remove('hidden');
-        hodLink.href = `/hod/meetings?phone=${encodeURIComponent(phone)}`;
-    }
-
-    if (!meetingsData || !meetingsData.meetings || meetingsData.meetings.length === 0) {
-        section.classList.remove('hidden');
-        list.classList.add('hidden');
-        noMeetings.classList.remove('hidden');
-        return;
-    }
-
-    section.classList.remove('hidden');
-    list.classList.remove('hidden');
-    noMeetings.classList.add('hidden');
-
-    list.innerHTML = meetingsData.meetings.map(m => {
-        const rsvpBtns = m.my_rsvp
-            ? `<span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} px-2 py-1 rounded-full font-medium">
-                ${m.my_rsvp === 'attending' ? 'Attending' : 'Not Attending'}
-               </span>
-               <button onclick="changeRsvp(${m.id})" class="text-xs text-gray-500 hover:underline">Change</button>`
-            : `<button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700">Attending</button>
-               <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Not Attending</button>`;
-
-        return `
-            <div class="border border-gray-200 rounded-xl p-4">
-                <div class="flex justify-between items-start">
-                    <div class="flex-1">
-                        <h4 class="font-medium text-gray-900">${m.title}</h4>
-                        <p class="text-sm text-indigo-600">${m.department_name}</p>
-                    </div>
-                    <div class="text-right text-sm">
-                        <p class="font-medium text-gray-900">${formatMeetingDate(m.meeting_date)}</p>
-                        <p class="text-gray-500">${m.start_time} - ${m.end_time}</p>
-                    </div>
-                </div>
-                ${m.location ? `<p class="text-sm text-gray-500 mt-2">Location: ${m.location}</p>` : ''}
-                ${m.meeting_link ? `<a href="${m.meeting_link}" target="_blank" class="text-sm text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
-                <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                    <span class="text-xs text-gray-400">${m.attending_count} attending</span>
-                    <div class="flex items-center gap-2">
-                        ${rsvpBtns}
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-function renderPosterRequests() {
-    const section = document.getElementById('posterRequestSection');
-    const newLink = document.getElementById('newPosterRequestLink');
-    const designTeamSection = document.getElementById('designTeamRequests');
-    const pendingList = document.getElementById('pendingRequestsList');
-    const recentSection = document.getElementById('recentlyAcknowledgedSection');
-    const recentList = document.getElementById('recentlyAcknowledgedList');
-    const myList = document.getElementById('myRequestsList');
-    const noRequests = document.getElementById('noPosterRequests');
-
-    // Set up the new request link
-    newLink.href = `/poster-request?phone=${encodeURIComponent(phone)}`;
-
-    if (!posterData) {
-        section.classList.add('hidden');
-        return;
-    }
-
-    section.classList.remove('hidden');
-
-    // Move poster section to top for design team
+    // Design team: pending requests
     if (posterData.is_design_team) {
-        const portalContent = document.getElementById('portalContent');
-        const quickActions = portalContent.querySelector('.grid.grid-cols-2');
-        if (quickActions && quickActions.nextElementSibling !== section) {
-            quickActions.after(section);
-        }
-    }
+        const pending = posterData.requests.filter(r => r.status === 'pending');
+        const acknowledged = posterData.requests.filter(r => r.status === 'acknowledged');
 
-    const statusColors = {
-        pending: 'bg-yellow-100 text-yellow-700',
-        acknowledged: 'bg-blue-100 text-blue-700',
-        completed: 'bg-green-100 text-green-700'
-    };
-    const statusLabels = {
-        pending: 'Pending',
-        acknowledged: 'Processing',
-        completed: 'Done'
-    };
-
-    // If design team, show pending requests and recently acknowledged
-    if (posterData.is_design_team) {
-        const pendingRequests = posterData.requests.filter(r => r.status === 'pending');
-        if (pendingRequests.length > 0) {
-            designTeamSection.classList.remove('hidden');
-            pendingList.innerHTML = pendingRequests.map(r => `
-                <div class="bg-purple-50 border border-purple-200 rounded-xl p-3">
+        if (pending.length > 0) {
+            html += `<p class="text-xs text-purple-700 font-semibold uppercase tracking-wider">Pending Acknowledgement</p>`;
+            html += pending.map(r => `
+                <div class="bg-purple-50 border border-purple-100 rounded-xl p-3">
                     <div class="flex items-start justify-between gap-2">
                         <div class="flex-1 min-w-0">
-                            <h4 class="font-medium text-gray-900">${r.event_name}</h4>
-                            <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
+                            <h4 class="font-medium text-gray-900 text-sm">${r.event_name}</h4>
+                            <p class="text-xs text-gray-500">${r.ministry_department || ''} — ${new Date(r.event_date).toLocaleDateString()}</p>
                             <p class="text-xs text-gray-400">From: ${r.requester_name}</p>
                         </div>
                         <div class="flex gap-2 flex-shrink-0">
-                            <button onclick="viewPosterDetail(${r.id})" class="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200">
-                                View
-                            </button>
-                            <button onclick="acknowledgePosterRequest(${r.id})" class="px-3 py-1 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700">
-                                Acknowledge
-                            </button>
+                            <button onclick="viewPosterDetail(${r.id})" class="px-2.5 py-1 bg-white text-gray-600 text-xs rounded-lg pressable border border-gray-200">View</button>
+                            <button onclick="acknowledgePosterRequest(${r.id})" class="px-2.5 py-1 bg-purple-600 text-white text-xs rounded-lg pressable">Ack</button>
                         </div>
                     </div>
                 </div>
             `).join('');
-        } else {
-            designTeamSection.classList.add('hidden');
         }
 
-        // Show recently acknowledged (past 7 days) - these are being worked on
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-        const recentAcknowledged = posterData.requests.filter(r =>
-            r.status === 'acknowledged' &&
-            r.acknowledged_at &&
-            new Date(r.acknowledged_at) >= oneWeekAgo
-        );
-
-        if (recentAcknowledged.length > 0) {
-            recentSection.classList.remove('hidden');
-            recentList.innerHTML = recentAcknowledged.map(r => `
-                <div class="bg-blue-50 border border-blue-200 rounded-xl p-3">
+        if (acknowledged.length > 0) {
+            html += `<p class="text-xs text-blue-700 font-semibold uppercase tracking-wider mt-2">In Progress</p>`;
+            html += acknowledged.map(r => `
+                <div class="bg-blue-50 border border-blue-100 rounded-xl p-3">
                     <div class="flex items-start justify-between gap-2">
                         <div class="flex-1 min-w-0">
-                            <h4 class="font-medium text-gray-900">${r.event_name}</h4>
-                            <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
-                            <p class="text-xs text-gray-400">By ${r.acknowledged_by_name} - ${new Date(r.acknowledged_at).toLocaleDateString()}</p>
+                            <h4 class="font-medium text-gray-900 text-sm">${r.event_name}</h4>
+                            <p class="text-xs text-gray-500">${r.ministry_department || ''} — ${new Date(r.event_date).toLocaleDateString()}</p>
                         </div>
                         <div class="flex gap-2 flex-shrink-0">
-                            <button onclick="viewPosterDetail(${r.id})" class="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded-lg hover:bg-gray-200">
-                                View
-                            </button>
-                            <button onclick="markPosterDone(${r.id})" class="px-3 py-1 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700">
-                                Mark Done
-                            </button>
+                            <button onclick="viewPosterDetail(${r.id})" class="px-2.5 py-1 bg-white text-gray-600 text-xs rounded-lg pressable border border-gray-200">View</button>
+                            <button onclick="markPosterDone(${r.id})" class="px-2.5 py-1 bg-green-600 text-white text-xs rounded-lg pressable">Done</button>
                         </div>
                     </div>
                 </div>
             `).join('');
-        } else {
-            recentSection.classList.add('hidden');
         }
     }
 
-    // Show member's own requests (non-design team view or acknowledged/completed for design team)
+    // My requests
     const myRequests = posterData.is_design_team
         ? posterData.requests.filter(r => r.requester_id === currentMember.id)
         : posterData.requests;
 
     if (myRequests.length > 0) {
-        noRequests.classList.add('hidden');
-        myList.innerHTML = myRequests.map(r => `
-            <div class="border border-gray-200 rounded-xl p-3">
+        html += `<p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mt-2">My Requests</p>`;
+        html += myRequests.map(r => `
+            <div class="bg-gray-50 rounded-xl p-3 pressable" onclick="viewPosterDetail(${r.id})">
                 <div class="flex items-start justify-between">
-                    <div>
-                        <h4 class="font-medium text-gray-900">${r.event_name}</h4>
-                        <p class="text-sm text-gray-500">${r.ministry_department || ''} ${new Date(r.event_date).toLocaleDateString()}</p>
+                    <div class="min-w-0">
+                        <h4 class="font-medium text-gray-900 text-sm">${r.event_name}</h4>
+                        <p class="text-xs text-gray-500">${r.ministry_department || ''} — ${new Date(r.event_date).toLocaleDateString()}</p>
                     </div>
-                    <span class="px-2 py-1 text-xs font-medium rounded ${statusColors[r.status]}">${statusLabels[r.status]}</span>
+                    <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${statusColors[r.status]}">${statusLabels[r.status]}</span>
                 </div>
-                ${r.acknowledged_by_name ? `<p class="text-xs text-gray-400 mt-1">Acknowledged by ${r.acknowledged_by_name}</p>` : ''}
+                ${r.acknowledged_by_name ? `<p class="text-xs text-gray-400 mt-1">By ${r.acknowledged_by_name}</p>` : ''}
             </div>
         `).join('');
-    } else {
-        myList.innerHTML = '';
-        noRequests.classList.remove('hidden');
+    } else if (!posterData.is_design_team || html === '') {
+        html += '<p class="text-gray-400 text-sm text-center py-4">No poster requests yet.</p>';
     }
+
+    content.innerHTML = html;
 }
 
+// ==================== POSTER DETAIL ====================
 function viewPosterDetail(requestId) {
     const request = posterData.requests.find(r => r.id === requestId);
     if (!request) return;
 
     const formatLabels = { projector: 'Projector', social_media: 'Social Media', print: 'Print' };
 
-    // Format speakers
-    let speakersHtml = '<span class="text-gray-400">Not specified</span>';
+    let speakersHtml = '<span class="text-gray-400 text-sm">Not specified</span>';
     if (request.speakers && request.speakers.length > 0) {
         speakersHtml = request.speakers.map(s => `
             <span class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg text-sm mr-1 mb-1">
-                ${s.name}
-                <span class="text-xs px-1 py-0.5 rounded ${s.role === 'host' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}">${s.role}</span>
+                ${s.name} <span class="text-[10px] px-1 py-0.5 rounded ${s.role === 'host' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}">${s.role}</span>
             </span>
         `).join('');
     }
 
-    // Format output formats
-    let outputHtml = '<span class="text-gray-400">Not specified</span>';
+    let outputHtml = '<span class="text-gray-400 text-sm">Not specified</span>';
     if (request.output_formats && request.output_formats.length > 0) {
-        outputHtml = request.output_formats.map(f => `
-            <span class="inline-block px-2 py-1 bg-purple-100 text-purple-700 rounded-lg text-sm mr-1">${formatLabels[f] || f}</span>
-        `).join('');
+        outputHtml = request.output_formats.map(f => `<span class="inline-block px-2 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm mr-1">${formatLabels[f] || f}</span>`).join('');
     }
 
-    const content = document.getElementById('posterDetailContent');
-    content.innerHTML = `
-        <div class="bg-purple-50 rounded-xl p-4 mb-4">
-            <h4 class="font-semibold text-lg text-gray-900">${request.event_name}</h4>
+    document.getElementById('posterDetailContent').innerHTML = `
+        <div class="bg-purple-50 rounded-xl p-4">
+            <h4 class="font-semibold text-gray-900">${request.event_name}</h4>
             <p class="text-sm text-purple-700 mt-1">${request.purpose}</p>
         </div>
-
-        <div class="grid grid-cols-2 gap-4 text-sm">
-            <div>
-                <p class="text-gray-500 text-xs uppercase tracking-wide">Event Date</p>
-                <p class="font-medium text-gray-900">${new Date(request.event_date).toLocaleDateString()}</p>
-            </div>
-            <div>
-                <p class="text-gray-500 text-xs uppercase tracking-wide">Time</p>
-                <p class="font-medium text-gray-900">${request.event_time}</p>
-            </div>
-            <div>
-                <p class="text-gray-500 text-xs uppercase tracking-wide">Ministry/Dept</p>
-                <p class="font-medium text-gray-900">${request.ministry_department || 'Not specified'}</p>
-            </div>
-            <div>
-                <p class="text-gray-500 text-xs uppercase tracking-wide">Venue</p>
-                <p class="font-medium text-gray-900">${request.venue_platform}</p>
-            </div>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Date</p><p class="font-medium text-gray-900">${new Date(request.event_date).toLocaleDateString()}</p></div>
+            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Time</p><p class="font-medium text-gray-900">${request.event_time}</p></div>
+            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Ministry</p><p class="font-medium text-gray-900">${request.ministry_department || '—'}</p></div>
+            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Venue</p><p class="font-medium text-gray-900">${request.venue_platform}</p></div>
         </div>
-
-        <div class="mt-4">
-            <p class="text-gray-500 text-xs uppercase tracking-wide mb-2">Speakers / Hosts</p>
-            <div>${speakersHtml}</div>
+        <div><p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Speakers</p><div>${speakersHtml}</div></div>
+        <div><p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Output Formats</p><div>${outputHtml}</div></div>
+        ${request.theme_tagline ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Theme</p><p class="text-sm font-medium text-gray-900">${request.theme_tagline}</p></div>` : ''}
+        ${request.scripture ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Scripture</p><p class="text-sm font-medium text-gray-900">${request.scripture}</p></div>` : ''}
+        ${request.target_audience ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Audience</p><p class="text-sm font-medium text-gray-900">${request.target_audience}</p></div>` : ''}
+        ${request.additional_notes ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Notes</p><p class="text-sm text-gray-700 bg-gray-50 rounded-lg p-3">${request.additional_notes}</p></div>` : ''}
+        <div class="pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
+            <div><p class="text-[10px] text-gray-400 uppercase">Requested by</p><p class="font-medium text-gray-900">${request.requester_name}</p></div>
+            <div class="text-right"><p class="text-[10px] text-gray-400 uppercase">Submitted</p><p class="font-medium text-gray-900">${new Date(request.created_at).toLocaleDateString()}</p></div>
         </div>
-
-        <div class="mt-4">
-            <p class="text-gray-500 text-xs uppercase tracking-wide mb-2">Output Formats</p>
-            <div>${outputHtml}</div>
-        </div>
-
-        ${request.theme_tagline ? `
-        <div class="mt-4">
-            <p class="text-gray-500 text-xs uppercase tracking-wide">Theme / Tagline</p>
-            <p class="font-medium text-gray-900">${request.theme_tagline}</p>
-        </div>
+        ${request.acknowledged_by_name ? `
+            <div class="pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
+                <div><p class="text-[10px] text-gray-400 uppercase">Acknowledged by</p><p class="font-medium text-blue-700">${request.acknowledged_by_name}</p></div>
+                <div class="text-right"><p class="font-medium text-gray-900 text-xs">${new Date(request.acknowledged_at).toLocaleString()}</p></div>
+            </div>
         ` : ''}
-
-        ${request.scripture ? `
-        <div class="mt-4">
-            <p class="text-gray-500 text-xs uppercase tracking-wide">Scripture</p>
-            <p class="font-medium text-gray-900">${request.scripture}</p>
-        </div>
-        ` : ''}
-
-        ${request.target_audience ? `
-        <div class="mt-4">
-            <p class="text-gray-500 text-xs uppercase tracking-wide">Target Audience</p>
-            <p class="font-medium text-gray-900">${request.target_audience}</p>
-        </div>
-        ` : ''}
-
-        ${request.additional_notes ? `
-        <div class="mt-4">
-            <p class="text-gray-500 text-xs uppercase tracking-wide">Additional Notes</p>
-            <p class="text-gray-700 bg-gray-50 rounded-lg p-3 text-sm">${request.additional_notes}</p>
-        </div>
-        ` : ''}
-
-        <div class="mt-4 pt-4 border-t border-gray-100">
-            <div class="flex items-center justify-between text-sm">
-                <div>
-                    <p class="text-gray-500">Requested by</p>
-                    <p class="font-medium text-gray-900">${request.requester_name}</p>
-                    ${request.requester_email ? `<p class="text-xs text-gray-400">${request.requester_email}</p>` : ''}
-                </div>
-                <div class="text-right">
-                    <p class="text-gray-500">Submitted</p>
-                    <p class="font-medium text-gray-900">${new Date(request.created_at).toLocaleDateString()}</p>
-                </div>
-            </div>
-            ${request.acknowledged_by_name ? `
-            <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
-                <div>
-                    <p class="text-gray-500">Acknowledged by</p>
-                    <p class="font-medium text-blue-700">${request.acknowledged_by_name}</p>
-                </div>
-                <div class="text-right">
-                    <p class="font-medium text-gray-900">${new Date(request.acknowledged_at).toLocaleString()}</p>
-                </div>
-            </div>
-            ` : ''}
-        </div>
     `;
 
-    // Set up action buttons
     const actions = document.getElementById('posterDetailActions');
     if (request.status === 'pending' && posterData.is_design_team) {
         actions.innerHTML = `
-            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
-                Close
-            </button>
-            <button onclick="acknowledgePosterRequest(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700">
-                Acknowledge
-            </button>
+            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl pressable">Close</button>
+            <button onclick="acknowledgePosterRequest(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl pressable">Acknowledge</button>
         `;
     } else if (request.status === 'acknowledged' && posterData.is_design_team) {
         actions.innerHTML = `
-            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
-                Close
-            </button>
-            <button onclick="markPosterDone(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700">
-                Mark Done
-            </button>
+            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl pressable">Close</button>
+            <button onclick="markPosterDone(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-green-600 text-white font-medium rounded-xl pressable">Mark Done</button>
         `;
     } else {
-        actions.innerHTML = `
-            <button onclick="closePosterDetailModal()" class="w-full py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200">
-                Close
-            </button>
-        `;
+        actions.innerHTML = `<button onclick="closePosterDetailModal()" class="w-full py-3 bg-gray-100 text-gray-700 font-medium rounded-xl pressable">Close</button>`;
     }
 
-    document.getElementById('posterDetailModal').classList.remove('hidden');
+    document.getElementById('posterDetailModal').classList.add('open');
 }
+function closePosterDetailModal() { document.getElementById('posterDetailModal').classList.remove('open'); }
 
-function closePosterDetailModal() {
-    document.getElementById('posterDetailModal').classList.add('hidden');
-}
+// ==================== DRAWER ====================
+function openDrawer() { document.getElementById('drawerOverlay').classList.add('open'); }
+function closeDrawer() { document.getElementById('drawerOverlay').classList.remove('open'); }
 
-async function acknowledgePosterRequest(requestId) {
-    try {
-        const res = await fetch(`/api/poster-requests/${requestId}/acknowledge?phone=${encodeURIComponent(phone)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.detail || 'Failed to acknowledge');
-        }
-
-        // Reload poster requests
-        const posterRes = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`);
-        posterData = await posterRes.json();
-        renderPosterRequests();
-    } catch (err) {
-        alert(err.message || 'Failed to acknowledge request');
-    }
-}
-
-async function markPosterDone(requestId) {
-    try {
-        const res = await fetch(`/api/poster-requests/${requestId}/complete?phone=${encodeURIComponent(phone)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.detail || 'Failed to mark as done');
-        }
-
-        // Reload poster requests
-        const posterRes = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`);
-        posterData = await posterRes.json();
-        renderPosterRequests();
-    } catch (err) {
-        alert(err.message || 'Failed to mark request as done');
-    }
-}
-
-async function submitRsvp(meetingId, response) {
-    try {
-        const res = await fetch(`/api/meetings/${meetingId}/rsvp?phone=${encodeURIComponent(phone)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ response })
-        });
-
-        if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.detail || 'Failed to submit RSVP');
-        }
-
-        // Update local data and re-render
-        const meeting = meetingsData.meetings.find(m => m.id === meetingId);
-        if (meeting) {
-            if (!meeting.my_rsvp && response === 'attending') {
-                meeting.attending_count++;
-            } else if (meeting.my_rsvp === 'attending' && response === 'not_attending') {
-                meeting.attending_count--;
-            } else if (meeting.my_rsvp === 'not_attending' && response === 'attending') {
-                meeting.attending_count++;
-            }
-            meeting.my_rsvp = response;
-        }
-        renderMeetings();
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
-}
-
-function changeRsvp(meetingId) {
-    const meeting = meetingsData.meetings.find(m => m.id === meetingId);
-    if (!meeting) return;
-
-    const newResponse = meeting.my_rsvp === 'attending' ? 'not_attending' : 'attending';
-    submitRsvp(meetingId, newResponse);
-}
-
-async function acceptAssignment(memberDeptId) {
-    try {
-        const response = await fetch(`/api/results/accept/${memberDeptId}?phone=${encodeURIComponent(phone)}`, {
-            method: 'POST'
-        });
-
-        if (!response.ok) {
-            const data = await response.json();
-            alert(data.detail || 'Failed to accept assignment');
-            return;
-        }
-
-        // Refresh data
-        location.reload();
-
-    } catch (error) {
-        console.error('Accept error:', error);
-        alert('Failed to accept assignment. Please try again.');
-    }
-}
-
+// ==================== APPEAL ====================
 function openAppealForDept(deptId, deptName, isAdminAdded) {
     openAppealModal(deptId);
-
-    // Update modal title for admin-added
-    const modalTitle = document.querySelector('#appealModal h3');
-    if (isAdminAdded) {
-        modalTitle.innerHTML = `Appeal Admin Assignment`;
-    } else {
-        modalTitle.innerHTML = `Submit Appeal`;
-    }
+    document.getElementById('appealTitle').textContent = isAdminAdded ? 'Appeal Admin Assignment' : 'Submit Appeal';
 }
 
 function openAppealModal(preselectedDeptId = null) {
-    document.getElementById('appealModal').classList.remove('hidden');
-
-    // Populate dropdowns
     const appealDept = document.getElementById('appealDept');
     const wantedDept = document.getElementById('wantedDept');
 
-    // Clear and populate
     appealDept.innerHTML = '<option value="">-- Select department --</option>';
     wantedDept.innerHTML = '<option value="">-- Select department --</option>';
 
-    // Appeal dropdown: approved departments AND admin-added pending departments
     const appealableDepts = [
         ...currentMember.approved_departments,
         ...currentMember.all_selections.filter(s => s.source === 'admin' && s.status !== 'approved')
@@ -1133,17 +1257,12 @@ function openAppealModal(preselectedDeptId = null) {
     appealableDepts.forEach(d => {
         const opt = document.createElement('option');
         opt.value = d.department_id;
-        const isAdminAdded = d.source === 'admin';
-        opt.textContent = d.department_name + (d.category_name ? ` (${d.category_name})` : '') + (isAdminAdded ? ' [Admin Added]' : '');
+        opt.textContent = d.department_name + (d.category_name ? ` (${d.category_name})` : '') + (d.source === 'admin' ? ' [Admin Added]' : '');
         appealDept.appendChild(opt);
     });
 
-    // Pre-select if specified
-    if (preselectedDeptId) {
-        appealDept.value = preselectedDeptId;
-    }
+    if (preselectedDeptId) appealDept.value = preselectedDeptId;
 
-    // Wanted dropdown: all departments except already approved/assigned
     const assignedIds = new Set(currentMember.all_selections.map(d => d.department_id));
     allDepartments.filter(d => !assignedIds.has(d.id)).forEach(d => {
         const opt = document.createElement('option');
@@ -1151,10 +1270,12 @@ function openAppealModal(preselectedDeptId = null) {
         opt.textContent = d.name + (d.categoryName ? ` (${d.categoryName})` : '');
         wantedDept.appendChild(opt);
     });
+
+    document.getElementById('appealModal').classList.add('open');
 }
 
 function closeAppealModal() {
-    document.getElementById('appealModal').classList.add('hidden');
+    document.getElementById('appealModal').classList.remove('open');
     document.getElementById('appealError').classList.add('hidden');
 }
 
@@ -1179,26 +1300,18 @@ async function submitAppeal() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                phone: phone,
-                member_id: currentMember.id,
+                phone, member_id: currentMember.id,
                 unwanted_department_id: unwantedId ? parseInt(unwantedId) : null,
                 wanted_department_id: wantedId ? parseInt(wantedId) : null,
                 reason: reason || null
             })
         });
-
         const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.detail || 'Failed to submit appeal');
-        }
-
+        if (!response.ok) throw new Error(data.detail || 'Failed to submit appeal');
         closeAppealModal();
-        alert('Your appeal has been submitted successfully. An admin will review it shortly.');
-
+        alert('Your appeal has been submitted successfully.');
     } catch (error) {
-        console.error('Appeal error:', error);
-        errorDiv.textContent = error.message || 'Failed to submit appeal. Please try again.';
+        errorDiv.textContent = error.message || 'Failed to submit appeal.';
         errorDiv.classList.remove('hidden');
     } finally {
         btn.disabled = false;
@@ -1206,9 +1319,64 @@ async function submitAppeal() {
     }
 }
 
-function logout() {
-    localStorage.removeItem(STORAGE_KEY);
-    window.location.href = '/';
+// ==================== RSVP ====================
+async function submitRsvp(meetingId, response) {
+    try {
+        const res = await fetch(`/api/meetings/${meetingId}/rsvp?phone=${encodeURIComponent(phone)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ response })
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
+
+        const meeting = meetingsData.meetings.find(m => m.id === meetingId);
+        if (meeting) {
+            if (!meeting.my_rsvp && response === 'attending') meeting.attending_count++;
+            else if (meeting.my_rsvp === 'attending' && response === 'not_attending') meeting.attending_count--;
+            else if (meeting.my_rsvp === 'not_attending' && response === 'attending') meeting.attending_count++;
+            meeting.my_rsvp = response;
+        }
+        renderComingUp();
+        // Re-render meetings sheet if open
+        if (document.getElementById('meetingsSheet').classList.contains('open')) openMeetingsSheet();
+    } catch (err) { alert('Error: ' + err.message); }
 }
+
+function changeRsvp(meetingId) {
+    const meeting = meetingsData.meetings.find(m => m.id === meetingId);
+    if (meeting) submitRsvp(meetingId, meeting.my_rsvp === 'attending' ? 'not_attending' : 'attending');
+}
+
+// ==================== ACCEPT ASSIGNMENT ====================
+async function acceptAssignment(memberDeptId) {
+    try {
+        const res = await fetch(`/api/results/accept/${memberDeptId}?phone=${encodeURIComponent(phone)}`, { method: 'POST' });
+        if (!res.ok) { const d = await res.json(); alert(d.detail || 'Failed'); return; }
+        location.reload();
+    } catch (e) { alert('Failed to accept assignment.'); }
+}
+
+// ==================== POSTER ACTIONS ====================
+async function acknowledgePosterRequest(requestId) {
+    try {
+        const res = await fetch(`/api/poster-requests/${requestId}/acknowledge?phone=${encodeURIComponent(phone)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
+        posterData = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => r.json());
+        renderDesignTeamBanner();
+        if (document.getElementById('posterSheet').classList.contains('open')) renderPosterSheetContent();
+    } catch (err) { alert(err.message || 'Failed to acknowledge'); }
+}
+
+async function markPosterDone(requestId) {
+    try {
+        const res = await fetch(`/api/poster-requests/${requestId}/complete?phone=${encodeURIComponent(phone)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
+        posterData = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => r.json());
+        renderDesignTeamBanner();
+        if (document.getElementById('posterSheet').classList.contains('open')) renderPosterSheetContent();
+    } catch (err) { alert(err.message || 'Failed to mark done'); }
+}
+
+// ==================== LOGOUT ====================
+function logout() { localStorage.removeItem(STORAGE_KEY); window.location.href = '/'; }
 </script>
 {% endblock %}
