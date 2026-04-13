@@ -3961,11 +3961,11 @@ def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
     return [t for t in result if t]
 
 
-def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None, prayer_points: list = None):
+def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None, prayer_points: list = None, admin_announcements: list = None, pastors_announcements: list = None):
     """Notify participants who are members in the database about their program roles.
     participant_roles is a dict mapping lowercase name -> list of role strings.
     A person with multiple roles gets one email summarising all their roles.
-    prayer_points is the program's prayer points list (may include linked activities)."""
+    Admin-role participants get admin_announcements; Preacher-role participants get pastors_announcements."""
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType
 
@@ -3982,24 +3982,37 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
 
     date_str = service_date.strftime("%A, %d %B %Y") if hasattr(service_date, 'strftime') else str(service_date)
 
+    # Role keywords that qualify for announcements
+    admin_keywords = {"admin", "administrator", "mc", "emcee"}
+    preacher_keywords = {"preach", "preacher", "preaching", "sermon", "pastor", "word", "minister", "ministering"}
+
     for member in members:
         if not member.email:
             continue
         roles = participant_roles.get(member.full_name.lower(), ["Participant"])
-        # Ensure roles is always a list (backward compat if passed a string)
         if isinstance(roles, str):
             roles = [roles]
+
         # Collect prayer points linked to any of this participant's roles
         linked_prayer_points = []
         for role in roles:
             linked_prayer_points.extend(_get_prayer_points_for_role(prayer_points or [], role))
-        # Deduplicate while preserving order
         seen = set()
         unique_prayer_points = []
         for pp in linked_prayer_points:
             if pp not in seen:
                 seen.add(pp)
                 unique_prayer_points.append(pp)
+
+        # Determine which announcements this participant should receive
+        roles_lower = {r.lower() for r in roles}
+        member_admin_ann = []
+        member_pastor_ann = []
+        if admin_announcements and any(kw in rl for rl in roles_lower for kw in admin_keywords):
+            member_admin_ann = admin_announcements
+        if pastors_announcements and any(kw in rl for rl in roles_lower for kw in preacher_keywords):
+            member_pastor_ann = pastors_announcements
+
         try:
             dispatch_event(
                 db=db,
@@ -4008,7 +4021,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "title": program_title,
                     "service_date": date_str,
                     "roles": roles,
-                    "role": ", ".join(roles),  # backward compat for subject line
+                    "role": ", ".join(roles),
                     "member_name": member.full_name,
                     "member_email": member.email,
                     "member_id": member.id,
@@ -4016,6 +4029,8 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "created_by": created_by_name or "Admin",
                     "program_id": program_id,
                     "prayer_points": unique_prayer_points,
+                    "admin_announcements": member_admin_ann,
+                    "pastors_announcements": member_pastor_ann,
                 },
                 recipients=[{
                     "id": member.id,
@@ -4062,7 +4077,7 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
         for p in data.participants:
             roles.setdefault(p.name.lower(), []).append(p.role)
         creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and hasattr(program, 'created_by') and program.created_by else None
-        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=data.prayer_points)
+        _notify_program_participants(db, data.title, data.service_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=data.prayer_points, admin_announcements=data.admin_announcements, pastors_announcements=data.pastors_announcements)
 
     return _program_to_dict(program)
 
@@ -4115,9 +4130,11 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
             title = data.title or program.title
             svc_date = data.service_date or program.service_date
             creator_name = _get_titled_name(program.created_by) if program.created_by_member_id and program.created_by else None
-            # Get prayer points from updated data or existing program
+            # Get prayer points and announcements from updated data or existing program
             pp_raw = data.prayer_points if data.prayer_points is not None else json.loads(program.prayer_points or "[]")
-            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=pp_raw)
+            admin_ann = data.admin_announcements if data.admin_announcements is not None else json.loads(program.admin_announcements or "[]")
+            pastor_ann = data.pastors_announcements if data.pastors_announcements is not None else json.loads(program.pastors_announcements or "[]")
+            _notify_program_participants(db, title, svc_date, names, roles, created_by_name=creator_name, program_id=program.id, prayer_points=pp_raw, admin_announcements=admin_ann, pastors_announcements=pastor_ann)
 
     return _program_to_dict(program)
 

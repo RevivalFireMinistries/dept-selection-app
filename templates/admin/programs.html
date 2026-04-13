@@ -1334,7 +1334,8 @@ async function shareProgram(program) {
         prayerSection.style.display = 'block';
         prayerItems.innerHTML = program.prayer_points.map(a => {
             const text = typeof a === 'string' ? a : (a.text || '');
-            return `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(text)}</div>`;
+            const linked = typeof a === 'object' && a.linked_activity ? a.linked_activity : '';
+            return `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(text)}${linked ? ' <span style="font-size: 11px; color: #e11d48; font-style: italic;">(' + escapeHtml(linked) + ')</span>' : ''}</div>`;
         }).join('');
     } else { prayerSection.style.display = 'none'; }
 
