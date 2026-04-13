@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}HOD Meetings - RFM Stellenbosch{% endblock %}
+{% block title %}My Meetings - RFM Stellenbosch{% endblock %}
 
 {% block content %}
 <div class="min-h-screen bg-gray-50">
@@ -400,13 +400,14 @@ async function loadHODData() {
         const data = await res.json();
 
         if (data.departments.length === 0) {
-            document.getElementById('phoneError').textContent = 'You are not assigned as HOD of any department';
+            document.getElementById('phoneError').textContent = 'You are not assigned as HOD or Elder of any department';
             document.getElementById('phoneError').classList.remove('hidden');
             return;
         }
 
         departments = data.departments;
-        document.getElementById('hodName').textContent = `HOD: ${data.hod_name}`;
+        const roleLabel = data.role === 'elder' ? 'Elder' : 'HOD';
+        document.getElementById('hodName').textContent = `${roleLabel}: ${data.hod_name}`;
 
         // Save phone to localStorage for persistent login
         localStorage.setItem(STORAGE_KEY, phone);

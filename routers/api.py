@@ -328,9 +328,10 @@ def get_member_by_id(member_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/members/{member_id}")
-def update_member(member_id: int, data: dict, db: Session = Depends(get_db)):
+def update_member(member_id: int, data: dict, source: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Update a member's information and department selections"""
-    check_selections_locked(db)
+    if source != "desk":
+        check_selections_locked(db)
 
     member = db.query(Member).filter(Member.id == member_id).first()
 
@@ -449,9 +450,10 @@ def update_setting(data: SettingUpdate, db: Session = Depends(get_db)):
 # ============ SUBMIT ============
 
 @router.post("/submit")
-def submit_form(data: MemberSubmission, db: Session = Depends(get_db)):
+def submit_form(data: MemberSubmission, source: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Submit member department selection form"""
-    check_selections_locked(db)
+    if source != "desk":
+        check_selections_locked(db)
 
     # Validate required fields
     if not data.full_name or not data.phone or not data.address:
@@ -1556,7 +1558,47 @@ def toggle_appeal_window(open: bool = Query(...), db: Session = Depends(get_db))
     return {"success": True, "appeal_window_open": open}
 
 
-# ============ HOD ENDPOINTS ============
+# ============ HOD / ELDER ENDPOINTS ============
+
+
+def _find_member_by_phone(db: Session, phone: str):
+    """Find a member by phone number (normalized)"""
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            return m
+    return None
+
+
+def _is_elder(member: "Member") -> bool:
+    """Check if a member has the elder leadership role"""
+    roles = member.leadership_roles or []
+    return "elder" in roles
+
+
+def _get_accessible_departments(db: Session, member: "Member"):
+    """Get departments a member can manage meetings for (HOD depts + all depts if elder)"""
+    if _is_elder(member):
+        # Elders can access all departments
+        return db.query(Department).options(
+            joinedload(Department.category),
+            joinedload(Department.member_departments).joinedload(MemberDepartment.member)
+        ).order_by(Department.name).all()
+    else:
+        # HODs can only access their own departments
+        return db.query(Department).options(
+            joinedload(Department.category),
+            joinedload(Department.member_departments).joinedload(MemberDepartment.member)
+        ).filter(Department.hod_member_id == member.id).order_by(Department.name).all()
+
+
+def _can_manage_department(db: Session, member: "Member", department_id: int) -> bool:
+    """Check if member can manage a department (is HOD of it or is an Elder)"""
+    if _is_elder(member):
+        return True
+    department = db.query(Department).filter(Department.id == department_id).first()
+    return department and department.hod_member_id == member.id
 
 @router.post("/admin/departments/{department_id}/set-hod")
 def set_department_hod(
@@ -1602,31 +1644,18 @@ def remove_department_hod(
 
 @router.get("/hod/departments")
 def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
-    """Get departments where this member is HOD, with member lists and statuses"""
-    # Normalize phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-
-    # Find the member by phone
-    all_members = db.query(Member).all()
-    hod_member = None
-    for m in all_members:
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            hod_member = m
-            break
-
+    """Get departments where this member is HOD or Elder, with member lists and statuses"""
+    hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    # Find departments where this member is HOD
-    departments = db.query(Department).options(
-        joinedload(Department.category),
-        joinedload(Department.member_departments).joinedload(MemberDepartment.member)
-    ).filter(Department.hod_member_id == hod_member.id).order_by(Department.name).all()
+    is_elder = _is_elder(hod_member)
+    departments = _get_accessible_departments(db, hod_member)
 
     if not departments:
         return {
             "hod_name": hod_member.full_name,
+            "role": "elder" if is_elder else "hod",
             "departments": []
         }
 
@@ -1673,6 +1702,7 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
 
     return {
         "hod_name": hod_member.full_name,
+        "role": "elder" if is_elder else "hod",
         "departments": dept_views
     }
 
@@ -1890,21 +1920,14 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
 
 @router.get("/hod/meetings")
 def get_hod_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
-    """Get all meetings for departments where this member is HOD"""
-    # Find member by phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-    hod_member = None
-    for m in db.query(Member).all():
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            hod_member = m
-            break
-
+    """Get all meetings for departments where this member is HOD or Elder"""
+    hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    # Get departments where this member is HOD
-    dept_ids = [d.id for d in db.query(Department).filter(Department.hod_member_id == hod_member.id).all()]
+    # Get accessible department IDs
+    departments = _get_accessible_departments(db, hod_member)
+    dept_ids = [d.id for d in departments]
 
     if not dept_ids:
         return {"meetings": [], "total": 0}
@@ -1932,24 +1955,17 @@ def get_hod_calendar(
     db: Session = Depends(get_db)
 ):
     """Get weekly calendar with availability for a department"""
-    # Find member by phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-    hod_member = None
-    for m in db.query(Member).all():
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            hod_member = m
-            break
-
+    hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    # Verify HOD access to this department
+    # Verify HOD/Elder access to this department
+    if not _can_manage_department(db, hod_member, department_id):
+        raise HTTPException(status_code=403, detail="You do not have access to this department")
+
     department = db.query(Department).filter(Department.id == department_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
-    if department.hod_member_id != hod_member.id:
-        raise HTTPException(status_code=403, detail="You are not the HOD of this department")
 
     # Parse week date or use today
     if week_date:
@@ -2033,25 +2049,17 @@ def create_hod_meeting(
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Create a meeting (HOD only) - supports recurring meetings"""
-    # Find member by phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-    hod_member = None
-    for m in db.query(Member).all():
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            hod_member = m
-            break
-
+    """Create a meeting (HOD or Elder) - supports recurring meetings"""
+    hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    # Verify HOD access
+    # Verify HOD/Elder access
     department = db.query(Department).filter(Department.id == data.department_id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
-    if department.hod_member_id != hod_member.id:
-        raise HTTPException(status_code=403, detail="You are not the HOD of this department")
+    if not _can_manage_department(db, hod_member, data.department_id):
+        raise HTTPException(status_code=403, detail="You do not have access to this department")
 
     # Validate slots
     if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
@@ -2170,16 +2178,8 @@ def update_hod_meeting(
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Update a meeting (HOD who created it only)"""
-    # Find member by phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-    hod_member = None
-    for m in db.query(Member).all():
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            hod_member = m
-            break
-
+    """Update a meeting (HOD who created it or Elder)"""
+    hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
@@ -2192,8 +2192,8 @@ def update_hod_meeting(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Verify ownership
-    if meeting.created_by_id != hod_member.id:
+    # Verify ownership (elders can edit any meeting, HODs only their own)
+    if not _is_elder(hod_member) and meeting.created_by_id != hod_member.id:
         raise HTTPException(status_code=403, detail="You can only edit meetings you created")
 
     # Handle date/slot changes with conflict check
@@ -2242,15 +2242,7 @@ def delete_hod_meeting(
     db: Session = Depends(get_db)
 ):
     """Delete meeting(s) - supports single, future (this and future), or all in recurring series"""
-    # Find member by phone
-    normalized = phone.strip().replace(" ", "").replace("-", "")
-    hod_member = None
-    for m in db.query(Member).all():
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
-        if m_normalized == normalized or m.phone == phone:
-            hod_member = m
-            break
-
+    hod_member = _find_member_by_phone(db, phone)
     if not hod_member:
         raise HTTPException(status_code=404, detail="Member not found")
 
@@ -2259,19 +2251,20 @@ def delete_hod_meeting(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Verify ownership
-    if meeting.created_by_id != hod_member.id:
+    # Verify ownership (elders can delete any meeting, HODs only their own)
+    if not _is_elder(hod_member) and meeting.created_by_id != hod_member.id:
         raise HTTPException(status_code=403, detail="You can only delete meetings you created")
 
     deleted_count = 1
 
     if delete_scope in ("future", "all") and meeting.recurrence_group_id:
         # Delete multiple meetings in the recurring series
-        # For HOD, also verify they created all meetings in the series
+        # Elders can delete all; HODs only those they created
         query = db.query(Meeting).filter(
-            Meeting.recurrence_group_id == meeting.recurrence_group_id,
-            Meeting.created_by_id == hod_member.id
+            Meeting.recurrence_group_id == meeting.recurrence_group_id
         )
+        if not _is_elder(hod_member):
+            query = query.filter(Meeting.created_by_id == hod_member.id)
 
         if delete_scope == "future":
             # Delete this meeting and all future ones in the series
