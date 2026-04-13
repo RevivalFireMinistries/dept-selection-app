@@ -371,6 +371,7 @@
 </style>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
 <script>
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 let editingId = null;
@@ -1221,9 +1222,13 @@ async function loadPrograms() {
                     <span class="text-xs font-semibold text-gray-700">${escapeHtml(p.created_by_name)}</span>
                 </div>` : ''}
                 <div class="px-4 pb-2 flex gap-2 justify-end">
-                    <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#eef2ff;color:#4f46e5;" title="Share">
+                    <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#eef2ff;color:#4f46e5;" title="Share as Image">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
-                        <span class="text-xs font-medium">Share</span>
+                        <span class="text-xs font-medium">Image</span>
+                    </button>
+                    <button onclick='downloadProgramPDF(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#fef2f2;color:#ef4444;" title="Download PDF">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        <span class="text-xs font-medium">PDF</span>
                     </button>
                     <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#f3f4f6;color:#374151;" title="Edit">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
@@ -1359,6 +1364,76 @@ async function shareProgram(program) {
             document.body.appendChild(a); a.click();
             document.body.removeChild(a); URL.revokeObjectURL(url);
         }, 'image/png');
+    } finally {
+        container.style.left = '-9999px';
+        container.style.position = 'fixed';
+    }
+}
+
+async function downloadProgramPDF(program) {
+    const card = document.getElementById('shareCard');
+    const container = document.getElementById('shareCardContainer');
+
+    const dateObj = new Date(program.service_date + 'T00:00:00');
+    const dateStr = dateObj.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    document.getElementById('shareTitle').textContent = program.title;
+    document.getElementById('shareDate').textContent = dateStr;
+    const shareManagerEl = document.getElementById('shareManager');
+    if (program.created_by_name) {
+        shareManagerEl.style.display = 'block';
+        document.getElementById('shareManagerName').textContent = program.created_by_name;
+    } else { shareManagerEl.style.display = 'none'; }
+
+    document.getElementById('shareItems').innerHTML = (program.program_items || []).map(item => `
+        <div style="display: flex; gap: 12px; padding: 6px 0; font-size: 14px;">
+            <span style="color: #6b7280; font-family: monospace; width: 70px; flex-shrink: 0;">${formatTime(item.time)}</span>
+            <span style="color: #111827;">${escapeHtml(item.item)}</span>
+        </div>
+    `).join('');
+    document.getElementById('shareParticipants').innerHTML = (program.participants || []).map(pt => `
+        <div style="display: flex; gap: 12px; padding: 4px 0; font-size: 14px;">
+            <span style="color: #6b7280; font-weight: 500; width: 140px; flex-shrink: 0;">${escapeHtml(pt.role)}:</span>
+            <span style="color: #111827;">${escapeHtml(pt.name)}</span>
+        </div>
+    `).join('');
+
+    const adminAnnSection = document.getElementById('shareAdminAnn');
+    const adminAnnItems = document.getElementById('shareAdminAnnItems');
+    if (program.admin_announcements && program.admin_announcements.length > 0) {
+        adminAnnSection.style.display = 'block';
+        adminAnnItems.innerHTML = program.admin_announcements.map(a => `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>`).join('');
+    } else { adminAnnSection.style.display = 'none'; }
+    const pastorAnnSection = document.getElementById('sharePastorAnn');
+    const pastorAnnItems = document.getElementById('sharePastorAnnItems');
+    if (program.pastors_announcements && program.pastors_announcements.length > 0) {
+        pastorAnnSection.style.display = 'block';
+        pastorAnnItems.innerHTML = program.pastors_announcements.map(a => `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(a)}</div>`).join('');
+    } else { pastorAnnSection.style.display = 'none'; }
+    const prayerSection = document.getElementById('sharePrayer');
+    const prayerItems = document.getElementById('sharePrayerItems');
+    if (program.prayer_points && program.prayer_points.length > 0) {
+        prayerSection.style.display = 'block';
+        prayerItems.innerHTML = program.prayer_points.map(a => {
+            const text = typeof a === 'string' ? a : (a.text || '');
+            const linked = typeof a === 'object' && a.linked_activity ? a.linked_activity : '';
+            return `<div style="padding: 3px 0; font-size: 14px; color: #111827;">&#8226; ${escapeHtml(text)}${linked ? ' <span style="font-size: 11px; color: #e11d48; font-style: italic;">(' + escapeHtml(linked) + ')</span>' : ''}</div>`;
+        }).join('');
+    } else { prayerSection.style.display = 'none'; }
+
+    container.style.left = '0';
+    container.style.position = 'absolute';
+
+    try {
+        const canvas = await html2canvas(card, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const imgW = canvas.width;
+        const imgH = canvas.height;
+        const pdfW = 555.28;
+        const pdfH = (imgH * pdfW) / imgW;
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: [pdfW + 40, pdfH + 40] });
+        pdf.addImage(imgData, 'PNG', 20, 20, pdfW, pdfH);
+        pdf.save(`${program.title.replace(/[^a-zA-Z0-9]/g, '_')}_${program.service_date}.pdf`);
     } finally {
         container.style.left = '-9999px';
         container.style.position = 'fixed';
