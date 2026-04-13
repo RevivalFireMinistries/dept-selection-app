@@ -342,15 +342,25 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #f0f0f0;
     }
     .program-card-header {
-        padding: 16px; display: flex; justify-content: space-between; align-items: flex-start;
+        padding: 16px; display: flex; align-items: center;
     }
-    .program-card-actions {
-        display: flex; gap: 6px; flex-shrink: 0;
+    .program-card-header:active { background: #f9fafb; }
+    .card-chevron { transition: transform 0.2s ease; }
+    .card-chevron.rotated { transform: rotate(180deg); }
+    .program-card-body {
+        overflow: hidden;
+        transition: max-height 0.3s ease, opacity 0.2s ease;
     }
-    .program-card-actions button {
-        padding: 8px 12px; border-radius: 10px; font-size: 13px;
+    .program-card-body.hidden {
+        max-height: 0; opacity: 0; display: block !important;
+    }
+    .program-card-body.expanded {
+        max-height: 2000px; opacity: 1;
+    }
+    .program-action-btn {
+        padding: 8px 14px; border-radius: 10px; font-size: 13px;
         font-weight: 500; border: none; cursor: pointer; transition: background 0.15s;
-        display: flex; align-items: center; gap: 4px;
+        display: flex; align-items: center; gap: 5px;
     }
 
     /* Hide bottom bar in form when on desktop */
@@ -1051,10 +1061,18 @@ async function loadPrograms() {
             </div>`
         ).join('');
 
+        // Summary counts for collapsed view
+        const itemCount = (p.program_items || []).length;
+        const partCount = (p.participants || []).length;
+        const summaryParts = [];
+        if (itemCount > 0) summaryParts.push(`${itemCount} item${itemCount !== 1 ? 's' : ''}`);
+        if (partCount > 0) summaryParts.push(`${partCount} participant${partCount !== 1 ? 's' : ''}`);
+        const summaryText = summaryParts.length > 0 ? summaryParts.join(' \u00b7 ') : 'No details';
+
         return `
         <div class="program-card mb-3">
-            <div class="program-card-header">
-                <div class="min-w-0">
+            <div class="program-card-header" onclick="toggleProgramCard(this)" style="cursor:pointer;">
+                <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
                         <h3 class="font-bold text-gray-900 text-base">${escapeHtml(p.title)}</h3>
                         ${isToday ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
@@ -1062,55 +1080,66 @@ async function loadPrograms() {
                             ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
                             : ''}
                     </div>
-                    <p class="text-xs text-gray-500 mt-0.5">${dateStr}</p>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <p class="text-xs text-gray-500">${dateStr}</p>
+                        <span class="text-xs text-gray-300">\u00b7</span>
+                        <p class="text-xs text-gray-400 card-summary">${summaryText}</p>
+                    </div>
                 </div>
-                <div class="program-card-actions">
-                    <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="background:#eef2ff;color:#4f46e5;" title="Share">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
-                    </button>
-                    <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="background:#f3f4f6;color:#374151;" title="Edit">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                    </button>
-                    <button onclick="deleteProgram(${p.id})" style="background:#fef2f2;color:#dc2626;" title="Delete">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                </div>
+                <svg class="w-5 h-5 text-gray-400 card-chevron transition-transform flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </div>
 
-            <div class="px-4 pb-4">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Program</div>
-                        ${itemsHtml || '<span class="text-gray-300 text-sm">No items</span>'}
-                        ${moreItems}
-                    </div>
-                    <div>
-                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Participants</div>
-                        ${partsHtml || '<span class="text-gray-300 text-sm">None</span>'}
-                    </div>
+            <div class="program-card-body hidden">
+                <div class="px-4 pb-2 flex gap-2 justify-end">
+                    <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#eef2ff;color:#4f46e5;" title="Share">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                        <span class="text-xs font-medium">Share</span>
+                    </button>
+                    <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#f3f4f6;color:#374151;" title="Edit">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        <span class="text-xs font-medium">Edit</span>
+                    </button>
+                    <button onclick="deleteProgram(${p.id})" class="program-action-btn" style="background:#fef2f2;color:#dc2626;" title="Delete">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <span class="text-xs font-medium">Delete</span>
+                    </button>
                 </div>
 
-                ${(p.admin_announcements && p.admin_announcements.length > 0) ? `
-                <div class="mt-3 pt-3 border-t border-gray-100">
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Admin Announcements</div>
-                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
-                        ${p.admin_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
-                    </ul>
-                </div>` : ''}
-                ${(p.pastors_announcements && p.pastors_announcements.length > 0) ? `
-                <div class="mt-3 pt-3 border-t border-gray-100">
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Pastor's Announcements</div>
-                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
-                        ${p.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
-                    </ul>
-                </div>` : ''}
-                ${(p.prayer_points && p.prayer_points.length > 0) ? `
-                <div class="mt-3 pt-3 border-t border-gray-100">
-                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Prayer Points</div>
-                    <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
-                        ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
-                    </ul>
-                </div>` : ''}
+                <div class="px-4 pb-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Program</div>
+                            ${itemsHtml || '<span class="text-gray-300 text-sm">No items</span>'}
+                            ${moreItems}
+                        </div>
+                        <div>
+                            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Participants</div>
+                            ${partsHtml || '<span class="text-gray-300 text-sm">None</span>'}
+                        </div>
+                    </div>
+
+                    ${(p.admin_announcements && p.admin_announcements.length > 0) ? `
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Admin Announcements</div>
+                        <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                            ${p.admin_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                        </ul>
+                    </div>` : ''}
+                    ${(p.pastors_announcements && p.pastors_announcements.length > 0) ? `
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Pastor's Announcements</div>
+                        <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                            ${p.pastors_announcements.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                        </ul>
+                    </div>` : ''}
+                    ${(p.prayer_points && p.prayer_points.length > 0) ? `
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Prayer Points</div>
+                        <ul class="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                            ${p.prayer_points.map(a => '<li>' + escapeHtml(a) + '</li>').join('')}
+                        </ul>
+                    </div>` : ''}
+                </div>
             </div>
         </div>`;
     }).join('');
@@ -1186,6 +1215,32 @@ async function shareProgram(program) {
     } finally {
         container.style.left = '-9999px';
         container.style.position = 'fixed';
+    }
+}
+
+// ==================== CARD EXPAND/COLLAPSE ====================
+
+function toggleProgramCard(header) {
+    const card = header.closest('.program-card');
+    const body = card.querySelector('.program-card-body');
+    const chevron = header.querySelector('.card-chevron');
+    const summary = header.querySelector('.card-summary');
+
+    if (body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        body.offsetHeight;
+        body.classList.add('expanded');
+        chevron.classList.add('rotated');
+        if (summary) summary.style.display = 'none';
+    } else {
+        body.classList.remove('expanded');
+        chevron.classList.remove('rotated');
+        if (summary) summary.style.display = '';
+        setTimeout(() => {
+            if (!body.classList.contains('expanded')) {
+                body.classList.add('hidden');
+            }
+        }, 300);
     }
 }
 
