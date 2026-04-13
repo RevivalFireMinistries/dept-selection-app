@@ -93,6 +93,11 @@
                 <!-- Assignable Roles -->
                 <div class="flex flex-wrap gap-3">
                     <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="rolePastor" value="pastor" onchange="updateLeadershipRoles()"
+                               class="rounded text-purple-600 focus:ring-purple-500">
+                        <span class="font-medium text-gray-700">Pastor</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
                         <input type="checkbox" id="roleDeacon" value="deacon" onchange="updateLeadershipRoles()"
                                class="rounded text-purple-600 focus:ring-purple-500">
                         <span class="font-medium text-gray-700">Deacon</span>
@@ -493,6 +498,7 @@ async function loadLeadershipRoles() {
         const data = await res.json();
 
         // Set checkboxes based on current roles
+        document.getElementById('rolePastor').checked = data.roles.includes('pastor');
         document.getElementById('roleDeacon').checked = data.roles.includes('deacon');
         document.getElementById('roleElder').checked = data.roles.includes('elder');
         document.getElementById('roleServiceManager').checked = data.roles.includes('service_manager');
@@ -509,6 +515,7 @@ async function loadLeadershipRoles() {
 
 async function updateLeadershipRoles() {
     const roles = [];
+    if (document.getElementById('rolePastor').checked) roles.push('pastor');
     if (document.getElementById('roleDeacon').checked) roles.push('deacon');
     if (document.getElementById('roleElder').checked) roles.push('elder');
     if (document.getElementById('roleServiceManager').checked) roles.push('service_manager');

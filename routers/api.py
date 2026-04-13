@@ -1087,7 +1087,7 @@ def update_member_leadership_roles(
         raise HTTPException(status_code=404, detail="Member not found")
 
     # Validate roles
-    valid_roles = ["deacon", "elder", "service_manager"]  # HOD is derived from departments
+    valid_roles = ["pastor", "deacon", "elder", "service_manager"]  # HOD is derived from departments
     invalid = [r for r in roles if r not in valid_roles]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
@@ -1572,9 +1572,9 @@ def _find_member_by_phone(db: Session, phone: str):
 
 
 def _is_elder(member: "Member") -> bool:
-    """Check if a member has the elder leadership role"""
+    """Check if a member has the elder or pastor leadership role"""
     roles = member.leadership_roles or []
-    return "elder" in roles
+    return "elder" in roles or "pastor" in roles
 
 
 def _get_accessible_departments(db: Session, member: "Member"):
@@ -1662,7 +1662,7 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
         return {
             "hod_name": hod_member.full_name,
             "is_elder": is_elder,
-            "role": "elder" if is_elder else "hod",
+            "role": "pastor" if "pastor" in (hod_member.leadership_roles or []) else ("elder" if is_elder else "hod"),
             "departments": []
         }
 
@@ -1710,7 +1710,7 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
     return {
         "hod_name": hod_member.full_name,
         "is_elder": is_elder,
-        "role": "elder" if is_elder else "hod",
+        "role": "pastor" if "pastor" in (hod_member.leadership_roles or []) else ("elder" if is_elder else "hod"),
         "departments": dept_views
     }
 
@@ -1886,7 +1886,7 @@ def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[i
     if meeting.is_general:
         dept_name = "All Leaders"
     elif target_leadership_roles:
-        role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders", "service_manager": "Service Managers"}
+        role_labels = {"hod": "HODs", "pastor": "Pastors", "deacon": "Deacons", "elder": "Elders", "service_manager": "Service Managers"}
         dept_name = ", ".join([role_labels.get(r, r.title()) for r in target_leadership_roles])
     elif target_member_ids:
         dept_name = f"{target_member_count} Selected Members"
@@ -2590,7 +2590,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
         pass
     elif data.target_leadership_roles and len(data.target_leadership_roles) > 0:
         # Leadership roles meeting (HODs, Deacons, Elders)
-        valid_roles = ["hod", "deacon", "elder", "service_manager"]
+        valid_roles = ["hod", "pastor", "deacon", "elder", "service_manager"]
         invalid = [r for r in data.target_leadership_roles if r not in valid_roles]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
@@ -2718,7 +2718,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
             target_dept_ids = [d[0] for d in all_depts]
         elif data.target_leadership_roles:
             # Members with specific leadership roles
-            role_labels = {"hod": "HODs", "deacon": "Deacons", "elder": "Elders", "service_manager": "Service Managers"}
+            role_labels = {"hod": "HODs", "pastor": "Pastors", "deacon": "Deacons", "elder": "Elders", "service_manager": "Service Managers"}
             dept_name = ", ".join([role_labels.get(r, r.title()) for r in data.target_leadership_roles])
             members_set = set()
 
@@ -3786,9 +3786,11 @@ def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
 # ============ SERVICE PROGRAM ENDPOINTS ============
 
 def _get_titled_name(member: "Member") -> str:
-    """Get member's full name with leadership title prefix (e.g., 'Elder John Smith')"""
+    """Get member's full name with leadership title prefix (e.g., 'Pastor John Smith')"""
     roles = member.leadership_roles or []
-    if "elder" in roles:
+    if "pastor" in roles:
+        return f"Pastor {member.full_name}"
+    elif "elder" in roles:
         return f"Elder {member.full_name}"
     elif "deacon" in roles:
         return f"Deacon {member.full_name}"
@@ -4013,6 +4015,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
         if pastors_announcements and any(kw in rl for rl in roles_lower for kw in preacher_keywords):
             member_pastor_ann = pastors_announcements
 
+        titled_name = _get_titled_name(member)
         try:
             dispatch_event(
                 db=db,
@@ -4022,7 +4025,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "service_date": date_str,
                     "roles": roles,
                     "role": ", ".join(roles),
-                    "member_name": member.full_name,
+                    "member_name": titled_name,
                     "member_email": member.email,
                     "member_id": member.id,
                     "member_phone": member.phone,
@@ -4034,7 +4037,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                 },
                 recipients=[{
                     "id": member.id,
-                    "name": member.full_name,
+                    "name": titled_name,
                     "email": member.email,
                     "phone": member.phone,
                 }]

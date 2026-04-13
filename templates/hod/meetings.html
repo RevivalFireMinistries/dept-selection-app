@@ -421,7 +421,7 @@ async function loadHODData() {
             departments = data.departments;
         }
 
-        const roleLabel = isElder ? 'Elder' : 'HOD';
+        const roleLabel = data.role === 'pastor' ? 'Pastor' : (isElder ? 'Elder' : 'HOD');
         document.getElementById('hodName').textContent = `${roleLabel}: ${data.hod_name}`;
 
         // Save phone to localStorage for persistent login
