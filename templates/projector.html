@@ -1,0 +1,545 @@
+{% extends "base.html" %}
+
+{% block title %}Projector - RFM Stellenbosch Portal{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50">
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-100 sticky top-0 z-20">
+        <div class="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/portal" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                </a>
+                <h1 class="text-lg font-bold text-gray-900">Projector</h1>
+            </div>
+            <span id="userName" class="text-xs text-gray-400"></span>
+        </div>
+    </div>
+
+    <div class="max-w-lg mx-auto px-4 py-5">
+        <!-- Tabs -->
+        <div id="tabBar" class="flex bg-gray-100 rounded-xl p-1 mb-5">
+            <button onclick="switchTab('media')" id="tabMedia" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Media</button>
+            <button onclick="switchTab('songs')" id="tabSongs" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors hidden">Songs</button>
+        </div>
+
+        <!-- ============ MEDIA TAB ============ -->
+        <div id="panelMedia">
+            <!-- Service Date -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date</label>
+                <input type="date" id="mediaDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+            </div>
+
+            <!-- Upload Area -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Upload File</label>
+                <div id="dropZone" onclick="document.getElementById('mediaFile').click()"
+                     class="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-orange-300 hover:bg-orange-50/30 transition-colors">
+                    <svg class="w-10 h-10 mx-auto text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    <p class="text-sm text-gray-500">Tap to select an image or video</p>
+                    <p class="text-xs text-gray-400 mt-1">Images up to 10MB, videos up to 100MB</p>
+                </div>
+                <input type="file" id="mediaFile" accept="image/*,video/*" class="hidden" onchange="handleFileSelect(this)">
+
+                <!-- File preview -->
+                <div id="filePreview" class="hidden mt-3 bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3">
+                    <div id="thumbWrap" class="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        <img id="thumbImg" class="hidden w-full h-full object-cover">
+                        <svg id="thumbVideo" class="hidden w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p id="fileName" class="text-sm font-medium text-gray-900 truncate"></p>
+                        <p id="fileSize" class="text-xs text-gray-400"></p>
+                    </div>
+                    <button onclick="clearFile()" class="text-gray-400 hover:text-red-500 p-1">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Title -->
+            <div class="mb-5">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Caption <span class="text-gray-400 font-normal">(optional)</span></label>
+                <input type="text" id="mediaTitle" placeholder="Brief description of this item" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+            </div>
+
+            <!-- Submit -->
+            <button onclick="submitMedia()" id="mediaBtn" class="w-full py-3 bg-orange-600 text-white font-semibold rounded-xl text-sm hover:bg-orange-700 transition-colors flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                Submit to Projector
+            </button>
+            <div id="mediaError" class="hidden text-sm text-red-600 text-center mt-3"></div>
+            <div id="mediaSuccess" class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center mt-3"></div>
+
+            <!-- Recent submissions -->
+            <div id="recentMedia" class="mt-6 hidden">
+                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Your Submissions</h3>
+                <div id="recentMediaList" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- ============ SONGS TAB ============ -->
+        <div id="panelSongs" class="hidden">
+            <!-- Service Date -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date</label>
+                <input type="date" id="songDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+            </div>
+
+            <!-- Song Search -->
+            <div class="mb-4 relative">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Add Songs</label>
+                <input type="text" id="songSearch" placeholder="Search for a song..." autocomplete="off"
+                    class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    oninput="searchSongs(this.value)">
+                <div id="songDropdown" class="absolute top-full left-0 right-0 z-30 bg-white border border-gray-200 rounded-b-xl max-h-56 overflow-y-auto hidden shadow-lg"></div>
+            </div>
+
+            <!-- Set List -->
+            <div id="setListSection" class="mb-5">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-semibold text-gray-700">Set List</h3>
+                    <span id="songCount" class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">0</span>
+                </div>
+                <div id="setList" class="space-y-2">
+                    <p id="emptySetList" class="text-center text-sm text-gray-400 py-6">Search and add songs above</p>
+                </div>
+            </div>
+
+            <!-- Submit Songs -->
+            <button onclick="submitSongs()" id="songBtn" class="w-full py-3 bg-purple-600 text-white font-semibold rounded-xl text-sm hover:bg-purple-700 transition-colors flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                Submit Song List
+            </button>
+            <div id="songError" class="hidden text-sm text-red-600 text-center mt-3"></div>
+            <div id="songSuccess" class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center mt-3"></div>
+
+            <!-- Previous submissions for this date -->
+            <div id="prevSongs" class="mt-6 hidden">
+                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Previously Submitted</h3>
+                <div id="prevSongsList" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentUser = null;
+let songCatalog = [];
+let setListItems = [];
+
+// ==================== INIT ====================
+
+async function init() {
+    // Get current user info
+    try {
+        const res = await fetch('/api/auth/me');
+        currentUser = await res.json();
+
+        if (!currentUser.logged_in) {
+            window.location.href = '/';
+            return;
+        }
+
+        document.getElementById('userName').textContent = currentUser.full_name;
+
+        // Show songs tab if in music department or has admin role
+        if (currentUser.is_music_department || (currentUser.leadership_roles || []).includes('admin')) {
+            document.getElementById('tabSongs').classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error('Failed to get user info:', e);
+        window.location.href = '/';
+        return;
+    }
+
+    // Set default date to next Sunday
+    const today = new Date();
+    const daysUntilSunday = (7 - today.getDay()) % 7 || 7;
+    const nextSunday = new Date(today);
+    nextSunday.setDate(today.getDate() + daysUntilSunday);
+    const dateStr = nextSunday.toISOString().split('T')[0];
+    document.getElementById('mediaDate').value = dateStr;
+    document.getElementById('songDate').value = dateStr;
+
+    // Load song catalog
+    try {
+        const res = await fetch('/api/songs/catalog');
+        songCatalog = await res.json();
+    } catch (e) { /* catalog not available yet */ }
+
+    switchTab('media');
+    loadRecentMedia();
+}
+
+// ==================== TABS ====================
+
+function switchTab(tab) {
+    const isMedia = tab === 'media';
+    document.getElementById('panelMedia').classList.toggle('hidden', !isMedia);
+    document.getElementById('panelSongs').classList.toggle('hidden', isMedia);
+
+    document.getElementById('tabMedia').className = `flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${isMedia ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`;
+    const tabSongs = document.getElementById('tabSongs');
+    if (!tabSongs.classList.contains('hidden')) {
+        tabSongs.className = `flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${!isMedia ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`;
+    }
+
+    if (!isMedia) loadPrevSongs();
+}
+
+// ==================== MEDIA ====================
+
+function handleFileSelect(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const isVideo = file.type.startsWith('video/');
+    const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+
+    if (file.size > maxSize) {
+        alert(isVideo ? 'Video must be under 100MB' : 'Image must be under 10MB');
+        input.value = '';
+        return;
+    }
+
+    document.getElementById('filePreview').classList.remove('hidden');
+    document.getElementById('dropZone').classList.add('hidden');
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = formatFileSize(file.size);
+
+    if (isVideo) {
+        document.getElementById('thumbImg').classList.add('hidden');
+        document.getElementById('thumbVideo').classList.remove('hidden');
+    } else {
+        document.getElementById('thumbVideo').classList.add('hidden');
+        const img = document.getElementById('thumbImg');
+        img.classList.remove('hidden');
+        img.src = URL.createObjectURL(file);
+    }
+}
+
+function clearFile() {
+    document.getElementById('mediaFile').value = '';
+    document.getElementById('filePreview').classList.add('hidden');
+    document.getElementById('dropZone').classList.remove('hidden');
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+async function submitMedia() {
+    const file = document.getElementById('mediaFile').files[0];
+    const serviceDate = document.getElementById('mediaDate').value;
+    const title = document.getElementById('mediaTitle').value.trim();
+    const errorDiv = document.getElementById('mediaError');
+    const successDiv = document.getElementById('mediaSuccess');
+    const btn = document.getElementById('mediaBtn');
+
+    errorDiv.classList.add('hidden');
+    successDiv.classList.add('hidden');
+
+    if (!file) { errorDiv.textContent = 'Please select a file to upload'; errorDiv.classList.remove('hidden'); return; }
+    if (!serviceDate) { errorDiv.textContent = 'Please select a service date'; errorDiv.classList.remove('hidden'); return; }
+
+    const isVideo = file.type.startsWith('video/');
+    const contentType = isVideo ? 'video' : 'image';
+
+    const formData = new FormData();
+    formData.append('submitter_name', currentUser.full_name);
+    formData.append('content_type', contentType);
+    formData.append('title', title || file.name);
+    formData.append('service_date', serviceDate);
+    formData.append('display_slot', 'any');
+    formData.append('file', file);
+
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" class="opacity-75"/></svg> Uploading...';
+
+    try {
+        const res = await fetch('/api/display/submit', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (res.ok) {
+            successDiv.textContent = 'Submitted successfully!';
+            successDiv.classList.remove('hidden');
+            clearFile();
+            document.getElementById('mediaTitle').value = '';
+            loadRecentMedia();
+        } else {
+            errorDiv.textContent = data.detail || 'Upload failed';
+            errorDiv.classList.remove('hidden');
+        }
+    } catch (e) {
+        errorDiv.textContent = 'Something went wrong. Please try again.';
+        errorDiv.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg> Submit to Projector';
+    }
+}
+
+async function loadRecentMedia() {
+    try {
+        const serviceDate = document.getElementById('mediaDate').value;
+        const res = await fetch(`/api/display/submissions?service_date=${serviceDate}`);
+        const items = await res.json();
+
+        // Filter to current user's submissions
+        const mine = items.filter(i => i.submitter_name === currentUser.full_name && (i.content_type === 'image' || i.content_type === 'video'));
+
+        const section = document.getElementById('recentMedia');
+        const list = document.getElementById('recentMediaList');
+
+        if (mine.length === 0) { section.classList.add('hidden'); return; }
+
+        section.classList.remove('hidden');
+        list.innerHTML = mine.map(item => `
+            <div class="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg ${item.content_type === 'video' ? 'bg-blue-50' : 'bg-orange-50'} flex items-center justify-center flex-shrink-0">
+                    ${item.content_type === 'video'
+                        ? '<svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>'
+                        : '<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>'}
+                </div>
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(item.title || item.file_name || 'Untitled')}</p>
+                    <p class="text-xs text-gray-400">${item.content_type === 'video' ? 'Video' : 'Image'}${item.file_size ? ' &middot; ' + formatFileSize(item.file_size) : ''}</p>
+                </div>
+                <button onclick="deleteSubmission(${item.id})" class="text-gray-300 hover:text-red-500 p-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+            </div>
+        `).join('');
+    } catch (e) { /* ignore */ }
+}
+
+async function deleteSubmission(id) {
+    if (!confirm('Remove this submission?')) return;
+    await fetch(`/api/display/${id}`, { method: 'DELETE' });
+    loadRecentMedia();
+}
+
+// ==================== SONGS ====================
+
+function searchSongs(query) {
+    const dropdown = document.getElementById('songDropdown');
+    if (!query || query.length < 2) { dropdown.classList.add('hidden'); return; }
+
+    const q = query.toLowerCase();
+    const matches = songCatalog.filter(s =>
+        s.title.toLowerCase().includes(q) || (s.author && s.author.toLowerCase().includes(q))
+    ).slice(0, 12);
+
+    if (matches.length === 0) {
+        dropdown.innerHTML = '<div class="px-4 py-3 text-sm text-gray-400">No songs found</div>';
+        dropdown.classList.remove('hidden');
+        return;
+    }
+
+    dropdown.innerHTML = matches.map(s => `
+        <div class="px-4 py-2.5 cursor-pointer hover:bg-purple-50 text-sm border-b border-gray-50 last:border-0" onclick="addSong(${s.id}, '${escapeAttr(s.title)}', '${escapeAttr(s.author || '')}')">
+            <span class="font-medium text-gray-900">${escapeHtml(s.title)}</span>
+            ${s.author ? `<span class="text-gray-400 ml-1 text-xs">${escapeHtml(s.author)}</span>` : ''}
+        </div>
+    `).join('');
+    dropdown.classList.remove('hidden');
+}
+
+function addSong(id, title, author) {
+    // Don't add duplicates
+    if (setListItems.find(s => s.song_id === id)) {
+        document.getElementById('songSearch').value = '';
+        document.getElementById('songDropdown').classList.add('hidden');
+        return;
+    }
+
+    setListItems.push({ song_id: id, song_title: title, author: author, notes: '' });
+    document.getElementById('songSearch').value = '';
+    document.getElementById('songDropdown').classList.add('hidden');
+    renderSetList();
+}
+
+function removeSong(index) {
+    setListItems.splice(index, 1);
+    renderSetList();
+}
+
+function moveSong(index, direction) {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= setListItems.length) return;
+    [setListItems[index], setListItems[newIndex]] = [setListItems[newIndex], setListItems[index]];
+    renderSetList();
+}
+
+function renderSetList() {
+    const container = document.getElementById('setList');
+    const empty = document.getElementById('emptySetList');
+    const count = document.getElementById('songCount');
+
+    count.textContent = setListItems.length;
+
+    if (setListItems.length === 0) {
+        empty.classList.remove('hidden');
+        container.innerHTML = '';
+        container.appendChild(empty);
+        return;
+    }
+
+    empty.classList.add('hidden');
+    container.innerHTML = setListItems.map((s, i) => `
+        <div class="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
+            <span class="w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">${i + 1}</span>
+            <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.song_title)}</p>
+                ${s.author ? `<p class="text-xs text-gray-400">${escapeHtml(s.author)}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-0.5 flex-shrink-0">
+                <button onclick="moveSong(${i}, -1)" class="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 ${i === 0 ? 'opacity-30' : ''}">
+                    <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                </button>
+                <button onclick="moveSong(${i}, 1)" class="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 ${i === setListItems.length - 1 ? 'opacity-30' : ''}">
+                    <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <button onclick="removeSong(${i})" class="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50">
+                    <svg class="w-3.5 h-3.5 text-gray-400 hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function submitSongs() {
+    const serviceDate = document.getElementById('songDate').value;
+    const errorDiv = document.getElementById('songError');
+    const successDiv = document.getElementById('songSuccess');
+    const btn = document.getElementById('songBtn');
+
+    errorDiv.classList.add('hidden');
+    successDiv.classList.add('hidden');
+
+    if (!serviceDate) { errorDiv.textContent = 'Please select a service date'; errorDiv.classList.remove('hidden'); return; }
+    if (setListItems.length === 0) { errorDiv.textContent = 'Please add at least one song'; errorDiv.classList.remove('hidden'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+        const payload = {
+            submitter_name: currentUser.full_name,
+            service_date: serviceDate,
+            songs: setListItems.map((s, i) => ({
+                song_id: s.song_id,
+                song_title: s.song_title,
+                notes: s.notes || '',
+                song_order: i + 1
+            }))
+        };
+
+        const res = await fetch('/api/songlist/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            successDiv.textContent = `${setListItems.length} song${setListItems.length !== 1 ? 's' : ''} submitted!`;
+            successDiv.classList.remove('hidden');
+            setListItems = [];
+            renderSetList();
+            loadPrevSongs();
+        } else {
+            const data = await res.json();
+            errorDiv.textContent = data.detail || 'Submission failed';
+            errorDiv.classList.remove('hidden');
+        }
+    } catch (e) {
+        errorDiv.textContent = 'Something went wrong. Please try again.';
+        errorDiv.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg> Submit Song List';
+    }
+}
+
+async function loadPrevSongs() {
+    try {
+        const serviceDate = document.getElementById('songDate').value;
+        if (!serviceDate) return;
+
+        const res = await fetch(`/api/songlist/submissions?service_date=${serviceDate}`);
+        const items = await res.json();
+
+        const section = document.getElementById('prevSongs');
+        const list = document.getElementById('prevSongsList');
+
+        if (items.length === 0) { section.classList.add('hidden'); return; }
+
+        section.classList.remove('hidden');
+        list.innerHTML = items.map((s, i) => `
+            <div class="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
+                <span class="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0">${s.song_order || i + 1}</span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.song_title)}</p>
+                    ${s.notes ? `<p class="text-xs text-gray-400">${escapeHtml(s.notes)}</p>` : ''}
+                </div>
+                ${s.fetched ? '<span class="text-xs text-emerald-500 font-medium flex-shrink-0">Sent</span>' : `
+                <button onclick="deleteSong(${s.id})" class="text-gray-300 hover:text-red-500 p-1 flex-shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>`}
+            </div>
+        `).join('');
+    } catch (e) { /* ignore */ }
+}
+
+async function deleteSong(id) {
+    await fetch(`/api/songlist/${id}`, { method: 'DELETE' });
+    loadPrevSongs();
+}
+
+// ==================== HELPERS ====================
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function escapeAttr(str) {
+    return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// Close song dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#songSearch') && !e.target.closest('#songDropdown')) {
+        document.getElementById('songDropdown').classList.add('hidden');
+    }
+});
+
+// Reload recent items when date changes
+document.getElementById('mediaDate').addEventListener('change', loadRecentMedia);
+document.getElementById('songDate').addEventListener('change', loadPrevSongs);
+
+// Drag and drop support for media
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-orange-400', 'bg-orange-50'); });
+dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('border-orange-400', 'bg-orange-50'); });
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('border-orange-400', 'bg-orange-50');
+    if (e.dataTransfer.files.length) {
+        document.getElementById('mediaFile').files = e.dataTransfer.files;
+        handleFileSelect(document.getElementById('mediaFile'));
+    }
+});
+
+init();
+</script>
+{% endblock %}

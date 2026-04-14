@@ -483,11 +483,22 @@ async def admin_schedules(request: Request):
 
 
 @router.get("/display/submit")
-async def display_submit_page(request: Request):
-    """Public page for submitting content to FirePresenter"""
-    return templates.TemplateResponse("display_submit.html", {"request": request})
+async def display_submit_page(request: Request, db: Session = Depends(get_db)):
+    """Projector submission page — requires login"""
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("projector.html", {"request": request})
+
+@router.get("/projector")
+async def projector_page(request: Request, db: Session = Depends(get_db)):
+    """Projector submission page — requires login"""
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("projector.html", {"request": request})
 
 @router.get("/songlist")
 async def songlist_page(request: Request):
-    """Public page for the music team to submit song lists and new songs"""
-    return templates.TemplateResponse("songlist_submit.html", {"request": request})
+    """Legacy songlist page — redirects to projector"""
+    return RedirectResponse(url="/projector", status_code=302)
