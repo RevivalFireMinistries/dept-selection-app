@@ -147,12 +147,20 @@ document.addEventListener('DOMContentLoaded', loadData);
 async function loadData() {
     document.getElementById('searchLoading').classList.remove('hidden');
     try {
-        const [membersRes, reviewsRes] = await Promise.all([
-            fetch('/api/members').then(r => r.json()),
-            fetch('/api/admin/reviews').then(r => r.json())
+        console.log('[Members] Fetching data...');
+        const [membersResp, reviewsResp] = await Promise.all([
+            fetch('/api/members'),
+            fetch('/api/admin/reviews')
         ]);
-        allMembers = membersRes;
-        reviewsData = reviewsRes;
+        console.log('[Members] /api/members status:', membersResp.status);
+        console.log('[Members] /api/admin/reviews status:', reviewsResp.status);
+
+        const membersRes = await membersResp.json();
+        const reviewsRes = await reviewsResp.json();
+        console.log('[Members] Got', membersRes.length, 'members,', reviewsRes.length, 'reviews');
+
+        allMembers = Array.isArray(membersRes) ? membersRes : [];
+        reviewsData = Array.isArray(reviewsRes) ? reviewsRes : [];
 
         // Merge review data into members
         allMembers.forEach(member => {
@@ -175,12 +183,13 @@ async function loadData() {
         document.getElementById('approvedCount').textContent = allMembers.filter(m => m.approvedCount > 0).length;
 
     } catch (error) {
-        console.error('Failed to load data:', error);
+        console.error('[Members] Failed to load data:', error);
     } finally {
         document.getElementById('searchLoading').classList.add('hidden');
     }
 
     // Auto-show all members on load
+    console.log('[Members] Calling showAllMembers, allMembers.length =', allMembers.length);
     showAllMembers();
 }
 
