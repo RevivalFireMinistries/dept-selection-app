@@ -1213,14 +1213,31 @@ async function loadPrograms() {
         if (partCount > 0) summaryParts.push(`${partCount} participant${partCount !== 1 ? 's' : ''}`);
         const summaryText = summaryParts.length > 0 ? summaryParts.join(' \u00b7 ') : 'No details';
 
+        // Countdown for draft programs
+        const isDraft = p.status === 'draft' || !p.status;
+        const svcDate = new Date(p.service_date + 'T00:00:00');
+        const now = new Date();
+        now.setHours(0,0,0,0);
+        const daysUntil = Math.ceil((svcDate - now) / (1000 * 60 * 60 * 24));
+        const isUrgent = isDraft && daysUntil <= 2;
+        const isWarning = isDraft && daysUntil <= 5 && daysUntil > 2;
+        let countdownText = '';
+        if (isDraft) {
+            if (daysUntil <= 0) countdownText = 'Service is today — publish now!';
+            else if (daysUntil === 1) countdownText = 'Service is tomorrow — publish now!';
+            else countdownText = `${daysUntil} days until service — remember to publish`;
+        }
+
+        const displayTitle = isDraft ? 'Provisional Program' : p.title;
+
         return `
-        <div class="program-card mb-3">
+        <div class="program-card mb-3 ${isUrgent ? 'ring-2 ring-red-300' : (isWarning ? 'ring-2 ring-amber-200' : '')}">
             <div class="program-card-header" onclick="toggleProgramCard(this)" style="cursor:pointer;">
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <h3 class="font-bold text-gray-900 text-base">${escapeHtml(p.title)}</h3>
-                        ${p.status === 'draft'
-                            ? '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">Draft</span>'
+                        <h3 class="font-bold ${isDraft ? 'text-amber-700' : 'text-gray-900'} text-base">${escapeHtml(displayTitle)}</h3>
+                        ${isDraft
+                            ? '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full animate-pulse">Provisional</span>'
                             : '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">Published</span>'}
                         ${isToday ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
                         ${p.location_type === 'online'
@@ -1228,8 +1245,9 @@ async function loadPrograms() {
                             : ''}
                     </div>
                     <div class="flex items-center gap-2 mt-0.5">
+                        ${isDraft ? `<p class="text-xs font-medium text-gray-500">${escapeHtml(p.title)}</p><span class="text-xs text-gray-300">&middot;</span>` : ''}
                         <p class="text-xs text-gray-500">${dateStr}</p>
-                        <span class="text-xs text-gray-300">\u00b7</span>
+                        <span class="text-xs text-gray-300">&middot;</span>
                         <p class="text-xs text-gray-400 card-summary">${summaryText}</p>
                     </div>
                 </div>
@@ -1237,6 +1255,11 @@ async function loadPrograms() {
             </div>
 
             <div class="program-card-body hidden">
+                ${isDraft && countdownText ? `
+                <div class="mx-4 mb-2 px-3 py-2 rounded-lg flex items-center gap-2 ${isUrgent ? 'bg-red-50 border border-red-200' : (isWarning ? 'bg-amber-50 border border-amber-200' : 'bg-amber-50 border border-amber-100')}">
+                    <svg class="w-4 h-4 flex-shrink-0 ${isUrgent ? 'text-red-500' : 'text-amber-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="text-xs font-medium ${isUrgent ? 'text-red-700' : 'text-amber-700'}">${countdownText}</span>
+                </div>` : ''}
                 ${p.created_by_name ? `
                 <div class="px-4 pb-2 flex items-center gap-2">
                     <div class="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">

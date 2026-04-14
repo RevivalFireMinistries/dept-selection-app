@@ -424,7 +424,7 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 ) if data.get('prayer_points') else ''}
 
                 {divider()}
-                {paragraph("Please be prepared and arrive on time. If you're unable to attend, inform the service coordinator as soon as possible.")}
+                {paragraph("Please be prepared and arrive on time. If you're unable to attend, inform the service manager as soon as possible.")}
             ''',
             button_text="View Program" if data.get('app_url') and data.get('program_id') else None,
             button_url=f"{data.get('app_url')}/program/{data.get('program_id')}?phone={data.get('recipient_phone', '')}" if data.get('app_url') and data.get('program_id') else None

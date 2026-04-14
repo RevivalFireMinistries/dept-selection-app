@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, and_
 from typing import Optional, Dict, Any, List, Tuple
 from io import BytesIO
 from datetime import datetime, date, timedelta
+import os
 import re
 import uuid
 import json
@@ -4263,6 +4264,141 @@ def _send_program_notifications(db: Session, program: ServiceProgram):
     )
 
 
+def _send_published_copy_to_manager(db: Session, program: ServiceProgram):
+    """Send the service manager (creator) a copy of the finalised program."""
+    if not program.created_by_member_id:
+        return
+    from sqlalchemy.orm import joinedload
+    prog = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
+    if not prog or not prog.created_by or not prog.created_by.email:
+        return
+
+    manager = prog.created_by
+    manager_name = _get_titled_name(manager)
+    manager_email = manager.email
+
+    # Build program summary
+    items = json.loads(program.program_items or "[]") if isinstance(program.program_items, str) else (program.program_items or [])
+    participants = json.loads(program.participants or "[]") if isinstance(program.participants, str) else (program.participants or [])
+    admin_ann = json.loads(program.admin_announcements or "[]") if isinstance(program.admin_announcements, str) else (program.admin_announcements or [])
+    pastor_ann = json.loads(program.pastors_announcements or "[]") if isinstance(program.pastors_announcements, str) else (program.pastors_announcements or [])
+    prayer_pts = json.loads(program.prayer_points or "[]") if isinstance(program.prayer_points, str) else (program.prayer_points or [])
+
+    svc_date = program.service_date
+    if hasattr(svc_date, 'strftime'):
+        date_str = svc_date.strftime('%A, %d %B %Y')
+    else:
+        date_str = str(svc_date)
+
+    FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+    TEXT = "#111827"
+    MUTED = "#9ca3af"
+    BORDER = "#f3f4f6"
+
+    # Build order of service rows
+    items_html = ""
+    for it in items:
+        t = it.get("time", "")
+        label = it.get("item", "")
+        if label.lower() == "close":
+            continue
+        # Format time
+        if t:
+            try:
+                from datetime import datetime as _dt
+                items_html += f'<tr><td style="padding:4px 12px 4px 0;color:{MUTED};font-family:monospace;font-size:13px;vertical-align:top;white-space:nowrap;">{_dt.strptime(t, "%H:%M").strftime("%I:%M %p").lstrip("0")}</td><td style="padding:4px 0;color:{TEXT};font-size:14px;">{label}</td></tr>'
+            except ValueError:
+                items_html += f'<tr><td style="padding:4px 12px 4px 0;color:{MUTED};font-family:monospace;font-size:13px;vertical-align:top;">{t}</td><td style="padding:4px 0;color:{TEXT};font-size:14px;">{label}</td></tr>'
+        else:
+            items_html += f'<tr><td></td><td style="padding:4px 0;color:{TEXT};font-size:14px;">{label}</td></tr>'
+
+    # Build participants rows
+    parts_html = ""
+    for pt in participants:
+        parts_html += f'<tr><td style="padding:3px 12px 3px 0;color:{MUTED};font-size:13px;vertical-align:top;white-space:nowrap;">{pt.get("role", "")}</td><td style="padding:3px 0;color:{TEXT};font-size:14px;">{pt.get("name", "")}</td></tr>'
+
+    # Build announcements
+    ann_html = ""
+    if admin_ann:
+        ann_html += f'<p style="margin:16px 0 6px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Admin Announcements</p>'
+        for a in admin_ann:
+            ann_html += f'<p style="margin:0 0 4px 0;color:{TEXT};font-size:14px;padding-left:12px;border-left:2px solid {BORDER};">{a}</p>'
+    if pastor_ann:
+        ann_html += f'<p style="margin:16px 0 6px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Pastor\'s Announcements</p>'
+        for a in pastor_ann:
+            ann_html += f'<p style="margin:0 0 4px 0;color:{TEXT};font-size:14px;padding-left:12px;border-left:2px solid {BORDER};">{a}</p>'
+
+    # Build prayer points
+    prayer_html = ""
+    if prayer_pts:
+        prayer_html += f'<p style="margin:16px 0 6px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Prayer Points</p>'
+        for pp in prayer_pts:
+            if isinstance(pp, dict):
+                text = pp.get("text", "")
+                linked = pp.get("linked_activity", "")
+                linked_tag = f' <span style="font-size:12px;color:{MUTED};font-style:italic;">({linked})</span>' if linked else ""
+                prayer_html += f'<p style="margin:0 0 4px 0;color:{TEXT};font-size:14px;padding-left:12px;border-left:2px solid {BORDER};">{text}{linked_tag}</p>'
+            elif pp:
+                prayer_html += f'<p style="margin:0 0 4px 0;color:{TEXT};font-size:14px;padding-left:12px;border-left:2px solid {BORDER};">{pp}</p>'
+
+    html = f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:{FONT};">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;">
+  <tr><td>
+    <h2 style="margin:0 0 4px 0;color:{TEXT};font-size:18px;font-weight:700;">{program.title}</h2>
+    <p style="margin:0 0 6px 0;color:{MUTED};font-size:14px;">{date_str}</p>
+    <p style="margin:0 0 20px 0;color:#059669;font-size:13px;font-weight:600;">Published — notifications sent to all participants</p>
+
+    <p style="margin:0 0 6px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Order of Service</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:8px;">{items_html}</table>
+
+    <hr style="border:none;border-top:1px solid {BORDER};margin:16px 0;">
+    <p style="margin:0 0 6px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Participants</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{parts_html}</table>
+
+    {ann_html}
+    {prayer_html}
+
+    <hr style="border:none;border-top:1px solid {BORDER};margin:20px 0 16px 0;">
+    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries &middot; Stellenbosch</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>'''
+
+    subject = f"Program Published: {program.title} — {date_str}"
+
+    # Send via configured channel
+    try:
+        from notifications.dispatcher import get_email_settings
+        settings = get_email_settings(db)
+        is_resend = (os.getenv('RESEND_ENABLED', '').lower() == 'true') or settings.get('resend_enabled', 'false').lower() == 'true'
+        is_smtp = (os.getenv('SMTP_ENABLED', '').lower() == 'true') or settings.get('smtp_enabled', 'false').lower() == 'true'
+
+        if is_resend:
+            from notifications.channels.resend import ResendChannel
+            channel = ResendChannel(settings)
+            if channel.is_configured():
+                success, error = channel.send(manager_email, subject, html)
+                if success:
+                    print(f"Sent published program copy to service manager {manager_name} ({manager_email})")
+                else:
+                    print(f"Failed to send published copy to {manager_email}: {error}")
+        elif is_smtp:
+            from notifications.channels.email import EmailChannel
+            channel = EmailChannel(settings)
+            if channel.is_configured():
+                success, error = channel.send(manager_email, subject, html)
+                if success:
+                    print(f"Sent published program copy to service manager {manager_name} ({manager_email})")
+                else:
+                    print(f"Failed to send published copy to {manager_email}: {error}")
+    except Exception as e:
+        print(f"Failed to email program copy to service manager: {e}")
+
+
 @router.post("/admin/programs/{program_id}/publish")
 def publish_program(program_id: int, db: Session = Depends(get_db)):
     """Admin: publish a program and send notifications to all participants"""
@@ -4276,6 +4412,9 @@ def publish_program(program_id: int, db: Session = Depends(get_db)):
 
     # Send notifications to all participants
     _send_program_notifications(db, program)
+
+    # Send service manager a copy of the final program
+    _send_published_copy_to_manager(db, program)
 
     return _program_to_dict(program, db=db)
 
