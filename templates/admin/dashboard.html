@@ -6,6 +6,18 @@
 <div class="space-y-6">
     <h2 class="text-2xl font-bold text-gray-900">Dashboard</h2>
 
+    <!-- Pending Registrations Banner -->
+    <div id="pendingRegBanner" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                <h3 class="font-semibold text-amber-800 text-sm">Pending Registrations</h3>
+                <span id="pendingRegCount" class="px-2 py-0.5 bg-amber-200 text-amber-800 text-xs font-bold rounded-full"></span>
+            </div>
+        </div>
+        <div id="pendingRegList" class="space-y-2"></div>
+    </div>
+
     <!-- Publish Status Banner -->
     <div id="publishBanner" class="rounded-xl p-4 hidden">
         <!-- Filled by JS -->
@@ -959,12 +971,67 @@ function downloadExport(type, approvedOnly) {
     window.open(url, '_blank');
 }
 
+// Pending registrations
+async function loadPendingRegistrations() {
+    try {
+        const res = await fetch('/api/admin/pending-registrations');
+        const pending = await res.json();
+
+        if (pending.length === 0) {
+            document.getElementById('pendingRegBanner').classList.add('hidden');
+            return;
+        }
+
+        document.getElementById('pendingRegBanner').classList.remove('hidden');
+        document.getElementById('pendingRegCount').textContent = pending.length;
+
+        const list = document.getElementById('pendingRegList');
+        list.innerHTML = pending.map(m => {
+            const created = m.created_at ? new Date(m.created_at).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }) : '';
+            return `
+            <div class="bg-white rounded-lg border border-amber-100 p-3 flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="font-medium text-sm text-gray-900">${escapeHtml(m.full_name)}</div>
+                    <div class="text-xs text-gray-500">${escapeHtml(m.phone)} &middot; ${escapeHtml(m.email || '')} &middot; ${created}</div>
+                </div>
+                <div class="flex gap-1.5 flex-shrink-0">
+                    <button onclick="approveMember(${m.id})" class="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700">Approve</button>
+                    <button onclick="rejectMember(${m.id})" class="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 text-xs font-medium rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200">Reject</button>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load pending registrations:', e);
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+async function approveMember(id) {
+    const res = await fetch(`/api/admin/approve-member/${id}`, { method: 'POST' });
+    if (res.ok) loadPendingRegistrations();
+    else alert('Failed to approve');
+}
+
+async function rejectMember(id) {
+    if (!confirm('Reject and remove this registration?')) return;
+    const res = await fetch(`/api/admin/reject-member/${id}`, { method: 'POST' });
+    if (res.ok) loadPendingRegistrations();
+    else alert('Failed to reject');
+}
+
 // Initialize
 loadStats();
 loadDepartments();
 loadMeetings();
 loadDeptStats();
 loadMembers();
+loadPendingRegistrations();
 
 // Close member search when clicking outside
 document.addEventListener('click', (e) => {

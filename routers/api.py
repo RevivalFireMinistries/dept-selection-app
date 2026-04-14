@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Response, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_, and_
 from typing import Optional, Dict, Any, List, Tuple
@@ -45,6 +45,369 @@ def check_selections_locked(db: Session):
             status_code=403,
             detail="Department selections are locked. Results have been published."
         )
+
+
+# ============ AUTHENTICATION ============
+
+import bcrypt
+import secrets
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def _verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+
+@router.post("/auth/register")
+def register_member(
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Register a new member account (requires admin approval)"""
+    full_name = (data.get("full_name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip()
+    address = (data.get("address") or "").strip()
+    password = data.get("password") or ""
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if not phone or not validate_phone(phone):
+        raise HTTPException(status_code=400, detail="Valid 10-digit phone number is required")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    # Check if phone already exists
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    existing = db.query(Member).all()
+    for m in existing:
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized:
+            raise HTTPException(status_code=400, detail="An account with this phone number already exists. Try logging in or use Forgot Password.")
+
+    member = Member(
+        full_name=full_name,
+        phone=phone,
+        email=email,
+        address=address or "",
+        password_hash=_hash_password(password),
+        is_active=False  # Requires admin approval
+    )
+    db.add(member)
+    db.commit()
+
+    return {"success": True, "message": "Your account has been created and is pending admin approval. You will be notified once approved."}
+
+
+@router.post("/auth/login")
+def login_member(
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Login with phone + password"""
+    phone = (data.get("phone") or "").strip()
+    password = data.get("password") or ""
+
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number is required")
+
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        raise HTTPException(status_code=401, detail="No account found with this phone number")
+
+    # Check if member has set a password
+    if not member.password_hash:
+        raise HTTPException(status_code=401, detail="You need to set a password. Use 'Forgot Password' to create one.")
+
+    # Verify password
+    if not _verify_password(password, member.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    # Check if account is active (admin approved)
+    if not member.is_active:
+        raise HTTPException(status_code=403, detail="Your account is pending admin approval. You will be notified once approved.")
+
+    # Create response with session cookie
+    from routers.pages import _sign_member_session, MEMBER_COOKIE_NAME, SESSION_MAX_AGE
+    token = _sign_member_session(member.id)
+    response = JSONResponse(content={
+        "success": True,
+        "member_id": member.id,
+        "phone": member.phone,
+        "full_name": member.full_name
+    })
+    response.set_cookie(
+        key=MEMBER_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        max_age=SESSION_MAX_AGE,
+        samesite="lax"
+    )
+    return response
+
+
+@router.post("/auth/forgot-password")
+def forgot_password(
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Send password reset email"""
+    phone = (data.get("phone") or "").strip()
+
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number is required")
+
+    # Find member by phone
+    normalized = phone.strip().replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        # Don't reveal whether the phone exists
+        return {"success": True, "message": "If an account exists with this phone number, a reset link has been sent to the registered email."}
+
+    if not member.email:
+        raise HTTPException(status_code=400, detail="No email address on file. Please contact an admin.")
+
+    # Generate reset token
+    token = secrets.token_urlsafe(32)
+    member.reset_token = token
+    member.reset_token_expires = datetime.utcnow() + timedelta(hours=2)
+    db.commit()
+
+    # Send email
+    try:
+        from notifications.dispatcher import get_email_settings
+
+        settings_dict = {}
+        for s in db.query(Settings).all():
+            settings_dict[s.key] = s.value
+
+        email_settings = get_email_settings(settings_dict)
+
+        if email_settings.get("resend_enabled"):
+            from notifications.channels.resend import ResendChannel
+            channel = ResendChannel(
+                api_key=email_settings["resend_api_key"],
+                from_name=email_settings.get("resend_from_name", "RFM Stellenbosch"),
+                from_email=email_settings["resend_from_email"]
+            )
+        elif email_settings.get("smtp_enabled"):
+            from notifications.channels.email import EmailChannel
+            channel = EmailChannel(
+                host=email_settings["smtp_host"],
+                port=int(email_settings.get("smtp_port", 587)),
+                username=email_settings.get("smtp_username"),
+                password=email_settings.get("smtp_password"),
+                from_name=email_settings.get("smtp_from_name", "RFM Stellenbosch"),
+                from_email=email_settings["smtp_from_email"],
+                use_tls=True
+            )
+        else:
+            print("No email channel configured for password reset")
+            return {"success": True, "message": "If an account exists with this phone number, a reset link has been sent to the registered email."}
+
+        # Build reset URL
+        base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+        if base_url and not base_url.startswith("http"):
+            base_url = f"https://{base_url}"
+        if not base_url:
+            base_url = os.environ.get("BASE_URL", "http://localhost:8000")
+        reset_url = f"{base_url}/reset-password?token={token}"
+
+        FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        html = f"""
+        <div style="max-width:480px;margin:0 auto;font-family:{FONT};color:#111827;">
+            <div style="border-top:3px solid #6366f1;padding:32px 0 16px;">
+                <h1 style="font-size:20px;margin:0 0 8px;">Reset Your Password</h1>
+                <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
+                    We received a request to reset your password for the RFM Stellenbosch Portal.
+                </p>
+                <a href="{reset_url}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+                    Reset Password
+                </a>
+                <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;">
+                    This link expires in 2 hours. If you didn't request this, you can safely ignore this email.
+                </p>
+            </div>
+            <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
+                <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+            </div>
+        </div>
+        """
+
+        success, error = channel.send(member.email, "Reset Your Password - RFM Stellenbosch Portal", html)
+        if not success:
+            print(f"Failed to send reset email: {error}")
+
+    except Exception as e:
+        print(f"Error sending reset email: {e}")
+
+    return {"success": True, "message": "If an account exists with this phone number, a reset link has been sent to the registered email."}
+
+
+@router.post("/auth/reset-password")
+def reset_password(
+    data: dict = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Reset password using token from email"""
+    token = (data.get("token") or "").strip()
+    new_password = data.get("password") or ""
+
+    if not token:
+        raise HTTPException(status_code=400, detail="Reset token is required")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    member = db.query(Member).filter(
+        Member.reset_token == token,
+        Member.reset_token_expires > datetime.utcnow()
+    ).first()
+
+    if not member:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link. Please request a new one.")
+
+    member.password_hash = _hash_password(new_password)
+    member.reset_token = None
+    member.reset_token_expires = None
+    db.commit()
+
+    return {"success": True, "message": "Password has been reset successfully. You can now log in."}
+
+
+@router.get("/auth/me")
+def get_current_user(request: Request, db: Session = Depends(get_db)):
+    """Check if user is logged in and return their info"""
+    from routers.pages import get_current_member
+    member = get_current_member(request, db)
+    if not member:
+        return {"logged_in": False}
+
+    roles = []
+    if member.leadership_roles:
+        try:
+            roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+        except (ValueError, TypeError):
+            roles = []
+
+    return {
+        "logged_in": True,
+        "member_id": member.id,
+        "full_name": member.full_name,
+        "phone": member.phone,
+        "email": member.email,
+        "leadership_roles": roles
+    }
+
+
+# ============ ADMIN: MEMBER APPROVAL ============
+
+@router.get("/admin/pending-registrations")
+def get_pending_registrations(db: Session = Depends(get_db)):
+    """Admin: get all inactive (pending approval) members"""
+    pending = db.query(Member).filter(Member.is_active == False).order_by(Member.created_at.desc()).all()
+    return [{
+        "id": m.id,
+        "full_name": m.full_name,
+        "phone": m.phone,
+        "email": m.email,
+        "created_at": m.created_at.isoformat() if m.created_at else None
+    } for m in pending]
+
+
+@router.post("/admin/approve-member/{member_id}")
+def approve_member(member_id: int, db: Session = Depends(get_db)):
+    """Admin: approve a pending member registration"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    member.is_active = True
+    db.commit()
+
+    # Send approval email
+    try:
+        from notifications.dispatcher import get_email_settings
+        settings_dict = {}
+        for s in db.query(Settings).all():
+            settings_dict[s.key] = s.value
+        email_settings = get_email_settings(settings_dict)
+
+        channel = None
+        if email_settings.get("resend_enabled"):
+            from notifications.channels.resend import ResendChannel
+            channel = ResendChannel(
+                api_key=email_settings["resend_api_key"],
+                from_name=email_settings.get("resend_from_name", "RFM Stellenbosch"),
+                from_email=email_settings["resend_from_email"]
+            )
+        elif email_settings.get("smtp_enabled"):
+            from notifications.channels.email import EmailChannel
+            channel = EmailChannel(
+                host=email_settings["smtp_host"],
+                port=int(email_settings.get("smtp_port", 587)),
+                username=email_settings.get("smtp_username"),
+                password=email_settings.get("smtp_password"),
+                from_name=email_settings.get("smtp_from_name", "RFM Stellenbosch"),
+                from_email=email_settings["smtp_from_email"],
+                use_tls=True
+            )
+
+        if channel and member.email:
+            base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+            if base_url and not base_url.startswith("http"):
+                base_url = f"https://{base_url}"
+            if not base_url:
+                base_url = os.environ.get("BASE_URL", "http://localhost:8000")
+
+            FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+            html = f"""
+            <div style="max-width:480px;margin:0 auto;font-family:{FONT};color:#111827;">
+                <div style="border-top:3px solid #059669;padding:32px 0 16px;">
+                    <h1 style="font-size:20px;margin:0 0 8px;">Account Approved!</h1>
+                    <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
+                        Hi {member.full_name}, your RFM Stellenbosch Portal account has been approved. You can now log in.
+                    </p>
+                    <a href="{base_url}" style="display:inline-block;padding:12px 32px;background:#059669;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+                        Log In Now
+                    </a>
+                </div>
+                <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
+                    <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+                </div>
+            </div>
+            """
+            channel.send(member.email, "Account Approved - RFM Stellenbosch Portal", html)
+    except Exception as e:
+        print(f"Error sending approval email: {e}")
+
+    return {"success": True}
+
+
+@router.post("/admin/reject-member/{member_id}")
+def reject_member(member_id: int, db: Session = Depends(get_db)):
+    """Admin: reject and delete a pending member registration"""
+    member = db.query(Member).filter(Member.id == member_id, Member.is_active == False).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Pending member not found")
+    db.delete(member)
+    db.commit()
+    return {"success": True}
 
 
 # ============ DEPARTMENTS ============

@@ -3,6 +3,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional
+import hmac, hashlib, os
 
 from database import get_db
 from models import Settings, Member
@@ -12,6 +13,9 @@ templates = Jinja2Templates(directory="templates")
 
 ADMIN_COOKIE_NAME = "admin_session"
 DESK_COOKIE_NAME = "desk_session"
+MEMBER_COOKIE_NAME = "member_session"
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "rfm-stellenbosch-portal-2026")
+SESSION_MAX_AGE = 90 * 24 * 60 * 60  # 90 days
 
 
 def is_authenticated(request: Request) -> bool:
@@ -24,12 +28,87 @@ def is_desk_authenticated(request: Request) -> bool:
     return request.cookies.get(DESK_COOKIE_NAME) == "authenticated"
 
 
+def _sign_member_session(member_id: int) -> str:
+    """Create a signed session token for a member"""
+    msg = str(member_id).encode()
+    sig = hmac.new(SESSION_SECRET.encode(), msg, hashlib.sha256).hexdigest()[:24]
+    return f"{member_id}.{sig}"
+
+
+def _verify_member_session(token: str) -> Optional[int]:
+    """Verify a signed session token, return member_id or None"""
+    if not token:
+        return None
+    try:
+        parts = token.split(".")
+        if len(parts) != 2:
+            return None
+        member_id = int(parts[0])
+        expected = _sign_member_session(member_id)
+        if hmac.compare_digest(token, expected):
+            return member_id
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def get_current_member(request: Request, db: Session) -> Optional[Member]:
+    """Get the currently logged-in member from session cookie"""
+    token = request.cookies.get(MEMBER_COOKIE_NAME)
+    member_id = _verify_member_session(token)
+    if member_id:
+        member = db.query(Member).filter(Member.id == member_id, Member.is_active == True).first()
+        return member
+    return None
+
+
+def set_member_session(response: Response, member_id: int):
+    """Set the member session cookie on a response"""
+    token = _sign_member_session(member_id)
+    response.set_cookie(
+        key=MEMBER_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        max_age=SESSION_MAX_AGE,
+        samesite="lax"
+    )
+
+
 # ============ PUBLIC ROUTES ============
 
 @router.get("/")
-async def landing(request: Request):
-    """Landing page with tiles"""
+async def landing(request: Request, db: Session = Depends(get_db)):
+    """Login page — redirect to portal if already logged in"""
+    member = get_current_member(request, db)
+    if member:
+        return RedirectResponse(url=f"/portal?phone={member.phone}", status_code=302)
     return templates.TemplateResponse("landing.html", {"request": request})
+
+
+@router.get("/register")
+async def register_page(request: Request):
+    """Registration page"""
+    return templates.TemplateResponse("register.html", {"request": request})
+
+
+@router.get("/forgot-password")
+async def forgot_password_page(request: Request):
+    """Forgot password page"""
+    return templates.TemplateResponse("forgot_password.html", {"request": request})
+
+
+@router.get("/reset-password")
+async def reset_password_page(request: Request):
+    """Reset password page (with token from email)"""
+    return templates.TemplateResponse("reset_password.html", {"request": request})
+
+
+@router.get("/logout")
+async def member_logout():
+    """Log out member"""
+    response = RedirectResponse(url="/", status_code=302)
+    response.delete_cookie(key=MEMBER_COOKIE_NAME)
+    return response
 
 
 @router.get("/new")
@@ -269,8 +348,12 @@ async def admin_appeals(request: Request):
 # ============ MEMBER RESULTS ROUTES ============
 
 @router.get("/portal")
-async def member_portal(request: Request):
-    """Member portal - view results, update, appeal"""
+async def member_portal(request: Request, db: Session = Depends(get_db)):
+    """Member portal - requires login session or redirects to login"""
+    member = get_current_member(request, db)
+    phone = request.query_params.get("phone")
+    if not member and not phone:
+        return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse("portal.html", {"request": request})
 
 

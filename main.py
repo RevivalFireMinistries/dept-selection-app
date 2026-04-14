@@ -409,6 +409,24 @@ def run_migrations():
             conn.commit()
             print("Migration: Created display_submissions table")
 
+        # Add authentication columns to members
+        result = conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'members' AND column_name = 'password_hash'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS password_hash VARCHAR,
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS reset_token VARCHAR,
+                ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP WITH TIME ZONE
+            """))
+            # Existing members are active by default
+            conn.execute(text("UPDATE members SET is_active = TRUE WHERE is_active IS NULL"))
+            conn.commit()
+            print("Migration: Added authentication columns to members")
+
         # Seed default notification configs for all event types
         event_types = [
             'member_approved',

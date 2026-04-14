@@ -41,6 +41,11 @@ class Member(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Leadership roles: JSON array e.g. ["deacon", "elder"] - "hod" is derived from departments
     leadership_roles = Column(Text, nullable=True)
+    # Authentication
+    password_hash = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    reset_token = Column(String, nullable=True)
+    reset_token_expires = Column(DateTime(timezone=True), nullable=True)
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")

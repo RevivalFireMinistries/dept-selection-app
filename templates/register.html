@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Create Account - RFM Stellenbosch Portal{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 flex items-center justify-center px-4 py-8">
+    <div class="w-full max-w-sm space-y-5">
+
+        <!-- Header -->
+        <div class="text-center">
+            <h1 class="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                RFM Stellenbosch
+            </h1>
+            <p class="text-gray-500 text-sm mt-1">Portal</p>
+        </div>
+
+        <!-- Register Card -->
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-1">Create Account</h2>
+            <p class="text-sm text-gray-500 mb-5">Fill in your details to get started</p>
+
+            <div class="space-y-3.5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                    <input type="text" id="regName" placeholder="John Smith" autocomplete="name"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+                    <input type="tel" id="regPhone" placeholder="0711234456" autocomplete="tel"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                    <input type="email" id="regEmail" placeholder="you@example.com" autocomplete="email"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                    <input type="text" id="regAddress" placeholder="Your address (optional)" autocomplete="street-address"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                    <input type="password" id="regPassword" placeholder="At least 6 characters" autocomplete="new-password"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    <p class="text-xs text-gray-400 mt-1">Minimum 6 characters</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+                    <input type="password" id="regConfirm" placeholder="Re-enter your password" autocomplete="new-password"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        onkeydown="if(event.key==='Enter') register();">
+                </div>
+
+                <button onclick="register()" id="regBtn"
+                    class="w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl text-sm hover:bg-indigo-700 transition-colors">
+                    Create Account
+                </button>
+
+                <div id="regError" class="hidden text-sm text-red-600 text-center"></div>
+                <div id="regSuccess" class="hidden text-sm text-green-600 text-center"></div>
+            </div>
+        </div>
+
+        <!-- Login Link -->
+        <div class="text-center">
+            <p class="text-sm text-gray-500">
+                Already have an account?
+                <a href="/" class="text-indigo-600 hover:text-indigo-700 font-semibold">Sign in</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function register() {
+    const name = document.getElementById('regName').value.trim();
+    const phone = document.getElementById('regPhone').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
+    const address = document.getElementById('regAddress').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const confirm = document.getElementById('regConfirm').value;
+
+    const errorDiv = document.getElementById('regError');
+    const successDiv = document.getElementById('regSuccess');
+    const btn = document.getElementById('regBtn');
+
+    errorDiv.classList.add('hidden');
+    successDiv.classList.add('hidden');
+
+    if (!name) { errorDiv.textContent = 'Full name is required'; errorDiv.classList.remove('hidden'); return; }
+    if (!phone) { errorDiv.textContent = 'Phone number is required'; errorDiv.classList.remove('hidden'); return; }
+
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length !== 10) { errorDiv.textContent = 'Phone number must be 10 digits'; errorDiv.classList.remove('hidden'); return; }
+
+    if (!email) { errorDiv.textContent = 'Email is required'; errorDiv.classList.remove('hidden'); return; }
+    if (password.length < 6) { errorDiv.textContent = 'Password must be at least 6 characters'; errorDiv.classList.remove('hidden'); return; }
+    if (password !== confirm) { errorDiv.textContent = 'Passwords do not match'; errorDiv.classList.remove('hidden'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Creating account...';
+
+    try {
+        const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: name, phone, email, address, password })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            // Redirect to login with success message
+            window.location.href = `/?message=${encodeURIComponent('Account created! An admin will review and approve your account.')}&type=success`;
+        } else {
+            errorDiv.textContent = data.detail || 'Registration failed';
+            errorDiv.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = 'Create Account';
+        }
+    } catch (e) {
+        errorDiv.textContent = 'Something went wrong. Please try again.';
+        errorDiv.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+    }
+}
+</script>
+{% endblock %}
