@@ -1507,6 +1507,45 @@ def admin_update_member(member_id: int, data: dict = Body(...), db: Session = De
     }
 
 
+@router.delete("/admin/members/{member_id}")
+def admin_delete_member(member_id: int, db: Session = Depends(get_db)):
+    """Admin permanently deletes a member and all related records"""
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    member_name = member.full_name
+
+    # Clear HOD references on departments
+    db.query(Department).filter(Department.hod_member_id == member_id).update(
+        {"hod_member_id": None}, synchronize_session=False
+    )
+
+    # Clear SET NULL references to avoid FK issues with SQLAlchemy
+    from models import ServiceProgram, ServiceSchedule, Meeting, NotificationLog, PosterRequest
+    db.query(ServiceProgram).filter(ServiceProgram.created_by_member_id == member_id).update(
+        {"created_by_member_id": None}, synchronize_session=False
+    )
+    db.query(ServiceSchedule).filter(ServiceSchedule.service_manager_id == member_id).update(
+        {"service_manager_id": None}, synchronize_session=False
+    )
+    db.query(Meeting).filter(Meeting.created_by_id == member_id).update(
+        {"created_by_id": None}, synchronize_session=False
+    )
+    db.query(NotificationLog).filter(NotificationLog.recipient_id == member_id).update(
+        {"recipient_id": None}, synchronize_session=False
+    )
+    db.query(PosterRequest).filter(PosterRequest.acknowledged_by_id == member_id).update(
+        {"acknowledged_by_id": None}, synchronize_session=False
+    )
+
+    # Delete the member (CASCADE handles member_departments, appeals, meeting_rsvps, poster_requests)
+    db.delete(member)
+    db.commit()
+
+    return {"success": True, "message": f"Member '{member_name}' has been permanently deleted"}
+
+
 @router.post("/admin/members/{member_id}/assign")
 def assign_department(
     member_id: int,

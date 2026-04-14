@@ -52,6 +52,10 @@
                         class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 text-center">
                         Edit Details
                     </button>
+                    <button onclick="openDeleteModal()"
+                        class="px-4 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 text-center border border-red-200">
+                        Delete Member
+                    </button>
                 </div>
             </div>
         </div>
@@ -232,6 +236,43 @@
                 </button>
                 <button onclick="assignDepartment()" id="assignBtn" class="flex-1 py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700">
                     Assign
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full">
+        <div class="p-6">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                    <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900">Delete Member</h3>
+            </div>
+            <p class="text-sm text-gray-600 mb-2">Are you sure you want to permanently delete <strong id="deleteMemberName"></strong>?</p>
+            <p class="text-sm text-red-600 mb-4">This will remove all their department selections, appeals, meeting RSVPs, and poster requests. This action cannot be undone.</p>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Type the member's name to confirm:</label>
+                <input type="text" id="deleteConfirmInput" placeholder="Full name" autocomplete="off"
+                    class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    oninput="checkDeleteConfirmation()">
+            </div>
+
+            <div id="deleteError" class="hidden text-sm text-red-600 mb-3"></div>
+
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()" class="flex-1 py-3 border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="deleteMember()" id="deleteBtn" disabled
+                    class="flex-1 py-3 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Delete Permanently
                 </button>
             </div>
         </div>
@@ -703,6 +744,47 @@ async function assignDepartment() {
     } finally {
         btn.disabled = false;
         btn.textContent = 'Assign';
+    }
+}
+
+// ===== Delete Member =====
+function openDeleteModal() {
+    document.getElementById('deleteModal').classList.remove('hidden');
+    document.getElementById('deleteMemberName').textContent = memberData.fullName;
+    document.getElementById('deleteConfirmInput').value = '';
+    document.getElementById('deleteBtn').disabled = true;
+    document.getElementById('deleteError').classList.add('hidden');
+}
+
+function closeDeleteModal() {
+    document.getElementById('deleteModal').classList.add('hidden');
+}
+
+function checkDeleteConfirmation() {
+    const input = document.getElementById('deleteConfirmInput').value.trim().toLowerCase();
+    const expected = (memberData.fullName || '').trim().toLowerCase();
+    document.getElementById('deleteBtn').disabled = input !== expected;
+}
+
+async function deleteMember() {
+    const btn = document.getElementById('deleteBtn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+    document.getElementById('deleteError').classList.add('hidden');
+
+    try {
+        const res = await fetch(`/api/admin/members/${memberId}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.detail || 'Failed to delete member');
+        }
+        // Redirect to members list
+        window.location.href = '/admin/members?message=' + encodeURIComponent('Member deleted successfully');
+    } catch (err) {
+        document.getElementById('deleteError').textContent = err.message;
+        document.getElementById('deleteError').classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Delete Permanently';
     }
 }
 </script>

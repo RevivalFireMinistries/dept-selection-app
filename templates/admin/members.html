@@ -127,6 +127,20 @@ let allMembers = [];
 let filteredMembers = [];
 let reviewsData = [];
 
+// Show success message from redirect (e.g. after member deletion)
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    const msg = params.get('message');
+    if (msg) {
+        const banner = document.createElement('div');
+        banner.className = 'mb-4 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm font-medium';
+        banner.textContent = decodeURIComponent(msg);
+        document.querySelector('.space-y-6').prepend(banner);
+        window.history.replaceState({}, document.title, '/admin/members');
+        setTimeout(() => banner.remove(), 5000);
+    }
+})();
+
 // Load all members and reviews on page load
 document.addEventListener('DOMContentLoaded', loadData);
 
