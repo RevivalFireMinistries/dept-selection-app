@@ -425,16 +425,12 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     ).filter(Member.id == member.id).first()
 
     departments = []
-    is_music_department = False
     if member_with_depts:
         for md in member_with_depts.departments:
             if md.status == "approved":
                 dept_name = md.department.name if md.department else ""
                 cat_name = md.department.category.name if md.department and md.department.category else ""
                 departments.append({"id": md.department.id, "name": dept_name, "category": cat_name})
-                # Check if member is in any music-related department
-                if cat_name and "music" in cat_name.lower():
-                    is_music_department = True
 
     return {
         "logged_in": True,
@@ -443,8 +439,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         "phone": member.phone,
         "email": member.email,
         "leadership_roles": roles,
-        "departments": departments,
-        "is_music_department": is_music_department
+        "departments": departments
     }
 
 

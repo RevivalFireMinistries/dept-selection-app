@@ -147,10 +147,8 @@ async function init() {
 
         document.getElementById('userName').textContent = currentUser.full_name;
 
-        // Show songs tab if in music department or has admin role
-        if (currentUser.is_music_department || (currentUser.leadership_roles || []).includes('admin')) {
-            document.getElementById('tabSongs').classList.remove('hidden');
-        }
+        // Songs tab visible to all logged-in members
+        document.getElementById('tabSongs').classList.remove('hidden');
     } catch (e) {
         console.error('Failed to get user info:', e);
         window.location.href = '/';
