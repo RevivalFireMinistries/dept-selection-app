@@ -385,19 +385,15 @@ function moveSong(index, direction) {
 
 function renderSetList() {
     const container = document.getElementById('setList');
-    const empty = document.getElementById('emptySetList');
     const count = document.getElementById('songCount');
 
     count.textContent = setListItems.length;
 
     if (setListItems.length === 0) {
-        empty.classList.remove('hidden');
-        container.innerHTML = '';
-        container.appendChild(empty);
+        container.innerHTML = '<p id="emptySetList" class="text-center text-sm text-gray-400 py-6">Search and add songs above</p>';
         return;
     }
 
-    empty.classList.add('hidden');
     container.innerHTML = setListItems.map((s, i) => `
         <div class="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
             <span class="w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">${i + 1}</span>
