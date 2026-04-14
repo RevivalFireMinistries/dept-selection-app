@@ -59,6 +59,94 @@ def _verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
 
+def _mask_email(email: str) -> str:
+    """Mask email for display: j***n@example.com"""
+    if not email or '@' not in email:
+        return email or ""
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        masked = local[0] + '***'
+    else:
+        masked = local[0] + '***' + local[-1]
+    return f"{masked}@{domain}"
+
+
+def _send_password_setup_email(db, member, token: str):
+    """Send a password setup email to a member who doesn't have a password yet."""
+    try:
+        from notifications.dispatcher import get_email_settings
+
+        settings_dict = {}
+        for s in db.query(Settings).all():
+            settings_dict[s.key] = s.value
+
+        email_settings = get_email_settings(settings_dict)
+
+        channel = None
+        if email_settings.get("resend_enabled"):
+            from notifications.channels.resend import ResendChannel
+            channel = ResendChannel(
+                api_key=email_settings["resend_api_key"],
+                from_name=email_settings.get("resend_from_name", "RFM Stellenbosch"),
+                from_email=email_settings["resend_from_email"]
+            )
+        elif email_settings.get("smtp_enabled"):
+            from notifications.channels.email import EmailChannel
+            channel = EmailChannel(
+                host=email_settings["smtp_host"],
+                port=int(email_settings.get("smtp_port", 587)),
+                username=email_settings.get("smtp_username"),
+                password=email_settings.get("smtp_password"),
+                from_name=email_settings.get("smtp_from_name", "RFM Stellenbosch"),
+                from_email=email_settings["smtp_from_email"],
+                use_tls=True
+            )
+
+        if not channel:
+            print("No email channel configured for password setup")
+            return
+
+        base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+        if base_url and not base_url.startswith("http"):
+            base_url = f"https://{base_url}"
+        if not base_url:
+            base_url = os.environ.get("BASE_URL", "http://localhost:8000")
+        reset_url = f"{base_url}/reset-password?token={token}"
+
+        FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        html = f"""
+        <div style="max-width:480px;margin:0 auto;font-family:{FONT};color:#111827;">
+            <div style="border-top:3px solid #6366f1;padding:32px 0 16px;">
+                <h1 style="font-size:20px;margin:0 0 8px;">Set Up Your Password</h1>
+                <p style="color:#6b7280;font-size:14px;margin:0 0 8px;">
+                    Hi {member.full_name},
+                </p>
+                <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
+                    The RFM Stellenbosch Portal now requires a password to sign in. Click below to set up your password.
+                </p>
+                <a href="{reset_url}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+                    Set My Password
+                </a>
+                <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;">
+                    This link expires in 24 hours. If you didn't try to log in, you can safely ignore this email.
+                </p>
+            </div>
+            <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
+                <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+            </div>
+        </div>
+        """
+
+        success, error = channel.send(member.email, "Set Up Your Password - RFM Stellenbosch Portal", html)
+        if not success:
+            print(f"Failed to send password setup email: {error}")
+        else:
+            print(f"Sent password setup email to {member.email}")
+
+    except Exception as e:
+        print(f"Error sending password setup email: {e}")
+
+
 @router.post("/auth/register")
 def register_member(
     data: dict = Body(...),
@@ -126,9 +214,24 @@ def login_member(
     if not member:
         raise HTTPException(status_code=401, detail="No account found with this phone number")
 
-    # Check if member has set a password
+    # Check if member has set a password — trigger setup flow
     if not member.password_hash:
-        raise HTTPException(status_code=401, detail="You need to set a password. Use 'Forgot Password' to create one.")
+        # Auto-generate reset token and send setup email
+        token = secrets.token_urlsafe(32)
+        member.reset_token = token
+        member.reset_token_expires = datetime.utcnow() + timedelta(hours=24)
+        db.commit()
+
+        # Send the setup email
+        _send_password_setup_email(db, member, token)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "needs_password": True,
+                "message": f"Welcome! A password setup link has been sent to your email ({_mask_email(member.email)}). Please check your inbox."
+            }
+        )
 
     # Verify password
     if not _verify_password(password, member.password_hash):

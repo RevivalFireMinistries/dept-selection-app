@@ -44,10 +44,11 @@
                 </button>
 
                 <div id="loginError" class="hidden text-sm text-red-600 text-center"></div>
-                <div id="loginSuccess" class="hidden text-sm text-green-600 text-center"></div>
+                <div id="loginSuccess" class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center"></div>
 
                 <div class="flex items-center justify-between pt-1">
                     <a href="/forgot-password" class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">Forgot password?</a>
+                    <span class="text-xs text-gray-400">First time? Just enter your phone</span>
                 </div>
             </div>
         </div>
@@ -130,12 +131,6 @@ async function login() {
         return;
     }
 
-    if (!password) {
-        errorDiv.textContent = 'Please enter your password';
-        errorDiv.classList.remove('hidden');
-        return;
-    }
-
     btn.disabled = true;
     btn.textContent = 'Signing in...';
 
@@ -148,7 +143,13 @@ async function login() {
 
         const data = await res.json();
 
-        if (res.ok) {
+        if (res.ok && data.needs_password) {
+            // First-time login — password setup email sent
+            successDiv.textContent = data.message;
+            successDiv.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        } else if (res.ok) {
             window.location.href = `/portal?phone=${encodeURIComponent(data.phone)}`;
         } else {
             errorDiv.textContent = data.detail || 'Login failed';
