@@ -214,26 +214,30 @@ def login_member(
     if not member:
         raise HTTPException(status_code=401, detail="No account found with this phone number")
 
-    # Check if member has set a password — trigger setup flow
+    # Check if member has set a password — redirect to setup
     if not member.password_hash:
-        # Auto-generate reset token and send setup email
+        # Generate a short-lived token so they can set their password directly
         token = secrets.token_urlsafe(32)
         member.reset_token = token
-        member.reset_token_expires = datetime.utcnow() + timedelta(hours=24)
+        member.reset_token_expires = datetime.utcnow() + timedelta(hours=2)
         db.commit()
 
-        # Send the setup email
-        _send_password_setup_email(db, member, token)
+        has_email = bool(member.email and member.email.strip())
 
         return JSONResponse(
             status_code=200,
             content={
                 "needs_password": True,
-                "message": f"Welcome! A password setup link has been sent to your email ({_mask_email(member.email)}). Please check your inbox."
+                "token": token,
+                "has_email": has_email,
+                "full_name": member.full_name
             }
         )
 
-    # Verify password
+    # Password provided — verify it
+    if not password:
+        raise HTTPException(status_code=401, detail="Please enter your password")
+
     if not _verify_password(password, member.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
@@ -389,9 +393,15 @@ def reset_password(
     member.password_hash = _hash_password(new_password)
     member.reset_token = None
     member.reset_token_expires = None
+
+    # Allow updating email if provided (for members who didn't have one)
+    new_email = (data.get("email") or "").strip()
+    if new_email:
+        member.email = new_email
+
     db.commit()
 
-    return {"success": True, "message": "Password has been reset successfully. You can now log in."}
+    return {"success": True, "message": "Password has been set successfully. You can now sign in."}
 
 
 @router.get("/auth/me")
