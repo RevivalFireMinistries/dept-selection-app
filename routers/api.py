@@ -1123,7 +1123,7 @@ def update_member_leadership_roles(
         raise HTTPException(status_code=404, detail="Member not found")
 
     # Validate roles
-    valid_roles = ["pastor", "deacon", "elder", "service_manager", "dr", "mr", "mrs"]  # HOD is derived from departments
+    valid_roles = ["pastor", "deacon", "elder", "service_manager", "admin", "dr", "mr", "mrs"]  # HOD is derived from departments
     invalid = [r for r in roles if r not in valid_roles]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
@@ -4191,12 +4191,43 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
     return _program_to_dict(program, db=db)
 
 
+def _check_program_edit_permission(db: Session, program: ServiceProgram, editor_member_id: int = None):
+    """Check if a member has permission to edit a program.
+    Returns None if allowed, raises HTTPException if not.
+    If editor_member_id is None (admin panel), always allows."""
+    if editor_member_id is None:
+        return  # Admin panel - no restrictions
+
+    member = db.query(Member).filter(Member.id == editor_member_id).first()
+    if not member:
+        raise HTTPException(status_code=403, detail="Editor not found")
+
+    roles = []
+    if member.leadership_roles:
+        try:
+            roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+        except (ValueError, TypeError):
+            roles = []
+
+    # Admin role has full access
+    if "admin" in roles:
+        return
+
+    # Creator can edit their own program
+    if program.created_by_member_id == editor_member_id:
+        return
+
+    raise HTTPException(status_code=403, detail="You can only edit programs you created")
+
+
 @router.put("/admin/programs/{program_id}")
-def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = Depends(get_db)):
+def update_program(program_id: int, data: ServiceProgramUpdate, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: update an existing program"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
+
+    _check_program_edit_permission(db, program, editor_member_id)
 
     if data.title is not None:
         program.title = data.title
@@ -4227,11 +4258,13 @@ def update_program(program_id: int, data: ServiceProgramUpdate, db: Session = De
 
 
 @router.delete("/admin/programs/{program_id}")
-def delete_program(program_id: int, db: Session = Depends(get_db)):
+def delete_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: delete a program"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
+
+    _check_program_edit_permission(db, program, editor_member_id)
 
     db.delete(program)
     db.commit()
@@ -4401,11 +4434,13 @@ def _send_published_copy_to_manager(db: Session, program: ServiceProgram):
 
 
 @router.post("/admin/programs/{program_id}/publish")
-def publish_program(program_id: int, db: Session = Depends(get_db)):
+def publish_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: publish a program and send notifications to all participants"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
+
+    _check_program_edit_permission(db, program, editor_member_id)
 
     program.status = "published"
     db.commit()
@@ -4421,11 +4456,13 @@ def publish_program(program_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/programs/{program_id}/unpublish")
-def unpublish_program(program_id: int, db: Session = Depends(get_db)):
+def unpublish_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: unpublish a program (back to draft)"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
+
+    _check_program_edit_permission(db, program, editor_member_id)
 
     program.status = "draft"
     db.commit()
@@ -4435,11 +4472,13 @@ def unpublish_program(program_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/programs/{program_id}/notify")
-def renotify_program(program_id: int, db: Session = Depends(get_db)):
+def renotify_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: re-send notifications to all participants of a published program"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")
+
+    _check_program_edit_permission(db, program, editor_member_id)
 
     _send_program_notifications(db, program)
 

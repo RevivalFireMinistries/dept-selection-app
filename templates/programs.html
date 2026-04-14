@@ -424,6 +424,8 @@ const urlParams = new URLSearchParams(window.location.search);
 const phoneParam = urlParams.get('phone');
 let currentMemberId = null;
 let currentMemberName = null;
+let currentMemberRoles = [];
+let isAdminUser = false;
 
 // Resolve member ID from phone
 async function resolveCurrentMember() {
@@ -433,15 +435,27 @@ async function resolveCurrentMember() {
         if (res.ok) {
             const data = await res.json();
             if (data.members && data.members.length > 0) {
-                // Use first member with service_manager role or first member
+                // Use first member with service_manager or admin role, or first member
                 const sm = data.members.find(m =>
-                    Array.isArray(m.leadership_roles) && m.leadership_roles.includes('service_manager')
+                    Array.isArray(m.leadership_roles) && (m.leadership_roles.includes('service_manager') || m.leadership_roles.includes('admin'))
                 ) || data.members[0];
                 currentMemberId = sm.id;
                 currentMemberName = sm.fullName;
+                currentMemberRoles = Array.isArray(sm.leadership_roles) ? sm.leadership_roles : [];
+                isAdminUser = currentMemberRoles.includes('admin');
             }
         }
     } catch (e) { console.error('Failed to resolve member:', e); }
+}
+
+function canEditProgram(program) {
+    // Admin role can edit everything
+    if (isAdminUser) return true;
+    // No phone param means admin panel — full access
+    if (!phoneParam) return true;
+    // Creator can edit their own programs
+    if (currentMemberId && program.created_by_member_id === currentMemberId) return true;
+    return false;
 }
 
 function goBack() {
@@ -1164,13 +1178,18 @@ function collectFormData() {
     return result;
 }
 
+function editorParam() {
+    // Append editor_member_id for permission checks (only for service manager portal)
+    return currentMemberId ? `?editor_member_id=${currentMemberId}` : '';
+}
+
 async function saveProgram() {
     const data = collectFormData();
     if (!data.title) return alert('Title is required');
     if (!data.service_date) return alert('Service date is required');
     if (data.program_items.length === 0) return alert('Add at least one program item');
 
-    const url = editingId ? `/api/admin/programs/${editingId}` : '/api/admin/programs';
+    const url = editingId ? `/api/admin/programs/${editingId}${editorParam()}` : '/api/admin/programs';
     const method = editingId ? 'PUT' : 'POST';
 
     const btn = document.querySelectorAll('[onclick="saveProgram()"]');
@@ -1197,30 +1216,42 @@ async function saveProgram() {
 
 async function deleteProgram(id) {
     if (!confirm('Delete this program?')) return;
-    const res = await fetch(`/api/admin/programs/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/admin/programs/${id}${editorParam()}`, { method: 'DELETE' });
     if (res.ok) loadPrograms();
-    else alert('Failed to delete program');
+    else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Failed to delete program');
+    }
 }
 
 async function publishProgram(id) {
     if (!confirm('Publish this program and send notifications to all participants?')) return;
-    const res = await fetch(`/api/admin/programs/${id}/publish`, { method: 'POST' });
+    const res = await fetch(`/api/admin/programs/${id}/publish${editorParam()}`, { method: 'POST' });
     if (res.ok) { loadPrograms(); alert('Program published! Notifications sent.'); }
-    else alert('Failed to publish program');
+    else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Failed to publish program');
+    }
 }
 
 async function unpublishProgram(id) {
     if (!confirm('Unpublish this program? It will revert to draft.')) return;
-    const res = await fetch(`/api/admin/programs/${id}/unpublish`, { method: 'POST' });
+    const res = await fetch(`/api/admin/programs/${id}/unpublish${editorParam()}`, { method: 'POST' });
     if (res.ok) loadPrograms();
-    else alert('Failed to unpublish program');
+    else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Failed to unpublish program');
+    }
 }
 
 async function renotifyProgram(id) {
     if (!confirm('Re-send notifications to all participants?')) return;
-    const res = await fetch(`/api/admin/programs/${id}/notify`, { method: 'POST' });
+    const res = await fetch(`/api/admin/programs/${id}/notify${editorParam()}`, { method: 'POST' });
     if (res.ok) alert('Notifications re-sent to all participants!');
-    else alert('Failed to send notifications');
+    else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Failed to send notifications');
+    }
 }
 
 // ==================== PROGRAMS LIST ====================
@@ -1332,7 +1363,7 @@ async function loadPrograms() {
                     <span class="text-xs font-semibold text-gray-700">${escapeHtml(p.created_by_name)}</span>
                 </div>` : ''}
                 <div class="px-4 pb-2 flex gap-2 justify-end flex-wrap">
-                    ${p.status === 'draft'
+                    ${canEditProgram(p) ? (p.status === 'draft'
                         ? `<button onclick="publishProgram(${p.id})" class="program-action-btn" style="background:#ecfdf5;color:#059669;" title="Publish &amp; notify participants">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             <span class="text-xs font-medium">Publish</span>
@@ -1345,11 +1376,12 @@ async function loadPrograms() {
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                             <span class="text-xs font-medium">Re-notify</span>
                           </button>`
-                    }
+                    ) : ''}
                     <button onclick='shareProgram(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#eef2ff;color:#4f46e5;" title="Share">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
                         <span class="text-xs font-medium">Share</span>
                     </button>
+                    ${canEditProgram(p) ? `
                     <button onclick='showEditForm(${JSON.stringify(p).replace(/'/g, "&#39;")})' class="program-action-btn" style="background:#f3f4f6;color:#374151;" title="Edit">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                         <span class="text-xs font-medium">Edit</span>
@@ -1357,7 +1389,11 @@ async function loadPrograms() {
                     <button onclick="deleteProgram(${p.id})" class="program-action-btn" style="background:#fef2f2;color:#dc2626;" title="Delete">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                         <span class="text-xs font-medium">Delete</span>
-                    </button>
+                    </button>` : `
+                    <span class="px-2 py-1 bg-gray-50 text-gray-400 text-xs font-medium rounded-lg flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        Read-only
+                    </span>`}
                 </div>
 
                 <div class="px-4 pb-4">
@@ -1586,10 +1622,14 @@ async function loadMySchedules() {
 }
 
 // ==================== INIT ====================
-resolveCurrentMember();
-loadMembers();
-loadTemplates();
-loadPrograms();
-loadMySchedules();
+async function initPage() {
+    // Resolve current member first so permissions are known before rendering
+    await resolveCurrentMember();
+    loadMembers();
+    loadTemplates();
+    loadPrograms();
+    loadMySchedules();
+}
+initPage();
 </script>
 {% endblock %}

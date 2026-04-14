@@ -302,7 +302,7 @@ async def member_programs(request: Request, phone: str = None, db: Session = Dep
         except (ValueError, TypeError):
             roles = []
 
-    allowed_roles = {"service_manager", "elder", "deacon"}
+    allowed_roles = {"service_manager", "elder", "deacon", "admin"}
     is_hod = db.query(Settings).filter(False).first() is None  # placeholder
     # Check if member is HOD of any department
     from models import Department

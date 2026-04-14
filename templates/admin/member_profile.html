@@ -112,6 +112,11 @@
                                class="rounded text-purple-600 focus:ring-purple-500">
                         <span class="font-medium text-gray-700">Service Manager</span>
                     </label>
+                    <label class="flex items-center gap-2 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" id="roleAdmin" value="admin" onchange="updateLeadershipRoles()"
+                               class="rounded text-red-600 focus:ring-red-500">
+                        <span class="font-medium text-gray-700">Admin</span>
+                    </label>
                 </div>
 
                 <p class="text-xs text-gray-400 mt-1 mb-1">Honorific Titles</p>
@@ -616,6 +621,7 @@ async function loadLeadershipRoles() {
         document.getElementById('roleDeacon').checked = data.roles.includes('deacon');
         document.getElementById('roleElder').checked = data.roles.includes('elder');
         document.getElementById('roleServiceManager').checked = data.roles.includes('service_manager');
+        document.getElementById('roleAdmin').checked = data.roles.includes('admin');
         document.getElementById('roleDr').checked = data.roles.includes('dr');
         document.getElementById('roleMr').checked = data.roles.includes('mr');
         document.getElementById('roleMrs').checked = data.roles.includes('mrs');
@@ -636,6 +642,7 @@ async function updateLeadershipRoles() {
     if (document.getElementById('roleDeacon').checked) roles.push('deacon');
     if (document.getElementById('roleElder').checked) roles.push('elder');
     if (document.getElementById('roleServiceManager').checked) roles.push('service_manager');
+    if (document.getElementById('roleAdmin').checked) roles.push('admin');
     if (document.getElementById('roleDr').checked) roles.push('dr');
     if (document.getElementById('roleMr').checked) roles.push('mr');
     if (document.getElementById('roleMrs').checked) roles.push('mrs');
