@@ -276,9 +276,23 @@
 
     /* Program item rows - mobile friendly */
     .prog-item-row {
-        display: flex; gap: 8px; align-items: center;
+        display: flex; gap: 6px; align-items: center;
         background: #f9fafb; border-radius: 12px; padding: 8px;
+        transition: opacity 0.15s;
     }
+    .prog-item-row.dragging { opacity: 0.4; }
+    .prog-item-row.drag-over { border-top: 2px solid #3b82f6; }
+    .prog-item-row .drag-handle {
+        cursor: grab; touch-action: none; display: flex; align-items: center;
+        padding: 4px 2px; color: #d1d5db; flex-shrink: 0;
+    }
+    .prog-item-row .drag-handle:active { cursor: grabbing; }
+    .prog-item-row .move-btns { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+    .prog-item-row .move-btns button {
+        width: 24px; height: 20px; display: flex; align-items: center; justify-content: center;
+        border: none; background: none; color: #9ca3af; border-radius: 4px; cursor: pointer; padding: 0;
+    }
+    .prog-item-row .move-btns button:hover { background: #e5e7eb; color: #6b7280; }
     .prog-item-row input[type="time"] {
         width: 110px; padding: 10px 8px; border: 1px solid #e5e7eb;
         border-radius: 8px; font-size: 14px; background: white;
@@ -472,13 +486,37 @@ function addProgramItem(time = '', item = '') {
     const closeRow = container.querySelector('.close-item-row');
     const row = document.createElement('div');
     row.className = 'prog-item-row program-item-row';
+    row.draggable = true;
     row.innerHTML = `
+        <div class="drag-handle" title="Drag to reorder">
+            <svg width="14" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="11" r="1.5"/><circle cx="15" cy="11" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>
+        </div>
+        <div class="move-btns">
+            <button type="button" onclick="moveProgramItem(this.closest('.prog-item-row'), -1)" title="Move up">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"/></svg>
+            </button>
+            <button type="button" onclick="moveProgramItem(this.closest('.prog-item-row'), 1)" title="Move down">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+        </div>
         <input type="time" value="${time}" placeholder="09:30" class="prog-item-time">
         <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="prog-item-name">
         <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts()" class="btn-remove" title="Remove">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
+    // Drag-and-drop events
+    row.addEventListener('dragstart', onProgItemDragStart);
+    row.addEventListener('dragover', onProgItemDragOver);
+    row.addEventListener('drop', onProgItemDrop);
+    row.addEventListener('dragend', onProgItemDragEnd);
+    row.addEventListener('dragleave', (e) => e.currentTarget.classList.remove('drag-over'));
+    // Touch reorder via drag handle
+    const handle = row.querySelector('.drag-handle');
+    handle.addEventListener('touchstart', onProgItemTouchStart, { passive: false });
+    handle.addEventListener('touchmove', onProgItemTouchMove, { passive: false });
+    handle.addEventListener('touchend', onProgItemTouchEnd);
+
     if (closeRow) {
         container.insertBefore(row, closeRow);
     } else {
@@ -504,6 +542,136 @@ function ensureCloseItem(time = '') {
     `;
     container.appendChild(row);
     updateCounts();
+}
+
+// ==================== PROGRAM ITEM REORDER ====================
+
+function moveProgramItem(row, direction) {
+    const container = document.getElementById('programItems');
+    const rows = [...container.querySelectorAll('.prog-item-row:not(.close-item-row)')];
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= rows.length) return;
+
+    if (direction === -1) {
+        container.insertBefore(row, rows[newIndex]);
+    } else {
+        const after = rows[newIndex].nextElementSibling;
+        container.insertBefore(row, after);
+    }
+    refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts();
+}
+
+// Desktop drag-and-drop
+let progDragRow = null;
+
+function onProgItemDragStart(e) {
+    if (this.classList.contains('close-item-row')) { e.preventDefault(); return; }
+    progDragRow = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function onProgItemDragOver(e) {
+    e.preventDefault();
+    if (!progDragRow || this === progDragRow || this.classList.contains('close-item-row')) return;
+    e.dataTransfer.dropEffect = 'move';
+    this.classList.add('drag-over');
+}
+
+function onProgItemDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+    if (!progDragRow || this === progDragRow || this.classList.contains('close-item-row')) return;
+    const container = document.getElementById('programItems');
+    const rows = [...container.querySelectorAll('.prog-item-row:not(.close-item-row)')];
+    const fromIdx = rows.indexOf(progDragRow);
+    const toIdx = rows.indexOf(this);
+    if (fromIdx < toIdx) {
+        this.after(progDragRow);
+    } else {
+        container.insertBefore(progDragRow, this);
+    }
+    refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts();
+}
+
+function onProgItemDragEnd() {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.prog-item-row').forEach(r => r.classList.remove('drag-over'));
+    progDragRow = null;
+}
+
+// Touch reorder for mobile
+let progTouchRow = null;
+let progTouchClone = null;
+let progTouchStartY = 0;
+let progTouchOrigTop = 0;
+
+function onProgItemTouchStart(e) {
+    const row = e.target.closest('.prog-item-row');
+    if (!row || row.classList.contains('close-item-row')) return;
+    progTouchRow = row;
+    progTouchStartY = e.touches[0].clientY;
+    const rect = row.getBoundingClientRect();
+    progTouchOrigTop = rect.top;
+    row.classList.add('dragging');
+
+    progTouchClone = row.cloneNode(true);
+    progTouchClone.style.cssText = `position:fixed;left:${rect.left}px;right:${window.innerWidth - rect.right}px;top:${rect.top}px;z-index:100;opacity:0.9;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.15);border-radius:12px;background:#fff;`;
+    document.body.appendChild(progTouchClone);
+    e.preventDefault();
+}
+
+function onProgItemTouchMove(e) {
+    if (!progTouchRow || !progTouchClone) return;
+    const touch = e.touches[0];
+    const dy = touch.clientY - progTouchStartY;
+    progTouchClone.style.top = (progTouchOrigTop + dy) + 'px';
+
+    const container = document.getElementById('programItems');
+    container.querySelectorAll('.prog-item-row:not(.close-item-row)').forEach(r => {
+        r.classList.remove('drag-over');
+        if (r === progTouchRow) return;
+        const rect = r.getBoundingClientRect();
+        if (touch.clientY > rect.top && touch.clientY < rect.bottom) {
+            r.classList.add('drag-over');
+        }
+    });
+    e.preventDefault();
+}
+
+function onProgItemTouchEnd(e) {
+    if (!progTouchRow) return;
+    if (progTouchClone) { progTouchClone.remove(); progTouchClone = null; }
+
+    const container = document.getElementById('programItems');
+    const lastTouch = e.changedTouches[0];
+    let target = null;
+
+    container.querySelectorAll('.prog-item-row:not(.close-item-row)').forEach(r => {
+        r.classList.remove('drag-over');
+        if (r === progTouchRow) return;
+        const rect = r.getBoundingClientRect();
+        if (lastTouch.clientY > rect.top && lastTouch.clientY < rect.bottom) {
+            target = r;
+        }
+    });
+
+    if (target) {
+        const rows = [...container.querySelectorAll('.prog-item-row:not(.close-item-row)')];
+        const fromIdx = rows.indexOf(progTouchRow);
+        const toIdx = rows.indexOf(target);
+        if (fromIdx < toIdx) {
+            target.after(progTouchRow);
+        } else {
+            container.insertBefore(progTouchRow, target);
+        }
+        refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts();
+    }
+
+    progTouchRow.classList.remove('dragging');
+    progTouchRow = null;
 }
 
 // ==================== ACTIVITY DROPDOWN ====================
