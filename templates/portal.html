@@ -717,6 +717,28 @@ const STORAGE_KEY = 'rfm_member_phone';
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+    // Check if logged-in user needs to set up a password
+    try {
+        const meRes = await fetch('/api/auth/me');
+        const me = await meRes.json();
+        if (me.logged_in && me.needs_password_setup) {
+            // Generate a setup token and redirect
+            const tokenRes = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: me.phone, password: me.phone })
+            });
+            const tokenData = await tokenRes.json();
+            if (tokenData.needs_password) {
+                const params = new URLSearchParams({ token: tokenData.token, setup: '1' });
+                if (!tokenData.has_email) params.set('need_email', '1');
+                if (tokenData.full_name) params.set('name', tokenData.full_name);
+                window.location.href = `/reset-password?${params.toString()}`;
+                return;
+            }
+        }
+    } catch (e) { /* continue to portal */ }
+
     const params = new URLSearchParams(window.location.search);
     phone = params.get('phone');
     if (!phone) {

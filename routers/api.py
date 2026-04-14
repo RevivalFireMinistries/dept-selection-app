@@ -214,9 +214,15 @@ def login_member(
     if not member:
         raise HTTPException(status_code=401, detail="No account found with this phone number")
 
-    # Check if member has set a password — redirect to setup
+    # First-time login: member has no password yet — phone number is the default password
     if not member.password_hash:
-        # Generate a short-lived token so they can set their password directly
+        # Verify they entered their phone number as the password
+        phone_digits = member.phone.strip().replace(" ", "").replace("-", "")
+        password_digits = password.strip().replace(" ", "").replace("-", "")
+        if not password or password_digits != phone_digits:
+            raise HTTPException(status_code=401, detail="First time signing in? Use your phone number as your password")
+
+        # Generate token and redirect to set-password page
         token = secrets.token_urlsafe(32)
         member.reset_token = token
         member.reset_token_expires = datetime.utcnow() + timedelta(hours=2)
@@ -390,6 +396,12 @@ def reset_password(
     if not member:
         raise HTTPException(status_code=400, detail="Invalid or expired reset link. Please request a new one.")
 
+    # Don't allow phone number as password
+    phone_digits = member.phone.strip().replace(" ", "").replace("-", "")
+    password_digits = new_password.strip().replace(" ", "").replace("-", "")
+    if password_digits == phone_digits:
+        raise HTTPException(status_code=400, detail="Your password cannot be your phone number. Please choose a different password.")
+
     member.password_hash = _hash_password(new_password)
     member.reset_token = None
     member.reset_token_expires = None
@@ -432,6 +444,9 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
                 cat_name = md.department.category.name if md.department and md.department.category else ""
                 departments.append({"id": md.department.id, "name": dept_name, "category": cat_name})
 
+    # Check if member still needs to set up a password
+    needs_password_setup = not member.password_hash
+
     return {
         "logged_in": True,
         "member_id": member.id,
@@ -439,7 +454,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         "phone": member.phone,
         "email": member.email,
         "leadership_roles": roles,
-        "departments": departments
+        "departments": departments,
+        "needs_password_setup": needs_password_setup
     }
 
 
