@@ -493,6 +493,29 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="RFM Stellenbosch Portal", lifespan=lifespan)
 
+# ─── Verbose request/response logging ───────────────────────────────
+import time as _time, logging as _logging
+
+_logging.basicConfig(level=_logging.INFO)
+_logger = _logging.getLogger("rfm")
+
+@app.middleware("http")
+async def verbose_logging_middleware(request, call_next):
+    start = _time.time()
+    method = request.method
+    path = request.url.path
+    qs = str(request.url.query)
+    _logger.info(f"→ {method} {path}{'?' + qs if qs else ''}")
+    try:
+        response = await call_next(request)
+        elapsed = (_time.time() - start) * 1000
+        _logger.info(f"← {method} {path} → {response.status_code} ({elapsed:.0f}ms)")
+        return response
+    except Exception as exc:
+        elapsed = (_time.time() - start) * 1000
+        _logger.error(f"✗ {method} {path} → EXCEPTION ({elapsed:.0f}ms): {exc}")
+        raise
+
 # CORS — allow FirePresenter and other local apps to access the API
 app.add_middleware(
     CORSMiddleware,
