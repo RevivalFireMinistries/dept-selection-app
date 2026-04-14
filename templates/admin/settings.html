@@ -59,6 +59,24 @@
             <a href="/desk" target="_blank" class="text-teal-600 hover:underline">Open Info Desk Panel</a>
         </p>
     </div>
+
+    <!-- Song Catalog Management -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">Song Catalog</h3>
+        <p class="text-sm text-gray-600 mb-4">
+            Songs are synced automatically from FirePresenter. You can purge the entire catalog if needed — it will be repopulated on the next sync.
+        </p>
+        <div class="flex items-center gap-4 mb-3">
+            <div class="flex items-center gap-2 text-sm text-gray-700">
+                <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                <span><strong id="songCount">—</strong> songs in catalog</span>
+            </div>
+        </div>
+        <button onclick="confirmPurgeSongs()" id="purgeSongsBtn"
+            class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium">
+            Purge All Songs
+        </button>
+    </div>
 </div>
 {% endblock %}
 
@@ -133,6 +151,39 @@ async function savePassword(key) {
     }
 }
 
+async function loadSongStats() {
+    try {
+        const res = await fetch('/api/admin/songs/stats');
+        const data = await res.json();
+        document.getElementById('songCount').textContent = data.total;
+    } catch (e) {
+        document.getElementById('songCount').textContent = '?';
+    }
+}
+
+async function confirmPurgeSongs() {
+    const countEl = document.getElementById('songCount');
+    const count = countEl.textContent;
+    if (!confirm(`Are you sure you want to delete all ${count} songs from the catalog? They will be re-synced from FirePresenter on the next sync.`)) return;
+
+    const btn = document.getElementById('purgeSongsBtn');
+    btn.disabled = true;
+    btn.textContent = 'Purging...';
+
+    try {
+        const res = await fetch('/api/admin/songs/purge', { method: 'DELETE' });
+        const data = await res.json();
+        showMessage(`Purged ${data.deleted} songs from catalog`);
+        countEl.textContent = '0';
+    } catch (e) {
+        showMessage('Failed to purge songs', true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Purge All Songs';
+    }
+}
+
 loadSettings();
+loadSongStats();
 </script>
 {% endblock %}

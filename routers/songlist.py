@@ -64,32 +64,69 @@ class NewSongRequest(BaseModel):
 @router.post("/api/songs/sync")
 def sync_songs(songs: List[SyncSongItem], db: Session = Depends(get_db)):
     """
-    FirePresenter pushes its full song catalog. We upsert all entries —
-    existing songs get updated, new ones are inserted, removed ones are deleted.
+    FirePresenter pushes its full song catalog. We upsert by ID and
+    skip duplicate titles (case-insensitive, keeping the first occurrence).
     """
     incoming_ids = {s.id for s in songs}
 
     # Delete songs no longer in FirePresenter
     db.query(SyncedSong).filter(~SyncedSong.id.in_(incoming_ids)).delete(synchronize_session=False)
 
-    # Upsert each song
+    # Deduplicate incoming songs by title (case-insensitive), keep first occurrence
+    seen_titles = set()
+    unique_songs = []
     for s in songs:
+        title_key = s.title.strip().lower()
+        if title_key not in seen_titles:
+            seen_titles.add(title_key)
+            unique_songs.append(s)
+
+    # Also check existing DB titles to avoid cross-batch duplicates
+    existing_titles = {
+        row.title.strip().lower()
+        for row in db.query(SyncedSong.title).all()
+    }
+
+    added = 0
+    updated = 0
+    for s in unique_songs:
         existing = db.query(SyncedSong).get(s.id)
         if existing:
             existing.title = s.title
             existing.author = s.author
             existing.category = s.category
             existing.synced_at = datetime.utcnow()
+            updated += 1
         else:
-            db.add(SyncedSong(
-                id=s.id,
-                title=s.title,
-                author=s.author,
-                category=s.category,
-            ))
+            title_key = s.title.strip().lower()
+            if title_key not in existing_titles:
+                db.add(SyncedSong(
+                    id=s.id,
+                    title=s.title,
+                    author=s.author,
+                    category=s.category,
+                ))
+                existing_titles.add(title_key)
+                added += 1
 
     db.commit()
-    return {"status": "ok", "count": len(songs)}
+    return {"status": "ok", "added": added, "updated": updated, "duplicates_skipped": len(songs) - len(unique_songs)}
+
+
+@router.delete("/api/admin/songs/purge")
+def purge_all_songs(db: Session = Depends(get_db)):
+    """Admin: delete all synced songs from the catalog"""
+    count = db.query(SyncedSong).count()
+    db.query(SyncedSong).delete()
+    db.commit()
+    return {"status": "ok", "deleted": count}
+
+
+@router.get("/api/admin/songs/stats")
+def song_stats(db: Session = Depends(get_db)):
+    """Admin: get song catalog stats"""
+    total = db.query(SyncedSong).count()
+    return {"total": total}
 
 
 @router.get("/api/songs/catalog")
