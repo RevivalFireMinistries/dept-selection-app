@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -24,7 +24,8 @@ from schemas import (
     SMTPSettingsUpdate, NotificationConfigUpdate, TestEmailRequest,
     PosterRequestCreate, PosterRequestResponse,
     ServiceProgramCreate, ServiceProgramUpdate, ServiceProgramResponse,
-    ProgramTemplateCreate, ProgramTemplateUpdate
+    ProgramTemplateCreate, ProgramTemplateUpdate,
+    ServiceScheduleCreate, ServiceScheduleUpdate
 )
 
 router = APIRouter()
@@ -4617,3 +4618,167 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return {"success": True}
+
+
+# ============ SERVICE SCHEDULE ENDPOINTS ============
+
+DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _schedule_to_dict(schedule: ServiceSchedule) -> dict:
+    """Convert a ServiceSchedule model to response dict."""
+    svc_date = schedule.service_date
+    template = schedule.template
+    manager = schedule.service_manager
+    program = schedule.program
+
+    return {
+        "id": schedule.id,
+        "service_date": svc_date.isoformat(),
+        "day_of_week": DAY_LABELS[svc_date.weekday()] if svc_date else None,
+        "template_id": schedule.template_id,
+        "template_name": template.name if template else None,
+        "service_manager_id": schedule.service_manager_id,
+        "service_manager_name": _get_titled_name(manager) if manager else None,
+        "notes": schedule.notes,
+        "notified_at": schedule.notified_at.isoformat() if schedule.notified_at else None,
+        "reminded_at": schedule.reminded_at.isoformat() if schedule.reminded_at else None,
+        "program_id": schedule.program_id,
+        "program_status": program.status if program else None,
+        "has_program": schedule.program_id is not None,
+        "created_at": schedule.created_at.isoformat() if schedule.created_at else None,
+    }
+
+
+@router.get("/admin/schedules")
+def get_schedules(db: Session = Depends(get_db)):
+    """Admin: list all upcoming service schedules"""
+    today = date.today()
+    schedules = db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.template),
+        joinedload(ServiceSchedule.service_manager),
+        joinedload(ServiceSchedule.program)
+    ).filter(ServiceSchedule.service_date >= today).order_by(ServiceSchedule.service_date).all()
+    return [_schedule_to_dict(s) for s in schedules]
+
+
+@router.get("/admin/schedules/all")
+def get_all_schedules(db: Session = Depends(get_db)):
+    """Admin: list all service schedules including past"""
+    schedules = db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.template),
+        joinedload(ServiceSchedule.service_manager),
+        joinedload(ServiceSchedule.program)
+    ).order_by(ServiceSchedule.service_date.desc()).all()
+    return [_schedule_to_dict(s) for s in schedules]
+
+
+@router.post("/admin/schedules")
+def create_schedule(data: ServiceScheduleCreate, db: Session = Depends(get_db)):
+    """Admin: schedule a future service"""
+    # Validate service manager exists
+    manager = db.query(Member).filter(Member.id == data.service_manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404, detail="Service manager not found")
+
+    # Validate template if provided
+    if data.template_id:
+        template = db.query(ProgramTemplate).filter(ProgramTemplate.id == data.template_id).first()
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+    # Check for duplicate date
+    existing = db.query(ServiceSchedule).filter(ServiceSchedule.service_date == data.service_date).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A service is already scheduled for this date")
+
+    schedule = ServiceSchedule(
+        service_date=data.service_date,
+        template_id=data.template_id,
+        service_manager_id=data.service_manager_id,
+        notes=data.notes
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(schedule)
+
+    # Eager-load relationships
+    schedule = db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.template),
+        joinedload(ServiceSchedule.service_manager),
+        joinedload(ServiceSchedule.program)
+    ).filter(ServiceSchedule.id == schedule.id).first()
+
+    return _schedule_to_dict(schedule)
+
+
+@router.put("/admin/schedules/{schedule_id}")
+def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, db: Session = Depends(get_db)):
+    """Admin: update a service schedule"""
+    schedule = db.query(ServiceSchedule).filter(ServiceSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    if data.service_date is not None:
+        # Check duplicate
+        existing = db.query(ServiceSchedule).filter(
+            ServiceSchedule.service_date == data.service_date,
+            ServiceSchedule.id != schedule_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="A service is already scheduled for this date")
+        schedule.service_date = data.service_date
+
+    if data.template_id is not None:
+        schedule.template_id = data.template_id
+    if data.service_manager_id is not None:
+        manager = db.query(Member).filter(Member.id == data.service_manager_id).first()
+        if not manager:
+            raise HTTPException(status_code=404, detail="Service manager not found")
+        schedule.service_manager_id = data.service_manager_id
+        # Reset notification state if manager changed
+        schedule.notified_at = None
+        schedule.reminded_at = None
+    if data.notes is not None:
+        schedule.notes = data.notes
+
+    db.commit()
+    db.refresh(schedule)
+
+    schedule = db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.template),
+        joinedload(ServiceSchedule.service_manager),
+        joinedload(ServiceSchedule.program)
+    ).filter(ServiceSchedule.id == schedule.id).first()
+
+    return _schedule_to_dict(schedule)
+
+
+@router.delete("/admin/schedules/{schedule_id}")
+def delete_schedule(schedule_id: int, db: Session = Depends(get_db)):
+    """Admin: delete a service schedule"""
+    schedule = db.query(ServiceSchedule).filter(ServiceSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    db.delete(schedule)
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/api/my-schedules")
+def get_my_schedules(phone: str, db: Session = Depends(get_db)):
+    """Get upcoming scheduled services for a service manager by phone"""
+    members = db.query(Member).filter(Member.phone == phone).all()
+    if not members:
+        return []
+    member_ids = [m.id for m in members]
+    today = date.today()
+    schedules = db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.template),
+        joinedload(ServiceSchedule.service_manager),
+        joinedload(ServiceSchedule.program)
+    ).filter(
+        ServiceSchedule.service_manager_id.in_(member_ids),
+        ServiceSchedule.service_date >= today
+    ).order_by(ServiceSchedule.service_date).all()
+    return [_schedule_to_dict(s) for s in schedules]

@@ -271,6 +271,26 @@ class ServiceProgram(Base):
     created_by = relationship("Member", foreign_keys=[created_by_member_id])
 
 
+class ServiceSchedule(Base):
+    """Scheduled future service — assigns a date, template, and service manager"""
+    __tablename__ = "service_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_date = Column(Date, nullable=False, index=True)
+    template_id = Column(Integer, ForeignKey("program_templates.id", ondelete="SET NULL"), nullable=True)
+    service_manager_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    notes = Column(Text, nullable=True)
+    # Tracking notification state
+    notified_at = Column(DateTime(timezone=True), nullable=True)  # Week-start notification sent
+    reminded_at = Column(DateTime(timezone=True), nullable=True)  # Reminder sent (no program yet)
+    program_id = Column(Integer, ForeignKey("service_programs.id", ondelete="SET NULL"), nullable=True)  # Linked program once created
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    template = relationship("ProgramTemplate", foreign_keys=[template_id])
+    service_manager = relationship("Member", foreign_keys=[service_manager_id])
+    program = relationship("ServiceProgram", foreign_keys=[program_id])
+
+
 class DisplaySubmission(Base):
     """
     Media/content submissions for FirePresenter display.

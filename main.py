@@ -352,6 +352,28 @@ def run_migrations():
             conn.commit()
             print("Migration: Added status column to service_programs")
 
+        # Create service_schedules table for future service planning
+        result = conn.execute(text("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'service_schedules'
+        """))
+        if not result.fetchone():
+            conn.execute(text("""
+                CREATE TABLE service_schedules (
+                    id SERIAL PRIMARY KEY,
+                    service_date DATE NOT NULL,
+                    template_id INTEGER REFERENCES program_templates(id) ON DELETE SET NULL,
+                    service_manager_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+                    notes TEXT,
+                    notified_at TIMESTAMP WITH TIME ZONE,
+                    reminded_at TIMESTAMP WITH TIME ZONE,
+                    program_id INTEGER REFERENCES service_programs(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
+            conn.commit()
+            print("Migration: Created service_schedules table")
+
         # Create display_submissions table for FirePresenter integration
         result = conn.execute(text("""
             SELECT table_name FROM information_schema.tables

@@ -391,6 +391,14 @@ async def admin_program_templates(request: Request):
     return templates.TemplateResponse("admin/program_templates.html", {"request": request})
 
 
+@router.get("/admin/schedules")
+async def admin_schedules(request: Request):
+    """Admin service schedule management"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/schedules.html", {"request": request})
+
+
 @router.get("/display/submit")
 async def display_submit_page(request: Request):
     """Public page for submitting content to FirePresenter"""

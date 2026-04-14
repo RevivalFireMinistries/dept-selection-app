@@ -458,6 +458,19 @@ class ServiceProgramResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class ServiceScheduleCreate(BaseModel):
+    service_date: date
+    template_id: Optional[int] = None
+    service_manager_id: int
+    notes: Optional[str] = None
+
+class ServiceScheduleUpdate(BaseModel):
+    service_date: Optional[date] = None
+    template_id: Optional[int] = None
+    service_manager_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
 class PosterRequestResponse(BaseModel):
     id: int
     requester_id: int

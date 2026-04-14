@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session, joinedload
 
 from database import SessionLocal
-from models import Meeting, MemberDepartment, Member, Department, ServiceProgram
+from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate
 
 
 # Global scheduler instance
@@ -65,6 +65,15 @@ def start_scheduler():
         CronTrigger(hour=1, minute=0),
         id="cleanup_past_programs",
         name="Cleanup Past Service Programs",
+        replace_existing=True
+    )
+
+    # Add service schedule notifications - runs daily at 7:00 AM
+    scheduler.add_job(
+        check_service_schedules,
+        CronTrigger(hour=7, minute=0),
+        id="service_schedule_notifications",
+        name="Service Schedule Notifications",
         replace_existing=True
     )
 
@@ -229,6 +238,155 @@ def cleanup_past_programs():
         print(f"[Cleanup] Failed to clean past programs: {e}")
     finally:
         db.close()
+
+
+def check_service_schedules():
+    """
+    Check upcoming service schedules and send notifications:
+    1. Week-start notification: 5-7 days before, notify manager they're assigned
+    2. Reminder: 2 days before, if no program created yet
+    """
+    db: Session = SessionLocal()
+    try:
+        today = datetime.now().date()
+        from datetime import timedelta as td
+
+        # --- 1. Week-start notifications (5-7 days before service) ---
+        notify_start = today + td(days=5)
+        notify_end = today + td(days=7)
+        schedules_to_notify = db.query(ServiceSchedule).options(
+            joinedload(ServiceSchedule.template),
+            joinedload(ServiceSchedule.service_manager)
+        ).filter(
+            ServiceSchedule.service_date >= notify_start,
+            ServiceSchedule.service_date <= notify_end,
+            ServiceSchedule.notified_at.is_(None),
+            ServiceSchedule.service_manager_id.isnot(None)
+        ).all()
+
+        for schedule in schedules_to_notify:
+            manager = schedule.service_manager
+            if not manager or not manager.email:
+                continue
+            try:
+                _send_schedule_notification(db, schedule, manager, "assigned")
+                schedule.notified_at = datetime.now()
+                db.commit()
+                print(f"[Schedule] Notified {manager.full_name} for {schedule.service_date}")
+            except Exception as e:
+                print(f"[Schedule] Failed to notify {manager.full_name}: {e}")
+
+        # --- 2. Reminder notifications (2 days before, no program yet) ---
+        reminder_date = today + td(days=2)
+        schedules_to_remind = db.query(ServiceSchedule).options(
+            joinedload(ServiceSchedule.template),
+            joinedload(ServiceSchedule.service_manager)
+        ).filter(
+            ServiceSchedule.service_date == reminder_date,
+            ServiceSchedule.reminded_at.is_(None),
+            ServiceSchedule.program_id.is_(None),
+            ServiceSchedule.service_manager_id.isnot(None)
+        ).all()
+
+        for schedule in schedules_to_remind:
+            manager = schedule.service_manager
+            if not manager or not manager.email:
+                continue
+            try:
+                _send_schedule_notification(db, schedule, manager, "reminder")
+                schedule.reminded_at = datetime.now()
+                db.commit()
+                print(f"[Schedule] Reminded {manager.full_name} for {schedule.service_date}")
+            except Exception as e:
+                print(f"[Schedule] Failed to remind {manager.full_name}: {e}")
+
+    except Exception as e:
+        print(f"[Schedule] Check failed: {e}")
+    finally:
+        db.close()
+
+
+def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manager: "Member", notif_type: str):
+    """Send a schedule assignment or reminder email to the service manager."""
+    from notifications.dispatcher import get_email_settings
+
+    svc_date = schedule.service_date
+    day_name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][svc_date.weekday()]
+    date_str = svc_date.strftime('%A, %d %B %Y')
+    template_name = schedule.template.name if schedule.template else "No template"
+
+    # Get titled name
+    from routers.api import _get_titled_name
+    manager_name = _get_titled_name(manager)
+
+    FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+    TEXT = "#111827"
+    MUTED = "#9ca3af"
+    BORDER = "#f3f4f6"
+
+    if notif_type == "assigned":
+        subject = f"You're the Service Manager for {day_name}'s Service"
+        heading_text = "You've Been Assigned"
+        message = f"You are the service manager for the upcoming <strong>{day_name}</strong> service. Please prepare the program using the assigned template."
+        accent = "#4f46e5"
+    else:
+        subject = f"Reminder: No program created for {day_name}'s service"
+        heading_text = "Program Reminder"
+        message = f"The <strong>{day_name}</strong> service is in <strong>2 days</strong> and no program has been created yet. Please create and publish the program as soon as possible."
+        accent = "#f59e0b"
+
+    app_url = os.getenv('APP_URL', '')
+    programs_link = f"{app_url}/portal?phone={manager.phone}" if app_url and manager.phone else ""
+    button_html = ""
+    if programs_link:
+        button_html = f'''<a href="{programs_link}" style="display:inline-block;background:{accent};color:#ffffff;font-family:{FONT};font-size:14px;font-weight:600;text-decoration:none;padding:10px 24px;border-radius:10px;margin-top:16px;">Open Portal</a>'''
+
+    html = f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:{FONT};">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;">
+  <tr><td>
+    <h2 style="margin:0 0 4px 0;color:{TEXT};font-size:18px;font-weight:700;">{heading_text}</h2>
+    <p style="margin:0 0 16px 0;color:{MUTED};font-size:14px;">{date_str}</p>
+
+    <p style="margin:0 0 16px 0;color:{TEXT};font-size:15px;line-height:1.6;">Hi <strong>{manager_name}</strong>,</p>
+    <p style="margin:0 0 14px 0;color:#6b7280;font-size:14px;line-height:1.6;">{message}</p>
+
+    <p style="margin:16px 0 6px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Details</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+        <tr><td style="padding:6px 0;width:110px;"><span style="color:{MUTED};font-size:12px;text-transform:uppercase;">Date</span></td><td style="padding:6px 0;"><span style="color:{TEXT};font-size:14px;font-weight:500;">{date_str}</span></td></tr>
+        <tr><td style="padding:6px 0;"><span style="color:{MUTED};font-size:12px;text-transform:uppercase;">Template</span></td><td style="padding:6px 0;"><span style="color:{TEXT};font-size:14px;font-weight:500;">{template_name}</span></td></tr>
+        {f'<tr><td style="padding:6px 0;"><span style="color:{MUTED};font-size:12px;text-transform:uppercase;">Notes</span></td><td style="padding:6px 0;"><span style="color:{TEXT};font-size:14px;">{schedule.notes}</span></td></tr>' if schedule.notes else ''}
+    </table>
+
+    {button_html}
+
+    <hr style="border:none;border-top:1px solid {BORDER};margin:24px 0 16px 0;">
+    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries &middot; Stellenbosch</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>'''
+
+    settings = get_email_settings(db)
+    is_resend = (os.getenv('RESEND_ENABLED', '').lower() == 'true') or settings.get('resend_enabled', 'false').lower() == 'true'
+    is_smtp = (os.getenv('SMTP_ENABLED', '').lower() == 'true') or settings.get('smtp_enabled', 'false').lower() == 'true'
+
+    if is_resend:
+        from notifications.channels.resend import ResendChannel
+        channel = ResendChannel(settings)
+        if channel.is_configured():
+            success, error = channel.send(manager.email, subject, html)
+            if not success:
+                raise Exception(error)
+    elif is_smtp:
+        from notifications.channels.email import EmailChannel
+        channel = EmailChannel(settings)
+        if channel.is_configured():
+            success, error = channel.send(manager.email, subject, html)
+            if not success:
+                raise Exception(error)
 
 
 def get_meeting_recipients(db: Session, meeting: Meeting) -> List[Dict[str, Any]]:
