@@ -147,17 +147,13 @@ document.addEventListener('DOMContentLoaded', loadData);
 async function loadData() {
     document.getElementById('searchLoading').classList.remove('hidden');
     try {
-        console.log('[Members] Fetching data...');
         const [membersResp, reviewsResp] = await Promise.all([
             fetch('/api/members'),
             fetch('/api/admin/reviews')
         ]);
-        console.log('[Members] /api/members status:', membersResp.status);
-        console.log('[Members] /api/admin/reviews status:', reviewsResp.status);
 
         const membersRes = await membersResp.json();
         const reviewsRes = await reviewsResp.json();
-        console.log('[Members] Got', membersRes.length, 'members,', reviewsRes.length, 'reviews');
 
         allMembers = Array.isArray(membersRes) ? membersRes : [];
         reviewsData = Array.isArray(reviewsRes) ? reviewsRes : [];
@@ -189,7 +185,6 @@ async function loadData() {
     }
 
     // Auto-show all members on load
-    console.log('[Members] Calling showAllMembers, allMembers.length =', allMembers.length);
     showAllMembers();
 }
 
