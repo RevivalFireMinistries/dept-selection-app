@@ -199,7 +199,14 @@ def list_submissions(
     service_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
-    """View submitted song list for a specific date (for the template)."""
+    """View submitted song list for a specific date. Auto-cleans past submissions."""
+    # Auto-clean: delete submissions for dates that have passed
+    today = date.today()
+    db.query(SongListSubmission).filter(SongListSubmission.service_date < today).delete(
+        synchronize_session=False
+    )
+    db.commit()
+
     query = db.query(SongListSubmission).order_by(SongListSubmission.song_order)
     if service_date:
         query = query.filter(SongListSubmission.service_date == date.fromisoformat(service_date))

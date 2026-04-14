@@ -116,10 +116,21 @@
             <div id="songError" class="hidden text-sm text-red-600 text-center mt-3"></div>
             <div id="songSuccess" class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center mt-3"></div>
 
-            <!-- Previous submissions for this date -->
+            <!-- Your submissions for this date -->
             <div id="prevSongs" class="mt-6 hidden">
-                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Previously Submitted</h3>
-                <div id="prevSongsList" class="space-y-2"></div>
+                <div class="border-t border-gray-100 pt-5">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Your Submitted Songs</h3>
+                    <p class="text-xs text-gray-400 mb-3" id="prevSongsDate"></p>
+                    <div id="prevSongsList" class="space-y-2"></div>
+                </div>
+            </div>
+
+            <!-- Other submissions for this date -->
+            <div id="otherSongs" class="mt-4 hidden">
+                <div class="border-t border-gray-100 pt-5">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Also Submitted by Others</h3>
+                    <div id="otherSongsList" class="space-y-2"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -477,26 +488,69 @@ async function loadPrevSongs() {
         const res = await fetch(`/api/songlist/submissions?service_date=${serviceDate}`);
         const items = await res.json();
 
-        const section = document.getElementById('prevSongs');
-        const list = document.getElementById('prevSongsList');
+        const myName = currentUser ? currentUser.full_name : '';
+        const myItems = items.filter(s => s.submitter_name === myName);
+        const otherItems = items.filter(s => s.submitter_name !== myName);
 
-        if (items.length === 0) { section.classList.add('hidden'); return; }
+        // My submissions
+        const mySection = document.getElementById('prevSongs');
+        const myList = document.getElementById('prevSongsList');
+        const dateLabel = document.getElementById('prevSongsDate');
 
-        section.classList.remove('hidden');
-        list.innerHTML = items.map((s, i) => `
-            <div class="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
-                <span class="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0">${s.song_order || i + 1}</span>
-                <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.song_title)}</p>
-                    ${s.notes ? `<p class="text-xs text-gray-400">${escapeHtml(s.notes)}</p>` : ''}
+        if (myItems.length > 0) {
+            const d = new Date(serviceDate + 'T00:00:00');
+            dateLabel.textContent = `For ${d.toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })}`;
+            mySection.classList.remove('hidden');
+            myList.innerHTML = myItems.map((s, i) => `
+                <div class="bg-purple-50 border border-purple-100 rounded-xl p-3 flex items-center gap-3">
+                    <span class="w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">${s.song_order || i + 1}</span>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.song_title)}</p>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                        ${s.fetched ? '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">Sent to Projector</span>' : `
+                        <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-medium rounded-full">Pending</span>
+                        <button onclick="deleteSong(${s.id})" class="text-gray-300 hover:text-red-500 p-1" title="Remove">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>`}
+                    </div>
                 </div>
-                ${s.fetched ? '<span class="text-xs text-emerald-500 font-medium flex-shrink-0">Sent</span>' : `
-                <button onclick="deleteSong(${s.id})" class="text-gray-300 hover:text-red-500 p-1 flex-shrink-0">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>`}
-            </div>
-        `).join('');
-    } catch (e) { /* ignore */ }
+            `).join('');
+        } else {
+            mySection.classList.add('hidden');
+        }
+
+        // Others' submissions
+        const otherSection = document.getElementById('otherSongs');
+        const otherList = document.getElementById('otherSongsList');
+
+        if (otherItems.length > 0) {
+            // Group by submitter
+            const grouped = {};
+            otherItems.forEach(s => {
+                if (!grouped[s.submitter_name]) grouped[s.submitter_name] = [];
+                grouped[s.submitter_name].push(s);
+            });
+
+            otherSection.classList.remove('hidden');
+            otherList.innerHTML = Object.entries(grouped).map(([name, songs]) => `
+                <div class="mb-3">
+                    <p class="text-xs font-medium text-gray-500 mb-1.5">${escapeHtml(name)}</p>
+                    ${songs.map((s, i) => `
+                        <div class="bg-gray-50 border border-gray-100 rounded-lg p-2.5 flex items-center gap-2.5 mb-1">
+                            <span class="w-5 h-5 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center flex-shrink-0">${s.song_order || i + 1}</span>
+                            <p class="text-sm text-gray-700 truncate flex-1">${escapeHtml(s.song_title)}</p>
+                            ${s.fetched ? '<span class="text-xs text-emerald-500">Sent</span>' : '<span class="text-xs text-amber-500">Pending</span>'}
+                        </div>
+                    `).join('')}
+                </div>
+            `).join('');
+        } else {
+            otherSection.classList.add('hidden');
+        }
+    } catch (e) {
+        console.error('Failed to load submissions:', e);
+    }
 }
 
 async function deleteSong(id) {
