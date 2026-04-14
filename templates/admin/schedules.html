@@ -89,7 +89,7 @@ async function init() {
     allTemplates.forEach(t => {
         const opt = document.createElement('option');
         opt.value = t.id;
-        opt.textContent = `${t.name} (${t.day_of_week})`;
+        opt.textContent = `${t.title} (${t.day_name})`;
         sel.appendChild(opt);
     });
 

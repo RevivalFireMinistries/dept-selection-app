@@ -313,7 +313,7 @@ def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manage
     svc_date = schedule.service_date
     day_name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][svc_date.weekday()]
     date_str = svc_date.strftime('%A, %d %B %Y')
-    template_name = schedule.template.name if schedule.template else "No template"
+    template_name = schedule.template.title if schedule.template else "No template"
 
     # Get titled name
     from routers.api import _get_titled_name

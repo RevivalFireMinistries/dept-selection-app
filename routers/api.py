@@ -4637,7 +4637,7 @@ def _schedule_to_dict(schedule: ServiceSchedule) -> dict:
         "service_date": svc_date.isoformat(),
         "day_of_week": DAY_LABELS[svc_date.weekday()] if svc_date else None,
         "template_id": schedule.template_id,
-        "template_name": template.name if template else None,
+        "template_name": template.title if template else None,
         "service_manager_id": schedule.service_manager_id,
         "service_manager_name": _get_titled_name(manager) if manager else None,
         "notes": schedule.notes,
