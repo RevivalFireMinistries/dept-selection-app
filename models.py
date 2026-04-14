@@ -370,6 +370,21 @@ class SongListSubmission(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AdminAuditLog(Base):
+    """Tracks all admin actions for accountability"""
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    admin_name = Column(String, nullable=False)  # denormalized so logs survive member deletion
+    action = Column(String(100), nullable=False)  # e.g. "approve_member", "delete_member", "publish_results"
+    entity_type = Column(String(50), nullable=True)  # e.g. "member", "department", "appeal"
+    entity_id = Column(Integer, nullable=True)  # ID of the affected entity
+    details = Column(Text, nullable=True)  # JSON or human-readable description
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class NewSongSubmission(Base):
     """
     Brand-new songs submitted by the music team with full lyrics.

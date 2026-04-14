@@ -12,6 +12,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 ADMIN_COOKIE_NAME = "admin_session"
+ADMIN_IDENTITY_COOKIE = "admin_identity"
 DESK_COOKIE_NAME = "desk_session"
 MEMBER_COOKIE_NAME = "member_session"
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "rfm-stellenbosch-portal-2026")
@@ -21,6 +22,33 @@ SESSION_MAX_AGE = 90 * 24 * 60 * 60  # 90 days
 def is_authenticated(request: Request) -> bool:
     """Check if user has valid admin session cookie"""
     return request.cookies.get(ADMIN_COOKIE_NAME) == "authenticated"
+
+
+def get_admin_identity(request: Request) -> dict:
+    """Get the admin's identity from signed cookie. Returns {member_id, name} or None."""
+    token = request.cookies.get(ADMIN_IDENTITY_COOKIE)
+    if not token:
+        return None
+    try:
+        import json
+        parts = token.rsplit(".", 1)
+        if len(parts) != 2:
+            return None
+        payload, sig = parts
+        expected = hmac.new(SESSION_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
+        if not hmac.compare_digest(sig, expected):
+            return None
+        return json.loads(payload)
+    except Exception:
+        return None
+
+
+def _sign_admin_identity(member_id: int, name: str) -> str:
+    """Create a signed admin identity cookie value."""
+    import json
+    payload = json.dumps({"member_id": member_id, "name": name})
+    sig = hmac.new(SESSION_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{payload}.{sig}"
 
 
 def is_desk_authenticated(request: Request) -> bool:
@@ -149,22 +177,79 @@ async def admin_login_page(request: Request):
 async def admin_login(
     request: Request,
     response: Response,
+    phone: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    """Process admin login"""
+    """Process admin login with phone number identification"""
+    phone = phone.strip()
+    if not phone:
+        return templates.TemplateResponse(
+            "admin/login.html",
+            {"request": request, "error": "Phone number is required", "phone": ""}
+        )
+
+    # Look up the member by phone
+    normalized = phone.replace(" ", "").replace("-", "")
+    member = None
+    for m in db.query(Member).all():
+        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        if m_normalized == normalized or m.phone == phone:
+            member = m
+            break
+
+    if not member:
+        return templates.TemplateResponse(
+            "admin/login.html",
+            {"request": request, "error": "No member found with this phone number", "phone": phone}
+        )
+
+    # Check if member has admin role
+    import json as _json
+    roles = []
+    if member.leadership_roles:
+        try:
+            roles = _json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else member.leadership_roles
+        except (ValueError, TypeError):
+            roles = []
+    if "admin" not in roles:
+        return templates.TemplateResponse(
+            "admin/login.html",
+            {"request": request, "error": "You do not have admin access. Please contact an administrator.", "phone": phone}
+        )
+
+    # Verify admin password
     setting = db.query(Settings).filter(Settings.key == "adminPassword").first()
     correct_password = setting.value if setting else "admin123"
 
-    if password == correct_password:
-        response = RedirectResponse(url="/admin", status_code=302)
-        response.set_cookie(key=ADMIN_COOKIE_NAME, value="authenticated", httponly=True)
-        return response
-    else:
+    if password != correct_password:
         return templates.TemplateResponse(
             "admin/login.html",
-            {"request": request, "error": "Invalid password"}
+            {"request": request, "error": "Invalid admin password", "phone": phone}
         )
+
+    # Log the admin login
+    from models import AdminAuditLog
+    log = AdminAuditLog(
+        admin_member_id=member.id,
+        admin_name=member.full_name,
+        action="admin_login",
+        entity_type="admin",
+        details=f"Admin login from {request.client.host}" if request.client else "Admin login",
+        ip_address=request.client.host if request.client else None
+    )
+    db.add(log)
+    db.commit()
+
+    response = RedirectResponse(url="/admin", status_code=302)
+    response.set_cookie(key=ADMIN_COOKIE_NAME, value="authenticated", httponly=True)
+    response.set_cookie(
+        key=ADMIN_IDENTITY_COOKIE,
+        value=_sign_admin_identity(member.id, member.full_name),
+        httponly=True,
+        max_age=SESSION_MAX_AGE
+    )
+    return response
 
 
 @router.get("/admin/logout")
@@ -172,6 +257,7 @@ async def admin_logout():
     """Log out admin"""
     response = RedirectResponse(url="/admin/login", status_code=302)
     response.delete_cookie(key=ADMIN_COOKIE_NAME)
+    response.delete_cookie(key=ADMIN_IDENTITY_COOKIE)
     return response
 
 
@@ -181,6 +267,14 @@ async def admin_dashboard(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
     return templates.TemplateResponse("admin/dashboard.html", {"request": request})
+
+
+@router.get("/admin/audit-log")
+async def admin_audit_log_page(request: Request):
+    """Admin audit log page"""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/audit_log.html", {"request": request})
 
 
 @router.get("/admin/department-stats")

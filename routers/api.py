@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -459,6 +459,59 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     }
 
 
+# ============ ADMIN: AUDIT LOGGING ============
+
+def _log_admin_action(request: Request, db: Session, action: str, entity_type: str = None, entity_id: int = None, details: str = None):
+    """Log an admin action for audit trail"""
+    from routers.pages import get_admin_identity
+    admin = get_admin_identity(request)
+    log = AdminAuditLog(
+        admin_member_id=admin["member_id"] if admin else None,
+        admin_name=admin["name"] if admin else "Unknown",
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        details=details,
+        ip_address=request.client.host if request.client else None
+    )
+    db.add(log)
+
+
+@router.get("/admin/identity")
+def get_admin_identity_endpoint(request: Request):
+    """Get the current admin's identity from cookie"""
+    from routers.pages import get_admin_identity
+    admin = get_admin_identity(request)
+    if not admin:
+        return {"authenticated": False}
+    return {"authenticated": True, "member_id": admin["member_id"], "name": admin["name"]}
+
+
+@router.get("/admin/audit-log")
+def get_audit_log(
+    limit: int = Query(50),
+    offset: int = Query(0),
+    db: Session = Depends(get_db)
+):
+    """Get admin audit log entries"""
+    total = db.query(AdminAuditLog).count()
+    logs = db.query(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "logs": [{
+            "id": l.id,
+            "admin_name": l.admin_name,
+            "admin_member_id": l.admin_member_id,
+            "action": l.action,
+            "entity_type": l.entity_type,
+            "entity_id": l.entity_id,
+            "details": l.details,
+            "ip_address": l.ip_address,
+            "created_at": l.created_at.isoformat() if l.created_at else None
+        } for l in logs]
+    }
+
+
 # ============ ADMIN: MEMBER APPROVAL ============
 
 @router.get("/admin/pending-registrations")
@@ -475,12 +528,14 @@ def get_pending_registrations(db: Session = Depends(get_db)):
 
 
 @router.post("/admin/approve-member/{member_id}")
-def approve_member(member_id: int, db: Session = Depends(get_db)):
+def approve_member(member_id: int, request: Request = None, db: Session = Depends(get_db)):
     """Admin: approve a pending member registration"""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     member.is_active = True
+    if request:
+        _log_admin_action(request, db, "approve_member", "member", member_id, f"Approved registration for {member.full_name}")
     db.commit()
 
     # Send approval email
@@ -543,11 +598,14 @@ def approve_member(member_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/reject-member/{member_id}")
-def reject_member(member_id: int, db: Session = Depends(get_db)):
+def reject_member(member_id: int, request: Request = None, db: Session = Depends(get_db)):
     """Admin: reject and delete a pending member registration"""
     member = db.query(Member).filter(Member.id == member_id, Member.is_active == False).first()
     if not member:
         raise HTTPException(status_code=404, detail="Pending member not found")
+    member_name = member.full_name
+    if request:
+        _log_admin_action(request, db, "reject_member", "member", member_id, f"Rejected registration for {member_name}")
     db.delete(member)
     db.commit()
     return {"success": True}
@@ -939,7 +997,7 @@ def get_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/settings")
-def update_setting(data: SettingUpdate, db: Session = Depends(get_db)):
+def update_setting(data: SettingUpdate, request: Request = None, db: Session = Depends(get_db)):
     """Update or create a setting"""
     if not data.key or data.value is None:
         raise HTTPException(status_code=400, detail="Key and value are required")
@@ -951,6 +1009,10 @@ def update_setting(data: SettingUpdate, db: Session = Depends(get_db)):
         setting = Settings(key=data.key, value=str(data.value))
         db.add(setting)
 
+    # Don't log password values
+    safe_value = "****" if "password" in data.key.lower() else str(data.value)
+    if request:
+        _log_admin_action(request, db, "update_settings", "settings", None, f"Updated {data.key} = {safe_value}")
     db.commit()
 
     return {"success": True}
@@ -1365,6 +1427,7 @@ def get_all_reviews(db: Session = Depends(get_db)):
 def update_review_status(
     member_department_id: int,
     data: ReviewStatusUpdate,
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """Approve or reject a single department selection"""
@@ -1381,6 +1444,10 @@ def update_review_status(
     md.status = data.status
     md.admin_note = data.admin_note
     md.status_changed_at = datetime.now()
+    action = "review_approve" if data.status == "approved" else "review_reject"
+    if request:
+        _log_admin_action(request, db, action, "member_department", member_department_id,
+            f"{'Approved' if data.status == 'approved' else 'Rejected'} {md.member.full_name} for {md.department.name}")
     db.commit()
 
     # Dispatch notification
@@ -1519,13 +1586,15 @@ def admin_update_member(member_id: int, data: dict = Body(...), db: Session = De
 
 
 @router.delete("/admin/members/{member_id}")
-def admin_delete_member(member_id: int, db: Session = Depends(get_db)):
+def admin_delete_member(member_id: int, request: Request = None, db: Session = Depends(get_db)):
     """Admin permanently deletes a member and all related records"""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
     member_name = member.full_name
+    if request:
+        _log_admin_action(request, db, "delete_member", "member", member_id, f"Permanently deleted member {member_name}")
 
     # Clear HOD references on departments
     db.query(Department).filter(Department.hod_member_id == member_id).update(
@@ -1561,6 +1630,7 @@ def admin_delete_member(member_id: int, db: Session = Depends(get_db)):
 def assign_department(
     member_id: int,
     data: AssignDepartmentRequest,
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """Admin assigns an additional department to a member"""
@@ -1592,6 +1662,9 @@ def assign_department(
         status_changed_at=datetime.now()
     )
     db.add(md)
+    if request:
+        _log_admin_action(request, db, "assign_department", "member", member_id,
+            f"Assigned {dept.name} to {member.full_name}")
     db.commit()
     db.refresh(md)
 
@@ -1615,7 +1688,7 @@ def assign_department(
 
 
 @router.post("/admin/reviews/bulk-approve")
-def bulk_approve_pending(db: Session = Depends(get_db)):
+def bulk_approve_pending(request: Request = None, db: Session = Depends(get_db)):
     """Approve all pending selections (including null status from before workflow)"""
     count = db.query(MemberDepartment).filter(
         or_(MemberDepartment.status == "pending", MemberDepartment.status.is_(None))
@@ -1623,6 +1696,8 @@ def bulk_approve_pending(db: Session = Depends(get_db)):
         MemberDepartment.status: "approved",
         MemberDepartment.status_changed_at: datetime.now()
     }, synchronize_session='fetch')
+    if request:
+        _log_admin_action(request, db, "bulk_approve", "member_department", None, f"Bulk approved {count} pending selections")
     db.commit()
 
     return {"success": True, "approved_count": count}
@@ -1660,6 +1735,7 @@ def get_member_leadership_roles(member_id: int, db: Session = Depends(get_db)):
 def update_member_leadership_roles(
     member_id: int,
     roles: List[str] = Body(..., embed=True),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """Update leadership roles for a member (deacon, elder, etc.)"""
@@ -1673,6 +1749,9 @@ def update_member_leadership_roles(
     if invalid:
         raise HTTPException(status_code=400, detail=f"Invalid roles: {invalid}. Valid roles are: {valid_roles}")
 
+    if request:
+        _log_admin_action(request, db, "update_leadership_roles", "member", member_id,
+            f"Updated roles for {member.full_name}: {', '.join(roles) if roles else 'none'}")
     member.leadership_roles = json.dumps(roles) if roles else None
     db.commit()
 
@@ -1752,8 +1831,10 @@ def preview_publish(db: Session = Depends(get_db)):
 
 
 @router.post("/admin/publish")
-def publish_results(db: Session = Depends(get_db)):
+def publish_results(request: Request = None, db: Session = Depends(get_db)):
     """Publish results - make approved selections visible to members"""
+    if request:
+        _log_admin_action(request, db, "publish_results", "settings", None, "Published department selection results")
     now = datetime.now().isoformat()
 
     # Update resultsPublished setting
@@ -1805,8 +1886,10 @@ def publish_results(db: Session = Depends(get_db)):
 
 
 @router.post("/admin/unpublish")
-def unpublish_results(db: Session = Depends(get_db)):
+def unpublish_results(request: Request = None, db: Session = Depends(get_db)):
     """Unpublish results - hide from members"""
+    if request:
+        _log_admin_action(request, db, "unpublish_results", "settings", None, "Unpublished department selection results")
     setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
     if setting:
         setting.value = "false"
@@ -2053,6 +2136,7 @@ def get_all_appeals(db: Session = Depends(get_db)):
 def resolve_appeal(
     appeal_id: int,
     data: AppealResolve,
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """Resolve an appeal (approve or reject)"""
@@ -2070,6 +2154,9 @@ def resolve_appeal(
     appeal.status = data.status
     appeal.admin_response = data.admin_response
     appeal.resolved_at = datetime.now()
+    if request:
+        _log_admin_action(request, db, "resolve_appeal", "appeal", appeal_id,
+            f"{'Approved' if data.status == 'approved' else 'Rejected'} appeal from {appeal.member.full_name}")
 
     # If approved, update the member's departments
     if data.status == "approved":
@@ -2126,7 +2213,7 @@ def resolve_appeal(
 
 
 @router.post("/admin/appeals/window")
-def toggle_appeal_window(open: bool = Query(...), db: Session = Depends(get_db)):
+def toggle_appeal_window(open: bool = Query(...), request: Request = None, db: Session = Depends(get_db)):
     """Open or close the appeal window"""
     setting = db.query(Settings).filter(Settings.key == "appealWindowOpen").first()
     if setting:
@@ -2134,6 +2221,9 @@ def toggle_appeal_window(open: bool = Query(...), db: Session = Depends(get_db))
     else:
         db.add(Settings(key="appealWindowOpen", value="true" if open else "false"))
 
+    if request:
+        _log_admin_action(request, db, "toggle_appeal_window", "settings", None,
+            f"{'Opened' if open else 'Closed'} the appeal window")
     db.commit()
 
     return {"success": True, "appeal_window_open": open}
