@@ -149,6 +149,7 @@ def _send_password_setup_email(db, member, token: str):
 
 @router.post("/auth/register")
 def register_member(
+    request: Request,
     data: dict = Body(...),
     db: Session = Depends(get_db)
 ):
@@ -185,6 +186,8 @@ def register_member(
         is_active=False  # Requires admin approval
     )
     db.add(member)
+    db.flush()
+    _log_member_action(request, db, member, "register", "member", member.id, f"New registration (pending approval)")
     db.commit()
 
     return {"success": True, "message": "Your account has been created and is pending admin approval. You will be notified once approved."}
@@ -459,7 +462,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     }
 
 
-# ============ ADMIN: AUDIT LOGGING ============
+# ============ AUDIT LOGGING ============
 
 def _log_admin_action(request: Request, db: Session, action: str, entity_type: str = None, entity_id: int = None, details: str = None):
     """Log an admin action for audit trail"""
@@ -468,11 +471,42 @@ def _log_admin_action(request: Request, db: Session, action: str, entity_type: s
     log = AdminAuditLog(
         admin_member_id=admin["member_id"] if admin else None,
         admin_name=admin["name"] if admin else "Unknown",
+        actor_type="admin",
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
         details=details,
         ip_address=request.client.host if request.client else None
+    )
+    db.add(log)
+
+
+def _log_member_action(request: Request, db: Session, member, action: str, entity_type: str = None, entity_id: int = None, details: str = None):
+    """Log a member/user action for audit trail"""
+    log = AdminAuditLog(
+        admin_member_id=member.id if member else None,
+        admin_name=member.full_name if member else "Unknown",
+        actor_type="member",
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        details=details,
+        ip_address=request.client.host if request.client else None
+    )
+    db.add(log)
+
+
+def _log_system_action(db: Session, action: str, entity_type: str = None, entity_id: int = None, details: str = None):
+    """Log a system/automated action for audit trail"""
+    log = AdminAuditLog(
+        admin_member_id=None,
+        admin_name="System",
+        actor_type="system",
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        details=details,
+        ip_address=None
     )
     db.add(log)
 
@@ -489,19 +523,55 @@ def get_admin_identity_endpoint(request: Request):
 
 @router.get("/admin/audit-log")
 def get_audit_log(
-    limit: int = Query(50),
+    limit: int = Query(100),
     offset: int = Query(0),
+    actor_type: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    member_id: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Get admin audit log entries"""
-    total = db.query(AdminAuditLog).count()
-    logs = db.query(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).offset(offset).limit(limit).all()
+    """Get audit log entries with filtering"""
+    query = db.query(AdminAuditLog)
+
+    if actor_type:
+        query = query.filter(AdminAuditLog.actor_type == actor_type)
+    if action:
+        query = query.filter(AdminAuditLog.action == action)
+    if member_id:
+        query = query.filter(AdminAuditLog.admin_member_id == member_id)
+    if search:
+        query = query.filter(
+            or_(
+                AdminAuditLog.admin_name.ilike(f"%{search}%"),
+                AdminAuditLog.details.ilike(f"%{search}%"),
+                AdminAuditLog.action.ilike(f"%{search}%")
+            )
+        )
+    if date_from:
+        query = query.filter(AdminAuditLog.created_at >= date_from)
+    if date_to:
+        query = query.filter(AdminAuditLog.created_at <= date_to + "T23:59:59")
+
+    total = query.count()
+    logs = query.order_by(AdminAuditLog.created_at.desc()).offset(offset).limit(limit).all()
+
+    # Get distinct actors and actions for filter dropdowns
+    all_actors = db.query(AdminAuditLog.admin_name, AdminAuditLog.admin_member_id, AdminAuditLog.actor_type)\
+        .distinct().order_by(AdminAuditLog.admin_name).all()
+    all_actions = db.query(AdminAuditLog.action).distinct().order_by(AdminAuditLog.action).all()
+
     return {
         "total": total,
+        "actors": [{"name": a[0], "id": a[1], "actor_type": a[2]} for a in all_actors],
+        "actions": [a[0] for a in all_actions],
         "logs": [{
             "id": l.id,
             "admin_name": l.admin_name,
             "admin_member_id": l.admin_member_id,
+            "actor_type": l.actor_type if hasattr(l, 'actor_type') and l.actor_type else "admin",
             "action": l.action,
             "entity_type": l.entity_type,
             "entity_id": l.entity_id,
@@ -656,7 +726,7 @@ def get_departments(db: Session = Depends(get_db)):
 
 
 @router.post("/departments")
-def create_department(data: DepartmentCreate, db: Session = Depends(get_db)):
+def create_department(data: DepartmentCreate, request: Request, db: Session = Depends(get_db)):
     """Create a new department"""
     if not data.name:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -666,11 +736,14 @@ def create_department(data: DepartmentCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(department)
 
+    _log_admin_action(request, db, "create_department", "department", department.id, f"Created department '{department.name}'")
+    db.commit()
+
     return {"id": department.id, "name": department.name, "categoryId": department.category_id}
 
 
 @router.put("/departments")
-def update_department(data: DepartmentUpdate, db: Session = Depends(get_db)):
+def update_department(data: DepartmentUpdate, request: Request, db: Session = Depends(get_db)):
     """Update an existing department"""
     if not data.id or not data.name:
         raise HTTPException(status_code=400, detail="ID and name are required")
@@ -679,22 +752,31 @@ def update_department(data: DepartmentUpdate, db: Session = Depends(get_db)):
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
 
+    old_name = department.name
     department.name = data.name
     department.category_id = data.category_id
+    db.commit()
+
+    _log_admin_action(request, db, "update_department", "department", department.id, f"Updated department '{old_name}' → '{department.name}'")
     db.commit()
 
     return {"id": department.id, "name": department.name, "categoryId": department.category_id}
 
 
 @router.delete("/departments")
-def delete_department(id: int = Query(...), db: Session = Depends(get_db)):
+def delete_department(id: int = Query(...), request: Request = None, db: Session = Depends(get_db)):
     """Delete a department"""
     department = db.query(Department).filter(Department.id == id).first()
     if not department:
         raise HTTPException(status_code=404, detail="Department not found")
 
+    dept_name = department.name
     db.delete(department)
     db.commit()
+
+    if request:
+        _log_admin_action(request, db, "delete_department", "department", id, f"Deleted department '{dept_name}'")
+        db.commit()
 
     return {"success": True}
 
@@ -724,7 +806,7 @@ def get_categories(db: Session = Depends(get_db)):
 
 
 @router.post("/categories")
-def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
+def create_category(data: CategoryCreate, request: Request, db: Session = Depends(get_db)):
     """Create a new category"""
     if not data.name:
         raise HTTPException(status_code=400, detail="Name is required")
@@ -734,11 +816,14 @@ def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(category)
 
+    _log_admin_action(request, db, "create_category", "category", category.id, f"Created category '{category.name}' (max: {category.max_selections})")
+    db.commit()
+
     return {"id": category.id, "name": category.name, "maxSelections": category.max_selections}
 
 
 @router.put("/categories")
-def update_category(data: CategoryUpdate, db: Session = Depends(get_db)):
+def update_category(data: CategoryUpdate, request: Request, db: Session = Depends(get_db)):
     """Update an existing category"""
     if not data.id or not data.name:
         raise HTTPException(status_code=400, detail="ID and name are required")
@@ -747,22 +832,31 @@ def update_category(data: CategoryUpdate, db: Session = Depends(get_db)):
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
+    old_name = category.name
     category.name = data.name
     category.max_selections = data.max_selections
+    db.commit()
+
+    _log_admin_action(request, db, "update_category", "category", category.id, f"Updated category '{old_name}' → '{category.name}'")
     db.commit()
 
     return {"id": category.id, "name": category.name, "maxSelections": category.max_selections}
 
 
 @router.delete("/categories")
-def delete_category(id: int = Query(...), db: Session = Depends(get_db)):
+def delete_category(id: int = Query(...), request: Request = None, db: Session = Depends(get_db)):
     """Delete a category (departments become uncategorized)"""
     category = db.query(Category).filter(Category.id == id).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
+    cat_name = category.name
     db.delete(category)
     db.commit()
+
+    if request:
+        _log_admin_action(request, db, "delete_category", "category", id, f"Deleted category '{cat_name}'")
+        db.commit()
 
     return {"success": True}
 
@@ -1021,7 +1115,7 @@ def update_setting(data: SettingUpdate, request: Request = None, db: Session = D
 # ============ SUBMIT ============
 
 @router.post("/submit")
-def submit_form(data: MemberSubmission, source: Optional[str] = Query(None), db: Session = Depends(get_db)):
+def submit_form(data: MemberSubmission, request: Request, source: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Submit member department selection form"""
     if source != "desk":
         check_selections_locked(db)
@@ -1083,10 +1177,13 @@ def submit_form(data: MemberSubmission, source: Optional[str] = Query(None), db:
     db.flush()
 
     # Create member-department associations
+    dept_names = [d.name for d in departments]
     for dept_id in data.selected_departments:
         md = MemberDepartment(member_id=member.id, department_id=dept_id)
         db.add(md)
 
+    _log_member_action(request, db, member, "submit_selection", "member", member.id,
+        f"Selected {len(data.selected_departments)} dept(s): {', '.join(dept_names)}")
     db.commit()
     db.refresh(member)
 
@@ -1474,6 +1571,7 @@ def update_review_status(
 def replace_department(
     member_department_id: int,
     data: ReplaceDepartmentRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Replace a selection with a different department (reject original, create admin-assigned)"""
@@ -1507,11 +1605,15 @@ def replace_department(
     md.replaced_by_id = new_md.id
     db.commit()
 
+    _log_admin_action(request, db, "replace_department", "member_department", member_department_id,
+                      f"Replaced '{md.department.name}' with '{new_dept.name}' for member #{md.member_id}")
+    db.commit()
+
     return {"success": True, "original_id": member_department_id, "new_id": new_md.id}
 
 
 @router.post("/admin/members")
-def admin_create_member(data: dict = Body(...), db: Session = Depends(get_db)):
+def admin_create_member(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     """Admin: create a new member without requiring department selections"""
     full_name = _title_case_name((data.get("full_name") or "").strip())
     phone = (data.get("phone") or "").strip()
@@ -1543,6 +1645,10 @@ def admin_create_member(data: dict = Body(...), db: Session = Depends(get_db)):
     db.commit()
     db.refresh(member)
 
+    if request:
+        _log_admin_action(request, db, "create_member", "member", member.id, f"Created member '{member.full_name}' ({member.phone})")
+        db.commit()
+
     return {
         "id": member.id,
         "fullName": member.full_name,
@@ -1553,7 +1659,7 @@ def admin_create_member(data: dict = Body(...), db: Session = Depends(get_db)):
 
 
 @router.put("/admin/members/{member_id}")
-def admin_update_member(member_id: int, data: dict = Body(...), db: Session = Depends(get_db)):
+def admin_update_member(member_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     """Admin: update a member's personal details (name, phone, email, address)"""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
@@ -1575,6 +1681,10 @@ def admin_update_member(member_id: int, data: dict = Body(...), db: Session = De
 
     db.commit()
     db.refresh(member)
+
+    if request:
+        _log_admin_action(request, db, "update_member", "member", member_id, f"Updated member '{member.full_name}'")
+        db.commit()
 
     return {
         "id": member.id,
@@ -1995,6 +2105,7 @@ def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
 @router.post("/results/accept/{member_department_id}")
 def accept_admin_assignment(
     member_department_id: int,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -2023,13 +2134,17 @@ def accept_admin_assignment(
     md.status_changed_at = datetime.now()
     db.commit()
 
+    _log_member_action(request, db, md.member, "accept_assignment", "member_department", member_department_id,
+                       f"Accepted admin-assigned department")
+    db.commit()
+
     return {"success": True, "message": "Department assignment accepted"}
 
 
 # ============ APPEAL ENDPOINTS ============
 
 @router.post("/appeals")
-def submit_appeal(data: AppealCreate, db: Session = Depends(get_db)):
+def submit_appeal(data: AppealCreate, request: Request, db: Session = Depends(get_db)):
     """Submit an appeal (public endpoint)"""
     # Check results are published
     pub_setting = db.query(Settings).filter(Settings.key == "resultsPublished").first()
@@ -2081,6 +2196,11 @@ def submit_appeal(data: AppealCreate, db: Session = Depends(get_db)):
         status="pending"
     )
     db.add(appeal)
+    db.flush()
+    unwanted_name = unwanted_dept.name if unwanted_dept else "none"
+    wanted_name = wanted_dept.name if wanted_dept else "none"
+    _log_member_action(request, db, member, "submit_appeal", "appeal", appeal.id,
+        f"Appeal: remove {unwanted_name}, want {wanted_name}")
     db.commit()
     db.refresh(appeal)
 
@@ -2275,6 +2395,7 @@ def _can_manage_department(db: Session, member: "Member", department_id: int) ->
 def set_department_hod(
     department_id: int,
     data: SetHODRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Assign a member as Head of Department"""
@@ -2289,6 +2410,9 @@ def set_department_hod(
     department.hod_member_id = member.id
     db.commit()
 
+    _log_admin_action(request, db, "set_hod", "department", department_id, f"Set {member.full_name} as HOD of '{department.name}'")
+    db.commit()
+
     return {
         "success": True,
         "message": "HOD assigned",
@@ -2300,6 +2424,7 @@ def set_department_hod(
 @router.delete("/admin/departments/{department_id}/remove-hod")
 def remove_department_hod(
     department_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Remove the HOD assignment from a department"""
@@ -2308,6 +2433,9 @@ def remove_department_hod(
         raise HTTPException(status_code=404, detail="Department not found")
 
     department.hod_member_id = None
+    db.commit()
+
+    _log_admin_action(request, db, "remove_hod", "department", department_id, f"Removed HOD from '{department.name}'")
     db.commit()
 
     return {"success": True, "message": "HOD removed"}
@@ -2725,6 +2853,7 @@ def get_hod_calendar(
 @router.post("/hod/meetings")
 def create_hod_meeting(
     data: MeetingCreate,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -2842,6 +2971,10 @@ def create_hod_meeting(
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
 
+    _log_member_action(request, db, hod_member, "create_meeting", "meeting", created_meetings[0].id,
+                       f"Created meeting '{data.title}' for {department.name} ({len(created_meetings)} occurrence(s))")
+    db.commit()
+
     return {
         "success": True,
         "meeting": format_meeting_response(first_meeting, db),
@@ -2854,6 +2987,7 @@ def create_hod_meeting(
 def update_hod_meeting(
     meeting_id: int,
     data: MeetingUpdate,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -2910,12 +3044,17 @@ def update_hod_meeting(
     db.commit()
     db.refresh(meeting)
 
+    _log_member_action(request, db, hod_member, "update_meeting", "meeting", meeting_id,
+                       f"Updated meeting '{meeting.title}'")
+    db.commit()
+
     return {"success": True, "meeting": format_meeting_response(meeting, db)}
 
 
 @router.delete("/hod/meetings/{meeting_id}")
 def delete_hod_meeting(
     meeting_id: int,
+    request: Request,
     phone: str = Query(...),
     delete_scope: str = Query("single", description="single, future, or all"),
     db: Session = Depends(get_db)
@@ -2958,6 +3097,10 @@ def delete_hod_meeting(
         # Delete only this single meeting
         db.delete(meeting)
 
+    db.commit()
+
+    _log_member_action(request, db, hod_member, "delete_meeting", "meeting", meeting_id,
+                       f"Deleted {deleted_count} meeting(s) (scope: {delete_scope})")
     db.commit()
 
     message = f"Deleted {deleted_count} meeting(s)" if deleted_count > 1 else "Meeting deleted"
@@ -3081,6 +3224,7 @@ def get_member_meetings(phone: str = Query(...), db: Session = Depends(get_db)):
 def submit_rsvp(
     meeting_id: int,
     data: RSVPRequest,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -3197,6 +3341,8 @@ def submit_rsvp(
         )
         db.add(rsvp)
 
+    _log_member_action(request, db, member, "meeting_rsvp", "meeting", meeting_id,
+        f"RSVP: {data.response} for {meeting.title}")
     db.commit()
 
     return {"success": True, "response": data.response}
@@ -3243,7 +3389,7 @@ def get_all_meetings(
 
 
 @router.post("/admin/meetings")
-def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
+def create_admin_meeting(data: MeetingCreate, request: Request = None, db: Session = Depends(get_db)):
     """Create a meeting (admin) - supports single dept, all leaders, multi-dept, individuals, and recurring"""
 
     if data.start_slot < 0 or data.end_slot > 48 or data.start_slot >= data.end_slot:
@@ -3479,6 +3625,11 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
 
+    if request:
+        _log_admin_action(request, db, "create_meeting", "meeting", created_meetings[0].id,
+                          f"Created meeting '{data.title}' ({len(created_meetings)} occurrence(s))")
+        db.commit()
+
     return {
         "success": True,
         "meeting": format_meeting_response(first_meeting, db),
@@ -3491,6 +3642,7 @@ def create_admin_meeting(data: MeetingCreate, db: Session = Depends(get_db)):
 def update_admin_meeting(
     meeting_id: int,
     data: MeetingUpdate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Update any meeting (admin)"""
@@ -3535,12 +3687,16 @@ def update_admin_meeting(
     db.commit()
     db.refresh(meeting)
 
+    _log_admin_action(request, db, "update_meeting", "meeting", meeting_id, f"Updated meeting '{meeting.title}'")
+    db.commit()
+
     return {"success": True, "meeting": format_meeting_response(meeting, db)}
 
 
 @router.delete("/admin/meetings/{meeting_id}")
 def delete_admin_meeting(
     meeting_id: int,
+    request: Request,
     delete_scope: str = Query("single", description="single, future, or all"),
     db: Session = Depends(get_db)
 ):
@@ -3570,6 +3726,10 @@ def delete_admin_meeting(
         # Delete only this single meeting
         db.delete(meeting)
 
+    db.commit()
+
+    _log_admin_action(request, db, "delete_meeting", "meeting", meeting_id,
+                      f"Deleted {deleted_count} meeting(s) (scope: {delete_scope})")
     db.commit()
 
     message = f"Deleted {deleted_count} meeting(s)" if deleted_count > 1 else "Meeting deleted"
@@ -3661,6 +3821,7 @@ def format_poster_request(pr: PosterRequest) -> dict:
 @router.post("/poster-requests")
 def create_poster_request(
     data: PosterRequestCreate,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -3705,6 +3866,9 @@ def create_poster_request(
         status="pending"
     )
     db.add(pr)
+    db.flush()
+    _log_member_action(request, db, member, "create_poster_request", "poster_request", pr.id,
+        f"Poster request: {data.event_name}")
     db.commit()
     db.refresh(pr)
 
@@ -3853,6 +4017,7 @@ def get_poster_requests(
 @router.put("/poster-requests/{request_id}/acknowledge")
 def acknowledge_poster_request(
     request_id: int,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -3931,12 +4096,17 @@ def acknowledge_poster_request(
     except Exception as e:
         print(f"Failed to dispatch acknowledgment notification: {e}")
 
+    _log_member_action(request, db, member, "acknowledge_poster_request", "poster_request", request_id,
+                       f"Acknowledged poster request '{pr.event_name}'")
+    db.commit()
+
     return {"success": True, "request": format_poster_request(pr)}
 
 
 @router.put("/poster-requests/{request_id}/complete")
 def complete_poster_request(
     request_id: int,
+    request: Request,
     phone: str = Query(...),
     db: Session = Depends(get_db)
 ):
@@ -4016,6 +4186,10 @@ def complete_poster_request(
     except Exception as e:
         print(f"Failed to dispatch completion notification: {e}")
 
+    _log_member_action(request, db, member, "complete_poster_request", "poster_request", request_id,
+                       f"Completed poster request '{pr.event_name}'")
+    db.commit()
+
     return {"success": True, "request": format_poster_request(pr)}
 
 
@@ -4063,6 +4237,7 @@ def get_poster_request_department(db: Session = Depends(get_db)):
 @router.put("/admin/settings/poster-request-department")
 def set_poster_request_department(
     department_id: int = Body(..., embed=True),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """Set the department that handles poster requests"""
@@ -4080,6 +4255,10 @@ def set_poster_request_department(
         db.add(setting)
 
     db.commit()
+
+    if request:
+        _log_admin_action(request, db, "update_settings", "settings", None, f"Set poster request department to '{dept.name}'")
+        db.commit()
 
     return {"success": True, "department_id": department_id, "department_name": dept.name}
 
@@ -4349,7 +4528,7 @@ def preview_meeting_reminders(db: Session = Depends(get_db)):
 
 
 @router.post("/admin/meetings/{meeting_id}/send-invite")
-def send_meeting_invite(meeting_id: int, db: Session = Depends(get_db)):
+def send_meeting_invite(meeting_id: int, request: Request, db: Session = Depends(get_db)):
     """
     Manually send meeting invite (RSVP request) to all members of the meeting's department.
     """
@@ -4395,6 +4574,10 @@ def send_meeting_invite(meeting_id: int, db: Session = Depends(get_db)):
         recipients=recipients
     )
 
+    _log_admin_action(request, db, "send_meeting_invite", "meeting", meeting_id,
+                      f"Sent invite for '{meeting.title}' to {len(recipients)} recipient(s)")
+    db.commit()
+
     return {
         "success": True,
         "message": f"Meeting invite sent to {len(recipients)} recipient(s)",
@@ -4403,7 +4586,7 @@ def send_meeting_invite(meeting_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/meetings/{meeting_id}/send-reminder")
-def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
+def send_meeting_reminder(meeting_id: int, request: Request, db: Session = Depends(get_db)):
     """
     Manually send meeting reminder to all members of the meeting's department.
     """
@@ -4446,6 +4629,10 @@ def send_meeting_reminder(meeting_id: int, db: Session = Depends(get_db)):
         data=meeting_data,
         recipients=recipients
     )
+
+    _log_admin_action(request, db, "send_meeting_reminder", "meeting", meeting_id,
+                      f"Sent reminder for '{meeting.title}' to {len(recipients)} recipient(s)")
+    db.commit()
 
     return {
         "success": True,
@@ -4796,7 +4983,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
 
 
 @router.post("/admin/programs")
-def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
+def create_program(data: ServiceProgramCreate, request: Request, db: Session = Depends(get_db)):
     """Admin: create a new service program"""
     if not data.title:
         raise HTTPException(status_code=400, detail="Title is required")
@@ -4821,6 +5008,9 @@ def create_program(data: ServiceProgramCreate, db: Session = Depends(get_db)):
     if program.created_by_member_id:
         from sqlalchemy.orm import joinedload
         program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
+
+    _log_admin_action(request, db, "create_program", "program", program.id, f"Created program '{program.title}' for {program.service_date}")
+    db.commit()
 
     # Emails are NOT sent on create — only when the program is published
     return _program_to_dict(program, db=db)
@@ -4856,7 +5046,7 @@ def _check_program_edit_permission(db: Session, program: ServiceProgram, editor_
 
 
 @router.put("/admin/programs/{program_id}")
-def update_program(program_id: int, data: ServiceProgramUpdate, editor_member_id: int = None, db: Session = Depends(get_db)):
+def update_program(program_id: int, data: ServiceProgramUpdate, request: Request, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: update an existing program"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
@@ -4888,12 +5078,15 @@ def update_program(program_id: int, data: ServiceProgramUpdate, editor_member_id
     from sqlalchemy.orm import joinedload
     program = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
 
+    _log_admin_action(request, db, "update_program", "program", program_id, f"Updated program '{program.title}'")
+    db.commit()
+
     # Emails are NOT sent on update — use publish or re-notify instead
     return _program_to_dict(program, db=db)
 
 
 @router.delete("/admin/programs/{program_id}")
-def delete_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
+def delete_program(program_id: int, request: Request, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: delete a program"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
@@ -4901,7 +5094,11 @@ def delete_program(program_id: int, editor_member_id: int = None, db: Session = 
 
     _check_program_edit_permission(db, program, editor_member_id)
 
+    prog_title = program.title
     db.delete(program)
+    db.commit()
+
+    _log_admin_action(request, db, "delete_program", "program", program_id, f"Deleted program '{prog_title}'")
     db.commit()
 
     return {"success": True}
@@ -5069,7 +5266,7 @@ def _send_published_copy_to_manager(db: Session, program: ServiceProgram):
 
 
 @router.post("/admin/programs/{program_id}/publish")
-def publish_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
+def publish_program(program_id: int, request: Request, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: publish a program and send notifications to all participants"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
@@ -5087,11 +5284,14 @@ def publish_program(program_id: int, editor_member_id: int = None, db: Session =
     # Send service manager a copy of the final program
     _send_published_copy_to_manager(db, program)
 
+    _log_admin_action(request, db, "publish_program", "program", program_id, f"Published program '{program.title}'")
+    db.commit()
+
     return _program_to_dict(program, db=db)
 
 
 @router.post("/admin/programs/{program_id}/unpublish")
-def unpublish_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
+def unpublish_program(program_id: int, request: Request, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: unpublish a program (back to draft)"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
@@ -5103,11 +5303,14 @@ def unpublish_program(program_id: int, editor_member_id: int = None, db: Session
     db.commit()
     db.refresh(program)
 
+    _log_admin_action(request, db, "unpublish_program", "program", program_id, f"Unpublished program '{program.title}'")
+    db.commit()
+
     return _program_to_dict(program, db=db)
 
 
 @router.post("/admin/programs/{program_id}/notify")
-def renotify_program(program_id: int, editor_member_id: int = None, db: Session = Depends(get_db)):
+def renotify_program(program_id: int, request: Request, editor_member_id: int = None, db: Session = Depends(get_db)):
     """Admin: re-send notifications to all participants of a published program"""
     program = db.query(ServiceProgram).filter(ServiceProgram.id == program_id).first()
     if not program:
@@ -5116,6 +5319,9 @@ def renotify_program(program_id: int, editor_member_id: int = None, db: Session 
     _check_program_edit_permission(db, program, editor_member_id)
 
     _send_program_notifications(db, program)
+
+    _log_admin_action(request, db, "notify_program", "program", program_id, f"Re-sent notifications for program '{program.title}'")
+    db.commit()
 
     return {"success": True, "message": "Notifications sent to all participants"}
 
@@ -5222,7 +5428,7 @@ def get_template(template_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/admin/templates")
-def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
+def create_template(data: ProgramTemplateCreate, request: Request, db: Session = Depends(get_db)):
     """Admin: create a new program template"""
     if not data.title:
         raise HTTPException(status_code=400, detail="Title is required")
@@ -5244,11 +5450,14 @@ def create_template(data: ProgramTemplateCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(template)
 
+    _log_admin_action(request, db, "create_template", "template", template.id, f"Created template '{template.title}'")
+    db.commit()
+
     return _template_to_dict(template)
 
 
 @router.put("/admin/templates/{template_id}")
-def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session = Depends(get_db)):
+def update_template(template_id: int, data: ProgramTemplateUpdate, request: Request, db: Session = Depends(get_db)):
     """Admin: update a template"""
     template = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
     if not template:
@@ -5278,17 +5487,24 @@ def update_template(template_id: int, data: ProgramTemplateUpdate, db: Session =
     db.commit()
     db.refresh(template)
 
+    _log_admin_action(request, db, "update_template", "template", template_id, f"Updated template '{template.title}'")
+    db.commit()
+
     return _template_to_dict(template)
 
 
 @router.delete("/admin/templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(template_id: int, request: Request, db: Session = Depends(get_db)):
     """Admin: delete a template"""
     template = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
+    tmpl_title = template.title
     db.delete(template)
+    db.commit()
+
+    _log_admin_action(request, db, "delete_template", "template", template_id, f"Deleted template '{tmpl_title}'")
     db.commit()
 
     return {"success": True}
@@ -5374,7 +5590,7 @@ def get_all_schedules(
 
 
 @router.post("/admin/schedules")
-def create_schedule(data: ServiceScheduleCreate, db: Session = Depends(get_db)):
+def create_schedule(data: ServiceScheduleCreate, request: Request, db: Session = Depends(get_db)):
     """Admin: schedule a future service"""
     # Validate service manager exists
     manager = db.query(Member).filter(Member.id == data.service_manager_id).first()
@@ -5409,11 +5625,14 @@ def create_schedule(data: ServiceScheduleCreate, db: Session = Depends(get_db)):
         joinedload(ServiceSchedule.program)
     ).filter(ServiceSchedule.id == schedule.id).first()
 
+    _log_admin_action(request, db, "create_schedule", "schedule", schedule.id, f"Scheduled service for {data.service_date}")
+    db.commit()
+
     return _schedule_to_dict(schedule)
 
 
 @router.put("/admin/schedules/{schedule_id}")
-def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, db: Session = Depends(get_db)):
+def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, request: Request, db: Session = Depends(get_db)):
     """Admin: update a service schedule"""
     schedule = db.query(ServiceSchedule).filter(ServiceSchedule.id == schedule_id).first()
     if not schedule:
@@ -5451,17 +5670,25 @@ def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, db: Session =
         joinedload(ServiceSchedule.program)
     ).filter(ServiceSchedule.id == schedule.id).first()
 
+    _log_admin_action(request, db, "update_schedule", "schedule", schedule_id, f"Updated schedule for {schedule.service_date}")
+    db.commit()
+
     return _schedule_to_dict(schedule)
 
 
 @router.delete("/admin/schedules/{schedule_id}")
-def delete_schedule(schedule_id: int, db: Session = Depends(get_db)):
+def delete_schedule(schedule_id: int, request: Request, db: Session = Depends(get_db)):
     """Admin: delete a service schedule"""
     schedule = db.query(ServiceSchedule).filter(ServiceSchedule.id == schedule_id).first()
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    svc_date = str(schedule.service_date)
     db.delete(schedule)
     db.commit()
+
+    _log_admin_action(request, db, "delete_schedule", "schedule", schedule_id, f"Deleted schedule for {svc_date}")
+    db.commit()
+
     return {"success": True}
 
 

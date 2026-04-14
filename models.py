@@ -371,14 +371,15 @@ class SongListSubmission(Base):
 
 
 class AdminAuditLog(Base):
-    """Tracks all admin actions for accountability"""
+    """Tracks all system activity — admin actions, member actions, and system events"""
     __tablename__ = "admin_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
     admin_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
-    admin_name = Column(String, nullable=False)  # denormalized so logs survive member deletion
-    action = Column(String(100), nullable=False)  # e.g. "approve_member", "delete_member", "publish_results"
-    entity_type = Column(String(50), nullable=True)  # e.g. "member", "department", "appeal"
+    admin_name = Column(String, nullable=False)  # actor name (admin or member), denormalized
+    actor_type = Column(String(20), nullable=False, server_default="admin")  # "admin", "member", "system"
+    action = Column(String(100), nullable=False)  # e.g. "approve_member", "submit_selection", "create_poster_request"
+    entity_type = Column(String(50), nullable=True)  # e.g. "member", "department", "appeal", "poster_request"
     entity_id = Column(Integer, nullable=True)  # ID of the affected entity
     details = Column(Text, nullable=True)  # JSON or human-readable description
     ip_address = Column(String(45), nullable=True)

@@ -462,6 +462,18 @@ def run_migrations():
                     print(f"Migration: Added notification config for {event_type}")
 
 
+        # Migration: Add actor_type column to admin_audit_logs
+        try:
+            conn.execute(text("""
+                ALTER TABLE admin_audit_logs
+                ADD COLUMN IF NOT EXISTS actor_type VARCHAR(20) NOT NULL DEFAULT 'admin'
+            """))
+            conn.commit()
+            print("Migration: Added actor_type column to admin_audit_logs")
+        except Exception as e:
+            print(f"Migration note (actor_type): {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create any new tables on startup (before migrations that alter them)

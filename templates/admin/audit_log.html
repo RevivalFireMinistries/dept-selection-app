@@ -3,20 +3,56 @@
 {% block title %}Audit Log - Admin{% endblock %}
 
 {% block admin_content %}
-<div class="max-w-4xl mx-auto space-y-6">
+<div class="max-w-5xl mx-auto space-y-4">
     <div class="flex items-center justify-between">
-        <h2 class="text-2xl font-bold text-gray-900">Audit Log</h2>
+        <h2 class="text-2xl font-bold text-gray-900">Activity Log</h2>
         <span class="text-sm text-gray-500" id="totalCount"></span>
     </div>
 
-    <!-- Filters -->
-    <div class="flex flex-wrap gap-3">
-        <select id="filterAction" onchange="loadLogs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-            <option value="">All Actions</option>
-        </select>
-        <select id="filterAdmin" onchange="loadLogs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
-            <option value="">All Admins</option>
-        </select>
+    <!-- Actor Type Tabs -->
+    <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <button onclick="setActorType('')" id="tab-all" class="actor-tab flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all">
+            All
+        </button>
+        <button onclick="setActorType('admin')" id="tab-admin" class="actor-tab flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all">
+            <span class="hidden sm:inline">Admin</span><span class="sm:hidden">Admin</span>
+        </button>
+        <button onclick="setActorType('member')" id="tab-member" class="actor-tab flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all">
+            <span class="hidden sm:inline">Members</span><span class="sm:hidden">Users</span>
+        </button>
+        <button onclick="setActorType('system')" id="tab-system" class="actor-tab flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-all">
+            System
+        </button>
+    </div>
+
+    <!-- Filters Row -->
+    <div class="bg-white rounded-xl border border-gray-100 p-3 space-y-3">
+        <!-- Search -->
+        <div class="relative">
+            <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input type="text" id="searchBox" placeholder="Search actions, names, details..." oninput="debounceLoad()"
+                class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+        </div>
+
+        <!-- Filter dropdowns -->
+        <div class="flex flex-wrap gap-2">
+            <select id="filterAction" onchange="loadLogs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 flex-1 min-w-[140px]">
+                <option value="">All Actions</option>
+            </select>
+            <select id="filterPerson" onchange="loadLogs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 flex-1 min-w-[140px]">
+                <option value="">All People</option>
+            </select>
+        </div>
+
+        <!-- Date range -->
+        <div class="flex gap-2 items-center">
+            <input type="date" id="dateFrom" onchange="loadLogs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 flex-1">
+            <span class="text-gray-400 text-xs">to</span>
+            <input type="date" id="dateTo" onchange="loadLogs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 flex-1">
+            <button onclick="clearFilters()" class="px-3 py-2 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">
+                Clear
+            </button>
+        </div>
     </div>
 
     <!-- Loading -->
@@ -37,16 +73,26 @@
     <!-- Empty State -->
     <div id="emptyState" class="hidden text-center py-12 text-gray-400">
         <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-        <p class="text-sm">No audit log entries yet</p>
+        <p class="text-sm">No activity found matching your filters</p>
     </div>
 </div>
+
+<style>
+.actor-tab { color: #6b7280; }
+.actor-tab.active { background: white; color: #1f2937; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.actor-badge-admin { background: #dbeafe; color: #1d4ed8; }
+.actor-badge-member { background: #dcfce7; color: #15803d; }
+.actor-badge-system { background: #f3e8ff; color: #7e22ce; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-let allLogs = [];
+let currentActorType = '';
 let displayOffset = 0;
 const PAGE_SIZE = 50;
+let allLogs = [];
+let debounceTimer = null;
 
 const actionLabels = {
     'admin_login': 'Logged In',
@@ -59,19 +105,33 @@ const actionLabels = {
     'review_approve': 'Approved Selection',
     'review_reject': 'Rejected Selection',
     'review_replace': 'Replaced Selection',
+    'replace_department': 'Replaced Department',
     'bulk_approve': 'Bulk Approved',
     'publish_results': 'Published Results',
     'unpublish_results': 'Unpublished Results',
     'resolve_appeal': 'Resolved Appeal',
-    'toggle_appeal_window': 'Toggled Appeal Window',
+    'toggle_appeal_window': 'Toggled Appeals',
     'update_leadership_roles': 'Updated Roles',
     'update_settings': 'Updated Settings',
+    'create_department': 'Created Department',
+    'update_department': 'Updated Department',
+    'delete_department': 'Deleted Department',
+    'create_category': 'Created Category',
+    'update_category': 'Updated Category',
+    'delete_category': 'Deleted Category',
+    'set_hod': 'Set HOD',
+    'remove_hod': 'Removed HOD',
     'create_meeting': 'Created Meeting',
     'update_meeting': 'Updated Meeting',
     'delete_meeting': 'Deleted Meeting',
+    'send_meeting_invite': 'Sent Invite',
+    'send_meeting_reminder': 'Sent Reminder',
     'create_program': 'Created Program',
     'update_program': 'Updated Program',
     'delete_program': 'Deleted Program',
+    'publish_program': 'Published Program',
+    'unpublish_program': 'Unpublished Program',
+    'notify_program': 'Notified Participants',
     'create_template': 'Created Template',
     'update_template': 'Updated Template',
     'delete_template': 'Deleted Template',
@@ -79,8 +139,14 @@ const actionLabels = {
     'update_schedule': 'Updated Schedule',
     'delete_schedule': 'Deleted Schedule',
     'purge_songs': 'Purged Songs',
-    'set_hod': 'Set HOD',
-    'remove_hod': 'Removed HOD'
+    'register': 'Registered',
+    'submit_selection': 'Submitted Selection',
+    'submit_appeal': 'Submitted Appeal',
+    'accept_assignment': 'Accepted Assignment',
+    'create_poster_request': 'Poster Request',
+    'acknowledge_poster_request': 'Acknowledged Poster',
+    'complete_poster_request': 'Completed Poster',
+    'meeting_rsvp': 'Meeting RSVP',
 };
 
 const actionColors = {
@@ -88,25 +154,88 @@ const actionColors = {
     'approve_member': 'bg-green-100 text-green-700',
     'reject_member': 'bg-red-100 text-red-700',
     'delete_member': 'bg-red-100 text-red-700',
+    'delete_department': 'bg-red-100 text-red-700',
+    'delete_category': 'bg-red-100 text-red-700',
+    'delete_meeting': 'bg-red-100 text-red-700',
+    'delete_program': 'bg-red-100 text-red-700',
+    'delete_template': 'bg-red-100 text-red-700',
+    'delete_schedule': 'bg-red-100 text-red-700',
     'publish_results': 'bg-emerald-100 text-emerald-700',
+    'publish_program': 'bg-emerald-100 text-emerald-700',
     'unpublish_results': 'bg-amber-100 text-amber-700',
+    'unpublish_program': 'bg-amber-100 text-amber-700',
     'bulk_approve': 'bg-green-100 text-green-700',
+    'review_approve': 'bg-green-100 text-green-700',
+    'review_reject': 'bg-red-100 text-red-700',
+    'register': 'bg-indigo-100 text-indigo-700',
+    'submit_selection': 'bg-indigo-100 text-indigo-700',
+    'submit_appeal': 'bg-orange-100 text-orange-700',
+    'create_poster_request': 'bg-violet-100 text-violet-700',
+    'send_meeting_invite': 'bg-sky-100 text-sky-700',
+    'send_meeting_reminder': 'bg-sky-100 text-sky-700',
+    'meeting_rsvp': 'bg-cyan-100 text-cyan-700',
 };
 
-document.addEventListener('DOMContentLoaded', loadLogs);
+const actorIcons = {
+    admin: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>',
+    member: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>',
+    system: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>',
+};
+
+const actorColors = {
+    admin: { bg: 'bg-blue-50', text: 'text-blue-600' },
+    member: { bg: 'bg-green-50', text: 'text-green-600' },
+    system: { bg: 'bg-purple-50', text: 'text-purple-600' },
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    setActorType('');
+});
+
+function setActorType(type) {
+    currentActorType = type;
+    document.querySelectorAll('.actor-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + (type || 'all')).classList.add('active');
+    loadLogs();
+}
+
+function debounceLoad() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(loadLogs, 300);
+}
 
 async function loadLogs() {
     document.getElementById('loading').classList.remove('hidden');
     document.getElementById('logList').classList.add('hidden');
+    document.getElementById('emptyState').classList.add('hidden');
+    document.getElementById('loadMore').classList.add('hidden');
     displayOffset = 0;
 
+    const params = new URLSearchParams({ limit: '500' });
+    if (currentActorType) params.set('actor_type', currentActorType);
+
+    const action = document.getElementById('filterAction').value;
+    if (action) params.set('action', action);
+
+    const search = document.getElementById('searchBox').value.trim();
+    if (search) params.set('search', search);
+
+    const dateFrom = document.getElementById('dateFrom').value;
+    if (dateFrom) params.set('date_from', dateFrom);
+
+    const dateTo = document.getElementById('dateTo').value;
+    if (dateTo) params.set('date_to', dateTo);
+
+    const memberId = document.getElementById('filterPerson').value;
+    if (memberId) params.set('member_id', memberId);
+
     try {
-        const res = await fetch(`/api/admin/audit-log?limit=500`);
+        const res = await fetch(`/api/admin/audit-log?${params}`);
         const data = await res.json();
         allLogs = data.logs;
 
-        // Populate filter dropdowns
-        populateFilters();
+        // Populate filter dropdowns from server data
+        populateFilters(data.actions || [], data.actors || []);
         renderLogs();
 
         document.getElementById('totalCount').textContent = `${data.total} entries`;
@@ -117,39 +246,29 @@ async function loadLogs() {
     document.getElementById('loading').classList.add('hidden');
 }
 
-function populateFilters() {
-    const actions = [...new Set(allLogs.map(l => l.action))].sort();
-    const admins = [...new Set(allLogs.map(l => l.admin_name))].sort();
-
+function populateFilters(actions, actors) {
     const actionSelect = document.getElementById('filterAction');
     const currentAction = actionSelect.value;
+    const actionOpts = (actions || []).sort();
     actionSelect.innerHTML = '<option value="">All Actions</option>' +
-        actions.map(a => `<option value="${a}" ${a === currentAction ? 'selected' : ''}>${actionLabels[a] || a}</option>`).join('');
+        actionOpts.map(a => `<option value="${a}" ${a === currentAction ? 'selected' : ''}>${actionLabels[a] || a}</option>`).join('');
 
-    const adminSelect = document.getElementById('filterAdmin');
-    const currentAdmin = adminSelect.value;
-    adminSelect.innerHTML = '<option value="">All Admins</option>' +
-        admins.map(a => `<option value="${a}" ${a === currentAdmin ? 'selected' : ''}>${a}</option>`).join('');
-}
-
-function getFilteredLogs() {
-    const actionFilter = document.getElementById('filterAction').value;
-    const adminFilter = document.getElementById('filterAdmin').value;
-
-    return allLogs.filter(l => {
-        if (actionFilter && l.action !== actionFilter) return false;
-        if (adminFilter && l.admin_name !== adminFilter) return false;
-        return true;
-    });
+    const personSelect = document.getElementById('filterPerson');
+    const currentPerson = personSelect.value;
+    const actorList = (actors || []).sort((a, b) => a.name.localeCompare(b.name));
+    personSelect.innerHTML = '<option value="">All People</option>' +
+        actorList.map(a => {
+            const typeLabel = a.actor_type === 'admin' ? ' (Admin)' : a.actor_type === 'system' ? ' (System)' : '';
+            return `<option value="${a.id}" ${String(a.id) === currentPerson ? 'selected' : ''}>${escapeHtml(a.name)}${typeLabel}</option>`;
+        }).join('');
 }
 
 function renderLogs() {
-    const filtered = getFilteredLogs();
     const list = document.getElementById('logList');
     const empty = document.getElementById('emptyState');
     const loadMoreBtn = document.getElementById('loadMore');
 
-    if (filtered.length === 0) {
+    if (allLogs.length === 0) {
         list.classList.add('hidden');
         empty.classList.remove('hidden');
         loadMoreBtn.classList.add('hidden');
@@ -159,47 +278,60 @@ function renderLogs() {
     empty.classList.add('hidden');
     list.classList.remove('hidden');
 
-    const toShow = filtered.slice(0, PAGE_SIZE);
+    const toShow = allLogs.slice(0, PAGE_SIZE);
     displayOffset = PAGE_SIZE;
 
     list.innerHTML = toShow.map(renderLogEntry).join('');
-    loadMoreBtn.classList.toggle('hidden', filtered.length <= PAGE_SIZE);
+    loadMoreBtn.classList.toggle('hidden', allLogs.length <= PAGE_SIZE);
 }
 
 function loadMoreLogs() {
-    const filtered = getFilteredLogs();
     const list = document.getElementById('logList');
     const loadMoreBtn = document.getElementById('loadMore');
 
-    const nextBatch = filtered.slice(displayOffset, displayOffset + PAGE_SIZE);
+    const nextBatch = allLogs.slice(displayOffset, displayOffset + PAGE_SIZE);
     displayOffset += PAGE_SIZE;
 
     list.innerHTML += nextBatch.map(renderLogEntry).join('');
-    loadMoreBtn.classList.toggle('hidden', displayOffset >= filtered.length);
+    loadMoreBtn.classList.toggle('hidden', displayOffset >= allLogs.length);
 }
 
 function renderLogEntry(l) {
-    const colorClass = actionColors[l.action] || 'bg-gray-100 text-gray-700';
+    const actionColor = actionColors[l.action] || 'bg-gray-100 text-gray-700';
     const label = actionLabels[l.action] || l.action;
     const date = new Date(l.created_at);
     const timeStr = date.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }) +
         ' ' + date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
 
+    const actorType = l.actor_type || 'admin';
+    const colors = actorColors[actorType] || actorColors.admin;
+    const icon = actorIcons[actorType] || actorIcons.admin;
+
     return `
         <div class="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-3">
-            <div class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            <div class="w-8 h-8 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center flex-shrink-0 mt-0.5">
+                ${icon}
             </div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-semibold text-gray-900">${escapeHtml(l.admin_name)}</span>
-                    <span class="px-2 py-0.5 text-xs font-medium rounded-full ${colorClass}">${label}</span>
+                    <span class="px-1.5 py-0.5 text-[10px] font-medium rounded-full actor-badge-${actorType}">${actorType}</span>
+                    <span class="px-2 py-0.5 text-xs font-medium rounded-full ${actionColor}">${label}</span>
                 </div>
                 ${l.details ? `<p class="text-sm text-gray-600 mt-1">${escapeHtml(l.details)}</p>` : ''}
                 <p class="text-xs text-gray-400 mt-1">${timeStr}${l.ip_address ? ' &middot; ' + l.ip_address : ''}</p>
             </div>
         </div>
     `;
+}
+
+function clearFilters() {
+    document.getElementById('searchBox').value = '';
+    document.getElementById('filterAction').value = '';
+    document.getElementById('filterPerson').value = '';
+    document.getElementById('dateFrom').value = '';
+    document.getElementById('dateTo').value = '';
+    loadLogs();
 }
 
 function escapeHtml(str) {
