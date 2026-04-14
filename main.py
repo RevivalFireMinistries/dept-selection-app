@@ -461,7 +461,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="Department Selection App", lifespan=lifespan)
+app = FastAPI(title="RFM Stellenbosch Portal", lifespan=lifespan)
 
 # CORS — allow FirePresenter and other local apps to access the API
 app.add_middleware(

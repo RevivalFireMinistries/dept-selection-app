@@ -163,12 +163,12 @@ class EmailChannel(NotificationChannel):
         Returns:
             Tuple of (success, error_message)
         """
-        subject = "Test Email from RFM Department Selection App"
+        subject = "Test Email from RFM Stellenbosch Portal"
         body = """
         <html>
         <body style="font-family: Arial, sans-serif; padding: 20px;">
             <h2 style="color: #4F46E5;">Test Email</h2>
-            <p>This is a test email from the RFM Department Selection App.</p>
+            <p>This is a test email from the RFM Stellenbosch Portal.</p>
             <p>If you're seeing this, your email configuration is working correctly!</p>
             <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 20px 0;">
             <p style="color: #6B7280; font-size: 12px;">
