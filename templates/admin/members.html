@@ -179,6 +179,9 @@ async function loadData() {
     } finally {
         document.getElementById('searchLoading').classList.add('hidden');
     }
+
+    // Auto-show all members on load
+    showAllMembers();
 }
 
 function handleSearchKeyup(event) {
