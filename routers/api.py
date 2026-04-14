@@ -4663,13 +4663,39 @@ def get_schedules(db: Session = Depends(get_db)):
 
 
 @router.get("/admin/schedules/all")
-def get_all_schedules(db: Session = Depends(get_db)):
-    """Admin: list all service schedules including past"""
-    schedules = db.query(ServiceSchedule).options(
+def get_all_schedules(
+    from_date: str = None,
+    to_date: str = None,
+    template_id: int = None,
+    manager_id: int = None,
+    status: str = None,
+    db: Session = Depends(get_db)
+):
+    """Admin: list all service schedules with optional filters"""
+    query = db.query(ServiceSchedule).options(
         joinedload(ServiceSchedule.template),
         joinedload(ServiceSchedule.service_manager),
         joinedload(ServiceSchedule.program)
-    ).order_by(ServiceSchedule.service_date.desc()).all()
+    )
+
+    if from_date:
+        query = query.filter(ServiceSchedule.service_date >= from_date)
+    if to_date:
+        query = query.filter(ServiceSchedule.service_date <= to_date)
+    if template_id:
+        query = query.filter(ServiceSchedule.template_id == template_id)
+    if manager_id:
+        query = query.filter(ServiceSchedule.service_manager_id == manager_id)
+    if status == "has_program":
+        query = query.filter(ServiceSchedule.program_id != None)
+    elif status == "no_program":
+        query = query.filter(ServiceSchedule.program_id == None)
+    elif status == "published":
+        query = query.join(ServiceProgram, ServiceSchedule.program_id == ServiceProgram.id).filter(ServiceProgram.status == "published")
+    elif status == "draft":
+        query = query.join(ServiceProgram, ServiceSchedule.program_id == ServiceProgram.id).filter(ServiceProgram.status == "draft")
+
+    schedules = query.order_by(ServiceSchedule.service_date.desc()).all()
     return [_schedule_to_dict(s) for s in schedules]
 
 

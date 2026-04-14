@@ -2,25 +2,121 @@
 
 {% block title %}Service Schedule - Admin{% endblock %}
 
-{% block content %}
-<div class="max-w-3xl mx-auto px-4 py-6">
-    <div class="flex items-center justify-between mb-6">
+{% block admin_content %}
+<div class="max-w-6xl mx-auto">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
             <h1 class="text-xl font-bold text-gray-900">Service Schedule</h1>
             <p class="text-sm text-gray-500">Plan upcoming services and assign service managers</p>
         </div>
-        <button onclick="showCreateForm()" class="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl">+ Schedule</button>
+        <div class="flex items-center gap-2">
+            <button onclick="sharePDF()" class="px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                Share PDF
+            </button>
+            <button onclick="showCreateForm()" class="px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                Schedule
+            </button>
+        </div>
     </div>
 
-    <div id="schedulesList" class="space-y-3">
+    <!-- Summary Stats -->
+    <div id="statsBar" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div class="bg-white rounded-xl border border-gray-100 p-3">
+            <div class="text-xs text-gray-400 font-medium">Upcoming</div>
+            <div id="statUpcoming" class="text-xl font-bold text-gray-900 mt-0.5">-</div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-3">
+            <div class="text-xs text-gray-400 font-medium">Published</div>
+            <div id="statPublished" class="text-xl font-bold text-emerald-600 mt-0.5">-</div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-3">
+            <div class="text-xs text-gray-400 font-medium">Drafts</div>
+            <div id="statDraft" class="text-xl font-bold text-amber-600 mt-0.5">-</div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 p-3">
+            <div class="text-xs text-gray-400 font-medium">No Program</div>
+            <div id="statNone" class="text-xl font-bold text-red-500 mt-0.5">-</div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-xl border border-gray-100 p-3 mb-5">
+        <div class="flex flex-col sm:flex-row gap-3">
+            <!-- View Toggle -->
+            <div class="flex bg-gray-100 rounded-lg p-0.5 self-start">
+                <button id="btnUpcoming" onclick="setView('upcoming')" class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors">Upcoming</button>
+                <button id="btnAll" onclick="setView('all')" class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors">All</button>
+            </div>
+
+            <!-- Filters (shown in "All" view) -->
+            <div id="filterControls" class="hidden flex-1 flex flex-col sm:flex-row gap-2">
+                <div class="flex gap-2 flex-1">
+                    <select id="filterMonth" onchange="applyFilters()" class="flex-1 sm:flex-none px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        <option value="">All months</option>
+                    </select>
+                    <select id="filterTemplate" onchange="applyFilters()" class="flex-1 sm:flex-none px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        <option value="">All templates</option>
+                    </select>
+                    <select id="filterStatus" onchange="applyFilters()" class="flex-1 sm:flex-none px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        <option value="">All statuses</option>
+                        <option value="published">Published</option>
+                        <option value="draft">Draft</option>
+                        <option value="no_program">No Program</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <input type="date" id="filterFrom" onchange="applyFilters()" class="px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500" placeholder="From">
+                    <input type="date" id="filterTo" onchange="applyFilters()" class="px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500" placeholder="To">
+                    <button onclick="clearFilters()" class="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 font-medium whitespace-nowrap">Clear</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Desktop Table View (hidden on mobile) -->
+    <div id="tableView" class="hidden sm:block bg-white rounded-xl border border-gray-100 overflow-hidden mb-5">
+        <table class="w-full">
+            <thead>
+                <tr class="border-b border-gray-100 bg-gray-50/50">
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Template</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Service Manager</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Countdown</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody" class="divide-y divide-gray-50">
+                <tr><td colspan="6" class="text-center py-12 text-gray-400 text-sm">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Mobile Card View (hidden on desktop) -->
+    <div id="cardView" class="sm:hidden space-y-3 mb-5">
         <div class="text-center py-12 text-gray-400 text-sm">Loading...</div>
     </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="hidden text-center py-16">
+        <div class="w-14 h-14 mx-auto mb-3 rounded-full bg-gray-100 flex items-center justify-center">
+            <svg class="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+        <p class="text-gray-500 text-sm mb-1">No services scheduled</p>
+        <p class="text-gray-400 text-xs">Tap "Schedule" to plan a service</p>
+    </div>
+
+    <!-- Results count -->
+    <div id="resultsCount" class="text-xs text-gray-400 text-center mb-4 hidden"></div>
 </div>
 
 <!-- Create/Edit Modal -->
 <div id="formOverlay" class="fixed inset-0 bg-black/40 z-50 hidden" onclick="closeForm()">
-    <div class="fixed inset-x-0 bottom-0 bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto safe-bottom" onclick="event.stopPropagation()">
-        <div class="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between rounded-t-2xl z-10">
+    <div class="fixed inset-x-0 bottom-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto safe-bottom" onclick="event.stopPropagation()">
+        <div class="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between rounded-t-2xl sm:rounded-t-2xl z-10">
             <h2 id="formTitle" class="font-bold text-gray-900">Schedule Service</h2>
             <button onclick="closeForm()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100">
                 <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -61,15 +157,22 @@
                 <textarea id="scheduleNotes" rows="2" placeholder="Optional notes..." class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"></textarea>
             </div>
 
-            <button onclick="saveSchedule()" class="w-full py-3 bg-teal-600 text-white font-medium rounded-xl text-sm">Save</button>
+            <button onclick="saveSchedule()" id="saveBtn" class="w-full py-3 bg-teal-600 text-white font-medium rounded-xl text-sm hover:bg-teal-700 transition-colors">Save</button>
         </div>
     </div>
 </div>
+
+<!-- jsPDF for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
 <script>
 let allMembers = [];
 let allTemplates = [];
 let schedules = [];
+let currentView = 'upcoming';
+
+const DAY_LABELS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
 async function init() {
     const [membersRes, templatesRes] = await Promise.all([
@@ -84,7 +187,7 @@ async function init() {
     }));
     allTemplates = await templatesRes.json();
 
-    // Populate template select
+    // Populate template select (form)
     const sel = document.getElementById('templateSelect');
     allTemplates.forEach(t => {
         const opt = document.createElement('option');
@@ -93,68 +196,261 @@ async function init() {
         sel.appendChild(opt);
     });
 
+    // Populate filter template
+    const filterSel = document.getElementById('filterTemplate');
+    allTemplates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.title} (${t.day_name})`;
+        filterSel.appendChild(opt);
+    });
+
+    // Populate month filter with next 12 months
+    populateMonthFilter();
+
+    setView('upcoming');
+}
+
+function populateMonthFilter() {
+    const sel = document.getElementById('filterMonth');
+    const now = new Date();
+    for (let i = -6; i <= 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const opt = document.createElement('option');
+        opt.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        opt.textContent = d.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+        sel.appendChild(opt);
+    }
+}
+
+function setView(view) {
+    currentView = view;
+    const btnUp = document.getElementById('btnUpcoming');
+    const btnAll = document.getElementById('btnAll');
+    const filterCtrl = document.getElementById('filterControls');
+
+    if (view === 'upcoming') {
+        btnUp.classList.add('bg-white', 'shadow-sm', 'text-gray-900');
+        btnUp.classList.remove('text-gray-500');
+        btnAll.classList.remove('bg-white', 'shadow-sm', 'text-gray-900');
+        btnAll.classList.add('text-gray-500');
+        filterCtrl.classList.add('hidden');
+    } else {
+        btnAll.classList.add('bg-white', 'shadow-sm', 'text-gray-900');
+        btnAll.classList.remove('text-gray-500');
+        btnUp.classList.remove('bg-white', 'shadow-sm', 'text-gray-900');
+        btnUp.classList.add('text-gray-500');
+        filterCtrl.classList.remove('hidden');
+    }
+
     loadSchedules();
 }
 
 async function loadSchedules() {
-    const res = await fetch('/api/admin/schedules');
+    let url;
+    if (currentView === 'upcoming') {
+        url = '/api/admin/schedules';
+    } else {
+        url = '/api/admin/schedules/all';
+        // Add filter params
+        const params = new URLSearchParams();
+        const month = document.getElementById('filterMonth').value;
+        const templateId = document.getElementById('filterTemplate').value;
+        const status = document.getElementById('filterStatus').value;
+        const fromDate = document.getElementById('filterFrom').value;
+        const toDate = document.getElementById('filterTo').value;
+
+        if (month && !fromDate && !toDate) {
+            const [y, m] = month.split('-');
+            params.set('from_date', `${y}-${m}-01`);
+            const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+            params.set('to_date', `${y}-${m}-${String(lastDay).padStart(2,'0')}`);
+        }
+        if (fromDate) params.set('from_date', fromDate);
+        if (toDate) params.set('to_date', toDate);
+        if (templateId) params.set('template_id', templateId);
+        if (status) params.set('status', status);
+
+        const qs = params.toString();
+        if (qs) url += '?' + qs;
+    }
+
+    const res = await fetch(url);
     schedules = await res.json();
     renderSchedules();
 }
 
+function applyFilters() {
+    loadSchedules();
+}
+
+function clearFilters() {
+    document.getElementById('filterMonth').value = '';
+    document.getElementById('filterTemplate').value = '';
+    document.getElementById('filterStatus').value = '';
+    document.getElementById('filterFrom').value = '';
+    document.getElementById('filterTo').value = '';
+    loadSchedules();
+}
+
+function getStatusInfo(s) {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const svcDate = new Date(s.service_date + 'T00:00:00');
+    const daysUntil = Math.ceil((svcDate - today) / (1000*60*60*24));
+    const isPast = daysUntil < 0;
+
+    let badge, color, borderColor;
+    if (s.has_program && s.program_status === 'published') {
+        badge = 'Published';
+        color = 'bg-emerald-100 text-emerald-700';
+        borderColor = 'border-l-emerald-400';
+    } else if (s.has_program) {
+        badge = 'Draft';
+        color = 'bg-amber-100 text-amber-700';
+        borderColor = 'border-l-amber-400';
+    } else if (isPast) {
+        badge = 'Past';
+        color = 'bg-gray-100 text-gray-500';
+        borderColor = 'border-l-gray-300';
+    } else if (daysUntil <= 2) {
+        badge = 'Overdue';
+        color = 'bg-red-100 text-red-700';
+        borderColor = 'border-l-red-400';
+    } else if (s.notified_at) {
+        badge = 'Notified';
+        color = 'bg-blue-100 text-blue-700';
+        borderColor = 'border-l-blue-400';
+    } else {
+        badge = 'Pending';
+        color = 'bg-gray-100 text-gray-600';
+        borderColor = 'border-l-gray-300';
+    }
+
+    let countdownText, countdownColor;
+    if (isPast) {
+        countdownText = Math.abs(daysUntil) === 1 ? 'Yesterday' : `${Math.abs(daysUntil)} days ago`;
+        countdownColor = 'text-gray-400';
+    } else if (daysUntil === 0) {
+        countdownText = 'Today';
+        countdownColor = 'text-red-600 font-semibold';
+    } else if (daysUntil === 1) {
+        countdownText = 'Tomorrow';
+        countdownColor = 'text-red-600 font-semibold';
+    } else if (daysUntil <= 5) {
+        countdownText = `${daysUntil} days`;
+        countdownColor = 'text-amber-600 font-medium';
+    } else {
+        countdownText = `${daysUntil} days`;
+        countdownColor = 'text-gray-400';
+    }
+
+    return { badge, color, borderColor, countdownText, countdownColor, daysUntil, isPast };
+}
+
 function renderSchedules() {
-    const container = document.getElementById('schedulesList');
+    const tableBody = document.getElementById('tableBody');
+    const cardView = document.getElementById('cardView');
+    const emptyState = document.getElementById('emptyState');
+    const tableView = document.getElementById('tableView');
+    const resultsCount = document.getElementById('resultsCount');
+
+    // Update stats
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const upcoming = schedules.filter(s => new Date(s.service_date + 'T00:00:00') >= today);
+    const published = schedules.filter(s => s.program_status === 'published');
+    const drafts = schedules.filter(s => s.has_program && s.program_status !== 'published');
+    const noProgram = upcoming.filter(s => !s.has_program);
+
+    document.getElementById('statUpcoming').textContent = upcoming.length;
+    document.getElementById('statPublished').textContent = published.length;
+    document.getElementById('statDraft').textContent = drafts.length;
+    document.getElementById('statNone').textContent = noProgram.length;
 
     if (schedules.length === 0) {
-        container.innerHTML = `
-            <div class="text-center py-16">
-                <div class="w-14 h-14 mx-auto mb-3 rounded-full bg-gray-100 flex items-center justify-center">
-                    <svg class="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                </div>
-                <p class="text-gray-500 text-sm mb-1">No upcoming services scheduled</p>
-                <p class="text-gray-400 text-xs">Tap "+ Schedule" to plan a service</p>
-            </div>`;
+        tableView.classList.add('hidden');
+        cardView.innerHTML = '';
+        cardView.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        resultsCount.classList.add('hidden');
         return;
     }
 
-    const today = new Date();
-    today.setHours(0,0,0,0);
+    emptyState.classList.add('hidden');
+    tableView.classList.remove('sm:hidden');
+    tableView.classList.remove('hidden');
+    tableView.classList.add('hidden', 'sm:block');
 
-    container.innerHTML = schedules.map(s => {
+    // Show results count for filtered views
+    if (currentView === 'all') {
+        resultsCount.textContent = `${schedules.length} schedule${schedules.length !== 1 ? 's' : ''} found`;
+        resultsCount.classList.remove('hidden');
+    } else {
+        resultsCount.classList.add('hidden');
+    }
+
+    // Desktop table
+    tableBody.innerHTML = schedules.map(s => {
         const svcDate = new Date(s.service_date + 'T00:00:00');
-        const daysUntil = Math.ceil((svcDate - today) / (1000*60*60*24));
         const dateStr = svcDate.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-
-        let statusBadge = '';
-        let statusColor = '';
-        if (s.has_program && s.program_status === 'published') {
-            statusBadge = '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">Published</span>';
-            statusColor = 'border-l-emerald-400';
-        } else if (s.has_program) {
-            statusBadge = '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">Draft</span>';
-            statusColor = 'border-l-amber-400';
-        } else if (daysUntil <= 2) {
-            statusBadge = '<span class="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded-full">Overdue</span>';
-            statusColor = 'border-l-red-400';
-        } else if (s.notified_at) {
-            statusBadge = '<span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Notified</span>';
-            statusColor = 'border-l-blue-400';
-        } else {
-            statusBadge = '<span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-semibold rounded-full">Pending</span>';
-            statusColor = 'border-l-gray-300';
-        }
-
-        const countdownText = daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil} days`;
+        const { badge, color, countdownText, countdownColor, isPast } = getStatusInfo(s);
 
         return `
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 border-l-4 ${statusColor}">
+        <tr class="hover:bg-gray-50/50 transition-colors ${isPast ? 'opacity-60' : ''}">
+            <td class="px-4 py-3">
+                <div class="text-sm font-medium text-gray-900">${s.day_of_week}</div>
+                <div class="text-xs text-gray-500">${dateStr}</div>
+            </td>
+            <td class="px-4 py-3">
+                <span class="text-sm text-gray-700">${escapeHtml(s.template_name || '—')}</span>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        ${(s.service_manager_name || '?')[0].toUpperCase()}
+                    </div>
+                    <span class="text-sm text-gray-700">${escapeHtml(s.service_manager_name || 'Unassigned')}</span>
+                </div>
+            </td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-0.5 ${color} text-xs font-semibold rounded-full">${badge}</span>
+            </td>
+            <td class="px-4 py-3">
+                <span class="text-sm ${countdownColor}">${countdownText}</span>
+            </td>
+            <td class="px-4 py-3 text-right">
+                <div class="flex items-center justify-end gap-1">
+                    ${s.has_program ? `<a href="/admin/programs" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-blue-50 text-blue-500" title="View Program">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </a>` : ''}
+                    <button onclick='editSchedule(${JSON.stringify(s).replace(/'/g, "&#39;")})' class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100" title="Edit">
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <button onclick="deleteSchedule(${s.id})" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50" title="Delete">
+                        <svg class="w-4 h-4 text-gray-400 hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+
+    // Mobile cards
+    cardView.classList.remove('hidden');
+    cardView.innerHTML = schedules.map(s => {
+        const svcDate = new Date(s.service_date + 'T00:00:00');
+        const dateStr = svcDate.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+        const { badge, color, borderColor, countdownText, countdownColor, isPast } = getStatusInfo(s);
+
+        return `
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 border-l-4 ${borderColor} ${isPast ? 'opacity-60' : ''}">
             <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2 flex-wrap mb-1">
                         <span class="font-semibold text-gray-900 text-sm">${s.day_of_week}</span>
                         <span class="text-xs text-gray-400">&middot;</span>
                         <span class="text-xs text-gray-500">${dateStr}</span>
-                        ${statusBadge}
+                        <span class="px-2 py-0.5 ${color} text-xs font-semibold rounded-full">${badge}</span>
                     </div>
                     <div class="flex items-center gap-3 text-xs text-gray-500 mt-1">
                         <span class="flex items-center gap-1">
@@ -165,11 +461,14 @@ function renderSchedules() {
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"/></svg>
                             ${escapeHtml(s.template_name)}
                         </span>` : ''}
-                        <span class="font-medium ${daysUntil <= 2 ? 'text-red-600' : (daysUntil <= 5 ? 'text-amber-600' : 'text-gray-400')}">${countdownText}</span>
+                        <span class="${countdownColor}">${countdownText}</span>
                     </div>
                     ${s.notes ? `<p class="text-xs text-gray-400 mt-1 italic">${escapeHtml(s.notes)}</p>` : ''}
                 </div>
                 <div class="flex gap-1 flex-shrink-0">
+                    ${s.has_program ? `<a href="/admin/programs" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-blue-50 text-blue-500" title="View Program">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    </a>` : ''}
                     <button onclick='editSchedule(${JSON.stringify(s).replace(/'/g, "&#39;")})' class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100" title="Edit">
                         <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                     </button>
@@ -198,8 +497,8 @@ function showCreateForm() {
     document.getElementById('templateSelect').value = '';
     document.getElementById('managerId').value = '';
     document.getElementById('managerSearch').value = '';
+    document.getElementById('managerSearch').classList.remove('hidden');
     document.getElementById('selectedManager').classList.add('hidden');
-    document.getElementById('managerSearch').parentElement.querySelector('input[type=text]').classList.remove('hidden');
     document.getElementById('scheduleNotes').value = '';
     document.getElementById('formOverlay').classList.remove('hidden');
 }
@@ -216,6 +515,9 @@ function editSchedule(s) {
         document.getElementById('managerSearch').classList.add('hidden');
         document.getElementById('selectedManager').classList.remove('hidden');
         document.getElementById('selectedManagerName').textContent = s.service_manager_name;
+    } else {
+        document.getElementById('managerSearch').classList.remove('hidden');
+        document.getElementById('selectedManager').classList.add('hidden');
     }
 
     document.getElementById('formOverlay').classList.remove('hidden');
@@ -238,7 +540,7 @@ function searchManagers(query) {
     if (matches.length === 0) { dropdown.classList.add('hidden'); return; }
 
     dropdown.innerHTML = matches.map(m => `
-        <div class="px-3 py-2.5 cursor-pointer hover:bg-teal-50 text-sm" onclick="selectManager(${m.id}, '${escapeHtml(m.name)}')">
+        <div class="px-3 py-2.5 cursor-pointer hover:bg-teal-50 text-sm" onclick="selectManager(${m.id}, '${escapeHtml(m.name).replace(/'/g, "\\'")}')">
             <span class="font-medium">${escapeHtml(m.name)}</span>
             <span class="text-gray-400 ml-2 text-xs">${m.phone || ''}</span>
         </div>
@@ -281,18 +583,29 @@ async function saveSchedule() {
     const url = editId ? `/api/admin/schedules/${editId}` : '/api/admin/schedules';
     const method = editId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
 
-    if (res.ok) {
-        closeForm();
-        loadSchedules();
-    } else {
-        const err = await res.json();
-        alert(err.detail || 'Failed to save');
+    try {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            closeForm();
+            loadSchedules();
+        } else {
+            const err = await res.json();
+            alert(err.detail || 'Failed to save');
+        }
+    } catch (e) {
+        alert('Network error. Please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save';
     }
 }
 
@@ -301,6 +614,124 @@ async function deleteSchedule(id) {
     const res = await fetch(`/api/admin/schedules/${id}`, { method: 'DELETE' });
     if (res.ok) loadSchedules();
     else alert('Failed to delete');
+}
+
+// --- PDF Export ---
+
+async function sharePDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // Header
+    doc.setFillColor(13, 148, 136); // teal-600
+    doc.rect(0, 0, pageWidth, 20, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Service Schedule', 15, 13);
+
+    // Subtitle with date range
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    const viewLabel = currentView === 'upcoming' ? 'Upcoming Services' : 'All Services';
+    doc.text(viewLabel + ' | Generated ' + new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' }), 15, 18);
+
+    // Summary stats
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const upcoming = schedules.filter(s => new Date(s.service_date + 'T00:00:00') >= today);
+    const published = schedules.filter(s => s.program_status === 'published');
+    const noProgram = upcoming.filter(s => !s.has_program);
+
+    doc.setTextColor(100, 100, 100);
+    doc.setFontSize(8);
+    doc.text(`Total: ${schedules.length}  |  Upcoming: ${upcoming.length}  |  Published: ${published.length}  |  No Program: ${noProgram.length}`, pageWidth - 15, 28, { align: 'right' });
+
+    // Table
+    const tableData = schedules.map(s => {
+        const svcDate = new Date(s.service_date + 'T00:00:00');
+        const dateStr = svcDate.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        const { badge, countdownText } = getStatusInfo(s);
+        return [
+            s.day_of_week,
+            dateStr,
+            s.template_name || '—',
+            s.service_manager_name || 'Unassigned',
+            badge,
+            countdownText,
+            s.notes || ''
+        ];
+    });
+
+    doc.autoTable({
+        startY: 32,
+        head: [['Day', 'Date', 'Template', 'Service Manager', 'Status', 'Countdown', 'Notes']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: {
+            fillColor: [243, 244, 246],
+            textColor: [55, 65, 81],
+            fontStyle: 'bold',
+            fontSize: 8,
+            cellPadding: 3
+        },
+        bodyStyles: {
+            fontSize: 8,
+            textColor: [55, 65, 81],
+            cellPadding: 2.5
+        },
+        alternateRowStyles: {
+            fillColor: [249, 250, 251]
+        },
+        columnStyles: {
+            0: { cellWidth: 25 },
+            1: { cellWidth: 40 },
+            2: { cellWidth: 40 },
+            3: { cellWidth: 50 },
+            4: { cellWidth: 22, halign: 'center' },
+            5: { cellWidth: 25, halign: 'center' },
+            6: { cellWidth: 'auto' }
+        },
+        didParseCell: function(data) {
+            if (data.section === 'body' && data.column.index === 4) {
+                const val = data.cell.raw;
+                if (val === 'Published') { data.cell.styles.textColor = [5, 150, 105]; data.cell.styles.fontStyle = 'bold'; }
+                else if (val === 'Draft') { data.cell.styles.textColor = [217, 119, 6]; data.cell.styles.fontStyle = 'bold'; }
+                else if (val === 'Overdue') { data.cell.styles.textColor = [220, 38, 38]; data.cell.styles.fontStyle = 'bold'; }
+            }
+        },
+        margin: { left: 15, right: 15 }
+    });
+
+    // Footer
+    const finalY = doc.lastAutoTable.finalY || pageHeight - 15;
+    doc.setDrawColor(209, 213, 219);
+    doc.line(15, finalY + 5, pageWidth - 15, finalY + 5);
+    doc.setFontSize(7);
+    doc.setTextColor(156, 163, 175);
+    doc.text('RFM Stellenbosch - Service Schedule', 15, finalY + 9);
+    doc.text(`Page 1 of 1`, pageWidth - 15, finalY + 9, { align: 'right' });
+
+    // Share or download
+    const blob = doc.output('blob');
+    const file = new File([blob], 'service-schedule.pdf', { type: 'application/pdf' });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+            await navigator.share({ files: [file], title: 'Service Schedule' });
+            return;
+        } catch (e) { /* fallback to download */ }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'service-schedule.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
 }
 
 init();
