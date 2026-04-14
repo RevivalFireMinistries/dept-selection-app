@@ -167,8 +167,15 @@ async function init() {
     // Load song catalog
     try {
         const res = await fetch('/api/songs/catalog');
-        songCatalog = await res.json();
-    } catch (e) { /* catalog not available yet */ }
+        if (res.ok) {
+            songCatalog = await res.json();
+            console.log(`Song catalog loaded: ${songCatalog.length} songs`);
+        } else {
+            console.error('Song catalog fetch failed:', res.status);
+        }
+    } catch (e) {
+        console.error('Song catalog error:', e);
+    }
 
     switchTab('media');
     loadRecentMedia();
