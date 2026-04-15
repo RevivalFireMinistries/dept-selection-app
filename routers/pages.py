@@ -20,8 +20,15 @@ SESSION_MAX_AGE = 90 * 24 * 60 * 60  # 90 days
 
 
 def is_authenticated(request: Request) -> bool:
-    """Check if user has valid admin session cookie"""
-    return request.cookies.get(ADMIN_COOKIE_NAME) == "authenticated"
+    """Check if user has valid admin session cookie AND identity (phone-based login)"""
+    if request.cookies.get(ADMIN_COOKIE_NAME) != "authenticated":
+        return False
+    # Require admin identity cookie (set during phone-based login)
+    # Admins who logged in before identity tracking must re-login
+    identity = get_admin_identity(request)
+    if not identity or not identity.get("member_id"):
+        return False
+    return True
 
 
 def get_admin_identity(request: Request) -> dict:
