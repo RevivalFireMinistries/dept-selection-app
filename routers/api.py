@@ -2633,6 +2633,64 @@ def check_slot_availability(
     return True, None
 
 
+def find_duplicate_meeting(
+    db: Session,
+    title: str,
+    meeting_date: date,
+    start_slot: int,
+    end_slot: int,
+    department_id: Optional[int] = None,
+    target_department_ids: Optional[str] = None,
+    target_member_ids: Optional[str] = None,
+    target_leadership_roles: Optional[str] = None,
+    is_general: int = 0,
+    window_seconds: int = 120
+) -> Optional[Meeting]:
+    """Detect recent duplicate meeting.
+
+    Returns an existing meeting created in the last `window_seconds` that matches
+    on the dimensions that define a calendar event: title, date, slot range, and
+    the target (department / multi-dept / individuals / roles / general). This
+    catches double-click submissions and network retries without blocking
+    legitimate identical meetings scheduled far apart.
+    """
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+
+    q = db.query(Meeting).filter(
+        Meeting.title == title,
+        Meeting.meeting_date == meeting_date,
+        Meeting.start_slot == start_slot,
+        Meeting.end_slot == end_slot,
+        Meeting.created_at >= cutoff,
+    )
+
+    # Match on targeting dimension (all these fields are nullable in the schema)
+    if department_id is not None:
+        q = q.filter(Meeting.department_id == department_id)
+    else:
+        q = q.filter(Meeting.department_id.is_(None))
+
+    if target_department_ids is not None:
+        q = q.filter(Meeting.target_department_ids == target_department_ids)
+    else:
+        q = q.filter(Meeting.target_department_ids.is_(None))
+
+    if target_member_ids is not None:
+        q = q.filter(Meeting.target_member_ids == target_member_ids)
+    else:
+        q = q.filter(Meeting.target_member_ids.is_(None))
+
+    if target_leadership_roles is not None:
+        q = q.filter(Meeting.target_leadership_roles == target_leadership_roles)
+    else:
+        q = q.filter(Meeting.target_leadership_roles.is_(None))
+
+    q = q.filter(Meeting.is_general == is_general)
+
+    return q.order_by(Meeting.created_at.desc()).first()
+
+
 def format_meeting_response(meeting: Meeting, db: Session, member_id: Optional[int] = None) -> dict:
     """Format a meeting for API response"""
     # Get RSVP counts
@@ -2899,6 +2957,35 @@ def create_hod_meeting(
         else:
             raise HTTPException(status_code=409, detail=f"Conflicts found: {'; '.join(conflicts[:3])}" +
                                 (f" and {len(conflicts) - 3} more" if len(conflicts) > 3 else ""))
+
+    # Idempotency: detect a recent duplicate of the anchor meeting (double-click,
+    # network retry). Returns the existing series instead of creating another one.
+    existing_dup = find_duplicate_meeting(
+        db,
+        title=data.title,
+        meeting_date=data.meeting_date,
+        start_slot=data.start_slot,
+        end_slot=data.end_slot,
+        department_id=data.department_id,
+        is_general=0,
+    )
+    if existing_dup:
+        existing_full = db.query(Meeting).options(
+            joinedload(Meeting.department),
+            joinedload(Meeting.created_by)
+        ).filter(Meeting.id == existing_dup.id).first()
+        occurrence_count = 1
+        if existing_dup.recurrence_group_id:
+            occurrence_count = db.query(Meeting).filter(
+                Meeting.recurrence_group_id == existing_dup.recurrence_group_id
+            ).count()
+        return {
+            "success": True,
+            "meeting": format_meeting_response(existing_full, db, member_id=hod_member.id),
+            "meetings_created": occurrence_count,
+            "recurrence_group_id": existing_dup.recurrence_group_id,
+            "duplicate_suppressed": True,
+        }
 
     # Create meetings for all dates
     created_meetings = []
@@ -3476,6 +3563,40 @@ def create_admin_meeting(data: MeetingCreate, request: Request = None, db: Sessi
         else:
             raise HTTPException(status_code=409, detail=f"Conflicts found: {'; '.join(conflicts[:3])}" +
                                 (f" and {len(conflicts) - 3} more" if len(conflicts) > 3 else ""))
+
+    # Idempotency: detect a recent duplicate of the anchor meeting (double-click,
+    # network retry, impatient admin). Returns the existing series instead of
+    # creating another one.
+    existing_dup = find_duplicate_meeting(
+        db,
+        title=data.title,
+        meeting_date=data.meeting_date,
+        start_slot=data.start_slot,
+        end_slot=data.end_slot,
+        department_id=department_id,
+        target_department_ids=target_dept_ids_str,
+        target_member_ids=target_member_ids_str,
+        target_leadership_roles=target_leadership_roles_str,
+        is_general=1 if is_general else 0,
+    )
+    if existing_dup:
+        existing_full = db.query(Meeting).options(
+            joinedload(Meeting.department),
+            joinedload(Meeting.created_by)
+        ).filter(Meeting.id == existing_dup.id).first()
+        # Count occurrences in the series (if it was a recurring series)
+        occurrence_count = 1
+        if existing_dup.recurrence_group_id:
+            occurrence_count = db.query(Meeting).filter(
+                Meeting.recurrence_group_id == existing_dup.recurrence_group_id
+            ).count()
+        return {
+            "success": True,
+            "meeting": format_meeting_response(existing_full, db),
+            "meetings_created": occurrence_count,
+            "recurrence_group_id": existing_dup.recurrence_group_id,
+            "duplicate_suppressed": True,
+        }
 
     # Create meetings for all dates
     created_meetings = []

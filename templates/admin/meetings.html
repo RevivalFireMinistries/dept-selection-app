@@ -230,7 +230,7 @@
             <div class="flex justify-end gap-3 mt-6">
                 <button type="button" onclick="closeModal()"
                         class="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <button type="submit" id="saveMeetingBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed">
                     Save
                 </button>
             </div>
@@ -635,6 +635,12 @@ async function editMeeting(id) {
 async function saveMeeting(e) {
     e.preventDefault();
 
+    // Early guard against double-click (re-entry). Validation may still abort
+    // without a network call; the button is only locked once we're about to
+    // actually fetch().
+    const saveBtn = document.getElementById('saveMeetingBtn');
+    if (saveBtn && saveBtn.disabled) return;
+
     const id = document.getElementById('meetingId').value;
     const startSlot = parseInt(document.getElementById('meetingStartSlot').value);
     const duration = parseInt(document.getElementById('meetingDuration').value);
@@ -696,6 +702,12 @@ async function saveMeeting(e) {
         payload.recurrence_end_date = recurrenceEndDate;
     }
 
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.dataset.originalText = saveBtn.textContent;
+        saveBtn.textContent = 'Saving…';
+    }
+
     try {
         let res;
         if (id) {
@@ -721,12 +733,20 @@ async function saveMeeting(e) {
         closeModal();
         loadMeetings();
 
-        // Show message for recurring meetings
-        if (data.meetings_created && data.meetings_created > 1) {
+        // Surface when the server suppressed a duplicate so the admin isn't
+        // left wondering why their second click didn't "do" anything.
+        if (data.duplicate_suppressed) {
+            alert('An identical meeting was just created — using the existing one.');
+        } else if (data.meetings_created && data.meetings_created > 1) {
             alert(`Successfully created ${data.meetings_created} recurring meetings!`);
         }
     } catch (err) {
         alert('Error: ' + err.message);
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = saveBtn.dataset.originalText || 'Save';
+        }
     }
 }
 

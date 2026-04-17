@@ -909,7 +909,9 @@ async function createMeeting(e) {
         loadMeetings();
 
         // Show success message for recurring meetings
-        if (data.meetings_created && data.meetings_created > 1) {
+        if (data.duplicate_suppressed) {
+            alert('An identical meeting was just created — using the existing one.');
+        } else if (data.meetings_created && data.meetings_created > 1) {
             alert(`Successfully created ${data.meetings_created} recurring meetings!`);
         }
     } catch (err) {
