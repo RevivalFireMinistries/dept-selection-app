@@ -499,25 +499,60 @@
                     </select>
                 </label>
 
-                <!-- Preview card -->
-                <div id="shareCard" class="rounded-2xl p-5 bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-lg">
-                    <div class="text-xs uppercase tracking-widest opacity-80">RFM Home Churches</div>
-                    <div class="text-lg font-bold mt-0.5" x-text="formatDateLong(share.date)"></div>
-                    <div class="mt-3 space-y-1.5">
-                        <template x-for="row in matrix" :key="row.home_church.id + '-share'">
-                            <div class="flex items-center gap-2 text-sm">
-                                <span class="opacity-70 text-xs w-6" x-text="entryFor(row, share.date) && entryFor(row, share.date).program_type ? entryFor(row, share.date).program_type.icon : '·'"></span>
-                                <span class="flex-1 truncate" x-text="row.home_church.name"></span>
-                                <span class="opacity-90 text-xs truncate" x-text="shareLineText(row)"></span>
-                            </div>
-                        </template>
+                <!-- Flyer-style preview (this is what gets rendered to image) -->
+                <div class="rounded-2xl overflow-hidden shadow-lg" style="aspect-ratio: 4/5;">
+                    <div id="shareCard" style="width: 480px; aspect-ratio: 4/5; transform-origin: top left; transform: scale(var(--share-card-scale, 1)); background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 60%, #2563eb 100%); color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 28px 24px 20px 24px; position: relative; overflow: hidden;">
+                        <!-- Decorative circles -->
+                        <div style="position: absolute; top: -40px; right: -40px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,0.08);"></div>
+                        <div style="position: absolute; bottom: -60px; left: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(255,255,255,0.06);"></div>
+
+                        <!-- Header -->
+                        <div style="position: relative; z-index: 1;">
+                            <div style="font-size: 10px; letter-spacing: 2px; font-weight: 700; text-transform: uppercase; opacity: 0.8;">Revival Fire Ministries</div>
+                            <div style="font-size: 22px; font-weight: 800; margin-top: 2px; letter-spacing: -0.5px;">Home Churches</div>
+                            <div style="display: inline-block; margin-top: 12px; padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,0.2); font-size: 12px; font-weight: 600; letter-spacing: 0.5px;" x-text="shareHeaderDate()"></div>
+                        </div>
+
+                        <!-- Entries grouped by program type -->
+                        <div style="margin-top: 18px; position: relative; z-index: 1;">
+                            <template x-for="group in shareGrouped()" :key="group.typeKey">
+                                <div style="margin-bottom: 14px;">
+                                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                                        <span style="font-size: 16px;" x-text="group.icon"></span>
+                                        <span style="font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: 0.95;" x-text="group.name"></span>
+                                    </div>
+                                    <div style="background: rgba(255,255,255,0.12); border-radius: 12px; padding: 10px 12px;">
+                                        <template x-for="(it, idx) in group.items" :key="group.typeKey + '-' + it.hc">
+                                            <div :style="'display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0;' + (idx < group.items.length - 1 ? ' border-bottom: 1px solid rgba(255,255,255,0.12);' : '')">
+                                                <div style="font-size: 13px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" x-text="it.hc"></div>
+                                                <div style="font-size: 12px; opacity: 0.92; text-align: right; flex-shrink: 0;" x-text="it.person"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Footer -->
+                        <div style="position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 10px; opacity: 0.7; letter-spacing: 0.5px;">
+                            Meeting at <span x-text="shareMeetingTime()"></span> · RFM Stellenbosch
+                        </div>
                     </div>
                 </div>
 
-                <p class="text-[11px] text-gray-500">Copy the text or take a screenshot to share in WhatsApp.</p>
-                <div class="flex gap-2 pt-1">
-                    <button @click="copyShareText()" class="flex-1 px-3 py-2.5 text-sm bg-gray-100 rounded-lg">Copy text</button>
-                    <button @click="share.open=false" class="flex-1 px-3 py-2.5 text-sm bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-semibold">Done</button>
+                <p class="text-[11px] text-gray-500 text-center">Mobile-friendly image — shares straight to WhatsApp.</p>
+
+                <!-- Primary action: share image -->
+                <button @click="shareImage()" :disabled="share.rendering" class="w-full px-3 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                    <span x-text="share.rendering ? 'Preparing image…' : 'Share image'"></span>
+                </button>
+
+                <!-- Secondary actions -->
+                <div class="grid grid-cols-3 gap-2">
+                    <button @click="downloadImage()" :disabled="share.rendering" class="px-2 py-2 text-xs bg-white border border-gray-200 hover:bg-gray-50 rounded-lg font-medium disabled:opacity-60">📥 Save PNG</button>
+                    <button @click="downloadPDF()" :disabled="share.rendering" class="px-2 py-2 text-xs bg-white border border-gray-200 hover:bg-gray-50 rounded-lg font-medium disabled:opacity-60">📄 PDF</button>
+                    <button @click="copyShareText()" class="px-2 py-2 text-xs bg-white border border-gray-200 hover:bg-gray-50 rounded-lg font-medium">📋 Text</button>
                 </div>
             </div>
         </div>
@@ -565,7 +600,7 @@ function homeChurchApp() {
         },
 
         autoFill: { open: false, running: false, weeks: 4 },
-        share: { open: false, date: null },
+        share: { open: false, date: null, rendering: false },
 
         async init() {
             await Promise.all([this.loadPreachers(), this.loadHomeChurches(), this.loadAllProgramTypes()]);
@@ -879,6 +914,20 @@ function homeChurchApp() {
         openShareDialog(d) {
             this.share.date = d || this.dates[0];
             this.share.open = true;
+            // Scale the 480px-wide card to fit the dialog (responsive preview)
+            this.$nextTick(() => this._scaleShareCard());
+        },
+        _scaleShareCard() {
+            const el = document.getElementById('shareCard');
+            if (!el) return;
+            const containerWidth = el.parentElement.clientWidth;
+            const cardWidth = 480;
+            if (containerWidth > 0 && containerWidth < cardWidth) {
+                el.style.setProperty('--share-card-scale', (containerWidth / cardWidth).toFixed(3));
+                el.style.width = cardWidth + 'px';
+            } else {
+                el.style.setProperty('--share-card-scale', '1');
+            }
         },
         shareLineText(row) {
             const entry = this.entryFor(row, this.share.date);
@@ -888,6 +937,183 @@ function homeChurchApp() {
             if (entry.program_type && entry.program_type.requires_preacher) return `${typeName} · ⚠ no preacher`;
             return typeName;
         },
+
+        // Header date for the flyer image (big, readable)
+        shareHeaderDate() {
+            if (!this.share.date) return '';
+            const d = new Date(this.share.date + 'T00:00:00');
+            return d.toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+        },
+
+        // Try to read a common meeting time; default to 19:00
+        shareMeetingTime() {
+            if (!this.matrix || this.matrix.length === 0) return '19:00';
+            const times = this.matrix.map(r => r.home_church.meeting_time).filter(Boolean);
+            if (times.length === 0) return '19:00';
+            // If they all agree, return that; otherwise say "see below"
+            const unique = [...new Set(times)];
+            return unique.length === 1 ? unique[0] : '19:00';
+        },
+
+        // Group entries by program type for the flyer (e.g. all "Preaching Service" together)
+        shareGrouped() {
+            if (!this.share.date || !this.matrix) return [];
+            const groups = new Map();  // typeKey -> {typeKey, name, icon, items}
+            for (const row of this.matrix) {
+                const e = this.entryFor(row, this.share.date);
+                const pt = e && e.program_type ? e.program_type : null;
+                const typeKey = pt ? String(pt.id) : 'none';
+                const name = pt ? pt.name : 'Not yet set';
+                const icon = pt ? (pt.icon || '📌') : '⚠️';
+                if (!groups.has(typeKey)) groups.set(typeKey, { typeKey, name, icon, requires: pt ? pt.requires_preacher : false, items: [] });
+                let person;
+                if (e && e.preacher) person = e.preacher.full_name;
+                else if (pt && !pt.requires_preacher) person = 'Leader-led';
+                else if (pt && pt.requires_preacher) person = '— preacher needed —';
+                else person = '—';
+                groups.get(typeKey).items.push({ hc: row.home_church.name, person });
+            }
+            return Array.from(groups.values());
+        },
+
+        async _ensureShareLibs() {
+            // Lazy-load html2canvas + jsPDF on first use
+            if (typeof html2canvas === 'undefined') {
+                await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+            }
+        },
+        async _ensureJsPDF() {
+            if (typeof window.jspdf === 'undefined') {
+                await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            }
+        },
+        _loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = src;
+                s.onload = resolve;
+                s.onerror = reject;
+                document.head.appendChild(s);
+            });
+        },
+
+        async _renderShareCanvas() {
+            await this._ensureShareLibs();
+            const el = document.getElementById('shareCard');
+            if (!el) throw new Error('Share card not found');
+            // Render at full 480px width (scale: 2 for crisp retina images)
+            const origTransform = el.style.transform;
+            el.style.transform = 'scale(1)';
+            try {
+                const canvas = await html2canvas(el, {
+                    scale: 2,
+                    backgroundColor: null,
+                    useCORS: true,
+                    logging: false,
+                    width: 480,
+                    windowWidth: 480,
+                });
+                return canvas;
+            } finally {
+                el.style.transform = origTransform;
+            }
+        },
+
+        _shareFileName(ext) {
+            const d = this.share.date || 'today';
+            return `home-church-roster-${d}.${ext}`;
+        },
+
+        async shareImage() {
+            if (this.share.rendering) return;
+            this.share.rendering = true;
+            try {
+                const canvas = await this._renderShareCanvas();
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                if (!blob) throw new Error('Could not generate image');
+                const file = new File([blob], this._shareFileName('png'), { type: 'image/png' });
+                const shareData = {
+                    files: [file],
+                    title: 'RFM Home Churches',
+                    text: `RFM Home Churches — ${this.formatDateLong(this.share.date)}`,
+                };
+                if (navigator.canShare && navigator.canShare(shareData) && navigator.share) {
+                    try {
+                        await navigator.share(shareData);
+                        return;
+                    } catch (e) {
+                        if (e.name === 'AbortError') return; // user cancelled — don't fall back
+                    }
+                }
+                // Fallback: trigger download (desktop or browsers without file share)
+                this._downloadBlob(blob, this._shareFileName('png'));
+            } catch (e) {
+                alert('Could not create image: ' + e.message);
+            } finally {
+                this.share.rendering = false;
+            }
+        },
+
+        async downloadImage() {
+            if (this.share.rendering) return;
+            this.share.rendering = true;
+            try {
+                const canvas = await this._renderShareCanvas();
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                this._downloadBlob(blob, this._shareFileName('png'));
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.share.rendering = false;
+            }
+        },
+
+        async downloadPDF() {
+            if (this.share.rendering) return;
+            this.share.rendering = true;
+            try {
+                const canvas = await this._renderShareCanvas();
+                await this._ensureJsPDF();
+                const { jsPDF } = window.jspdf;
+                const imgData = canvas.toDataURL('image/png');
+                // A4 portrait: 210 x 297 mm. The card is 4:5 aspect, so center it.
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const pageW = 210, pageH = 297;
+                const targetW = 170;  // leave a small margin
+                const targetH = targetW * (canvas.height / canvas.width);
+                const x = (pageW - targetW) / 2;
+                const y = (pageH - targetH) / 2;
+                pdf.addImage(imgData, 'PNG', x, y, targetW, targetH);
+                const blob = pdf.output('blob');
+                // Try share first on mobile; fall back to download
+                if (navigator.canShare && navigator.share) {
+                    const file = new File([blob], this._shareFileName('pdf'), { type: 'application/pdf' });
+                    const shareData = { files: [file], title: 'RFM Home Churches' };
+                    try {
+                        if (navigator.canShare(shareData)) { await navigator.share(shareData); return; }
+                    } catch (e) {
+                        if (e.name === 'AbortError') return;
+                    }
+                }
+                this._downloadBlob(blob, this._shareFileName('pdf'));
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.share.rendering = false;
+            }
+        },
+
+        _downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        },
+
         copyShareText() {
             if (!this.share.date) return;
             const lines = [

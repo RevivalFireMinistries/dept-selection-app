@@ -616,8 +616,10 @@ async def admin_home_churches(request: Request, phone: Optional[str] = None):
         if not acting_member:
             return RedirectResponse(url="/admin/login", status_code=302)
 
+        # Case-insensitive match: "Home Church Committee", "Home Church committee", etc.
         committee_dept_ids = [
-            d.id for d in db.query(Department).filter(Department.name == "Home Church Committee").all()
+            d.id for d in db.query(Department).all()
+            if "home church" in (d.name or "").lower() and "committee" in (d.name or "").lower()
         ]
         if not committee_dept_ids:
             return RedirectResponse(url="/admin/login", status_code=302)

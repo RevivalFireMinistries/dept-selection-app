@@ -5837,21 +5837,49 @@ def get_my_schedules(phone: str, db: Session = Depends(get_db)):
 # HOME CHURCH ROSTER
 # ============================================================================
 
-HOME_CHURCH_DEPT_NAMES = {
-    "committee": ["Home Church Committee"],
-    "leaders": ["Home Church Leaders"],
-    "preachers": ["Home Church Preachers", "Home Church Committee", "Home Church Leaders"],
+# Home Church dept matching — case-insensitive, tolerates variants like
+# "Home Church Leadership" vs "Home Church Leaders", "Home Church committee"
+# (lowercase c). We match by keyword so church renaming doesn't break things.
+HOME_CHURCH_ROLE_KEYWORDS = {
+    # role -> list of keywords that must appear (any one) alongside "home church"
+    "committee": ["committee"],
+    "leaders": ["leader", "leadership"],
+    "preachers": ["preacher", "preaching"],
 }
+
+
+def _home_church_dept_ids(db: Session, role: str) -> List[int]:
+    """Return department IDs for a given home-church role (committee/leaders/preachers).
+    Case-insensitive match against 'home church <keyword>'."""
+    keywords = HOME_CHURCH_ROLE_KEYWORDS.get(role, [])
+    if not keywords:
+        return []
+    # Fetch all departments once and filter in Python so we can do case-insensitive
+    # substring matching that works across SQLite/Postgres collations.
+    ids = []
+    for d in db.query(Department).all():
+        name = (d.name or "").lower()
+        if "home church" in name and any(k in name for k in keywords):
+            ids.append(d.id)
+    return ids
+
+
+def _preacher_pool_dept_ids(db: Session) -> List[int]:
+    """Preachers may come from any of the three Home Church departments."""
+    seen = set()
+    out = []
+    for role in ("preachers", "committee", "leaders"):
+        for d_id in _home_church_dept_ids(db, role):
+            if d_id not in seen:
+                seen.add(d_id)
+                out.append(d_id)
+    return out
 
 
 def _is_committee_member(db: Session, member: Member) -> bool:
     if not member:
         return False
-    dept_ids = [
-        d.id for d in db.query(Department).filter(
-            Department.name.in_(HOME_CHURCH_DEPT_NAMES["committee"])
-        ).all()
-    ]
+    dept_ids = _home_church_dept_ids(db, "committee")
     if not dept_ids:
         return False
     count = db.query(MemberDepartment).filter(
@@ -5884,11 +5912,7 @@ def _require_committee_or_admin(request: Request, db: Session) -> Optional[Membe
 
 
 def _preacher_pool_member_ids(db: Session) -> List[int]:
-    dept_ids = [
-        d.id for d in db.query(Department).filter(
-            Department.name.in_(HOME_CHURCH_DEPT_NAMES["preachers"])
-        ).all()
-    ]
+    dept_ids = _preacher_pool_dept_ids(db)
     if not dept_ids:
         return []
     rows = db.query(MemberDepartment.member_id).filter(

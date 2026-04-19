@@ -1425,8 +1425,9 @@ function renderHodCard() {
 function renderHomeChurchCommitteeCard() {
     const banner = document.getElementById('homeChurchCommitteeBanner');
     if (!banner || !currentMember) return;
+    // Tolerant match: "Home Church Committee", "Home Church committee", etc.
     const depts = (currentMember.approved_departments || []).map(d => (d.department_name || '').toLowerCase());
-    const isCommittee = depts.some(n => n === 'home church committee');
+    const isCommittee = depts.some(n => n.includes('home church') && n.includes('committee'));
     if (isCommittee) {
         banner.classList.remove('hidden');
         // Pass phone so the route can authenticate the committee member without
