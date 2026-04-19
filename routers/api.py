@@ -6296,6 +6296,91 @@ def admin_clear_roster_cell(
     return {"success": True, "removed": True}
 
 
+@router.put("/admin/home-church/roster/week")
+def admin_set_week_program(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Cascade a single program type to every active home church for a given
+    date. The common case: all home churches share the same programme each
+    week. Creates missing roster entries and updates existing ones. If the
+    new type doesn't require a preacher, preacher assignments are cleared.
+    Already-published rows are left alone unless force=true."""
+    _require_committee_or_admin(request, db)
+
+    try:
+        roster_date = date.fromisoformat(data["roster_date"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="roster_date required")
+
+    program_type_id = data.get("program_type_id")
+    force = bool(data.get("force", False))
+
+    program_type = None
+    if program_type_id:
+        program_type = db.query(HomeChurchProgramType).filter(
+            HomeChurchProgramType.id == program_type_id
+        ).first()
+        if not program_type:
+            raise HTTPException(status_code=404, detail="Program type not found")
+
+    churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).all()
+    existing = {
+        e.home_church_id: e
+        for e in db.query(HomeChurchRoster).filter(
+            HomeChurchRoster.roster_date == roster_date
+        ).all()
+    }
+
+    updated_count = 0
+    created_count = 0
+    skipped_published = 0
+
+    for c in churches:
+        entry = existing.get(c.id)
+        if entry is None:
+            entry = HomeChurchRoster(
+                home_church_id=c.id,
+                roster_date=roster_date,
+                program_type_id=program_type_id,
+                status="draft",
+            )
+            # Non-preaching type: no preacher
+            if program_type and not program_type.requires_preacher:
+                entry.preacher_member_id = None
+            db.add(entry)
+            created_count += 1
+        else:
+            if entry.status == "published" and not force:
+                skipped_published += 1
+                continue
+            entry.program_type_id = program_type_id
+            if program_type and not program_type.requires_preacher:
+                entry.preacher_member_id = None
+            updated_count += 1
+
+    db.commit()
+
+    _log_admin_action(
+        request, db,
+        "set_week_program",
+        "home_church_roster",
+        None,
+        f"Set week {roster_date.isoformat()} to "
+        f"{program_type.name if program_type else 'none'} "
+        f"({created_count} created, {updated_count} updated, {skipped_published} published skipped)"
+    )
+    db.commit()
+
+    return {
+        "success": True,
+        "created": created_count,
+        "updated": updated_count,
+        "skipped_published": skipped_published,
+    }
+
+
 @router.post("/admin/home-church/roster/auto-fill")
 def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
     _require_committee_or_admin(request, db)
