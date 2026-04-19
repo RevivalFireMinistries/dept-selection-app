@@ -401,3 +401,65 @@ class NewSongSubmission(Base):
     sections_json = Column(Text, nullable=False)  # JSON: [{type, label, lyrics, orderIndex}]
     fetched = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ============ HOME CHURCH ROSTER ============
+
+class HomeChurch(Base):
+    """A home church venue/group that meets weekly (typically Mondays)."""
+    __tablename__ = "home_churches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)  # e.g. "Eersterivier West"
+    leader_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    address = Column(String(500), nullable=True)
+    suburb = Column(String(100), nullable=True)
+    meeting_day = Column(Integer, nullable=False, server_default="0")  # 0=Mon..6=Sun
+    meeting_time = Column(String(5), nullable=False, server_default="19:00")  # HH:MM
+    whatsapp_link = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    leader = relationship("Member", foreign_keys=[leader_member_id])
+    roster_entries = relationship("HomeChurchRoster", back_populates="home_church", cascade="all, delete-orphan")
+
+
+class HomeChurchProgramType(Base):
+    """Types of program a home church can have on a given week.
+    requires_preacher controls whether the roster entry needs a preacher assigned."""
+    __tablename__ = "home_church_program_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True)  # e.g. "Preaching Service"
+    requires_preacher = Column(Boolean, nullable=False, server_default="false")
+    color = Column(String(20), nullable=True)  # Tailwind color name e.g. "blue", "purple"
+    icon = Column(String(10), nullable=True)  # Single emoji
+    sort_order = Column(Integer, nullable=False, server_default="0")
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class HomeChurchRoster(Base):
+    """One roster entry per (home_church, date). Preacher optional based on program type."""
+    __tablename__ = "home_church_roster"
+
+    id = Column(Integer, primary_key=True, index=True)
+    home_church_id = Column(Integer, ForeignKey("home_churches.id", ondelete="CASCADE"), nullable=False)
+    roster_date = Column(Date, nullable=False)  # The Monday (or meeting_day) date
+    program_type_id = Column(Integer, ForeignKey("home_church_program_types.id", ondelete="SET NULL"), nullable=True)
+    preacher_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, server_default="draft")  # draft | published
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("home_church_id", "roster_date", name="uq_home_church_roster_date"),
+    )
+
+    home_church = relationship("HomeChurch", back_populates="roster_entries")
+    program_type = relationship("HomeChurchProgramType")
+    preacher = relationship("Member", foreign_keys=[preacher_member_id])

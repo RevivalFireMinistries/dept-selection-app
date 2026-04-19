@@ -81,6 +81,10 @@
                 <span class="w-7 h-7 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Posters</span>
             </a>
+            <a href="/admin/home-churches" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/home-churches' in request.url.path %}bg-blue-50{% endif %}">
+                <span class="w-7 h-7 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center flex-shrink-0 text-sm">🏠</span>
+                <span class="text-sm font-medium text-gray-700">Home Churches</span>
+            </a>
 
             <div class="border-t border-gray-100 my-1 mx-4"></div>
 

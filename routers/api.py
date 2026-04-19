@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -5830,3 +5830,635 @@ def get_my_schedules(phone: str, db: Session = Depends(get_db)):
         ServiceSchedule.service_date >= today
     ).order_by(ServiceSchedule.service_date).all()
     return [_schedule_to_dict(s) for s in schedules]
+
+
+
+# ============================================================================
+# HOME CHURCH ROSTER
+# ============================================================================
+
+HOME_CHURCH_DEPT_NAMES = {
+    "committee": ["Home Church Committee"],
+    "leaders": ["Home Church Leaders"],
+    "preachers": ["Home Church Preachers", "Home Church Committee", "Home Church Leaders"],
+}
+
+
+def _is_committee_member(db: Session, member: Member) -> bool:
+    if not member:
+        return False
+    dept_ids = [
+        d.id for d in db.query(Department).filter(
+            Department.name.in_(HOME_CHURCH_DEPT_NAMES["committee"])
+        ).all()
+    ]
+    if not dept_ids:
+        return False
+    count = db.query(MemberDepartment).filter(
+        MemberDepartment.member_id == member.id,
+        MemberDepartment.department_id.in_(dept_ids),
+        MemberDepartment.status == "approved",
+    ).count()
+    return count > 0
+
+
+def _require_committee_or_admin(request: Request, db: Session) -> Optional[Member]:
+    """Return acting member or raise 401/403. Admins pass through; otherwise requires committee."""
+    from routers.pages import get_admin_identity, is_authenticated
+    if is_authenticated(request):
+        identity = get_admin_identity(request)
+        if identity and identity.get("member_id"):
+            m = db.query(Member).filter(Member.id == identity["member_id"]).first()
+            if m:
+                return m
+        return None
+    from routers.pages import MEMBER_COOKIE_NAME, _verify_member_session
+    token = request.cookies.get(MEMBER_COOKIE_NAME)
+    member_id = _verify_member_session(token)
+    if not member_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member or not _is_committee_member(db, member):
+        raise HTTPException(status_code=403, detail="Home Church Committee access required")
+    return member
+
+
+def _preacher_pool_member_ids(db: Session) -> List[int]:
+    dept_ids = [
+        d.id for d in db.query(Department).filter(
+            Department.name.in_(HOME_CHURCH_DEPT_NAMES["preachers"])
+        ).all()
+    ]
+    if not dept_ids:
+        return []
+    rows = db.query(MemberDepartment.member_id).filter(
+        MemberDepartment.department_id.in_(dept_ids),
+        MemberDepartment.status == "approved",
+    ).distinct().all()
+    return [r[0] for r in rows]
+
+
+def _home_church_to_dict(hc: HomeChurch, db: Session) -> dict:
+    leader = None
+    if hc.leader_member_id:
+        lm = db.query(Member).filter(Member.id == hc.leader_member_id).first()
+        if lm:
+            leader = {"id": lm.id, "full_name": lm.full_name, "phone": lm.phone, "email": lm.email}
+    return {
+        "id": hc.id,
+        "name": hc.name,
+        "leader_member_id": hc.leader_member_id,
+        "leader": leader,
+        "address": hc.address,
+        "suburb": hc.suburb,
+        "meeting_day": hc.meeting_day,
+        "meeting_time": hc.meeting_time,
+        "whatsapp_link": hc.whatsapp_link,
+        "notes": hc.notes,
+        "is_active": hc.is_active,
+    }
+
+
+def _program_type_to_dict(pt: HomeChurchProgramType) -> dict:
+    return {
+        "id": pt.id,
+        "name": pt.name,
+        "requires_preacher": pt.requires_preacher,
+        "color": pt.color,
+        "icon": pt.icon,
+        "sort_order": pt.sort_order,
+        "is_active": pt.is_active,
+    }
+
+
+def _roster_entry_to_dict(entry: HomeChurchRoster, db: Session) -> dict:
+    preacher = None
+    if entry.preacher_member_id:
+        pm = db.query(Member).filter(Member.id == entry.preacher_member_id).first()
+        if pm:
+            preacher = {"id": pm.id, "full_name": pm.full_name, "phone": pm.phone, "email": pm.email}
+    program_type = None
+    if entry.program_type_id:
+        pt = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.id == entry.program_type_id).first()
+        if pt:
+            program_type = _program_type_to_dict(pt)
+    return {
+        "id": entry.id,
+        "home_church_id": entry.home_church_id,
+        "roster_date": entry.roster_date.isoformat() if entry.roster_date else None,
+        "program_type_id": entry.program_type_id,
+        "program_type": program_type,
+        "preacher_member_id": entry.preacher_member_id,
+        "preacher": preacher,
+        "notes": entry.notes,
+        "status": entry.status,
+        "published_at": entry.published_at.isoformat() if entry.published_at else None,
+    }
+
+
+def _next_weekday(d: Optional[date] = None, weekday: int = 0) -> date:
+    if d is None:
+        d = date.today()
+    delta = (weekday - d.weekday()) % 7
+    return d + timedelta(days=delta)
+
+
+# ---- PROGRAM TYPES ----
+
+@router.get("/home-church/program-types")
+def list_program_types_public(db: Session = Depends(get_db)):
+    types = db.query(HomeChurchProgramType).filter(
+        HomeChurchProgramType.is_active == True
+    ).order_by(HomeChurchProgramType.sort_order).all()
+    return [_program_type_to_dict(t) for t in types]
+
+
+@router.get("/admin/home-church/program-types")
+def admin_list_program_types(request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    types = db.query(HomeChurchProgramType).order_by(HomeChurchProgramType.sort_order).all()
+    return [_program_type_to_dict(t) for t in types]
+
+
+@router.post("/admin/home-church/program-types")
+def admin_create_program_type(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name required")
+    pt = HomeChurchProgramType(
+        name=name,
+        requires_preacher=bool(data.get("requires_preacher", False)),
+        color=data.get("color") or "gray",
+        icon=data.get("icon") or "\U0001F4CC",
+        sort_order=int(data.get("sort_order", 99)),
+        is_active=bool(data.get("is_active", True)),
+    )
+    db.add(pt)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A program type with that name already exists")
+    db.refresh(pt)
+    _log_admin_action(request, db, "create_home_church_program_type", "home_church_program_type", pt.id, f"Created program type '{pt.name}'")
+    db.commit()
+    return _program_type_to_dict(pt)
+
+
+@router.put("/admin/home-church/program-types/{pt_id}")
+def admin_update_program_type(pt_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    pt = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.id == pt_id).first()
+    if not pt:
+        raise HTTPException(status_code=404, detail="Program type not found")
+    for field in ("name", "color", "icon"):
+        if field in data and data[field] is not None:
+            setattr(pt, field, data[field])
+    if "requires_preacher" in data:
+        pt.requires_preacher = bool(data["requires_preacher"])
+    if "sort_order" in data:
+        pt.sort_order = int(data["sort_order"])
+    if "is_active" in data:
+        pt.is_active = bool(data["is_active"])
+    db.commit()
+    _log_admin_action(request, db, "update_home_church_program_type", "home_church_program_type", pt.id, f"Updated program type '{pt.name}'")
+    db.commit()
+    return _program_type_to_dict(pt)
+
+
+@router.delete("/admin/home-church/program-types/{pt_id}")
+def admin_delete_program_type(pt_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    pt = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.id == pt_id).first()
+    if not pt:
+        raise HTTPException(status_code=404, detail="Program type not found")
+    name = pt.name
+    used = db.query(HomeChurchRoster).filter(HomeChurchRoster.program_type_id == pt_id).count()
+    if used > 0:
+        pt.is_active = False
+        db.commit()
+        _log_admin_action(request, db, "deactivate_home_church_program_type", "home_church_program_type", pt_id, f"Deactivated '{name}' (referenced by {used} roster entries)")
+        db.commit()
+        return {"success": True, "deactivated": True}
+    db.delete(pt)
+    db.commit()
+    _log_admin_action(request, db, "delete_home_church_program_type", "home_church_program_type", pt_id, f"Deleted program type '{name}'")
+    db.commit()
+    return {"success": True, "deleted": True}
+
+
+# ---- HOME CHURCHES ----
+
+@router.get("/admin/home-churches")
+def admin_list_home_churches(request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    churches = db.query(HomeChurch).order_by(HomeChurch.name).all()
+    return [_home_church_to_dict(c, db) for c in churches]
+
+
+@router.post("/admin/home-churches")
+def admin_create_home_church(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Home church name is required")
+    hc = HomeChurch(
+        name=name,
+        leader_member_id=data.get("leader_member_id"),
+        address=data.get("address"),
+        suburb=data.get("suburb"),
+        meeting_day=int(data.get("meeting_day", 0)),
+        meeting_time=data.get("meeting_time") or "19:00",
+        whatsapp_link=data.get("whatsapp_link"),
+        notes=data.get("notes"),
+        is_active=bool(data.get("is_active", True)),
+    )
+    db.add(hc)
+    db.commit()
+    db.refresh(hc)
+    _log_admin_action(request, db, "create_home_church", "home_church", hc.id, f"Created home church '{hc.name}'")
+    db.commit()
+    return _home_church_to_dict(hc, db)
+
+
+@router.put("/admin/home-churches/{hc_id}")
+def admin_update_home_church(hc_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    hc = db.query(HomeChurch).filter(HomeChurch.id == hc_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+    for field in ("name", "address", "suburb", "meeting_time", "whatsapp_link", "notes"):
+        if field in data:
+            setattr(hc, field, data[field])
+    if "leader_member_id" in data:
+        hc.leader_member_id = data["leader_member_id"]
+    if "meeting_day" in data and data["meeting_day"] is not None:
+        hc.meeting_day = int(data["meeting_day"])
+    if "is_active" in data:
+        hc.is_active = bool(data["is_active"])
+    db.commit()
+    _log_admin_action(request, db, "update_home_church", "home_church", hc.id, f"Updated '{hc.name}'")
+    db.commit()
+    return _home_church_to_dict(hc, db)
+
+
+@router.delete("/admin/home-churches/{hc_id}")
+def admin_delete_home_church(hc_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    hc = db.query(HomeChurch).filter(HomeChurch.id == hc_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+    name = hc.name
+    db.delete(hc)
+    db.commit()
+    _log_admin_action(request, db, "delete_home_church", "home_church", hc_id, f"Deleted home church '{name}'")
+    db.commit()
+    return {"success": True}
+
+
+# ---- PREACHER POOL ----
+
+@router.get("/admin/home-church/preachers")
+def admin_list_preachers(request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    member_ids = _preacher_pool_member_ids(db)
+    if not member_ids:
+        return []
+    members = db.query(Member).filter(Member.id.in_(member_ids), Member.is_active == True).order_by(Member.full_name).all()
+    return [{"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email} for m in members]
+
+
+# ---- ROSTER ----
+
+@router.get("/admin/home-church/roster")
+def admin_get_roster(
+    request: Request,
+    start_date: Optional[str] = Query(None),
+    weeks: int = Query(8, ge=1, le=26),
+    db: Session = Depends(get_db),
+):
+    _require_committee_or_admin(request, db)
+    if start_date:
+        try:
+            start = date.fromisoformat(start_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date")
+    else:
+        start = _next_weekday()
+
+    dates = [start + timedelta(days=7 * i) for i in range(weeks)]
+    end_date = dates[-1]
+
+    churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).order_by(HomeChurch.name).all()
+    entries = db.query(HomeChurchRoster).filter(
+        HomeChurchRoster.roster_date >= start,
+        HomeChurchRoster.roster_date <= end_date,
+    ).all()
+
+    entry_map = {}
+    for e in entries:
+        entry_map[(e.home_church_id, e.roster_date)] = e
+
+    program_types = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.is_active == True).order_by(HomeChurchProgramType.sort_order).all()
+
+    matrix = []
+    for c in churches:
+        row = {"home_church": _home_church_to_dict(c, db), "cells": []}
+        for d in dates:
+            entry = entry_map.get((c.id, d))
+            row["cells"].append({
+                "date": d.isoformat(),
+                "entry": _roster_entry_to_dict(entry, db) if entry else None,
+            })
+        matrix.append(row)
+
+    return {
+        "start_date": start.isoformat(),
+        "end_date": end_date.isoformat(),
+        "dates": [d.isoformat() for d in dates],
+        "weeks": weeks,
+        "home_churches": [_home_church_to_dict(c, db) for c in churches],
+        "program_types": [_program_type_to_dict(t) for t in program_types],
+        "matrix": matrix,
+    }
+
+
+@router.put("/admin/home-church/roster/cell")
+def admin_upsert_roster_cell(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    try:
+        hc_id = int(data["home_church_id"])
+        roster_date = date.fromisoformat(data["roster_date"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="home_church_id and roster_date required")
+
+    program_type_id = data.get("program_type_id")
+    preacher_id = data.get("preacher_member_id")
+    notes = data.get("notes")
+
+    program_type = None
+    if program_type_id:
+        program_type = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.id == program_type_id).first()
+        if not program_type:
+            raise HTTPException(status_code=404, detail="Program type not found")
+        if not program_type.requires_preacher:
+            preacher_id = None
+
+    if preacher_id:
+        preacher = db.query(Member).filter(Member.id == preacher_id).first()
+        if not preacher:
+            raise HTTPException(status_code=404, detail="Preacher not found")
+
+    entry = db.query(HomeChurchRoster).filter(
+        HomeChurchRoster.home_church_id == hc_id,
+        HomeChurchRoster.roster_date == roster_date,
+    ).first()
+
+    is_new = entry is None
+    if is_new:
+        entry = HomeChurchRoster(
+            home_church_id=hc_id,
+            roster_date=roster_date,
+            program_type_id=program_type_id,
+            preacher_member_id=preacher_id,
+            notes=notes,
+            status="draft",
+        )
+        db.add(entry)
+    else:
+        entry.program_type_id = program_type_id
+        entry.preacher_member_id = preacher_id
+        if "notes" in data:
+            entry.notes = notes
+
+    db.commit()
+    db.refresh(entry)
+
+    _log_admin_action(
+        request, db,
+        "upsert_home_church_roster",
+        "home_church_roster",
+        entry.id,
+        f"{'Created' if is_new else 'Updated'} roster for home church {hc_id} on {roster_date.isoformat()}"
+    )
+    db.commit()
+
+    return _roster_entry_to_dict(entry, db)
+
+
+@router.delete("/admin/home-church/roster/cell")
+def admin_clear_roster_cell(
+    request: Request,
+    home_church_id: int = Query(...),
+    roster_date: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    _require_committee_or_admin(request, db)
+    try:
+        d = date.fromisoformat(roster_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date")
+    entry = db.query(HomeChurchRoster).filter(
+        HomeChurchRoster.home_church_id == home_church_id,
+        HomeChurchRoster.roster_date == d,
+    ).first()
+    if not entry:
+        return {"success": True, "removed": False}
+    db.delete(entry)
+    db.commit()
+    _log_admin_action(request, db, "clear_home_church_roster", "home_church_roster", entry.id, f"Cleared roster for home church {home_church_id} on {d.isoformat()}")
+    db.commit()
+    return {"success": True, "removed": True}
+
+
+@router.post("/admin/home-church/roster/auto-fill")
+def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    start_date_str = data.get("start_date")
+    weeks = int(data.get("weeks", 4))
+    if start_date_str:
+        try:
+            start = date.fromisoformat(start_date_str)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date")
+    else:
+        start = _next_weekday()
+    end_date = start + timedelta(days=7 * weeks)
+
+    entries = db.query(HomeChurchRoster).join(HomeChurchProgramType).filter(
+        HomeChurchRoster.roster_date >= start,
+        HomeChurchRoster.roster_date < end_date,
+        HomeChurchProgramType.requires_preacher == True,
+        HomeChurchRoster.preacher_member_id.is_(None),
+    ).order_by(HomeChurchRoster.roster_date, HomeChurchRoster.home_church_id).all()
+
+    if not entries:
+        return {"success": True, "filled": 0, "message": "No empty preacher slots. Set program types first."}
+
+    member_ids = _preacher_pool_member_ids(db)
+    if not member_ids:
+        raise HTTPException(status_code=400, detail="No preachers available in the pool")
+    preachers = db.query(Member).filter(Member.id.in_(member_ids), Member.is_active == True).all()
+    if not preachers:
+        raise HTTPException(status_code=400, detail="No active preachers available")
+
+    recent_assignments = {}
+    existing = db.query(HomeChurchRoster).filter(
+        HomeChurchRoster.roster_date >= start - timedelta(days=56),
+        HomeChurchRoster.preacher_member_id.isnot(None),
+    ).all()
+    for e in existing:
+        recent_assignments.setdefault(e.preacher_member_id, []).append(e.roster_date)
+
+    hc_leader = {hc.id: hc.leader_member_id for hc in db.query(HomeChurch).all()}
+
+    filled = 0
+    for entry in entries:
+        leader_id = hc_leader.get(entry.home_church_id)
+
+        def score(p):
+            count = len(recent_assignments.get(p.id, []))
+            self_preach = 1 if p.id == leader_id else 0
+            return (self_preach, count)
+
+        candidates = sorted(preachers, key=score)
+        chosen = candidates[0]
+        entry.preacher_member_id = chosen.id
+        recent_assignments.setdefault(chosen.id, []).append(entry.roster_date)
+        filled += 1
+
+    db.commit()
+    _log_admin_action(request, db, "auto_fill_home_church_roster", "home_church_roster", None, f"Auto-filled {filled} preacher slots from {start.isoformat()} for {weeks} weeks")
+    db.commit()
+    return {"success": True, "filled": filled}
+
+
+@router.post("/admin/home-church/roster/publish")
+def admin_publish_roster(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    roster_date_str = data.get("roster_date")
+    if not roster_date_str:
+        raise HTTPException(status_code=400, detail="roster_date required")
+    try:
+        d = date.fromisoformat(roster_date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date")
+
+    entries = db.query(HomeChurchRoster).options(
+        joinedload(HomeChurchRoster.home_church).joinedload(HomeChurch.leader),
+        joinedload(HomeChurchRoster.program_type),
+        joinedload(HomeChurchRoster.preacher),
+    ).filter(HomeChurchRoster.roster_date == d).all()
+
+    if not entries:
+        raise HTTPException(status_code=404, detail="No roster entries found for that date")
+
+    now = datetime.utcnow()
+    published_count = 0
+    for e in entries:
+        if e.status != "published":
+            published_count += 1
+        e.status = "published"
+        e.published_at = now
+    db.commit()
+
+    try:
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        for e in entries:
+            hc = e.home_church
+            if not hc or not hc.leader or not hc.leader.email:
+                continue
+            dispatch_event(db, EventType.HOME_CHURCH_ROSTER_PUBLISHED, {
+                "leader_id": hc.leader.id,
+                "leader_name": hc.leader.full_name,
+                "leader_email": hc.leader.email,
+                "home_church_name": hc.name,
+                "roster_date": d.isoformat(),
+                "meeting_time": hc.meeting_time,
+                "program_type_name": e.program_type.name if e.program_type else "Not set",
+                "program_type_icon": e.program_type.icon if e.program_type else "\U0001F4CC",
+                "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
+                "preacher_name": e.preacher.full_name if e.preacher else None,
+                "preacher_phone": e.preacher.phone if e.preacher else None,
+                "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": hc.leader.email, "phone": hc.leader.phone}],
+            })
+
+        for e in entries:
+            if not e.preacher or not e.preacher.email:
+                continue
+            hc = e.home_church
+            dispatch_event(db, EventType.HOME_CHURCH_PREACHER_ASSIGNED, {
+                "preacher_id": e.preacher.id,
+                "preacher_name": e.preacher.full_name,
+                "preacher_email": e.preacher.email,
+                "home_church_name": hc.name if hc else "",
+                "home_church_address": hc.address if hc else "",
+                "leader_name": hc.leader.full_name if (hc and hc.leader) else "",
+                "leader_phone": hc.leader.phone if (hc and hc.leader) else "",
+                "roster_date": d.isoformat(),
+                "meeting_time": hc.meeting_time if hc else "19:00",
+                "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": e.preacher.email, "phone": e.preacher.phone}],
+            })
+    except Exception as exc:
+        print(f"Failed to dispatch home church roster notifications: {exc}")
+
+    _log_admin_action(request, db, "publish_home_church_roster", "home_church_roster", None, f"Published roster for {d.isoformat()} ({len(entries)} entries)")
+    db.commit()
+
+    return {"success": True, "date": d.isoformat(), "entries_published": len(entries), "newly_published": published_count}
+
+
+# ---- PUBLIC (portal) ----
+
+@router.get("/home-church/my-upcoming")
+def my_upcoming_home_church(
+    phone: str = Query(...),
+    weeks: int = Query(8, ge=1, le=26),
+    db: Session = Depends(get_db),
+):
+    member = _find_member_by_phone(db, phone)
+    if not member:
+        return {"as_leader": [], "as_preacher": []}
+
+    today = date.today()
+    horizon = today + timedelta(days=7 * weeks)
+
+    led_churches = db.query(HomeChurch).filter(HomeChurch.leader_member_id == member.id).all()
+    led_ids = [c.id for c in led_churches]
+    as_leader = []
+    if led_ids:
+        entries = db.query(HomeChurchRoster).options(
+            joinedload(HomeChurchRoster.home_church),
+            joinedload(HomeChurchRoster.program_type),
+            joinedload(HomeChurchRoster.preacher),
+        ).filter(
+            HomeChurchRoster.home_church_id.in_(led_ids),
+            HomeChurchRoster.roster_date >= today,
+            HomeChurchRoster.roster_date <= horizon,
+            HomeChurchRoster.status == "published",
+        ).order_by(HomeChurchRoster.roster_date).all()
+        as_leader = [_roster_entry_to_dict(e, db) for e in entries]
+        # attach home church info
+        for i, e in enumerate(entries):
+            as_leader[i]["home_church"] = _home_church_to_dict(e.home_church, db) if e.home_church else None
+
+    entries = db.query(HomeChurchRoster).options(
+        joinedload(HomeChurchRoster.home_church).joinedload(HomeChurch.leader),
+        joinedload(HomeChurchRoster.program_type),
+    ).filter(
+        HomeChurchRoster.preacher_member_id == member.id,
+        HomeChurchRoster.roster_date >= today,
+        HomeChurchRoster.roster_date <= horizon,
+        HomeChurchRoster.status == "published",
+    ).order_by(HomeChurchRoster.roster_date).all()
+    as_preacher = []
+    for e in entries:
+        d = _roster_entry_to_dict(e, db)
+        hc = e.home_church
+        d["home_church"] = _home_church_to_dict(hc, db) if hc else None
+        as_preacher.append(d)
+
+    return {"as_leader": as_leader, "as_preacher": as_preacher}

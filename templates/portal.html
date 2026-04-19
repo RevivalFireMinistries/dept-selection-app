@@ -251,6 +251,15 @@
                 <div id="myProgramsList" class="space-y-2"></div>
             </div>
 
+            <!-- ===== HOME CHURCH (shown if the member leads a home church OR is assigned as preacher) ===== -->
+            <div id="homeChurchSection" class="hidden">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Home Church</h3>
+                </div>
+                <div id="homeChurchPrimary" class="mb-2"></div>
+                <div id="homeChurchUpcoming" class="space-y-1.5"></div>
+            </div>
+
             <!-- ===== POST-PUBLISH: Departments row (compact — opens bottom sheet) ===== -->
             <div id="postPublishSection" class="hidden">
                 <button onclick="openMyDeptsSheet()" class="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 pressable text-left">
@@ -912,6 +921,7 @@ function selectMember(member) {
     renderMainContent();
     renderThisWeek();
     renderMyPrograms();
+    renderHomeChurch();
     renderActions();
     renderHodCard();
     renderDesignTeamBanner();
@@ -1106,6 +1116,163 @@ async function renderMyPrograms() {
     } catch (e) {
         console.error('Failed to load my programs:', e);
     }
+}
+
+// ==================== HOME CHURCH SECTION ====================
+async function renderHomeChurch() {
+    const section = document.getElementById('homeChurchSection');
+    const primary = document.getElementById('homeChurchPrimary');
+    const upcoming = document.getElementById('homeChurchUpcoming');
+    if (!section || !phone) return;
+
+    try {
+        const res = await fetch(`/api/home-church/my-upcoming?phone=${encodeURIComponent(phone)}&weeks=8`);
+        if (!res.ok) { section.classList.add('hidden'); return; }
+        const data = await res.json();
+        const asLeader = data.as_leader || [];
+        const asPreacher = data.as_preacher || [];
+
+        if (asLeader.length === 0 && asPreacher.length === 0) {
+            section.classList.add('hidden');
+            return;
+        }
+        section.classList.remove('hidden');
+
+        // Build a combined upcoming list sorted by date, with a role tag per entry
+        const all = [];
+        for (const e of asLeader) all.push({ ...e, _role: 'leader' });
+        for (const e of asPreacher) all.push({ ...e, _role: 'preacher' });
+        all.sort((a, b) => a.roster_date.localeCompare(b.roster_date));
+
+        const headline = all[0];
+        const rest = all.slice(1);
+
+        // Primary (headline) card
+        primary.innerHTML = renderHCHeadlineCard(headline);
+
+        // Upcoming mini-list
+        if (rest.length > 0) {
+            upcoming.innerHTML = rest.map(renderHCMiniRow).join('');
+        } else {
+            upcoming.innerHTML = '';
+        }
+    } catch (e) {
+        console.error('Failed to load home church roster:', e);
+        section.classList.add('hidden');
+    }
+}
+
+function _hcColorFor(color) {
+    const map = {
+        blue: ['bg-blue-50', 'text-blue-700', 'border-blue-200'],
+        purple: ['bg-purple-50', 'text-purple-700', 'border-purple-200'],
+        emerald: ['bg-emerald-50', 'text-emerald-700', 'border-emerald-200'],
+        amber: ['bg-amber-50', 'text-amber-700', 'border-amber-200'],
+        rose: ['bg-rose-50', 'text-rose-700', 'border-rose-200'],
+        cyan: ['bg-cyan-50', 'text-cyan-700', 'border-cyan-200'],
+        indigo: ['bg-indigo-50', 'text-indigo-700', 'border-indigo-200'],
+        gray: ['bg-gray-50', 'text-gray-700', 'border-gray-200'],
+    };
+    return map[color] || map.gray;
+}
+
+function renderHCHeadlineCard(e) {
+    const d = new Date(e.roster_date + 'T00:00:00');
+    const dayName = d.toLocaleDateString('en-ZA', { weekday: 'long' });
+    const dateShort = d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+    const pt = e.program_type;
+    const [bg, txt] = _hcColorFor(pt ? pt.color : 'gray');
+    const icon = pt ? pt.icon : '📌';
+    const typeName = pt ? pt.name : 'No programme set';
+    const isLeader = e._role === 'leader';
+    const hc = e.home_church;
+    const hcName = hc ? hc.name : '';
+    const meetingTime = hc ? (hc.meeting_time || '19:00') : '19:00';
+
+    let subLine = '';
+    if (isLeader) {
+        if (pt && pt.requires_preacher && e.preacher) {
+            subLine = `
+                <div class="mt-2 flex items-center gap-2 text-sm">
+                    <span class="text-gray-500">Preacher:</span>
+                    <span class="font-medium text-gray-900">${escapeHtml(e.preacher.full_name)}</span>
+                    ${e.preacher.phone ? `<a href="tel:${e.preacher.phone}" class="text-indigo-600 font-medium">📞</a>
+                                          <a href="https://wa.me/${e.preacher.phone.replace(/\D/g,'')}" class="text-emerald-600 font-medium">💬</a>` : ''}
+                </div>
+            `;
+        } else if (pt && !pt.requires_preacher) {
+            subLine = `<div class="mt-2 text-sm text-gray-500">No preacher — it's your programme to lead.</div>`;
+        } else if (pt && pt.requires_preacher && !e.preacher) {
+            subLine = `<div class="mt-2 text-sm text-amber-600">Preacher not yet assigned.</div>`;
+        }
+    } else {
+        // as preacher
+        const leader = hc && hc.leader ? hc.leader : null;
+        subLine = `
+            <div class="mt-2 space-y-1 text-sm">
+                <div><span class="text-gray-500">Host leader:</span>
+                    <span class="font-medium text-gray-900">${leader ? escapeHtml(leader.full_name) : '—'}</span>
+                    ${leader && leader.phone ? `<a href="tel:${leader.phone}" class="ml-2 text-indigo-600 font-medium">📞</a>
+                                                 <a href="https://wa.me/${leader.phone.replace(/\D/g,'')}" class="ml-1 text-emerald-600 font-medium">💬</a>` : ''}
+                </div>
+                ${hc && hc.address ? `<div><span class="text-gray-500">Address:</span>
+                    <a href="https://maps.google.com/?q=${encodeURIComponent(hc.address)}" target="_blank" class="text-indigo-600">${escapeHtml(hc.address)}</a></div>` : ''}
+            </div>
+        `;
+    }
+
+    const roleTag = isLeader
+        ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">You host</span>`
+        : `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">You preach</span>`;
+
+    return `
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+            <div class="flex items-start gap-3">
+                <div class="w-12 h-12 flex-shrink-0 rounded-xl ${bg} ${txt} flex flex-col items-center justify-center">
+                    <span class="text-[10px] font-semibold uppercase tracking-wider leading-none">${dayName.substring(0,3)}</span>
+                    <span class="text-base font-bold leading-none mt-0.5">${d.getDate()}</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs text-gray-500">${dateShort} · ${meetingTime}</span>
+                        ${roleTag}
+                    </div>
+                    <div class="mt-1 font-semibold text-gray-900 truncate">${escapeHtml(hcName)}</div>
+                    <div class="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${bg} ${txt}">
+                        <span>${icon}</span><span>${escapeHtml(typeName)}</span>
+                    </div>
+                    ${subLine}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderHCMiniRow(e) {
+    const d = new Date(e.roster_date + 'T00:00:00');
+    const dateShort = d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+    const pt = e.program_type;
+    const [bg, txt] = _hcColorFor(pt ? pt.color : 'gray');
+    const icon = pt ? pt.icon : '📌';
+    const typeName = pt ? pt.name : 'No type';
+    const hcName = e.home_church ? e.home_church.name : '';
+    const isLeader = e._role === 'leader';
+    const subText = isLeader
+        ? (e.preacher ? e.preacher.full_name : (pt && !pt.requires_preacher ? 'Leader-led' : '—'))
+        : hcName;
+    const titleText = isLeader ? hcName : (pt ? pt.name : 'Preaching');
+
+    return `
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-3 flex items-center gap-3">
+            <div class="w-9 h-9 flex-shrink-0 rounded-lg ${bg} ${txt} flex items-center justify-center text-base">${icon}</div>
+            <div class="flex-1 min-w-0">
+                <div class="text-[11px] text-gray-400 uppercase tracking-wider">${dateShort}</div>
+                <div class="text-sm font-medium text-gray-900 truncate">${escapeHtml(titleText)}</div>
+                <div class="text-xs text-gray-500 truncate">${escapeHtml(subText)}</div>
+            </div>
+            ${isLeader ? '<span class="text-[10px] text-violet-600 font-semibold">HOST</span>' : '<span class="text-[10px] text-blue-600 font-semibold">PREACH</span>'}
+        </div>
+    `;
 }
 
 function escapeHtml(str) {

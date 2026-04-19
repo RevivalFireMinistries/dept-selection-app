@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session, joinedload
 
 from database import SessionLocal
-from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate
+from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate, HomeChurch, HomeChurchRoster, HomeChurchProgramType
 
 
 # Global scheduler instance
@@ -74,6 +74,17 @@ def start_scheduler():
         CronTrigger(hour=7, minute=0),
         id="service_schedule_notifications",
         name="Service Schedule Notifications",
+        replace_existing=True
+    )
+
+    # Home church day-before reminders - runs daily at 18:00 (6pm)
+    # The job figures out which day is "tomorrow" and only acts if there are
+    # published home church entries for tomorrow.
+    scheduler.add_job(
+        send_home_church_reminders,
+        CronTrigger(hour=18, minute=0),
+        id="home_church_reminders",
+        name="Home Church Day-Before Reminders",
         replace_existing=True
     )
 
@@ -480,6 +491,84 @@ def slot_to_time(slot: int) -> str:
         display_hours = 12
 
     return f"{display_hours}:{minutes:02d} {period}"
+
+
+def send_home_church_reminders():
+    """Send day-before reminders to home church leaders and assigned preachers.
+
+    Runs daily in the evening; only sends for *tomorrow's* published roster entries.
+    Each leader gets a reminder about tomorrow's program. Each assigned preacher
+    gets a reminder about where they're preaching."""
+    db: Session = SessionLocal()
+    try:
+        from datetime import timedelta as td
+        tomorrow = (datetime.now() + td(days=1)).date()
+
+        entries = db.query(HomeChurchRoster).options(
+            joinedload(HomeChurchRoster.home_church).joinedload(HomeChurch.leader),
+            joinedload(HomeChurchRoster.program_type),
+            joinedload(HomeChurchRoster.preacher),
+        ).filter(
+            HomeChurchRoster.roster_date == tomorrow,
+            HomeChurchRoster.status == "published",
+        ).all()
+
+        if not entries:
+            print(f"[HomeChurchReminder] No published entries for {tomorrow.isoformat()}")
+            return
+
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        leader_count = 0
+        preacher_count = 0
+
+        for e in entries:
+            hc = e.home_church
+            if not hc:
+                continue
+
+            # Leader reminder
+            if hc.leader and hc.leader.email:
+                try:
+                    dispatch_event(db, EventType.HOME_CHURCH_REMINDER_LEADER, {
+                        "leader_name": hc.leader.full_name,
+                        "home_church_name": hc.name,
+                        "roster_date": tomorrow.isoformat(),
+                        "meeting_time": hc.meeting_time,
+                        "program_type_name": e.program_type.name if e.program_type else "Not set",
+                        "program_type_icon": e.program_type.icon if e.program_type else "📌",
+                        "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
+                        "preacher_name": e.preacher.full_name if e.preacher else None,
+                        "preacher_phone": e.preacher.phone if e.preacher else None,
+                        "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": hc.leader.email, "phone": hc.leader.phone}],
+                    })
+                    leader_count += 1
+                except Exception as exc:
+                    print(f"[HomeChurchReminder] Failed leader reminder for {hc.name}: {exc}")
+
+            # Preacher reminder (only if assigned)
+            if e.preacher and e.preacher.email:
+                try:
+                    dispatch_event(db, EventType.HOME_CHURCH_REMINDER_PREACHER, {
+                        "preacher_name": e.preacher.full_name,
+                        "home_church_name": hc.name,
+                        "home_church_address": hc.address or "",
+                        "leader_name": hc.leader.full_name if hc.leader else "",
+                        "leader_phone": hc.leader.phone if hc.leader else "",
+                        "roster_date": tomorrow.isoformat(),
+                        "meeting_time": hc.meeting_time,
+                        "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": e.preacher.email, "phone": e.preacher.phone}],
+                    })
+                    preacher_count += 1
+                except Exception as exc:
+                    print(f"[HomeChurchReminder] Failed preacher reminder for {hc.name}: {exc}")
+
+        print(f"[HomeChurchReminder] Sent {leader_count} leader + {preacher_count} preacher reminders for {tomorrow.isoformat()}")
+    except Exception as exc:
+        print(f"[HomeChurchReminder] Job failed: {exc}")
+    finally:
+        db.close()
 
 
 def get_scheduler_status() -> Dict[str, Any]:

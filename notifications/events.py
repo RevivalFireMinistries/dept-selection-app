@@ -24,6 +24,10 @@ class EventType(str, Enum):
     POSTER_REQUEST_ACKNOWLEDGED = "poster_request_acknowledged"
     POSTER_REQUEST_COMPLETED = "poster_request_completed"
     PROGRAM_PARTICIPANT_ADDED = "program_participant_added"
+    HOME_CHURCH_ROSTER_PUBLISHED = "home_church_roster_published"
+    HOME_CHURCH_PREACHER_ASSIGNED = "home_church_preacher_assigned"
+    HOME_CHURCH_REMINDER_LEADER = "home_church_reminder_leader"
+    HOME_CHURCH_REMINDER_PREACHER = "home_church_reminder_preacher"
 
 
 # Event display names for admin UI
@@ -42,6 +46,10 @@ EVENT_LABELS = {
     EventType.POSTER_REQUEST_ACKNOWLEDGED: "Poster Request Acknowledged",
     EventType.POSTER_REQUEST_COMPLETED: "Poster Request Completed",
     EventType.PROGRAM_PARTICIPANT_ADDED: "Program Participant Added",
+    EventType.HOME_CHURCH_ROSTER_PUBLISHED: "Home Church Roster Published (Leader)",
+    EventType.HOME_CHURCH_PREACHER_ASSIGNED: "Home Church Preacher Assignment",
+    EventType.HOME_CHURCH_REMINDER_LEADER: "Home Church Reminder (Leader)",
+    EventType.HOME_CHURCH_REMINDER_PREACHER: "Home Church Reminder (Preacher)",
 }
 
 
@@ -61,6 +69,10 @@ EVENT_DESCRIPTIONS = {
     EventType.POSTER_REQUEST_ACKNOWLEDGED: "Sent to requester when their poster request is acknowledged",
     EventType.POSTER_REQUEST_COMPLETED: "Sent to requester when their poster is ready",
     EventType.PROGRAM_PARTICIPANT_ADDED: "Sent to members when they are added as participants in a service program",
+    EventType.HOME_CHURCH_ROSTER_PUBLISHED: "Sent to each home church leader when the roster for their date is published",
+    EventType.HOME_CHURCH_PREACHER_ASSIGNED: "Sent to a preacher when they are assigned to preach at a home church",
+    EventType.HOME_CHURCH_REMINDER_LEADER: "Sunday evening reminder to home church leaders about Monday's program",
+    EventType.HOME_CHURCH_REMINDER_PREACHER: "Sunday evening reminder to assigned preachers about Monday's home church",
 }
 
 
@@ -80,6 +92,10 @@ EMAIL_SUBJECTS = {
     EventType.POSTER_REQUEST_ACKNOWLEDGED: "Your Poster Request is Being Processed",
     EventType.POSTER_REQUEST_COMPLETED: "Your Poster is Ready: {event_name}",
     EventType.PROGRAM_PARTICIPANT_ADDED: "You're on the Program: {title} - {service_date}",
+    EventType.HOME_CHURCH_ROSTER_PUBLISHED: "Home Church Roster: {home_church_name} on {roster_date}",
+    EventType.HOME_CHURCH_PREACHER_ASSIGNED: "You're preaching at {home_church_name} on {roster_date}",
+    EventType.HOME_CHURCH_REMINDER_LEADER: "Reminder: Your home church meets tomorrow",
+    EventType.HOME_CHURCH_REMINDER_PREACHER: "Reminder: You're preaching tomorrow at {home_church_name}",
 }
 
 

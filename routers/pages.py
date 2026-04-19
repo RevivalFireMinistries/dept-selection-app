@@ -583,6 +583,45 @@ async def admin_schedules(request: Request):
     return templates.TemplateResponse("admin/schedules.html", {"request": request})
 
 
+@router.get("/admin/home-churches")
+async def admin_home_churches(request: Request):
+    """Home Church Committee: manage home churches and preacher roster.
+
+    Accessible by admins AND Home Church Committee members with a member session."""
+    if is_authenticated(request):
+        return templates.TemplateResponse("admin/home_churches.html", {"request": request})
+
+    # Committee members authenticate via member_session
+    from database import get_db as _get_db
+    from models import Member, Department, MemberDepartment
+    token = request.cookies.get(MEMBER_COOKIE_NAME)
+    member_id = _verify_member_session(token)
+    if not member_id:
+        return RedirectResponse(url="/admin/login", status_code=302)
+    # Check committee membership
+    db_iter = _get_db()
+    db = next(db_iter)
+    try:
+        committee_dept_ids = [
+            d.id for d in db.query(Department).filter(Department.name == "Home Church Committee").all()
+        ]
+        if not committee_dept_ids:
+            return RedirectResponse(url="/admin/login", status_code=302)
+        is_committee = db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member_id,
+            MemberDepartment.department_id.in_(committee_dept_ids),
+            MemberDepartment.status == "approved",
+        ).count() > 0
+        if not is_committee:
+            return RedirectResponse(url="/portal", status_code=302)
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+    return templates.TemplateResponse("admin/home_churches.html", {"request": request})
+
+
 @router.get("/display/submit")
 async def display_submit_page(request: Request, db: Session = Depends(get_db)):
     """Projector submission page — requires login"""

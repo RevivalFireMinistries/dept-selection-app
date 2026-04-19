@@ -1,0 +1,896 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Home Churches - Admin{% endblock %}
+
+{% block admin_content %}
+<div x-data="homeChurchApp()" x-init="init()" class="space-y-4 pb-24">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <span>🏠</span>
+                <span class="truncate">Home Churches</span>
+            </h2>
+            <p class="text-xs sm:text-sm text-gray-500 mt-0.5">Manage venues, program types & weekly preacher roster.</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <button @click="activeTab='roster'" :class="activeTab==='roster' ? 'bg-violet-600 text-white' : 'bg-white text-gray-600 border border-gray-200'"
+                class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                <span class="hidden sm:inline">📅 Roster</span><span class="sm:hidden">📅</span>
+            </button>
+            <button @click="activeTab='churches'" :class="activeTab==='churches' ? 'bg-violet-600 text-white' : 'bg-white text-gray-600 border border-gray-200'"
+                class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                <span class="hidden sm:inline">🏠 Churches</span><span class="sm:hidden">🏠</span>
+            </button>
+            <button @click="activeTab='types'" :class="activeTab==='types' ? 'bg-violet-600 text-white' : 'bg-white text-gray-600 border border-gray-200'"
+                class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                <span class="hidden sm:inline">🏷️ Types</span><span class="sm:hidden">🏷️</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ROSTER TAB -->
+    <div x-show="activeTab==='roster'" x-cloak>
+        <!-- Week navigation -->
+        <div class="bg-white rounded-xl shadow-sm p-3 sm:p-4 flex items-center gap-2 sticky top-14 z-20">
+            <button @click="shiftWeeks(-1)" class="w-9 h-9 flex-shrink-0 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-lg">‹</button>
+            <div class="flex-1 min-w-0 text-center">
+                <div class="text-xs text-gray-500">Showing</div>
+                <div class="text-sm font-semibold text-gray-900 truncate" x-text="headerLabel()"></div>
+            </div>
+            <button @click="shiftWeeks(1)" class="w-9 h-9 flex-shrink-0 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-lg">›</button>
+            <select x-model="weeks" @change="loadRoster()" class="hidden sm:block text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+                <option value="4">4 weeks</option>
+                <option value="8">8 weeks</option>
+                <option value="12">12 weeks</option>
+            </select>
+        </div>
+
+        <!-- Action bar -->
+        <div class="mt-3 flex flex-wrap gap-2">
+            <button @click="openAutoFillDialog()"
+                class="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg">
+                ✨ Auto-fill preachers
+            </button>
+            <button @click="openShareDialog()"
+                class="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg">
+                📤 Share a week
+            </button>
+            <button @click="loadRoster()"
+                class="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg">
+                ↻ Refresh
+            </button>
+        </div>
+
+        <!-- Loading/Empty -->
+        <template x-if="rosterLoading">
+            <div class="mt-6 text-center text-gray-400 text-sm py-12">Loading roster…</div>
+        </template>
+        <template x-if="!rosterLoading && (!matrix || matrix.length === 0)">
+            <div class="mt-6 bg-white rounded-xl p-8 text-center border-2 border-dashed border-gray-200">
+                <div class="text-3xl mb-2">🏠</div>
+                <p class="text-gray-600 font-medium">No home churches yet</p>
+                <p class="text-xs text-gray-400 mt-1">Add one in the "Churches" tab to start building the roster.</p>
+                <button @click="activeTab='churches'" class="mt-3 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg">
+                    + Add a home church
+                </button>
+            </div>
+        </template>
+
+        <!-- MOBILE: week cards -->
+        <div class="mt-4 sm:hidden space-y-4" x-show="!rosterLoading && matrix && matrix.length > 0">
+            <template x-for="(d, di) in dates" :key="d">
+                <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-gray-100 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs text-violet-600 font-semibold uppercase tracking-wider" x-text="formatDayLabel(d)"></div>
+                            <div class="text-sm font-bold text-gray-900" x-text="formatDateLong(d)"></div>
+                            <div class="text-[11px] text-gray-500 mt-0.5" x-text="publishStatusLabel(d)"></div>
+                        </div>
+                        <div class="flex gap-1.5">
+                            <button @click="openShareDialog(d)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white text-gray-500 border border-gray-200 active:scale-95">📤</button>
+                            <button @click="publishDate(d)" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold active:scale-95">Publish</button>
+                        </div>
+                    </div>
+                    <div class="divide-y divide-gray-50">
+                        <template x-for="row in matrix" :key="row.home_church.id + '-' + d">
+                            <div class="px-4 py-3 flex items-center gap-3 active:bg-gray-50 cursor-pointer" @click="openCellEditor(row.home_church, d)">
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-medium text-gray-900 truncate" x-text="row.home_church.name"></div>
+                                    <template x-if="cellAt(row, di) && cellAt(row, di).entry">
+                                        <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                                                :style="cellAt(row, di).entry.program_type ? colorStyle(cellAt(row, di).entry.program_type.color) : 'background:#f3f4f6;color:#6b7280'">
+                                                <span x-text="cellAt(row, di).entry.program_type ? cellAt(row, di).entry.program_type.icon : '📌'"></span>
+                                                <span x-text="cellAt(row, di).entry.program_type ? cellAt(row, di).entry.program_type.name : 'No type'"></span>
+                                            </span>
+                                            <template x-if="cellAt(row, di).entry.preacher">
+                                                <span class="text-[11px] text-gray-600">· <span x-text="cellAt(row, di).entry.preacher.full_name"></span></span>
+                                            </template>
+                                            <template x-if="cellAt(row, di).entry.program_type && cellAt(row, di).entry.program_type.requires_preacher && !cellAt(row, di).entry.preacher">
+                                                <span class="text-[11px] text-amber-600 font-medium">· Preacher needed</span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template x-if="!cellAt(row, di) || !cellAt(row, di).entry">
+                                        <div class="text-[11px] text-gray-400 mt-1">Tap to assign</div>
+                                    </template>
+                                </div>
+                                <span class="text-gray-300">›</span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- DESKTOP: matrix -->
+        <div class="mt-4 hidden sm:block bg-white rounded-xl shadow-sm overflow-hidden" x-show="!rosterLoading && matrix && matrix.length > 0">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider border-r border-gray-200 min-w-[180px]">
+                                Home Church
+                            </th>
+                            <template x-for="d in dates" :key="d">
+                                <th class="px-2 py-3 text-center text-xs font-semibold text-gray-600 min-w-[140px]">
+                                    <div class="text-gray-400 text-[10px] font-normal" x-text="formatDayLabel(d)"></div>
+                                    <div x-text="formatDateShort(d)"></div>
+                                    <div class="mt-1 flex justify-center gap-1">
+                                        <button @click="openShareDialog(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-gray-50" title="Share week">📤</button>
+                                        <button @click="publishDate(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium">Publish</button>
+                                    </div>
+                                </th>
+                            </template>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <template x-for="row in matrix" :key="row.home_church.id">
+                            <tr class="hover:bg-gray-50">
+                                <td class="sticky left-0 bg-white px-4 py-2 font-medium text-gray-900 border-r border-gray-200">
+                                    <div class="text-sm truncate" x-text="row.home_church.name"></div>
+                                    <div class="text-[11px] text-gray-400" x-text="row.home_church.leader ? row.home_church.leader.full_name : 'No leader'"></div>
+                                </td>
+                                <template x-for="(cell, ci) in row.cells" :key="cell.date">
+                                    <td class="px-1.5 py-1.5 text-center align-top">
+                                        <button @click="openCellEditor(row.home_church, cell.date)"
+                                            class="w-full h-full min-h-[64px] p-2 rounded-lg border transition text-left"
+                                            :class="cell.entry ? 'border-gray-200 bg-white hover:border-violet-300' : 'border-dashed border-gray-200 bg-gray-50/50 hover:bg-violet-50 hover:border-violet-300'">
+                                            <template x-if="cell.entry">
+                                                <div>
+                                                    <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold leading-tight"
+                                                        :style="cell.entry.program_type ? colorStyle(cell.entry.program_type.color) : 'background:#f3f4f6;color:#6b7280'">
+                                                        <span x-text="cell.entry.program_type ? cell.entry.program_type.icon : '📌'"></span>
+                                                        <span class="truncate" x-text="cell.entry.program_type ? cell.entry.program_type.name : 'No type'"></span>
+                                                    </div>
+                                                    <div class="mt-1 text-[11px] text-gray-700 truncate" x-text="cell.entry.preacher ? cell.entry.preacher.full_name : (cell.entry.program_type && cell.entry.program_type.requires_preacher ? '⚠ preacher needed' : '—')"></div>
+                                                    <template x-if="cell.entry.status === 'published'">
+                                                        <div class="mt-0.5 text-[9px] text-emerald-600 font-semibold">✓ Published</div>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                            <template x-if="!cell.entry">
+                                                <div class="text-[11px] text-gray-400 text-center py-2">+ assign</div>
+                                            </template>
+                                        </button>
+                                    </td>
+                                </template>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHURCHES TAB -->
+    <div x-show="activeTab==='churches'" x-cloak>
+        <div class="flex justify-end mb-3">
+            <button @click="openHCEditor(null)" class="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg">
+                + New home church
+            </button>
+        </div>
+        <template x-if="homeChurches.length === 0">
+            <div class="bg-white rounded-xl p-8 text-center border-2 border-dashed border-gray-200">
+                <div class="text-3xl mb-2">🏠</div>
+                <p class="text-gray-600 font-medium">No home churches yet</p>
+                <button @click="openHCEditor(null)" class="mt-3 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg">+ Add a home church</button>
+            </div>
+        </template>
+        <div class="grid gap-3 sm:grid-cols-2">
+            <template x-for="hc in homeChurches" :key="hc.id">
+                <div class="bg-white rounded-xl shadow-sm p-4 flex items-start gap-3">
+                    <div class="w-10 h-10 flex-shrink-0 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-lg">🏠</div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-gray-900 truncate" x-text="hc.name"></div>
+                        <div class="text-xs text-gray-500 mt-0.5">
+                            <span x-text="hc.leader ? hc.leader.full_name : 'No leader assigned'"></span>
+                            <template x-if="hc.leader"><span> · <span x-text="hc.leader.phone"></span></span></template>
+                        </div>
+                        <div class="text-[11px] text-gray-400 mt-0.5" x-text="(hc.suburb || '—') + ' · ' + dayName(hc.meeting_day) + 's · ' + hc.meeting_time"></div>
+                        <template x-if="!hc.is_active">
+                            <div class="text-[10px] text-amber-600 font-semibold mt-1">INACTIVE</div>
+                        </template>
+                        <div class="flex gap-2 mt-2">
+                            <button @click="openHCEditor(hc)" class="text-xs text-violet-600 font-medium hover:underline">Edit</button>
+                            <button @click="deleteHC(hc)" class="text-xs text-red-500 font-medium hover:underline">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- TYPES TAB -->
+    <div x-show="activeTab==='types'" x-cloak>
+        <div class="flex justify-end mb-3">
+            <button @click="openPTEditor(null)" class="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg">
+                + New type
+            </button>
+        </div>
+        <div class="space-y-2">
+            <template x-for="pt in allProgramTypes" :key="pt.id">
+                <div class="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3" :class="!pt.is_active && 'opacity-60'">
+                    <div class="w-10 h-10 flex-shrink-0 rounded-lg flex items-center justify-center text-lg"
+                        :style="colorStyle(pt.color)">
+                        <span x-text="pt.icon"></span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-gray-900 text-sm" x-text="pt.name"></div>
+                        <div class="text-[11px] text-gray-500 mt-0.5">
+                            <span x-text="pt.requires_preacher ? 'Requires preacher' : 'No preacher needed'"></span>
+                            <template x-if="!pt.is_active"><span> · <span class="text-amber-600 font-semibold">INACTIVE</span></span></template>
+                        </div>
+                    </div>
+                    <button @click="openPTEditor(pt)" class="text-xs text-violet-600 font-medium px-2 py-1 hover:bg-violet-50 rounded">Edit</button>
+                    <button @click="deletePT(pt)" class="text-xs text-red-500 font-medium px-2 py-1 hover:bg-red-50 rounded">Delete</button>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- CELL EDITOR SHEET (mobile bottom-sheet / desktop modal) -->
+    <div x-show="cellEditor.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="closeCellEditor()">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="min-w-0">
+                    <div class="font-semibold text-gray-900 truncate" x-text="cellEditor.hc ? cellEditor.hc.name : ''"></div>
+                    <div class="text-xs text-gray-500" x-text="cellEditor.date ? formatDateLong(cellEditor.date) : ''"></div>
+                </div>
+                <button @click="closeCellEditor()" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5 space-y-5">
+                <!-- Step 1: Program type -->
+                <div>
+                    <div class="text-xs font-semibold text-gray-700 mb-2">1. Program type</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <template x-for="pt in programTypes" :key="pt.id">
+                            <button @click="selectProgramType(pt)"
+                                :class="cellEditor.selectedTypeId == pt.id ? 'ring-2 ring-violet-500 bg-violet-50' : 'border border-gray-200 bg-white'"
+                                class="p-3 rounded-xl text-left transition active:scale-95">
+                                <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold" :style="colorStyle(pt.color)">
+                                    <span x-text="pt.icon"></span>
+                                    <span x-text="pt.name"></span>
+                                </div>
+                                <div class="text-[10px] text-gray-500 mt-1" x-text="pt.requires_preacher ? 'Preacher needed' : 'Leader-led'"></div>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Step 2: Preacher (conditional) -->
+                <div x-show="cellEditor.selectedType && cellEditor.selectedType.requires_preacher">
+                    <div class="text-xs font-semibold text-gray-700 mb-2">2. Preacher</div>
+                    <select x-model="cellEditor.selectedPreacherId" class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm">
+                        <option value="">— Select a preacher —</option>
+                        <template x-for="p in preachers" :key="p.id">
+                            <option :value="p.id" x-text="p.full_name"></option>
+                        </template>
+                    </select>
+                </div>
+                <div x-show="cellEditor.selectedType && !cellEditor.selectedType.requires_preacher" class="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
+                    No preacher needed for this programme — the home church leader will lead.
+                </div>
+
+                <!-- Notes -->
+                <div>
+                    <div class="text-xs font-semibold text-gray-700 mb-2">Notes (optional)</div>
+                    <textarea x-model="cellEditor.notes" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Anything to share with the leader/preacher"></textarea>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex gap-2 pt-1">
+                    <button @click="clearCell()" class="flex-1 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg border border-red-100" x-show="cellEditor.entry">Clear</button>
+                    <button @click="saveCell()" :disabled="!cellEditor.selectedType || cellEditor.saving" class="flex-1 px-3 py-2.5 text-sm font-semibold bg-violet-600 hover:bg-violet-700 text-white rounded-lg disabled:opacity-50">
+                        <span x-text="cellEditor.saving ? 'Saving…' : 'Save'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HOME CHURCH EDITOR -->
+    <div x-show="hcEditor.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="hcEditor.open = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="font-semibold text-gray-900" x-text="hcEditor.data.id ? 'Edit home church' : 'New home church'"></div>
+                <button @click="hcEditor.open = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">Name *</span>
+                    <input x-model="hcEditor.data.name" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="e.g. Eersterivier West" />
+                </label>
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">Leader</span>
+                    <select x-model="hcEditor.data.leader_member_id" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <option :value="null">— No leader —</option>
+                        <template x-for="p in preachers" :key="p.id">
+                            <option :value="p.id" x-text="p.full_name"></option>
+                        </template>
+                    </select>
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="block">
+                        <span class="text-xs font-semibold text-gray-700">Meeting day</span>
+                        <select x-model.number="hcEditor.data.meeting_day" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <option :value="0">Monday</option>
+                            <option :value="1">Tuesday</option>
+                            <option :value="2">Wednesday</option>
+                            <option :value="3">Thursday</option>
+                            <option :value="4">Friday</option>
+                            <option :value="5">Saturday</option>
+                            <option :value="6">Sunday</option>
+                        </select>
+                    </label>
+                    <label class="block">
+                        <span class="text-xs font-semibold text-gray-700">Meeting time</span>
+                        <input x-model="hcEditor.data.meeting_time" type="time" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                </div>
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">Suburb</span>
+                    <input x-model="hcEditor.data.suburb" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </label>
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">Address</span>
+                    <input x-model="hcEditor.data.address" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </label>
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">WhatsApp group link</span>
+                    <input x-model="hcEditor.data.whatsapp_link" placeholder="https://chat.whatsapp.com/..." class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" x-model="hcEditor.data.is_active" class="w-4 h-4" />
+                    <span>Active</span>
+                </label>
+                <div class="flex gap-2 pt-1">
+                    <button @click="hcEditor.open=false" class="flex-1 px-3 py-2.5 text-sm bg-gray-100 rounded-lg">Cancel</button>
+                    <button @click="saveHC()" :disabled="hcEditor.saving" class="flex-1 px-3 py-2.5 text-sm font-semibold bg-violet-600 hover:bg-violet-700 text-white rounded-lg disabled:opacity-50">
+                        <span x-text="hcEditor.saving ? 'Saving…' : 'Save'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PROGRAM TYPE EDITOR -->
+    <div x-show="ptEditor.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="ptEditor.open = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="font-semibold text-gray-900" x-text="ptEditor.data.id ? 'Edit program type' : 'New program type'"></div>
+                <button @click="ptEditor.open = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">Name *</span>
+                    <input x-model="ptEditor.data.name" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="block">
+                        <span class="text-xs font-semibold text-gray-700">Icon (emoji)</span>
+                        <input x-model="ptEditor.data.icon" maxlength="4" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-center text-lg" />
+                    </label>
+                    <label class="block">
+                        <span class="text-xs font-semibold text-gray-700">Color</span>
+                        <select x-model="ptEditor.data.color" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                            <option value="blue">Blue</option>
+                            <option value="purple">Purple</option>
+                            <option value="emerald">Emerald</option>
+                            <option value="amber">Amber</option>
+                            <option value="rose">Rose</option>
+                            <option value="cyan">Cyan</option>
+                            <option value="indigo">Indigo</option>
+                            <option value="gray">Gray</option>
+                        </select>
+                    </label>
+                </div>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" x-model="ptEditor.data.requires_preacher" class="w-4 h-4" />
+                    <span>Requires a preacher</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" x-model="ptEditor.data.is_active" class="w-4 h-4" />
+                    <span>Active</span>
+                </label>
+                <div class="flex gap-2 pt-1">
+                    <button @click="ptEditor.open=false" class="flex-1 px-3 py-2.5 text-sm bg-gray-100 rounded-lg">Cancel</button>
+                    <button @click="savePT()" :disabled="ptEditor.saving" class="flex-1 px-3 py-2.5 text-sm font-semibold bg-violet-600 hover:bg-violet-700 text-white rounded-lg disabled:opacity-50">
+                        <span x-text="ptEditor.saving ? 'Saving…' : 'Save'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AUTO-FILL DIALOG -->
+    <div x-show="autoFill.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="autoFill.open=false">
+        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 space-y-3">
+            <div class="font-semibold text-gray-900">✨ Auto-fill preachers</div>
+            <p class="text-xs text-gray-600">
+                Fills only cells that already have a program type requiring a preacher and no preacher assigned.
+                Rotates fairly and avoids assigning leaders to their own home church.
+            </p>
+            <label class="block">
+                <span class="text-xs font-semibold text-gray-700">How many weeks?</span>
+                <select x-model.number="autoFill.weeks" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option :value="1">1 week</option>
+                    <option :value="2">2 weeks</option>
+                    <option :value="4">4 weeks</option>
+                    <option :value="8">8 weeks</option>
+                </select>
+            </label>
+            <div class="flex gap-2 pt-1">
+                <button @click="autoFill.open=false" class="flex-1 px-3 py-2.5 text-sm bg-gray-100 rounded-lg">Cancel</button>
+                <button @click="runAutoFill()" :disabled="autoFill.running" class="flex-1 px-3 py-2.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50">
+                    <span x-text="autoFill.running ? 'Filling…' : 'Go'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SHARE DIALOG -->
+    <div x-show="share.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="share.open=false">
+        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="font-semibold text-gray-900">📤 Share the week</div>
+                <button @click="share.open=false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5 space-y-3">
+                <label class="block">
+                    <span class="text-xs font-semibold text-gray-700">Week</span>
+                    <select x-model="share.date" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <template x-for="d in dates" :key="d">
+                            <option :value="d" x-text="formatDateLong(d)"></option>
+                        </template>
+                    </select>
+                </label>
+
+                <!-- Preview card -->
+                <div id="shareCard" class="rounded-2xl p-5 bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-lg">
+                    <div class="text-xs uppercase tracking-widest opacity-80">RFM Home Churches</div>
+                    <div class="text-lg font-bold mt-0.5" x-text="formatDateLong(share.date)"></div>
+                    <div class="mt-3 space-y-1.5">
+                        <template x-for="row in matrix" :key="row.home_church.id + '-share'">
+                            <div class="flex items-center gap-2 text-sm">
+                                <span class="opacity-70 text-xs w-6" x-text="entryFor(row, share.date) && entryFor(row, share.date).program_type ? entryFor(row, share.date).program_type.icon : '·'"></span>
+                                <span class="flex-1 truncate" x-text="row.home_church.name"></span>
+                                <span class="opacity-90 text-xs truncate" x-text="shareLineText(row)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-gray-500">Copy the text or take a screenshot to share in WhatsApp.</p>
+                <div class="flex gap-2 pt-1">
+                    <button @click="copyShareText()" class="flex-1 px-3 py-2.5 text-sm bg-gray-100 rounded-lg">Copy text</button>
+                    <button @click="share.open=false" class="flex-1 px-3 py-2.5 text-sm bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-semibold">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function homeChurchApp() {
+    return {
+        activeTab: 'roster',
+        weeks: 8,
+        startDate: null,
+        dates: [],
+        matrix: [],
+        homeChurches: [],
+        programTypes: [],
+        allProgramTypes: [],
+        preachers: [],
+        rosterLoading: false,
+
+        cellEditor: {
+            open: false,
+            hc: null,
+            date: null,
+            entry: null,
+            selectedTypeId: null,
+            selectedType: null,
+            selectedPreacherId: '',
+            notes: '',
+            saving: false,
+        },
+
+        hcEditor: {
+            open: false,
+            saving: false,
+            data: { name: '', leader_member_id: null, meeting_day: 0, meeting_time: '19:00', suburb: '', address: '', whatsapp_link: '', is_active: true }
+        },
+
+        ptEditor: {
+            open: false,
+            saving: false,
+            data: { name: '', icon: '📌', color: 'gray', requires_preacher: false, is_active: true }
+        },
+
+        autoFill: { open: false, running: false, weeks: 4 },
+        share: { open: false, date: null },
+
+        async init() {
+            await Promise.all([this.loadPreachers(), this.loadHomeChurches(), this.loadAllProgramTypes()]);
+            this.startDate = this.nextMondayISO();
+            await this.loadRoster();
+        },
+
+        // Local-date ISO (YYYY-MM-DD) — avoids the UTC shift that toISOString
+        // causes for timezones east of UTC where local midnight falls on the
+        // previous UTC day.
+        _localISO(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        },
+
+        nextMondayISO() {
+            const d = new Date();
+            const delta = (1 - d.getDay() + 7) % 7 || 7; // next Monday (skip if today is Monday to avoid past)
+            d.setDate(d.getDate() + delta);
+            return this._localISO(d);
+        },
+
+        shiftWeeks(n) {
+            if (!this.startDate) return;
+            const d = new Date(this.startDate + 'T00:00:00');
+            d.setDate(d.getDate() + 7 * this.weeks * n);
+            this.startDate = this._localISO(d);
+            this.loadRoster();
+        },
+
+        async loadRoster() {
+            this.rosterLoading = true;
+            try {
+                const url = `/api/admin/home-church/roster?weeks=${this.weeks}` + (this.startDate ? `&start_date=${this.startDate}` : '');
+                const r = await fetch(url);
+                if (!r.ok) throw new Error('Failed to load roster');
+                const data = await r.json();
+                this.startDate = data.start_date;
+                this.dates = data.dates;
+                this.matrix = data.matrix;
+                this.homeChurches = data.home_churches;
+                this.programTypes = data.program_types;
+                if (!this.share.date && this.dates.length) this.share.date = this.dates[0];
+            } catch (e) {
+                console.error(e);
+            } finally {
+                this.rosterLoading = false;
+            }
+        },
+
+        async loadHomeChurches() {
+            const r = await fetch('/api/admin/home-churches');
+            if (r.ok) this.homeChurches = await r.json();
+        },
+
+        async loadAllProgramTypes() {
+            const r = await fetch('/api/admin/home-church/program-types');
+            if (r.ok) this.allProgramTypes = await r.json();
+        },
+
+        async loadPreachers() {
+            const r = await fetch('/api/admin/home-church/preachers');
+            if (r.ok) this.preachers = await r.json();
+        },
+
+        cellAt(row, index) { return row.cells[index]; },
+
+        entryFor(row, dateStr) {
+            const cell = row.cells.find(c => c.date === dateStr);
+            return cell ? cell.entry : null;
+        },
+
+        colorStyle(color) {
+            const map = {
+                blue: 'background:#dbeafe;color:#1e40af',
+                purple: 'background:#ede9fe;color:#6d28d9',
+                emerald: 'background:#d1fae5;color:#047857',
+                amber: 'background:#fef3c7;color:#b45309',
+                rose: 'background:#ffe4e6;color:#be185d',
+                cyan: 'background:#cffafe;color:#0e7490',
+                indigo: 'background:#e0e7ff;color:#3730a3',
+                gray: 'background:#f3f4f6;color:#4b5563',
+            };
+            return map[color] || map.gray;
+        },
+
+        formatDayLabel(d) {
+            return new Date(d + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'long' });
+        },
+        formatDateShort(d) {
+            return new Date(d + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+        },
+        formatDateLong(d) {
+            if (!d) return '';
+            return new Date(d + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'long' });
+        },
+        dayName(i) {
+            return ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i] || '';
+        },
+
+        headerLabel() {
+            if (!this.dates.length) return '';
+            return this.formatDateShort(this.dates[0]) + ' → ' + this.formatDateShort(this.dates[this.dates.length-1]);
+        },
+
+        publishStatusLabel(d) {
+            const row0 = this.matrix[0];
+            if (!row0) return '';
+            const cell = row0.cells.find(c => c.date === d);
+            if (!cell || !cell.entry) return 'Not yet assigned';
+            // any published across the date?
+            const anyPublished = this.matrix.some(row => {
+                const c = row.cells.find(cc => cc.date === d);
+                return c && c.entry && c.entry.status === 'published';
+            });
+            return anyPublished ? '✓ Published' : 'Draft';
+        },
+
+        // ---- cell editor ----
+        openCellEditor(hc, dateStr) {
+            const row = this.matrix.find(r => r.home_church.id === hc.id);
+            const cell = row ? row.cells.find(c => c.date === dateStr) : null;
+            const entry = cell ? cell.entry : null;
+            this.cellEditor = {
+                open: true,
+                hc, date: dateStr, entry,
+                selectedTypeId: entry && entry.program_type ? entry.program_type.id : null,
+                selectedType: entry && entry.program_type ? entry.program_type : null,
+                selectedPreacherId: entry && entry.preacher ? entry.preacher.id : '',
+                notes: entry ? (entry.notes || '') : '',
+                saving: false,
+            };
+        },
+        closeCellEditor() { this.cellEditor.open = false; },
+
+        selectProgramType(pt) {
+            this.cellEditor.selectedTypeId = pt.id;
+            this.cellEditor.selectedType = pt;
+            if (!pt.requires_preacher) this.cellEditor.selectedPreacherId = '';
+        },
+
+        async saveCell() {
+            if (this.cellEditor.saving) return;
+            this.cellEditor.saving = true;
+            try {
+                const payload = {
+                    home_church_id: this.cellEditor.hc.id,
+                    roster_date: this.cellEditor.date,
+                    program_type_id: this.cellEditor.selectedTypeId,
+                    preacher_member_id: this.cellEditor.selectedPreacherId || null,
+                    notes: this.cellEditor.notes || null,
+                };
+                const r = await fetch('/api/admin/home-church/roster/cell', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Failed to save');
+                }
+                this.closeCellEditor();
+                await this.loadRoster();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.cellEditor.saving = false;
+            }
+        },
+
+        async clearCell() {
+            if (!confirm('Clear this roster entry?')) return;
+            try {
+                const u = `/api/admin/home-church/roster/cell?home_church_id=${this.cellEditor.hc.id}&roster_date=${this.cellEditor.date}`;
+                const r = await fetch(u, { method: 'DELETE' });
+                if (!r.ok) throw new Error('Failed to clear');
+                this.closeCellEditor();
+                await this.loadRoster();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        },
+
+        // ---- publish ----
+        async publishDate(d) {
+            if (!confirm('Publish the roster for ' + this.formatDateLong(d) + '?\nNotifications will be sent to leaders and preachers.')) return;
+            try {
+                const r = await fetch('/api/admin/home-church/roster/publish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roster_date: d }),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Failed to publish');
+                }
+                const data = await r.json();
+                alert('Published! ' + data.entries_published + ' entries · ' + data.newly_published + ' newly published');
+                await this.loadRoster();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        },
+
+        // ---- home church editor ----
+        openHCEditor(hc) {
+            this.hcEditor = {
+                open: true, saving: false,
+                data: hc ? { ...hc, leader_member_id: hc.leader_member_id || null } : { name:'', leader_member_id:null, meeting_day:0, meeting_time:'19:00', suburb:'', address:'', whatsapp_link:'', is_active:true }
+            };
+        },
+        async saveHC() {
+            if (!this.hcEditor.data.name) { alert('Name is required'); return; }
+            this.hcEditor.saving = true;
+            try {
+                const isEdit = !!this.hcEditor.data.id;
+                const url = isEdit ? `/api/admin/home-churches/${this.hcEditor.data.id}` : '/api/admin/home-churches';
+                const r = await fetch(url, {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(this.hcEditor.data),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Failed');
+                }
+                this.hcEditor.open = false;
+                await this.loadHomeChurches();
+                await this.loadRoster();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.hcEditor.saving = false;
+            }
+        },
+        async deleteHC(hc) {
+            if (!confirm('Delete "' + hc.name + '"? This removes all its roster entries.')) return;
+            const r = await fetch(`/api/admin/home-churches/${hc.id}`, { method: 'DELETE' });
+            if (!r.ok) { alert('Failed to delete'); return; }
+            await this.loadHomeChurches();
+            await this.loadRoster();
+        },
+
+        // ---- program type editor ----
+        openPTEditor(pt) {
+            this.ptEditor = {
+                open: true, saving: false,
+                data: pt ? { ...pt } : { name:'', icon:'📌', color:'gray', requires_preacher:false, is_active:true }
+            };
+        },
+        async savePT() {
+            if (!this.ptEditor.data.name) { alert('Name is required'); return; }
+            this.ptEditor.saving = true;
+            try {
+                const isEdit = !!this.ptEditor.data.id;
+                const url = isEdit ? `/api/admin/home-church/program-types/${this.ptEditor.data.id}` : '/api/admin/home-church/program-types';
+                const r = await fetch(url, {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(this.ptEditor.data),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Failed');
+                }
+                this.ptEditor.open = false;
+                await this.loadAllProgramTypes();
+                await this.loadRoster();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.ptEditor.saving = false;
+            }
+        },
+        async deletePT(pt) {
+            if (!confirm('Delete "' + pt.name + '"?')) return;
+            const r = await fetch(`/api/admin/home-church/program-types/${pt.id}`, { method: 'DELETE' });
+            if (!r.ok) { alert('Failed'); return; }
+            await this.loadAllProgramTypes();
+            await this.loadRoster();
+        },
+
+        // ---- auto fill ----
+        openAutoFillDialog() { this.autoFill.open = true; this.autoFill.weeks = 4; },
+        async runAutoFill() {
+            this.autoFill.running = true;
+            try {
+                const r = await fetch('/api/admin/home-church/roster/auto-fill', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ start_date: this.startDate, weeks: this.autoFill.weeks }),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Failed');
+                }
+                const d = await r.json();
+                alert(d.message || `Filled ${d.filled} preacher slots`);
+                this.autoFill.open = false;
+                await this.loadRoster();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.autoFill.running = false;
+            }
+        },
+
+        // ---- share ----
+        openShareDialog(d) {
+            this.share.date = d || this.dates[0];
+            this.share.open = true;
+        },
+        shareLineText(row) {
+            const entry = this.entryFor(row, this.share.date);
+            if (!entry) return '—';
+            const typeName = entry.program_type ? entry.program_type.name : 'No type';
+            if (entry.preacher) return `${typeName} · ${entry.preacher.full_name}`;
+            if (entry.program_type && entry.program_type.requires_preacher) return `${typeName} · ⚠ no preacher`;
+            return typeName;
+        },
+        copyShareText() {
+            if (!this.share.date) return;
+            const lines = [
+                `*RFM Home Churches — ${this.formatDateLong(this.share.date)}*`,
+                ''
+            ];
+            const byType = {};
+            for (const row of this.matrix) {
+                const e = this.entryFor(row, this.share.date);
+                const typeName = e && e.program_type ? `${e.program_type.icon || ''} ${e.program_type.name}` : 'Not set';
+                if (!byType[typeName]) byType[typeName] = [];
+                const preacher = e && e.preacher ? e.preacher.full_name : (e && e.program_type && !e.program_type.requires_preacher ? '(leader-led)' : '—');
+                byType[typeName].push(`• ${row.home_church.name} → ${preacher}`);
+            }
+            for (const [t, list] of Object.entries(byType)) {
+                lines.push(`*${t}*`);
+                lines.push(...list);
+                lines.push('');
+            }
+            const text = lines.join('\n');
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(() => alert('Copied!'));
+            } else {
+                prompt('Copy this:', text);
+            }
+        },
+    };
+}
+</script>
+
+<style>[x-cloak]{display:none !important}</style>
+{% endblock %}

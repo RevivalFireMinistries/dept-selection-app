@@ -443,6 +443,10 @@ def run_migrations():
             'poster_request_acknowledged',
             'poster_request_completed',
             'program_participant_added',
+            'home_church_roster_published',
+            'home_church_preacher_assigned',
+            'home_church_reminder_leader',
+            'home_church_reminder_preacher',
         ]
         # Check if notification_configs table exists (created by create_all)
         result = conn.execute(text("""
@@ -472,6 +476,27 @@ def run_migrations():
             print("Migration: Added actor_type column to admin_audit_logs")
         except Exception as e:
             print(f"Migration note (actor_type): {e}")
+
+        # Seed default home church program types (only if table is empty)
+        try:
+            existing = conn.execute(text("SELECT COUNT(*) FROM home_church_program_types")).scalar()
+            if existing == 0:
+                defaults = [
+                    ("Preaching Service", True, "blue", "📖", 10),
+                    ("Fellowship Night", False, "purple", "🤝", 20),
+                    ("Prayer Night", False, "emerald", "🙏", 30),
+                    ("Bible Study", False, "amber", "📚", 40),
+                ]
+                for name, requires, color, icon, sort in defaults:
+                    conn.execute(text("""
+                        INSERT INTO home_church_program_types
+                            (name, requires_preacher, color, icon, sort_order, is_active)
+                        VALUES (:name, :requires, :color, :icon, :sort, TRUE)
+                    """), {"name": name, "requires": requires, "color": color, "icon": icon, "sort": sort})
+                conn.commit()
+                print(f"Migration: Seeded {len(defaults)} default home church program types")
+        except Exception as e:
+            print(f"Migration note (home church program types): {e}")
 
 
 @asynccontextmanager

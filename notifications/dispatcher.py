@@ -429,6 +429,80 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_text="View Program" if data.get('app_url') and data.get('program_id') else None,
             button_url=f"{data.get('app_url')}/program/{data.get('program_id')}?phone={data.get('recipient_phone', '')}" if data.get('app_url') and data.get('program_id') else None
         ),
+
+        EventType.HOME_CHURCH_ROSTER_PUBLISHED: base_template(
+            title=f"{data.get('program_type_icon', '')} {data.get('program_type_name', 'Home Church')}",
+            accent_color="#7c3aed",
+            content=f'''
+                {heading(data.get('home_church_name', 'Your Home Church'))}
+                {paragraph(f"Week of {data.get('roster_date', '')} · {data.get('meeting_time', '19:00')}")}
+                {greeting(data.get('leader_name', 'Leader'))}
+                {paragraph(f"This week's programme at your home church: <strong>{data.get('program_type_name', '')}</strong>.")}
+                {(section_heading("Your preacher this week") +
+                    paragraph(f"<strong>{data.get('preacher_name', '')}</strong>" +
+                        (f" · {data.get('preacher_phone', '')}" if data.get('preacher_phone') else ''))
+                ) if data.get('requires_preacher') and data.get('preacher_name') else paragraph("No preacher this week — it's your programme to lead.")}
+                {divider()}
+                {paragraph("You'll get a reminder the evening before. Check the portal for the full schedule ahead.")}
+            ''',
+            button_text="Open Portal" if data.get('app_url') else None,
+            button_url=f"{data.get('app_url')}/portal?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None
+        ),
+
+        EventType.HOME_CHURCH_PREACHER_ASSIGNED: base_template(
+            title="You're preaching this week",
+            accent_color="#2563eb",
+            content=f'''
+                {heading(data.get('home_church_name', 'Home Church'))}
+                {paragraph(f"{data.get('roster_date', '')} · {data.get('meeting_time', '19:00')}")}
+                {greeting(data.get('preacher_name', 'Preacher'))}
+                {paragraph(f"You have been assigned to preach at <strong>{data.get('home_church_name', '')}</strong>.")}
+                {(section_heading("Host Leader") +
+                    paragraph(f"<strong>{data.get('leader_name', '')}</strong>" +
+                        (f" · {data.get('leader_phone', '')}" if data.get('leader_phone') else ''))
+                ) if data.get('leader_name') else ''}
+                {(section_heading("Address") + paragraph(data.get('home_church_address', ''))) if data.get('home_church_address') else ''}
+                {divider()}
+                {paragraph("Please confirm with the leader and arrive 10 minutes early. A reminder will be sent the evening before.")}
+            ''',
+            button_text="Open Portal" if data.get('app_url') else None,
+            button_url=f"{data.get('app_url')}/portal?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None
+        ),
+
+        EventType.HOME_CHURCH_REMINDER_LEADER: base_template(
+            title="Tomorrow at your home church",
+            accent_color="#7c3aed",
+            content=f'''
+                {heading(data.get('home_church_name', 'Your Home Church'))}
+                {paragraph(f"Tomorrow · {data.get('roster_date', '')} · {data.get('meeting_time', '19:00')}")}
+                {greeting(data.get('leader_name', 'Leader'))}
+                {paragraph(f"<strong>{data.get('program_type_icon', '')} {data.get('program_type_name', '')}</strong>")}
+                {(section_heading("Preacher") +
+                    paragraph(f"<strong>{data.get('preacher_name', '')}</strong>" +
+                        (f" · {data.get('preacher_phone', '')}" if data.get('preacher_phone') else ''))
+                ) if data.get('requires_preacher') and data.get('preacher_name') else paragraph("No preacher this week — it's your programme to lead.")}
+                {divider()}
+                {paragraph("Everything is ready for tomorrow. Let us know if anything needs to change.")}
+            ''',
+        ),
+
+        EventType.HOME_CHURCH_REMINDER_PREACHER: base_template(
+            title="You're preaching tomorrow",
+            accent_color="#2563eb",
+            content=f'''
+                {heading(data.get('home_church_name', 'Home Church'))}
+                {paragraph(f"Tomorrow · {data.get('roster_date', '')} · {data.get('meeting_time', '19:00')}")}
+                {greeting(data.get('preacher_name', 'Preacher'))}
+                {paragraph(f"Reminder: you're preaching tomorrow at <strong>{data.get('home_church_name', '')}</strong>.")}
+                {(section_heading("Host Leader") +
+                    paragraph(f"<strong>{data.get('leader_name', '')}</strong>" +
+                        (f" · {data.get('leader_phone', '')}" if data.get('leader_phone') else ''))
+                ) if data.get('leader_name') else ''}
+                {(section_heading("Address") + paragraph(data.get('home_church_address', ''))) if data.get('home_church_address') else ''}
+                {divider()}
+                {paragraph("Arrive 10 minutes early. Travel safely.")}
+            ''',
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")
