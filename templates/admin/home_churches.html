@@ -552,55 +552,68 @@
                 </label>
 
                 <!-- Flyer-style preview (this is what gets rendered to image) -->
-                <div class="rounded-2xl overflow-hidden shadow-lg" style="aspect-ratio: 4/5;">
-                    <div id="shareCard" style="width: 480px; aspect-ratio: 4/5; transform-origin: top left; transform: scale(var(--share-card-scale, 1)); background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 60%, #2563eb 100%); color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 28px 24px 20px 24px; position: relative; overflow: hidden;">
-                        <!-- Decorative circles -->
-                        <div style="position: absolute; top: -40px; right: -40px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,0.08);"></div>
-                        <div style="position: absolute; bottom: -60px; left: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(255,255,255,0.06);"></div>
+                <div class="rounded-2xl overflow-hidden shadow-sm border border-gray-200" style="aspect-ratio: 4/5;">
+                    <div id="shareCard" :style="'width: 480px; aspect-ratio: 4/5; transform-origin: top left; transform: scale(var(--share-card-scale, 1)); background: #ffffff; color: #111827; font-family: Inter, -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; position: relative; overflow: hidden; display: flex; flex-direction: column;'">
+                        <!-- Top accent bar using the week's programme color -->
+                        <div :style="'height: 5px; background: ' + shareAccentHex() + ';'"></div>
 
-                        <!-- Header -->
-                        <div style="position: relative; z-index: 1;">
-                            <div style="font-size: 10px; letter-spacing: 2px; font-weight: 700; text-transform: uppercase; opacity: 0.8;">Revival Fire Ministries</div>
-                            <div style="font-size: 22px; font-weight: 800; margin-top: 2px; letter-spacing: -0.5px;">Home Churches</div>
-                            <div style="display: inline-block; margin-top: 12px; padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,0.2); font-size: 12px; font-weight: 600; letter-spacing: 0.5px;" x-text="shareHeaderDate()"></div>
-                        </div>
-
-                        <!-- This week's programme (shared across all home churches) -->
-                        <div style="margin-top: 20px; background: rgba(255,255,255,0.16); border-radius: 16px; padding: 14px 16px; position: relative; z-index: 1;">
-                            <div style="font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.85;">This week's programme</div>
-                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
-                                <div style="font-size: 32px; line-height: 1;" x-text="shareWeekIcon()"></div>
-                                <div style="font-size: 20px; font-weight: 800;" x-text="shareWeekName()"></div>
+                        <!-- Main content -->
+                        <div style="flex: 1; display: flex; flex-direction: column; padding: 36px 32px 24px 32px;">
+                            <!-- Header -->
+                            <div>
+                                <div style="font-size: 10px; letter-spacing: 2.5px; font-weight: 600; text-transform: uppercase; color: #9ca3af;">Revival Fire Ministries</div>
+                                <div style="font-size: 26px; font-weight: 700; margin-top: 4px; letter-spacing: -0.6px; color: #111827;">Home Churches</div>
                             </div>
-                            <div x-show="!shareRequiresPreacher()" style="margin-top: 6px; font-size: 12px; opacity: 0.85;">Led by each home church leader.</div>
-                        </div>
 
-                        <!-- Preacher assignments (only shown if this week needs preachers) -->
-                        <div x-show="shareRequiresPreacher()" style="margin-top: 16px; position: relative; z-index: 1;">
-                            <div style="font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.85; margin-bottom: 8px;">Preachers</div>
-                            <div style="background: rgba(255,255,255,0.12); border-radius: 12px; padding: 4px 14px;">
-                                <template x-for="(it, idx) in shareAllRows()" :key="'row-' + it.hc">
-                                    <div :style="'display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 0;' + (idx < shareAllRows().length - 1 ? ' border-bottom: 1px solid rgba(255,255,255,0.15);' : '')">
-                                        <div style="font-size: 14px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" x-text="it.hc"></div>
-                                        <div style="font-size: 13px; opacity: 0.95; text-align: right; flex-shrink: 0;" x-text="it.person"></div>
-                                    </div>
-                                </template>
+                            <!-- Date -->
+                            <div style="margin-top: 24px;">
+                                <div style="font-size: 11px; letter-spacing: 1.5px; font-weight: 600; text-transform: uppercase; color: #9ca3af;">This Monday</div>
+                                <div style="font-size: 17px; font-weight: 500; margin-top: 3px; color: #374151;" x-text="shareDisplayDate()"></div>
                             </div>
-                        </div>
 
-                        <!-- List of home churches when there are no preachers to announce -->
-                        <div x-show="!shareRequiresPreacher() && shareAllRows().length > 0" style="margin-top: 16px; position: relative; z-index: 1;">
-                            <div style="font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.85; margin-bottom: 8px;">Venues</div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                                <template x-for="it in shareAllRows()" :key="'v-' + it.hc">
-                                    <div style="font-size: 12px; font-weight: 600; padding: 5px 10px; background: rgba(255,255,255,0.15); border-radius: 999px;" x-text="it.hc"></div>
-                                </template>
+                            <!-- Programme — big, centered, single accent chip -->
+                            <div style="margin-top: 28px; text-align: center;">
+                                <div style="font-size: 46px; line-height: 1;" x-text="shareWeekIcon()"></div>
+                                <div :style="'margin-top: 10px; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: ' + shareAccentHex() + ';'" x-text="shareWeekName()"></div>
+                                <div x-show="!shareRequiresPreacher() && shareWeekType()" style="margin-top: 6px; font-size: 13px; color: #6b7280;">Led by each home church leader</div>
                             </div>
-                        </div>
 
-                        <!-- Footer -->
-                        <div style="position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 10px; opacity: 0.7; letter-spacing: 0.5px;">
-                            Meeting at <span x-text="shareMeetingTime()"></span> · RFM Stellenbosch
+                            <!-- Divider -->
+                            <div style="margin-top: 24px; height: 1px; background: #f3f4f6;"></div>
+
+                            <!-- Preachers (preaching weeks) -->
+                            <div x-show="shareRequiresPreacher()" style="margin-top: 20px;">
+                                <div style="font-size: 10px; letter-spacing: 2px; font-weight: 600; text-transform: uppercase; color: #9ca3af; margin-bottom: 10px; text-align: center;">Preachers</div>
+                                <div>
+                                    <template x-for="(it, idx) in shareAllRows()" :key="'row-' + it.hc">
+                                        <div :style="'padding: 10px 0;' + (idx < shareAllRows().length - 1 ? ' border-bottom: 1px solid #f3f4f6;' : '')">
+                                            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px;">
+                                                <div style="font-size: 14px; font-weight: 500; color: #111827; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" x-text="it.hc"></div>
+                                                <div style="font-size: 14px; color: #374151; font-weight: 500; text-align: right; flex-shrink: 0;" x-text="it.person"></div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Venues (non-preaching weeks) -->
+                            <div x-show="!shareRequiresPreacher() && shareAllRows().length > 0" style="margin-top: 20px;">
+                                <div style="font-size: 10px; letter-spacing: 2px; font-weight: 600; text-transform: uppercase; color: #9ca3af; margin-bottom: 10px; text-align: center;">Meeting at all locations</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;">
+                                    <template x-for="it in shareAllRows()" :key="'v-' + it.hc">
+                                        <div style="font-size: 13px; font-weight: 500; padding: 6px 12px; background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 999px; color: #374151;" x-text="it.hc"></div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Spacer to push footer down -->
+                            <div style="flex: 1;"></div>
+
+                            <!-- Footer -->
+                            <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #f3f4f6; text-align: center;">
+                                <div style="font-size: 12px; font-weight: 500; color: #6b7280;">Meeting at <span x-text="shareMeetingTime()"></span></div>
+                                <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">RFM Stellenbosch</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1092,11 +1105,34 @@ function homeChurchApp() {
         },
         shareWeekIcon() {
             const pt = this.shareWeekType();
-            return pt ? (pt.icon || '📌') : '⚠️';
+            return pt ? (pt.icon || '📌') : '📅';
         },
         shareRequiresPreacher() {
             const pt = this.shareWeekType();
             return !!(pt && pt.requires_preacher);
+        },
+        // Single accent color for the flyer — derived from the programme type's
+        // color, picked to match the portal's muted indigo/violet palette.
+        shareAccentHex() {
+            const pt = this.shareWeekType();
+            const color = pt ? pt.color : 'indigo';
+            const map = {
+                blue: '#2563eb',
+                purple: '#7c3aed',
+                emerald: '#059669',
+                amber: '#d97706',
+                rose: '#e11d48',
+                cyan: '#0891b2',
+                indigo: '#4f46e5',
+                gray: '#4b5563',
+            };
+            return map[color] || '#4f46e5';
+        },
+        // Elegant mixed-case date ("Monday, 27 April 2026")
+        shareDisplayDate() {
+            if (!this.share.date) return '';
+            const d = new Date(this.share.date + 'T00:00:00');
+            return d.toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         },
         // Flat list of (home church, person) for the whole flyer
         shareAllRows() {
