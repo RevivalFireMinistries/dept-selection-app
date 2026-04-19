@@ -307,6 +307,24 @@
                 </div>
             </div>
 
+            <!-- ===== HOME CHURCH COMMITTEE CARD (only for committee members) ===== -->
+            <div id="homeChurchCommitteeBanner" class="hidden">
+                <a id="homeChurchCommitteeLink" href="/admin/home-churches" class="block bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-4 pressable">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg">🏠</div>
+                            <div>
+                                <p class="text-sm font-semibold text-white">Home Church Roster</p>
+                                <p class="text-xs text-white/70" id="homeChurchCommitteeSubtitle">Manage programme & preachers</p>
+                            </div>
+                        </div>
+                        <svg class="w-5 h-5 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
+                </a>
+            </div>
+
             <!-- ===== DESIGN TEAM BANNER (only for design team members) ===== -->
             <div id="designTeamBanner" class="hidden">
                 <div class="bg-purple-50 border border-purple-200 rounded-2xl p-4 pressable" onclick="openPosterSheet()">
@@ -922,6 +940,7 @@ function selectMember(member) {
     renderThisWeek();
     renderMyPrograms();
     renderHomeChurch();
+    renderHomeChurchCommitteeCard();
     renderActions();
     renderHodCard();
     renderDesignTeamBanner();
@@ -1401,6 +1420,22 @@ function renderHodCard() {
     const createLink = document.getElementById('hodCreateMeetingLink');
     createLink.classList.remove('hidden');
     createLink.href = `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`;
+}
+
+function renderHomeChurchCommitteeCard() {
+    const banner = document.getElementById('homeChurchCommitteeBanner');
+    if (!banner || !currentMember) return;
+    const depts = (currentMember.approved_departments || []).map(d => (d.department_name || '').toLowerCase());
+    const isCommittee = depts.some(n => n === 'home church committee');
+    if (isCommittee) {
+        banner.classList.remove('hidden');
+        // Pass phone so the route can authenticate the committee member without
+        // needing a prior member_session cookie (the route sets one on response).
+        const link = document.getElementById('homeChurchCommitteeLink');
+        if (link && phone) link.href = `/admin/home-churches?phone=${encodeURIComponent(phone)}`;
+    } else {
+        banner.classList.add('hidden');
+    }
 }
 
 function renderDesignTeamBanner() {

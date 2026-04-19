@@ -1,18 +1,44 @@
 {% extends "admin/base.html" %}
 
-{% block title %}Home Churches - Admin{% endblock %}
+{% block title %}{% if is_admin is defined and not is_admin %}Home Church Committee{% else %}Home Churches - Admin{% endif %}{% endblock %}
+
+{% block head %}
+{# Committee members don't have admin access; hide the admin nav so they don't
+   hit redirect loops by clicking Approvals / Members / etc. #}
+{% if is_admin is defined and not is_admin %}
+<style>
+  body > div.min-h-screen > nav.sticky,
+  body > div.min-h-screen > #adminMenuOverlay,
+  body > div.min-h-screen > #adminMenuPanel { display: none !important; }
+  body > div.min-h-screen > main { padding-top: 1rem !important; }
+</style>
+{% endif %}
+{% endblock %}
 
 {% block admin_content %}
 <div x-data="homeChurchApp()" x-init="init()" class="space-y-4 pb-24">
+
+    {# Committee members see a dedicated header + back-to-portal link instead of
+       feeling dropped inside the admin panel. Admins keep the regular admin chrome. #}
+    {% if is_admin is defined and not is_admin %}
+    <div class="-mx-4 -mt-6 mb-2 px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white flex items-center gap-3">
+        <a href="/portal{% if actor_phone %}?phone={{ actor_phone }}{% endif %}" class="text-white/80 hover:text-white flex items-center gap-1 text-sm font-medium">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            <span>Portal</span>
+        </a>
+        <div class="h-4 w-px bg-white/30"></div>
+        <div class="text-sm font-semibold">🏠 Home Church Committee</div>
+    </div>
+    {% endif %}
 
     <!-- Header -->
     <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
             <h2 class="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2">
                 <span>🏠</span>
-                <span class="truncate">Home Churches</span>
+                <span class="truncate">{% if is_admin is defined and not is_admin %}Roster & Programmes{% else %}Home Churches{% endif %}</span>
             </h2>
-            <p class="text-xs sm:text-sm text-gray-500 mt-0.5">Manage venues, program types & weekly preacher roster.</p>
+            <p class="text-xs sm:text-sm text-gray-500 mt-0.5">{% if is_admin is defined and not is_admin %}Weekly programme & preachers — your committee tool.{% else %}Manage venues, program types & weekly preacher roster.{% endif %}</p>
         </div>
         <div class="flex items-center gap-1.5">
             <button @click="activeTab='roster'" :class="activeTab==='roster' ? 'bg-violet-600 text-white' : 'bg-white text-gray-600 border border-gray-200'"

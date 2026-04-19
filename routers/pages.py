@@ -584,42 +584,78 @@ async def admin_schedules(request: Request):
 
 
 @router.get("/admin/home-churches")
-async def admin_home_churches(request: Request):
+async def admin_home_churches(request: Request, phone: Optional[str] = None):
     """Home Church Committee: manage home churches and preacher roster.
 
-    Accessible by admins AND Home Church Committee members with a member session."""
+    Admins get the full admin chrome. Committee members (by member_session OR
+    by ?phone= fallback from the portal link) see a committee-branded view."""
     if is_authenticated(request):
-        return templates.TemplateResponse("admin/home_churches.html", {"request": request})
+        return templates.TemplateResponse(
+            "admin/home_churches.html",
+            {"request": request, "is_admin": True, "actor_phone": None},
+        )
 
-    # Committee members authenticate via member_session
     from database import get_db as _get_db
     from models import Member, Department, MemberDepartment
-    token = request.cookies.get(MEMBER_COOKIE_NAME)
-    member_id = _verify_member_session(token)
-    if not member_id:
-        return RedirectResponse(url="/admin/login", status_code=302)
-    # Check committee membership
+
+    # Resolve acting member — prefer signed cookie, fall back to ?phone=
+    member_id = _verify_member_session(request.cookies.get(MEMBER_COOKIE_NAME))
     db_iter = _get_db()
     db = next(db_iter)
+    actor_phone = None
     try:
+        acting_member: Optional[Member] = None
+        if member_id:
+            acting_member = db.query(Member).filter(Member.id == member_id).first()
+        if not acting_member and phone:
+            normalized = phone.strip().replace(" ", "").replace("-", "")
+            for m in db.query(Member).all():
+                if m.phone.strip().replace(" ", "").replace("-", "") == normalized:
+                    acting_member = m
+                    break
+        if not acting_member:
+            return RedirectResponse(url="/admin/login", status_code=302)
+
         committee_dept_ids = [
             d.id for d in db.query(Department).filter(Department.name == "Home Church Committee").all()
         ]
         if not committee_dept_ids:
             return RedirectResponse(url="/admin/login", status_code=302)
         is_committee = db.query(MemberDepartment).filter(
-            MemberDepartment.member_id == member_id,
+            MemberDepartment.member_id == acting_member.id,
             MemberDepartment.department_id.in_(committee_dept_ids),
             MemberDepartment.status == "approved",
         ).count() > 0
         if not is_committee:
-            return RedirectResponse(url="/portal", status_code=302)
+            return RedirectResponse(url=f"/portal?phone={acting_member.phone}", status_code=302)
+        actor_phone = acting_member.phone
     finally:
         try:
             db.close()
         except Exception:
             pass
-    return templates.TemplateResponse("admin/home_churches.html", {"request": request})
+
+    response = templates.TemplateResponse(
+        "admin/home_churches.html",
+        {"request": request, "is_admin": False, "actor_phone": actor_phone},
+    )
+    # Set the member session cookie so the API calls from this page pass auth
+    if member_id is None and actor_phone:
+        # We came in via ?phone=; resolve member_id and set the signed cookie
+        db2 = next(_get_db())
+        try:
+            m = db2.query(Member).filter(Member.phone == actor_phone).first()
+            if m:
+                response.set_cookie(
+                    key=MEMBER_COOKIE_NAME,
+                    value=_sign_member_session(m.id),
+                    httponly=True,
+                    max_age=SESSION_MAX_AGE,
+                    samesite="lax",
+                )
+        finally:
+            db2.close()
+    return response
 
 
 @router.get("/display/submit")
