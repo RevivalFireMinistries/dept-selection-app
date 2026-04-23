@@ -505,21 +505,20 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
         ),
 
         EventType.HOME_CHURCH_ATTENDANCE_REMINDER: base_template(
-            title="Report needed",
+            title="Reports pending",
             accent_color="#d97706",
             content=f'''
-                {heading(data.get('home_church_name', 'Home Church'))}
+                {heading("Home Church reports pending")}
                 {paragraph(f"Monday {data.get('roster_date', '')}")}
-                {greeting(data.get('leader_name', 'Leader'))}
-                {paragraph(f"We haven't received the attendance and offering report for <strong>{data.get('home_church_name', '')}</strong> yet. Please take a minute to submit it — it only takes about 30 seconds from the portal.")}
-                {section_heading("What's needed")}
-                {paragraph("• Total attendance<br>• Offering amount<br>• Any notes (optional)")}
-                {paragraph("If your home church didn't meet this week, you can tick the <em>\"Didn't meet this week\"</em> option and submit.")}
+                {greeting(data.get('recipient_name', 'Committee member'))}
+                {paragraph(f"<strong>{data.get('pending_count', 0)} home church(es)</strong> haven't had their Monday attendance captured yet. Please follow up with the leaders via WhatsApp and capture the numbers on the portal.")}
+                {section_heading("Still pending")}
+                {''.join(f'<p style="margin:0 0 6px 0;color:#111827;font-size:14px;line-height:1.5;padding-left:12px;border-left:2px solid #fcd34d;"><strong>{hc.get("name", "")}</strong>' + (f' · leader: {hc.get("leader_name", "")} ({hc.get("leader_phone", "")})' if hc.get("leader_name") else '') + '</p>' for hc in data.get('pending_list', []))}
                 {divider()}
-                {paragraph("Thank you for helping us keep track — the committee uses these reports to support and strengthen each home church.")}
+                {paragraph("Reminder: leaders send their attendance + offering via WhatsApp after Monday's meeting. If you've already received the numbers, please capture them so we can keep the roster reports up to date.")}
             ''',
-            button_text="Submit report" if data.get('app_url') else None,
-            button_url=f"{data.get('app_url')}/portal?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None
+            button_text="Capture now" if data.get('app_url') else None,
+            button_url=f"{data.get('app_url')}/admin/home-churches?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None
         ),
     }
 

@@ -584,18 +584,16 @@ def send_home_church_reminders():
 
 
 def send_home_church_attendance_reminders():
-    """Tuesday-noon nudge: for every active home church whose committee has
-    not yet captured Monday's attendance report, email the leader asking them
-    to send their stats (via WhatsApp to the committee). We record
-    reminder_sent_at on the (missing) attendance row to avoid duplicates — if
-    a row doesn't exist we create a placeholder row with just that timestamp."""
+    """Tuesday-noon digest: one email per Home Church committee member listing
+    every home church whose Monday attendance still hasn't been captured on
+    the portal. Leaders send their numbers via WhatsApp — it's the committee
+    that captures. If we send to each leader we're nagging the wrong people."""
     db: Session = SessionLocal()
     try:
         from datetime import timedelta as td
         today = datetime.now().date()
         # The "previous Monday" = most recent Monday that has already passed
         last_monday = today - td(days=today.weekday() or 7)
-        # If today is Monday, today.weekday()=0, so `or 7` sends us back a week
 
         churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).all()
         if not churches:
@@ -610,8 +608,8 @@ def send_home_church_attendance_reminders():
             ).all()
         }
 
-        # Skip churches without a published roster entry — if the committee
-        # never said "yes we're meeting this week" it's not fair to nag.
+        # Only count churches with a published roster entry — no nagging for
+        # weeks the committee never said "yes we're meeting".
         published_ids = {
             e.home_church_id for e in db.query(HomeChurchRoster).filter(
                 HomeChurchRoster.roster_date == last_monday,
@@ -619,56 +617,97 @@ def send_home_church_attendance_reminders():
             ).all()
         }
 
+        # Build the pending list. "Captured" = report row exists AND either
+        # did_not_meet is true OR a real attendance number was entered.
+        # Placeholder rows created by a previous reminder (attendance_count=0,
+        # reminder_sent_at set) are treated as still pending.
+        pending = []
+        for c in churches:
+            if c.id not in published_ids:
+                continue
+            report = existing.get(c.id)
+            captured = bool(report and (report.did_not_meet or (report.attendance_count or 0) > 0))
+            if captured:
+                continue
+            pending.append(c)
+
+        if not pending:
+            print(f"[AttendanceReminder] All reports captured for {last_monday.isoformat()} — nothing to do")
+            return
+
+        # Find committee members (case-insensitive match, same logic as the API)
+        committee_dept_ids = [
+            d.id for d in db.query(Department).all()
+            if "home church" in (d.name or "").lower() and "committee" in (d.name or "").lower()
+        ]
+        if not committee_dept_ids:
+            print("[AttendanceReminder] No Home Church committee department found")
+            return
+
+        committee_member_ids = [
+            m[0] for m in db.query(MemberDepartment.member_id).filter(
+                MemberDepartment.department_id.in_(committee_dept_ids),
+                MemberDepartment.status == "approved",
+            ).distinct().all()
+        ]
+        if not committee_member_ids:
+            print("[AttendanceReminder] No active committee members")
+            return
+
+        committee = db.query(Member).filter(
+            Member.id.in_(committee_member_ids),
+            Member.is_active == True,
+        ).all()
+        recipients = [
+            {"id": m.id, "name": m.full_name, "email": m.email, "phone": m.phone}
+            for m in committee if m.email
+        ]
+        if not recipients:
+            print("[AttendanceReminder] No committee members have email addresses")
+            return
+
+        pending_list = [
+            {
+                "name": c.name,
+                "leader_name": c.leader.full_name if c.leader else None,
+                "leader_phone": c.leader.phone if c.leader else None,
+            }
+            for c in pending
+        ]
+
         from notifications.dispatcher import dispatch_event
         from notifications.events import EventType
 
-        sent = 0
-        skipped = 0
-        for c in churches:
-            if c.id not in published_ids:
-                skipped += 1
-                continue
-            report = existing.get(c.id)
-            # Already captured → done
-            if report and not report.did_not_meet and report.attendance_count is not None:
-                if report.submitted_at:
-                    skipped += 1
-                    continue
-            # Already reminded for this week → don't spam
-            if report and report.reminder_sent_at:
-                skipped += 1
-                continue
-            # Need leader email
-            leader = c.leader if c.leader_member_id else None
-            if not leader or not leader.email:
-                skipped += 1
-                continue
-            try:
-                dispatch_event(db, EventType.HOME_CHURCH_ATTENDANCE_REMINDER, {
-                    "leader_name": leader.full_name,
-                    "home_church_name": c.name,
-                    "roster_date": last_monday.isoformat(),
-                    "recipients": [{"id": leader.id, "name": leader.full_name, "email": leader.email, "phone": leader.phone}],
-                })
-                sent += 1
-                # Create / update tracking row so we don't re-send
-                if report is None:
-                    placeholder = HomeChurchAttendance(
-                        home_church_id=c.id,
-                        roster_date=last_monday,
-                        attendance_count=0,
-                        offering_amount="0",
-                        did_not_meet=False,
-                        reminder_sent_at=datetime.utcnow(),
-                    )
-                    db.add(placeholder)
-                else:
-                    report.reminder_sent_at = datetime.utcnow()
-                db.commit()
-            except Exception as exc:
-                print(f"[AttendanceReminder] Failed for {c.name}: {exc}")
+        try:
+            dispatch_event(db, EventType.HOME_CHURCH_ATTENDANCE_REMINDER, {
+                "roster_date": last_monday.isoformat(),
+                "pending_count": len(pending),
+                "pending_list": pending_list,
+                "recipients": recipients,
+            })
+        except Exception as exc:
+            print(f"[AttendanceReminder] Dispatch failed: {exc}")
 
-        print(f"[AttendanceReminder] sent={sent}, skipped={skipped}, monday={last_monday.isoformat()}")
+        # Record a tracking placeholder so we can inspect which weeks got reminded
+        # (one placeholder per pending church, bearing the timestamp; doesn't
+        # mark the report as captured because attendance_count stays 0).
+        for c in pending:
+            report = existing.get(c.id)
+            if report is None:
+                placeholder = HomeChurchAttendance(
+                    home_church_id=c.id,
+                    roster_date=last_monday,
+                    attendance_count=0,
+                    offering_amount="0",
+                    did_not_meet=False,
+                    reminder_sent_at=datetime.utcnow(),
+                )
+                db.add(placeholder)
+            elif report.reminder_sent_at is None:
+                report.reminder_sent_at = datetime.utcnow()
+        db.commit()
+
+        print(f"[AttendanceReminder] Sent digest to {len(recipients)} committee member(s) — {len(pending)} pending church(es) for {last_monday.isoformat()}")
     except Exception as exc:
         print(f"[AttendanceReminder] Job failed: {exc}")
     finally:
