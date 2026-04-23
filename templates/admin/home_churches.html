@@ -503,40 +503,26 @@
                     </div>
                 </label>
 
-                <!-- Fields (hidden when did_not_meet) -->
+                <!-- Fields (hidden when did_not_meet) — just the two essentials -->
                 <div x-show="!attEditor.data.did_not_meet" class="space-y-4">
                     <label class="block">
                         <span class="text-xs font-semibold text-gray-700">Total attendance *</span>
                         <input x-model.number="attEditor.data.attendance_count" type="number" inputmode="numeric" min="0"
-                            class="mt-1 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-base" placeholder="e.g. 23" />
-                    </label>
-                    <div class="grid grid-cols-2 gap-3">
-                        <label class="block">
-                            <span class="text-[11px] font-semibold text-gray-600">Adults (optional)</span>
-                            <input x-model.number="attEditor.data.adults_count" type="number" inputmode="numeric" min="0" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                        </label>
-                        <label class="block">
-                            <span class="text-[11px] font-semibold text-gray-600">Children (optional)</span>
-                            <input x-model.number="attEditor.data.children_count" type="number" inputmode="numeric" min="0" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                        </label>
-                    </div>
-                    <label class="block">
-                        <span class="text-[11px] font-semibold text-gray-600">New visitors</span>
-                        <input x-model.number="attEditor.data.new_visitors_count" type="number" inputmode="numeric" min="0" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                            class="mt-1 w-full px-3 py-3 border border-gray-200 rounded-lg text-lg font-medium" placeholder="e.g. 23" />
                     </label>
                     <label class="block">
                         <span class="text-xs font-semibold text-gray-700">Offering (Rand) *</span>
                         <div class="mt-1 relative">
-                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-base">R</span>
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-lg">R</span>
                             <input x-model="attEditor.data.offering_amount" type="number" inputmode="decimal" step="0.01" min="0"
-                                class="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-lg text-base" placeholder="e.g. 450.00" />
+                                class="w-full pl-8 pr-3 py-3 border border-gray-200 rounded-lg text-lg font-medium" placeholder="e.g. 450.00" />
                         </div>
                     </label>
                 </div>
 
                 <label class="block">
-                    <span class="text-xs font-semibold text-gray-700">Notes (optional)</span>
-                    <textarea x-model="attEditor.data.notes" rows="2" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Prayer requests, issues, highlights"></textarea>
+                    <span class="text-xs font-semibold text-gray-600">Notes (optional)</span>
+                    <textarea x-model="attEditor.data.notes" rows="2" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Any context worth keeping"></textarea>
                 </label>
 
                 <div class="flex gap-2 pt-1">
@@ -929,7 +915,7 @@ function homeChurchApp() {
         attEditor: {
             open: false, saving: false,
             hc: null, date: null, existingId: null,
-            data: { did_not_meet: false, attendance_count: null, adults_count: null, children_count: null, new_visitors_count: 0, offering_amount: '', notes: '' }
+            data: { did_not_meet: false, attendance_count: null, offering_amount: '', notes: '' }
         },
 
         async init() {
@@ -1414,9 +1400,6 @@ function homeChurchApp() {
                 data: {
                     did_not_meet: report ? report.did_not_meet : false,
                     attendance_count: report && !report.did_not_meet ? report.attendance_count : null,
-                    adults_count: report ? report.adults_count : null,
-                    children_count: report ? report.children_count : null,
-                    new_visitors_count: report ? (report.new_visitors_count || 0) : 0,
                     offering_amount: report ? String(report.offering_amount || '') : '',
                     notes: report ? (report.notes || '') : '',
                 },
@@ -1436,9 +1419,6 @@ function homeChurchApp() {
                     roster_date: this.attEditor.date,
                     did_not_meet: !!d.did_not_meet,
                     attendance_count: d.attendance_count || 0,
-                    adults_count: d.adults_count === '' ? null : d.adults_count,
-                    children_count: d.children_count === '' ? null : d.children_count,
-                    new_visitors_count: d.new_visitors_count || 0,
                     offering_amount: d.offering_amount || 0,
                     notes: d.notes || null,
                 };
