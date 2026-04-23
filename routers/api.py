@@ -6910,3 +6910,111 @@ def admin_attendance_stats(
         },
         "per_church": per_church,
     }
+
+
+@router.get("/admin/home-church/{home_church_id}/history")
+def admin_home_church_history(
+    home_church_id: int,
+    request: Request,
+    weeks: int = Query(12, ge=4, le=52),
+    db: Session = Depends(get_db),
+):
+    """Per-home-church history view: N weeks of attendance + offering with
+    headline stats (current vs prior month, group average comparison)."""
+    _require_committee_or_admin(request, db)
+
+    hc = db.query(HomeChurch).filter(HomeChurch.id == home_church_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+
+    today = date.today()
+    # Anchor on most recent Monday <= today
+    anchor = today - timedelta(days=today.weekday())
+    mondays = [anchor - timedelta(days=7 * i) for i in range(weeks - 1, -1, -1)]  # oldest first
+    first = mondays[0]
+    last = mondays[-1]
+
+    # This home church's reports
+    own_reports = {
+        r.roster_date: r
+        for r in db.query(HomeChurchAttendance).filter(
+            HomeChurchAttendance.home_church_id == home_church_id,
+            HomeChurchAttendance.roster_date >= first,
+            HomeChurchAttendance.roster_date <= last,
+        ).all()
+    }
+
+    # Group reports (for average comparison)
+    all_reports = db.query(HomeChurchAttendance).filter(
+        HomeChurchAttendance.roster_date >= first,
+        HomeChurchAttendance.roster_date <= last,
+    ).all()
+    group_by_date = {}
+    for r in all_reports:
+        if not r.did_not_meet and (r.attendance_count or 0) > 0:
+            group_by_date.setdefault(r.roster_date, []).append(r)
+
+    series = []
+    for d in mondays:
+        r = own_reports.get(d)
+        row = {
+            "date": d.isoformat(),
+            "attendance": None,
+            "offering": None,
+            "did_not_meet": False,
+            "group_avg_attendance": None,
+        }
+        if r:
+            row["did_not_meet"] = bool(r.did_not_meet)
+            if not r.did_not_meet:
+                row["attendance"] = r.attendance_count or 0
+                try:
+                    row["offering"] = float(r.offering_amount or 0)
+                except (TypeError, ValueError):
+                    row["offering"] = 0.0
+        # Group average for that week (across all reporting churches)
+        grp = group_by_date.get(d, [])
+        if grp:
+            row["group_avg_attendance"] = round(sum(x.attendance_count or 0 for x in grp) / len(grp), 1)
+        series.append(row)
+
+    # Recent 4 weeks vs prior 4 weeks (same logic as the main stats)
+    last4 = [s for s in series[-4:] if s["attendance"] is not None]
+    prior4 = [s for s in series[-8:-4] if s["attendance"] is not None] if len(series) >= 8 else []
+
+    def _avg(xs, field):
+        vals = [x[field] for x in xs if x[field] is not None]
+        return (sum(vals) / len(vals)) if vals else 0.0
+
+    last4_avg = _avg(last4, "attendance")
+    prior4_avg = _avg(prior4, "attendance")
+    change_pct = None
+    if prior4_avg > 0:
+        change_pct = ((last4_avg - prior4_avg) / prior4_avg) * 100
+
+    last4_total_offering = sum((s["offering"] or 0) for s in series[-4:])
+    prior4_total_offering = sum((s["offering"] or 0) for s in series[-8:-4]) if len(series) >= 8 else 0
+
+    missing_last4 = sum(1 for s in series[-4:] if s["attendance"] is None and not s["did_not_meet"])
+
+    # Recent notes (last 4 weeks of captures with notes)
+    notes = []
+    for d in reversed(mondays[-4:]):
+        r = own_reports.get(d)
+        if r and r.notes:
+            notes.append({"date": d.isoformat(), "notes": r.notes})
+
+    return {
+        "home_church": _home_church_to_dict(hc, db),
+        "weeks": weeks,
+        "series": series,
+        "summary": {
+            "last4_avg_attendance": round(last4_avg, 1),
+            "prior4_avg_attendance": round(prior4_avg, 1),
+            "change_pct": round(change_pct, 1) if change_pct is not None else None,
+            "last4_total_offering": round(last4_total_offering, 2),
+            "prior4_total_offering": round(prior4_total_offering, 2),
+            "missing_last4": missing_last4,
+        },
+        "recent_notes": notes,
+    }

@@ -336,11 +336,17 @@
                     </div>
                     <div class="divide-y divide-gray-50">
                         <template x-for="row in attendanceMatrix" :key="row.home_church.id + '-a-' + d">
-                            <div class="px-4 py-3 flex items-center gap-3 active:bg-gray-50 cursor-pointer" @click="openAttendanceEditor(row.home_church, d)">
-                                <div class="flex-1 min-w-0">
+                            <div class="px-4 py-3 flex items-center gap-3 active:bg-gray-50">
+                                <button @click="openHistoryDetail(row.home_church)" class="flex-1 min-w-0 text-left">
                                     <div class="text-sm font-medium text-gray-900 truncate" x-text="row.home_church.name"></div>
-                                    <div class="text-[11px] mt-0.5" x-html="attendanceCellSummary(row, di)"></div>
-                                </div>
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <span class="text-[10px]" :class="flagClass(row.home_church.id)" x-text="flagLabel(row.home_church.id)"></span>
+                                        <span x-html="sparklineSvg(row.home_church.id)"></span>
+                                    </div>
+                                </button>
+                                <button @click="openAttendanceEditor(row.home_church, d)" class="px-2 py-1 text-[11px] text-violet-600 hover:bg-violet-50 rounded">
+                                    <span x-html="attendanceCellSummary(row, di)"></span>
+                                </button>
                                 <span class="text-gray-300">›</span>
                             </div>
                         </template>
@@ -370,9 +376,14 @@
                     <tbody class="divide-y divide-gray-100">
                         <template x-for="row in attendanceMatrix" :key="'ar-' + row.home_church.id">
                             <tr class="hover:bg-gray-50">
-                                <td class="sticky left-0 bg-white px-4 py-2 font-medium border-r border-gray-200">
-                                    <div class="text-sm truncate" x-text="row.home_church.name"></div>
-                                    <div class="text-[10px]" :class="flagClass(row.home_church.id)" x-text="flagLabel(row.home_church.id)"></div>
+                                <td class="sticky left-0 bg-white px-4 py-2 font-medium border-r border-gray-200 min-w-[200px]">
+                                    <button @click="openHistoryDetail(row.home_church)" class="block text-left w-full hover:text-violet-700 transition">
+                                        <div class="text-sm truncate font-semibold" x-text="row.home_church.name"></div>
+                                        <div class="flex items-center gap-2 mt-0.5">
+                                            <span class="text-[10px]" :class="flagClass(row.home_church.id)" x-text="flagLabel(row.home_church.id)"></span>
+                                            <span x-html="sparklineSvg(row.home_church.id)"></span>
+                                        </div>
+                                    </button>
                                 </td>
                                 <template x-for="(cell, ci) in row.cells" :key="cell.date">
                                     <td class="px-1.5 py-1.5 text-center align-top">
@@ -477,6 +488,127 @@
                     </div>
                     <button @click="openPTEditor(pt)" class="text-xs text-violet-600 font-medium px-2 py-1 hover:bg-violet-50 rounded">Edit</button>
                     <button @click="deletePT(pt)" class="text-xs text-red-500 font-medium px-2 py-1 hover:bg-red-50 rounded">Delete</button>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- HOME CHURCH HISTORY DETAIL SHEET -->
+    <div x-show="history.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="closeHistoryDetail()">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <!-- Header -->
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="min-w-0">
+                    <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Home church performance</div>
+                    <div class="font-semibold text-gray-900 truncate" x-text="history.hc ? history.hc.name : ''"></div>
+                </div>
+                <button @click="closeHistoryDetail()" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+
+            <template x-if="history.loading">
+                <div class="p-10 text-center text-gray-400 text-sm">Loading…</div>
+            </template>
+
+            <template x-if="!history.loading && history.data">
+                <div class="p-5 space-y-5">
+                    <!-- Top stats -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Last 4 wks avg</div>
+                            <div class="text-2xl font-bold text-gray-900" x-text="history.data.summary.last4_avg_attendance"></div>
+                            <div class="text-[11px] text-gray-500">people per week</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Last 4 wks offering</div>
+                            <div class="text-2xl font-bold text-gray-900" x-text="'R ' + Number(history.data.summary.last4_total_offering).toLocaleString('en-ZA', {maximumFractionDigits: 0})"></div>
+                            <div class="text-[11px] text-gray-500">total</div>
+                        </div>
+                    </div>
+
+                    <!-- Change badges -->
+                    <div class="flex flex-wrap items-center gap-2">
+                        <template x-if="history.data.summary.change_pct !== null">
+                            <div :class="history.data.summary.change_pct >= 15 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (history.data.summary.change_pct <= -15 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-700 border-gray-200')"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold">
+                                <span x-text="history.data.summary.change_pct >= 0 ? '↑' : '↓'"></span>
+                                <span x-text="Math.abs(history.data.summary.change_pct) + '% vs previous 4 weeks'"></span>
+                            </div>
+                        </template>
+                        <template x-if="history.data.summary.missing_last4 > 0">
+                            <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-700 text-xs font-semibold">
+                                <span>⚠</span>
+                                <span x-text="history.data.summary.missing_last4 + ' missing in last 4 weeks'"></span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Attendance chart -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Attendance (12 weeks)</div>
+                            <div class="text-[10px] text-gray-400">older → newer</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <div x-html="historyBars(history.data.series, 'attendance', '#7c3aed')"></div>
+                            <div class="flex justify-between text-[10px] text-gray-400 mt-2" x-show="history.data.series.length >= 2">
+                                <span x-text="formatShortDate(history.data.series[0].date)"></span>
+                                <span x-text="formatShortDate(history.data.series[history.data.series.length - 1].date)"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Offering chart -->
+                    <div>
+                        <div class="text-[11px] font-semibold text-gray-600 uppercase tracking-wider mb-2">Offering (12 weeks)</div>
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <div x-html="historyBars(history.data.series, 'offering', '#059669')"></div>
+                        </div>
+                    </div>
+
+                    <!-- Week-by-week table -->
+                    <div>
+                        <div class="text-[11px] font-semibold text-gray-600 uppercase tracking-wider mb-2">Week by week</div>
+                        <div class="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-100">
+                            <template x-for="s in [...history.data.series].reverse()" :key="'wk-' + s.date">
+                                <div class="px-3 py-2 flex items-center justify-between text-sm" :class="s.attendance === null && !s.did_not_meet ? 'bg-amber-50/30' : 'bg-white'">
+                                    <div class="text-gray-700 font-medium" x-text="formatShortDate(s.date)"></div>
+                                    <div class="flex items-center gap-3">
+                                        <template x-if="s.did_not_meet">
+                                            <span class="text-[11px] text-gray-500 italic">No meeting</span>
+                                        </template>
+                                        <template x-if="!s.did_not_meet && s.attendance !== null">
+                                            <span class="text-sm text-gray-900">👥 <span x-text="s.attendance"></span></span>
+                                        </template>
+                                        <template x-if="!s.did_not_meet && s.offering !== null && s.offering > 0">
+                                            <span class="text-sm text-gray-700" x-text="'R ' + Number(s.offering).toLocaleString('en-ZA', {maximumFractionDigits: 0})"></span>
+                                        </template>
+                                        <template x-if="s.attendance === null && !s.did_not_meet">
+                                            <span class="text-[11px] text-amber-700 font-medium">Missing</span>
+                                        </template>
+                                        <template x-if="s.group_avg_attendance && s.attendance !== null && !s.did_not_meet">
+                                            <span class="text-[10px] text-gray-400" x-text="'vs group avg ' + s.group_avg_attendance"></span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Recent notes -->
+                    <template x-if="history.data.recent_notes && history.data.recent_notes.length > 0">
+                        <div>
+                            <div class="text-[11px] font-semibold text-gray-600 uppercase tracking-wider mb-2">Recent notes</div>
+                            <div class="space-y-2">
+                                <template x-for="n in history.data.recent_notes" :key="'note-' + n.date">
+                                    <div class="bg-amber-50/60 border border-amber-100 rounded-lg p-3 text-sm">
+                                        <div class="text-[10px] text-amber-700 font-semibold uppercase tracking-wider mb-1" x-text="formatShortDate(n.date)"></div>
+                                        <div class="text-gray-700 whitespace-pre-wrap" x-text="n.notes"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </template>
         </div>
@@ -917,6 +1049,7 @@ function homeChurchApp() {
             hc: null, date: null, existingId: null,
             data: { did_not_meet: false, attendance_count: null, offering_amount: '', notes: '' }
         },
+        history: { open: false, loading: false, hc: null, data: null },
 
         async init() {
             await Promise.all([this.loadPreachers(), this.loadHomeChurches(), this.loadAllProgramTypes()]);
@@ -1355,6 +1488,42 @@ function homeChurchApp() {
             return sum;
         },
 
+        // Inline SVG sparkline for a home church's 8-week trend (from stats API)
+        sparklineSvg(hcId) {
+            const s = this._statFor(hcId);
+            if (!s || !s.trend_attendance) return '';
+            const vals = s.trend_attendance.map(v => v === null ? NaN : v);
+            const valid = vals.filter(v => !isNaN(v));
+            if (valid.length < 2) return '';
+            const min = Math.min(...valid);
+            const max = Math.max(...valid);
+            const range = max - min || 1;
+            const w = 56, h = 14;
+            const step = vals.length > 1 ? w / (vals.length - 1) : w;
+            // Build path, break segments on NaN
+            let path = '';
+            vals.forEach((v, i) => {
+                if (isNaN(v)) return;
+                const x = i * step;
+                const y = h - ((v - min) / range) * h;
+                path += (path === '' || isNaN(vals[i - 1])) ? `M${x.toFixed(1)},${y.toFixed(1)}` : ` L${x.toFixed(1)},${y.toFixed(1)}`;
+            });
+            const lastIdx = vals.length - 1;
+            const lastV = vals[lastIdx];
+            let dot = '';
+            if (!isNaN(lastV)) {
+                const x = lastIdx * step;
+                const y = h - ((lastV - min) / range) * h;
+                dot = `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.8" fill="${this._sparkColor(s.flag)}"/>`;
+            }
+            return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="vertical-align:middle;overflow:visible"><path d="${path}" fill="none" stroke="${this._sparkColor(s.flag)}" stroke-width="1.5"/>${dot}</svg>`;
+        },
+        _sparkColor(flag) {
+            if (flag === 'improving') return '#10b981';
+            if (flag === 'attention') return '#f59e0b';
+            return '#9ca3af';
+        },
+
         // Stats-derived helpers
         improvingList() {
             if (!this.stats) return [];
@@ -1387,6 +1556,52 @@ function homeChurchApp() {
             if (!s || s.change_pct === null) return '—';
             const sign = s.change_pct >= 0 ? '+' : '';
             return `${sign}${s.change_pct}%`;
+        },
+
+        async openHistoryDetail(hc) {
+            this.history = { open: true, loading: true, hc, data: null };
+            try {
+                const r = await fetch(`/api/admin/home-church/${hc.id}/history?weeks=12`);
+                if (!r.ok) throw new Error('Failed to load history');
+                this.history.data = await r.json();
+            } catch (e) {
+                alert('Error: ' + e.message);
+                this.history.open = false;
+            } finally {
+                this.history.loading = false;
+            }
+        },
+        closeHistoryDetail() { this.history.open = false; },
+
+        // Return SVG bar chart for history series
+        historyBars(series, field, color) {
+            if (!series || !series.length) return '';
+            const w = 360, h = 80, gap = 4;
+            const n = series.length;
+            const bw = (w - gap * (n - 1)) / n;
+            const vals = series.map(s => s[field]).map(v => (v === null || v === undefined ? 0 : v));
+            const max = Math.max(1, ...vals);
+            let bars = '';
+            series.forEach((s, i) => {
+                const v = s[field];
+                const x = i * (bw + gap);
+                if (v === null || v === undefined) {
+                    // Missing — ghost bar
+                    bars += `<rect x="${x}" y="${h - 6}" width="${bw}" height="6" rx="2" fill="#f3f4f6"/>`;
+                    return;
+                }
+                const bh = Math.max(2, (v / max) * h);
+                const y = h - bh;
+                const fill = s.did_not_meet ? '#d1d5db' : color;
+                bars += `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="2" fill="${fill}"/>`;
+            });
+            return `<svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block">${bars}</svg>`;
+        },
+
+        formatShortDate(iso) {
+            if (!iso) return '';
+            const d = new Date(iso + 'T00:00:00');
+            return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
         },
 
         openAttendanceEditor(hc, dateStr) {
