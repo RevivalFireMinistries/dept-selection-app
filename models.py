@@ -463,3 +463,35 @@ class HomeChurchRoster(Base):
     home_church = relationship("HomeChurch", back_populates="roster_entries")
     program_type = relationship("HomeChurchProgramType")
     preacher = relationship("Member", foreign_keys=[preacher_member_id])
+
+
+class HomeChurchAttendance(Base):
+    """One report per home church per meeting date (Monday). Captures attendance
+    counts and offering. Leaders submit from the portal after the meeting; the
+    committee can view, override, and receive reminders for missing reports."""
+    __tablename__ = "home_church_attendance"
+
+    id = Column(Integer, primary_key=True, index=True)
+    home_church_id = Column(Integer, ForeignKey("home_churches.id", ondelete="CASCADE"), nullable=False)
+    roster_date = Column(Date, nullable=False)
+    # Main fields
+    did_not_meet = Column(Boolean, nullable=False, server_default="false")  # true = home church was cancelled that week
+    attendance_count = Column(Integer, nullable=False, server_default="0")
+    adults_count = Column(Integer, nullable=True)
+    children_count = Column(Integer, nullable=True)
+    new_visitors_count = Column(Integer, nullable=False, server_default="0")
+    offering_amount = Column(String(20), nullable=False, server_default="0")  # store as string to avoid float issues; convert client-side
+    notes = Column(Text, nullable=True)
+    # Audit
+    submitted_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Reminder tracking so we don't spam
+    reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("home_church_id", "roster_date", name="uq_attendance_per_meeting"),
+    )
+
+    home_church = relationship("HomeChurch")
+    submitted_by = relationship("Member", foreign_keys=[submitted_by_member_id])

@@ -28,6 +28,7 @@ class EventType(str, Enum):
     HOME_CHURCH_PREACHER_ASSIGNED = "home_church_preacher_assigned"
     HOME_CHURCH_REMINDER_LEADER = "home_church_reminder_leader"
     HOME_CHURCH_REMINDER_PREACHER = "home_church_reminder_preacher"
+    HOME_CHURCH_ATTENDANCE_REMINDER = "home_church_attendance_reminder"
 
 
 # Event display names for admin UI
@@ -50,6 +51,7 @@ EVENT_LABELS = {
     EventType.HOME_CHURCH_PREACHER_ASSIGNED: "Home Church Preacher Assignment",
     EventType.HOME_CHURCH_REMINDER_LEADER: "Home Church Reminder (Leader)",
     EventType.HOME_CHURCH_REMINDER_PREACHER: "Home Church Reminder (Preacher)",
+    EventType.HOME_CHURCH_ATTENDANCE_REMINDER: "Home Church Attendance Report Reminder",
 }
 
 
@@ -73,6 +75,7 @@ EVENT_DESCRIPTIONS = {
     EventType.HOME_CHURCH_PREACHER_ASSIGNED: "Sent to a preacher when they are assigned to preach at a home church",
     EventType.HOME_CHURCH_REMINDER_LEADER: "Sunday evening reminder to home church leaders about Monday's program",
     EventType.HOME_CHURCH_REMINDER_PREACHER: "Sunday evening reminder to assigned preachers about Monday's home church",
+    EventType.HOME_CHURCH_ATTENDANCE_REMINDER: "Tuesday-noon reminder to home church leaders who haven't submitted attendance/offering for Monday's meeting",
 }
 
 
@@ -96,6 +99,7 @@ EMAIL_SUBJECTS = {
     EventType.HOME_CHURCH_PREACHER_ASSIGNED: "You're preaching at {home_church_name} on {roster_date}",
     EventType.HOME_CHURCH_REMINDER_LEADER: "Reminder: Your home church meets tomorrow",
     EventType.HOME_CHURCH_REMINDER_PREACHER: "Reminder: You're preaching tomorrow at {home_church_name}",
+    EventType.HOME_CHURCH_ATTENDANCE_REMINDER: "Reminder: Submit attendance for {home_church_name}",
 }
 
 

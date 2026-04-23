@@ -503,6 +503,24 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 {paragraph("Arrive 10 minutes early. Travel safely.")}
             ''',
         ),
+
+        EventType.HOME_CHURCH_ATTENDANCE_REMINDER: base_template(
+            title="Report needed",
+            accent_color="#d97706",
+            content=f'''
+                {heading(data.get('home_church_name', 'Home Church'))}
+                {paragraph(f"Monday {data.get('roster_date', '')}")}
+                {greeting(data.get('leader_name', 'Leader'))}
+                {paragraph(f"We haven't received the attendance and offering report for <strong>{data.get('home_church_name', '')}</strong> yet. Please take a minute to submit it — it only takes about 30 seconds from the portal.")}
+                {section_heading("What's needed")}
+                {paragraph("• Total attendance<br>• Offering amount<br>• Any notes (optional)")}
+                {paragraph("If your home church didn't meet this week, you can tick the <em>\"Didn't meet this week\"</em> option and submit.")}
+                {divider()}
+                {paragraph("Thank you for helping us keep track — the committee uses these reports to support and strengthen each home church.")}
+            ''',
+            button_text="Submit report" if data.get('app_url') else None,
+            button_url=f"{data.get('app_url')}/portal?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")

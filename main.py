@@ -447,6 +447,7 @@ def run_migrations():
             'home_church_preacher_assigned',
             'home_church_reminder_leader',
             'home_church_reminder_preacher',
+            'home_church_attendance_reminder',
         ]
         # Check if notification_configs table exists (created by create_all)
         result = conn.execute(text("""

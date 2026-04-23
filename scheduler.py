@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session, joinedload
 
 from database import SessionLocal
-from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate, HomeChurch, HomeChurchRoster, HomeChurchProgramType
+from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate, HomeChurch, HomeChurchRoster, HomeChurchProgramType, HomeChurchAttendance
 
 
 # Global scheduler instance
@@ -85,6 +85,18 @@ def start_scheduler():
         CronTrigger(hour=18, minute=0),
         id="home_church_reminders",
         name="Home Church Day-Before Reminders",
+        replace_existing=True
+    )
+
+    # Home church attendance reminders - Tuesday 12:00 (noon SAST)
+    # For each home church that met on the previous Monday but whose
+    # committee hasn't captured attendance yet, email the leader so
+    # they can send their stats via WhatsApp.
+    scheduler.add_job(
+        send_home_church_attendance_reminders,
+        CronTrigger(day_of_week="tue", hour=12, minute=0),
+        id="home_church_attendance_reminders",
+        name="Home Church Attendance Reminders",
         replace_existing=True
     )
 
@@ -567,6 +579,98 @@ def send_home_church_reminders():
         print(f"[HomeChurchReminder] Sent {leader_count} leader + {preacher_count} preacher reminders for {tomorrow.isoformat()}")
     except Exception as exc:
         print(f"[HomeChurchReminder] Job failed: {exc}")
+    finally:
+        db.close()
+
+
+def send_home_church_attendance_reminders():
+    """Tuesday-noon nudge: for every active home church whose committee has
+    not yet captured Monday's attendance report, email the leader asking them
+    to send their stats (via WhatsApp to the committee). We record
+    reminder_sent_at on the (missing) attendance row to avoid duplicates — if
+    a row doesn't exist we create a placeholder row with just that timestamp."""
+    db: Session = SessionLocal()
+    try:
+        from datetime import timedelta as td
+        today = datetime.now().date()
+        # The "previous Monday" = most recent Monday that has already passed
+        last_monday = today - td(days=today.weekday() or 7)
+        # If today is Monday, today.weekday()=0, so `or 7` sends us back a week
+
+        churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).all()
+        if not churches:
+            print("[AttendanceReminder] No active home churches")
+            return
+
+        # Existing reports for that date
+        existing = {
+            r.home_church_id: r
+            for r in db.query(HomeChurchAttendance).filter(
+                HomeChurchAttendance.roster_date == last_monday
+            ).all()
+        }
+
+        # Skip churches without a published roster entry — if the committee
+        # never said "yes we're meeting this week" it's not fair to nag.
+        published_ids = {
+            e.home_church_id for e in db.query(HomeChurchRoster).filter(
+                HomeChurchRoster.roster_date == last_monday,
+                HomeChurchRoster.status == "published",
+            ).all()
+        }
+
+        from notifications.dispatcher import dispatch_event
+        from notifications.events import EventType
+
+        sent = 0
+        skipped = 0
+        for c in churches:
+            if c.id not in published_ids:
+                skipped += 1
+                continue
+            report = existing.get(c.id)
+            # Already captured → done
+            if report and not report.did_not_meet and report.attendance_count is not None:
+                if report.submitted_at:
+                    skipped += 1
+                    continue
+            # Already reminded for this week → don't spam
+            if report and report.reminder_sent_at:
+                skipped += 1
+                continue
+            # Need leader email
+            leader = c.leader if c.leader_member_id else None
+            if not leader or not leader.email:
+                skipped += 1
+                continue
+            try:
+                dispatch_event(db, EventType.HOME_CHURCH_ATTENDANCE_REMINDER, {
+                    "leader_name": leader.full_name,
+                    "home_church_name": c.name,
+                    "roster_date": last_monday.isoformat(),
+                    "recipients": [{"id": leader.id, "name": leader.full_name, "email": leader.email, "phone": leader.phone}],
+                })
+                sent += 1
+                # Create / update tracking row so we don't re-send
+                if report is None:
+                    placeholder = HomeChurchAttendance(
+                        home_church_id=c.id,
+                        roster_date=last_monday,
+                        attendance_count=0,
+                        offering_amount="0",
+                        did_not_meet=False,
+                        reminder_sent_at=datetime.utcnow(),
+                    )
+                    db.add(placeholder)
+                else:
+                    report.reminder_sent_at = datetime.utcnow()
+                db.commit()
+            except Exception as exc:
+                print(f"[AttendanceReminder] Failed for {c.name}: {exc}")
+
+        print(f"[AttendanceReminder] sent={sent}, skipped={skipped}, monday={last_monday.isoformat()}")
+    except Exception as exc:
+        print(f"[AttendanceReminder] Job failed: {exc}")
     finally:
         db.close()
 

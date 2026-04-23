@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -6571,3 +6571,342 @@ def my_upcoming_home_church(
         as_preacher.append(d)
 
     return {"as_leader": as_leader, "as_preacher": as_preacher}
+
+
+
+# ============================================================================
+# HOME CHURCH ATTENDANCE (committee captures; leaders submit via WhatsApp)
+# ============================================================================
+
+def _attendance_to_dict(a: HomeChurchAttendance, db: Session) -> dict:
+    submitted_by = None
+    if a.submitted_by_member_id:
+        m = db.query(Member).filter(Member.id == a.submitted_by_member_id).first()
+        if m:
+            submitted_by = {"id": m.id, "full_name": m.full_name}
+    try:
+        offering = float(a.offering_amount) if a.offering_amount else 0.0
+    except (TypeError, ValueError):
+        offering = 0.0
+    return {
+        "id": a.id,
+        "home_church_id": a.home_church_id,
+        "roster_date": a.roster_date.isoformat() if a.roster_date else None,
+        "did_not_meet": bool(a.did_not_meet),
+        "attendance_count": a.attendance_count or 0,
+        "adults_count": a.adults_count,
+        "children_count": a.children_count,
+        "new_visitors_count": a.new_visitors_count or 0,
+        "offering_amount": offering,
+        "notes": a.notes,
+        "submitted_by": submitted_by,
+        "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+        "reminder_sent_at": a.reminder_sent_at.isoformat() if a.reminder_sent_at else None,
+    }
+
+
+@router.get("/admin/home-church/attendance")
+def admin_list_attendance(
+    request: Request,
+    start_date: Optional[str] = Query(None),
+    weeks: int = Query(8, ge=1, le=52),
+    db: Session = Depends(get_db),
+):
+    """Return the attendance matrix for the given range: each active home church
+    x each Monday, with its report (if captured) or a null placeholder."""
+    _require_committee_or_admin(request, db)
+
+    if start_date:
+        try:
+            start = date.fromisoformat(start_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date")
+    else:
+        # Default: start one week in the PAST so the committee can fill
+        # in last Monday's numbers, working forward.
+        start = _next_weekday() - timedelta(days=7)
+
+    dates = [start + timedelta(days=7 * i) for i in range(weeks)]
+    end_date = dates[-1]
+
+    churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).order_by(HomeChurch.name).all()
+    reports = db.query(HomeChurchAttendance).filter(
+        HomeChurchAttendance.roster_date >= start,
+        HomeChurchAttendance.roster_date <= end_date,
+    ).all()
+
+    index = {(r.home_church_id, r.roster_date): r for r in reports}
+
+    matrix = []
+    for c in churches:
+        row = {"home_church": _home_church_to_dict(c, db), "cells": []}
+        for d in dates:
+            r = index.get((c.id, d))
+            row["cells"].append({
+                "date": d.isoformat(),
+                "report": _attendance_to_dict(r, db) if r else None,
+            })
+        matrix.append(row)
+
+    return {
+        "start_date": start.isoformat(),
+        "end_date": end_date.isoformat(),
+        "dates": [d.isoformat() for d in dates],
+        "weeks": weeks,
+        "home_churches": [_home_church_to_dict(c, db) for c in churches],
+        "matrix": matrix,
+    }
+
+
+@router.put("/admin/home-church/attendance")
+def admin_upsert_attendance(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Committee captures (or updates) attendance for a given home church / date."""
+    actor = _require_committee_or_admin(request, db)
+
+    try:
+        hc_id = int(data["home_church_id"])
+        d = date.fromisoformat(data["roster_date"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="home_church_id and roster_date required")
+
+    hc = db.query(HomeChurch).filter(HomeChurch.id == hc_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+
+    did_not_meet = bool(data.get("did_not_meet", False))
+    attendance_count = 0
+    adults = None
+    children = None
+    new_visitors = 0
+    offering_str = "0"
+    notes = data.get("notes")
+
+    if not did_not_meet:
+        try:
+            attendance_count = int(data.get("attendance_count") or 0)
+            if data.get("adults_count") not in (None, ""):
+                adults = int(data["adults_count"])
+            if data.get("children_count") not in (None, ""):
+                children = int(data["children_count"])
+            new_visitors = int(data.get("new_visitors_count") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Counts must be whole numbers")
+        # Offering as plain text (we store and display; avoids float rounding)
+        offering_raw = data.get("offering_amount", "0")
+        if offering_raw is None:
+            offering_raw = "0"
+        try:
+            # Validate parseable
+            float(str(offering_raw).replace(",", "").strip() or "0")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Offering must be a number")
+        offering_str = str(offering_raw)
+
+    entry = db.query(HomeChurchAttendance).filter(
+        HomeChurchAttendance.home_church_id == hc_id,
+        HomeChurchAttendance.roster_date == d,
+    ).first()
+
+    is_new = entry is None
+    if is_new:
+        entry = HomeChurchAttendance(
+            home_church_id=hc_id,
+            roster_date=d,
+            did_not_meet=did_not_meet,
+            attendance_count=attendance_count,
+            adults_count=adults,
+            children_count=children,
+            new_visitors_count=new_visitors,
+            offering_amount=offering_str,
+            notes=notes,
+            submitted_by_member_id=actor.id if actor else None,
+        )
+        db.add(entry)
+    else:
+        entry.did_not_meet = did_not_meet
+        entry.attendance_count = attendance_count
+        entry.adults_count = adults
+        entry.children_count = children
+        entry.new_visitors_count = new_visitors
+        entry.offering_amount = offering_str
+        entry.notes = notes
+        if actor:
+            entry.submitted_by_member_id = actor.id
+
+    db.commit()
+    db.refresh(entry)
+
+    _log_admin_action(
+        request, db,
+        "upsert_home_church_attendance",
+        "home_church_attendance",
+        entry.id,
+        f"{'Captured' if is_new else 'Updated'} {hc.name} attendance for {d.isoformat()} (attendance={attendance_count}, offering={offering_str})"
+    )
+    db.commit()
+
+    return _attendance_to_dict(entry, db)
+
+
+@router.delete("/admin/home-church/attendance/{attendance_id}")
+def admin_delete_attendance(attendance_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    entry = db.query(HomeChurchAttendance).filter(HomeChurchAttendance.id == attendance_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Not found")
+    hc = entry.home_church
+    d = entry.roster_date
+    db.delete(entry)
+    db.commit()
+    _log_admin_action(request, db, "delete_home_church_attendance", "home_church_attendance", attendance_id,
+                     f"Deleted attendance for {hc.name if hc else '?'} on {d.isoformat() if d else '?'}")
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/admin/home-church/attendance/stats")
+def admin_attendance_stats(
+    request: Request,
+    end_date: Optional[str] = Query(None, description="ISO date; defaults to today. Analyses the 8 weeks ending on the Monday <= this date."),
+    db: Session = Depends(get_db),
+):
+    """Weekly totals, monthly averages, and improving / attention flags.
+
+    Compares the most recent 4 Mondays against the prior 4 for each home church.
+    """
+    _require_committee_or_admin(request, db)
+
+    if end_date:
+        try:
+            end = date.fromisoformat(end_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date")
+    else:
+        end = date.today()
+
+    # Anchor on the most recent Monday <= end
+    # Python: weekday() returns 0 for Monday
+    anchor_monday = end - timedelta(days=end.weekday())
+
+    # Get the 8 recent Mondays (anchor going backwards)
+    recent = [anchor_monday - timedelta(days=7 * i) for i in range(8)]  # [0]=latest
+    recent.reverse()  # oldest first
+    first_day = recent[0]
+    last_day = recent[-1]
+
+    churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).order_by(HomeChurch.name).all()
+    reports = db.query(HomeChurchAttendance).filter(
+        HomeChurchAttendance.roster_date >= first_day,
+        HomeChurchAttendance.roster_date <= last_day,
+    ).all()
+    by_hc = {}
+    for r in reports:
+        by_hc.setdefault(r.home_church_id, {})[r.roster_date] = r
+
+    # Weekly totals across all churches
+    weekly_totals = []
+    for d in recent:
+        week = {"date": d.isoformat(), "attendance": 0, "offering": 0.0, "reporting": 0, "total": len(churches)}
+        for c in churches:
+            r = by_hc.get(c.id, {}).get(d)
+            if r and not r.did_not_meet:
+                week["attendance"] += r.attendance_count or 0
+                try:
+                    week["offering"] += float(r.offering_amount or 0)
+                except (TypeError, ValueError):
+                    pass
+            if r:
+                week["reporting"] += 1
+        weekly_totals.append(week)
+
+    # Per-church stats: 4-week recent vs 4-week prior, monthly average, flags
+    per_church = []
+    def _safe_avg(vals):
+        return (sum(vals) / len(vals)) if vals else 0.0
+
+    last4 = recent[-4:]   # most recent 4
+    prior4 = recent[:4]   # the 4 before
+
+    for c in churches:
+        hc_reports = by_hc.get(c.id, {})
+        # Attendance figures for last 4 (ignoring did_not_meet rows and missing rows)
+        last4_att = [hc_reports[d].attendance_count for d in last4 if d in hc_reports and not hc_reports[d].did_not_meet]
+        prior4_att = [hc_reports[d].attendance_count for d in prior4 if d in hc_reports and not hc_reports[d].did_not_meet]
+        last4_off = []
+        for d in last4:
+            if d in hc_reports and not hc_reports[d].did_not_meet:
+                try:
+                    last4_off.append(float(hc_reports[d].offering_amount or 0))
+                except (TypeError, ValueError):
+                    pass
+
+        missing_last4 = sum(1 for d in last4 if d not in hc_reports)
+        last4_avg = _safe_avg(last4_att)
+        prior4_avg = _safe_avg(prior4_att)
+
+        # Change % (only meaningful if we have a prior baseline)
+        change_pct = None
+        if prior4_avg > 0:
+            change_pct = ((last4_avg - prior4_avg) / prior4_avg) * 100
+
+        # Flag
+        flag = "steady"
+        reason = None
+        if missing_last4 >= 2:
+            flag = "attention"
+            reason = f"{missing_last4} reports missing in last 4 weeks"
+        elif change_pct is not None and change_pct >= 15:
+            flag = "improving"
+            reason = f"+{change_pct:.0f}% vs previous 4 weeks"
+        elif change_pct is not None and change_pct <= -15:
+            flag = "attention"
+            reason = f"{change_pct:.0f}% vs previous 4 weeks"
+        elif change_pct is not None:
+            reason = f"{change_pct:+.0f}% vs previous 4 weeks"
+
+        per_church.append({
+            "home_church": _home_church_to_dict(c, db),
+            "last4_avg_attendance": round(last4_avg, 1),
+            "prior4_avg_attendance": round(prior4_avg, 1),
+            "last4_total_offering": round(sum(last4_off), 2),
+            "last4_avg_offering": round(_safe_avg(last4_off), 2),
+            "missing_last4": missing_last4,
+            "change_pct": round(change_pct, 1) if change_pct is not None else None,
+            "flag": flag,
+            "reason": reason,
+            # Sparkline-friendly: last 8 weeks of attendance (None when no report)
+            "trend_attendance": [
+                (hc_reports[d].attendance_count if d in hc_reports and not hc_reports[d].did_not_meet else None)
+                for d in recent
+            ],
+        })
+
+    # Grand totals for the most recent week (anchor) and last 4 weeks combined
+    latest_week = weekly_totals[-1] if weekly_totals else None
+    last4_total_attendance = sum(w["attendance"] for w in weekly_totals[-4:])
+    last4_total_offering = sum(w["offering"] for w in weekly_totals[-4:])
+    last4_avg_attendance = round(last4_total_attendance / 4, 1)
+    last4_avg_offering = round(last4_total_offering / 4, 2)
+
+    return {
+        "anchor_monday": anchor_monday.isoformat(),
+        "range": {"from": first_day.isoformat(), "to": last_day.isoformat()},
+        "weekly_totals": weekly_totals,
+        "latest_week": latest_week,
+        "month_summary": {
+            "total_attendance": last4_total_attendance,
+            "total_offering": round(last4_total_offering, 2),
+            "avg_attendance_per_week": last4_avg_attendance,
+            "avg_offering_per_week": last4_avg_offering,
+            "reporting_rate": round(
+                100 * sum(w["reporting"] for w in weekly_totals[-4:]) / max(1, 4 * len(churches)),
+                1,
+            ),
+        },
+        "per_church": per_church,
+    }
