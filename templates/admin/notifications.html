@@ -60,6 +60,13 @@
                     </div>
                 </div>
 
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Reply-To (recommended)</label>
+                    <input type="email" id="resend_reply_to" name="resend_reply_to" placeholder="info@yourdomain.com"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <p class="text-xs text-gray-500 mt-1">A real inbox someone can reply to. Helps deliverability — Gmail flags one-way / no-reply emails as more likely to be spam.</p>
+                </div>
+
                 <div class="flex gap-3 mt-4">
                     <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
                         Save Resend Settings
@@ -120,6 +127,13 @@
                         <input type="email" id="smtp_from_email" name="smtp_from_email" placeholder="church@gmail.com"
                             class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
                     </div>
+                </div>
+
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Reply-To (recommended)</label>
+                    <input type="email" id="smtp_reply_to" name="smtp_reply_to" placeholder="info@yourdomain.com"
+                        class="w-full rounded-lg border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <p class="text-xs text-gray-500 mt-1">A real inbox someone can reply to. Helps deliverability.</p>
                 </div>
 
                 <div class="flex gap-3 mt-4">
@@ -287,6 +301,7 @@
             document.getElementById('resend_api_key').value = data.resend_api_key || '';
             document.getElementById('resend_from_name').value = data.resend_from_name || '';
             document.getElementById('resend_from_email').value = data.resend_from_email || '';
+            document.getElementById('resend_reply_to').value = data.resend_reply_to || data.reply_to || '';
 
             // SMTP settings
             document.getElementById('smtp_enabled').checked = data.smtp_enabled === 'true';
@@ -296,6 +311,7 @@
             document.getElementById('smtp_password').value = data.smtp_password || '';
             document.getElementById('smtp_from_name').value = data.smtp_from_name || '';
             document.getElementById('smtp_from_email').value = data.smtp_from_email || '';
+            document.getElementById('smtp_reply_to').value = data.smtp_reply_to || data.reply_to || '';
 
             // Show active provider tab
             if (data.resend_enabled === 'true') {
@@ -317,7 +333,8 @@
             resend_enabled: document.getElementById('resend_enabled').checked ? 'true' : 'false',
             resend_api_key: document.getElementById('resend_api_key').value,
             resend_from_name: document.getElementById('resend_from_name').value,
-            resend_from_email: document.getElementById('resend_from_email').value
+            resend_from_email: document.getElementById('resend_from_email').value,
+            resend_reply_to: document.getElementById('resend_reply_to').value
         });
     });
 
@@ -331,7 +348,8 @@
             smtp_username: document.getElementById('smtp_username').value,
             smtp_password: document.getElementById('smtp_password').value,
             smtp_from_name: document.getElementById('smtp_from_name').value,
-            smtp_from_email: document.getElementById('smtp_from_email').value
+            smtp_from_email: document.getElementById('smtp_from_email').value,
+            smtp_reply_to: document.getElementById('smtp_reply_to').value
         });
     });
 

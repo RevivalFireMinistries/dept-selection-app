@@ -121,7 +121,12 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
     {button_html}
   </td></tr>
   <tr><td style="border-top: 1px solid {BORDER}; padding: 16px 0 0 0;">
-    <p style="margin: 0; color: {TEXT_MUTED}; font-size: 12px;">{CHURCH_NAME} &middot; Stellenbosch</p>
+    <p style="margin: 0 0 6px 0; color: {TEXT}; font-size: 13px; font-weight: 600;">{CHURCH_NAME}</p>
+    <p style="margin: 0 0 6px 0; color: {TEXT_MUTED}; font-size: 12px; line-height: 1.5;">Stellenbosch, Western Cape, South Africa</p>
+    <p style="margin: 0; color: {TEXT_MUTED}; font-size: 11px; line-height: 1.5;">
+      You're receiving this because you're a member of Revival Fire Ministries.
+      To stop receiving these emails, reply with "unsubscribe" in the subject line.
+    </p>
   </td></tr>
 </table>
 

@@ -4392,9 +4392,10 @@ def get_email_settings(db: Session = Depends(get_db)):
     all_keys = [
         'smtp_enabled', 'smtp_host', 'smtp_port',
         'smtp_username', 'smtp_password',
-        'smtp_from_name', 'smtp_from_email',
+        'smtp_from_name', 'smtp_from_email', 'smtp_reply_to',
         'resend_enabled', 'resend_api_key',
-        'resend_from_name', 'resend_from_email'
+        'resend_from_name', 'resend_from_email', 'resend_reply_to',
+        'reply_to',
     ]
     settings = db.query(Settings).filter(Settings.key.in_(all_keys)).all()
     result = {s.key: s.value for s in settings}
@@ -4428,12 +4429,12 @@ def get_smtp_settings(db: Session = Depends(get_db)):
 
 @router.put("/admin/notifications/smtp-settings")
 def update_smtp_settings(data: SMTPSettingsUpdate, db: Session = Depends(get_db)):
-    """Update SMTP settings"""
+    """Update SMTP / Resend settings (the form sends both through this endpoint)."""
     updates = data.model_dump(exclude_none=True)
 
     for key, value in updates.items():
-        # Skip password update if it's the masked value
-        if key == 'smtp_password' and value == '********':
+        # Skip secret update if it's the masked value
+        if key in ('smtp_password', 'resend_api_key') and value == '********':
             continue
 
         setting = db.query(Settings).filter(Settings.key == key).first()

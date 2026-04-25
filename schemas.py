@@ -337,6 +337,16 @@ class SMTPSettingsUpdate(BaseModel):
     smtp_password: Optional[str] = None
     smtp_from_name: Optional[str] = None
     smtp_from_email: Optional[str] = None
+    smtp_reply_to: Optional[str] = None
+    # Resend fields share the same save endpoint — accept them too so the
+    # admin form can persist them in one round-trip.
+    resend_enabled: Optional[str] = None
+    resend_api_key: Optional[str] = None
+    resend_from_name: Optional[str] = None
+    resend_from_email: Optional[str] = None
+    resend_reply_to: Optional[str] = None
+    # Generic fallback used by both channels
+    reply_to: Optional[str] = None
 
 class NotificationConfigUpdate(BaseModel):
     email_enabled: Optional[int] = None

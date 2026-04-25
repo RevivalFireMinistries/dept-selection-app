@@ -36,6 +36,7 @@ class EmailChannel(NotificationChannel):
         self.password = os.getenv('SMTP_PASSWORD') or settings.get('smtp_password', '')
         self.from_name = os.getenv('SMTP_FROM_NAME') or settings.get('smtp_from_name', 'RFM Stellenbosch')
         self.from_email = os.getenv('SMTP_FROM_EMAIL') or settings.get('smtp_from_email', '')
+        self.reply_to = os.getenv('SMTP_REPLY_TO') or settings.get('smtp_reply_to', '') or settings.get('reply_to', '')
 
         # Check enabled status from env or settings
         env_enabled = os.getenv('SMTP_ENABLED', '').lower()
@@ -86,6 +87,20 @@ class EmailChannel(NotificationChannel):
             msg['Subject'] = subject
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = recipient
+            if self.reply_to:
+                msg['Reply-To'] = self.reply_to
+
+            # Headers Gmail uses to decide spam-vs-inbox (Feb 2024 sender
+            # requirements); positive signal even at low volume.
+            unsub_email = (
+                os.getenv('UNSUBSCRIBE_EMAIL')
+                or self.reply_to
+                or self.from_email
+            )
+            if unsub_email:
+                msg['List-Unsubscribe'] = f"<mailto:{unsub_email}?subject=unsubscribe>"
+                msg['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
+            msg['X-Mailer'] = 'RFM-Stellenbosch-Portal'
 
             # Create plain text version (strip HTML for basic compatibility)
             plain_text = body.replace('<br>', '\n').replace('</p>', '\n\n')
