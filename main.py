@@ -478,6 +478,19 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (actor_type): {e}")
 
+        # Migration: Add template_id to service_programs so we can preserve
+        # which template a program was created from (used to keep support_roles
+        # available in the role dropdown when editing).
+        try:
+            conn.execute(text("""
+                ALTER TABLE service_programs
+                ADD COLUMN IF NOT EXISTS template_id INTEGER REFERENCES program_templates(id) ON DELETE SET NULL
+            """))
+            conn.commit()
+            print("Migration: Added template_id column to service_programs")
+        except Exception as e:
+            print(f"Migration note (template_id): {e}")
+
         # Seed default home church program types (only if table is empty)
         try:
             existing = conn.execute(text("SELECT COUNT(*) FROM home_church_program_types")).scalar()

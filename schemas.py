@@ -444,6 +444,7 @@ class ServiceProgramUpdate(BaseModel):
     admin_announcements: Optional[List[str]] = None
     pastors_announcements: Optional[List[str]] = None
     prayer_points: Optional[List[Any]] = None  # List of {text, linked_activity} dicts or plain strings
+    template_id: Optional[int] = None  # Allow re-linking to a template
 
 class ServiceProgramResponse(BaseModel):
     id: int

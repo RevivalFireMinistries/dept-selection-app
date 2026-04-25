@@ -4882,6 +4882,7 @@ def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session 
         "title": program.title,
         "service_date": program.service_date.isoformat(),
         "location_type": program.location_type or "onsite",
+        "template_id": program.template_id,
         "program_items": items,
         "participants": participants,
         "admin_announcements": _parse_json(program.admin_announcements),
@@ -5120,6 +5121,7 @@ def create_program(data: ServiceProgramCreate, request: Request, db: Session = D
         admin_announcements=json.dumps(data.admin_announcements or []),
         pastors_announcements=json.dumps(data.pastors_announcements or []),
         prayer_points=json.dumps(data.prayer_points or []),
+        template_id=data.template_id,
         created_by_member_id=data.created_by_member_id
     )
     db.add(program)
@@ -5191,6 +5193,8 @@ def update_program(program_id: int, data: ServiceProgramUpdate, request: Request
         program.pastors_announcements = json.dumps(data.pastors_announcements)
     if data.prayer_points is not None:
         program.prayer_points = json.dumps(data.prayer_points)
+    if data.template_id is not None:
+        program.template_id = data.template_id
 
     db.commit()
     db.refresh(program)

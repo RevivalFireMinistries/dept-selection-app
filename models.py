@@ -269,11 +269,16 @@ class ServiceProgram(Base):
     pastors_announcements = Column(Text, nullable=False, server_default="[]")
     prayer_points = Column(Text, nullable=False, server_default="[]")
     status = Column(String(20), nullable=False, server_default="draft")  # "draft", "published"
+    # Source template (if this program was created from one). Lets the editor
+    # surface support_roles defined on the template even after the program has
+    # been saved & re-opened.
+    template_id = Column(Integer, ForeignKey("program_templates.id", ondelete="SET NULL"), nullable=True)
     created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     created_by = relationship("Member", foreign_keys=[created_by_member_id])
+    template = relationship("ProgramTemplate", foreign_keys=[template_id])
 
 
 class ServiceSchedule(Base):

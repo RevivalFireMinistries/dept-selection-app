@@ -392,6 +392,7 @@
 <script>
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 let editingId = null;
+let editingTemplateId = null;  // Remembered when editing so support_roles stay available
 let allMembers = [];
 let allTemplates = [];
 let activeDropdown = null;
@@ -682,15 +683,34 @@ function getActivityNames() {
         const item = row.querySelector('.prog-item-name').value.trim();
         if (item) names.push(item);
     });
+
+    // Resolve template id from either the picker (creating from template) OR
+    // the editing program's stored template_id (editing). Either way, pull in
+    // its support_roles so they appear in the role dropdown.
+    let tplId = null;
     const tplSelect = document.getElementById('templateSelect');
     if (tplSelect && tplSelect.value) {
-        const tpl = allTemplates.find(t => t.id === parseInt(tplSelect.value));
+        tplId = parseInt(tplSelect.value);
+    } else if (editingTemplateId) {
+        tplId = editingTemplateId;
+    }
+    if (tplId) {
+        const tpl = allTemplates.find(t => t.id === tplId);
         if (tpl && tpl.support_roles) {
             tpl.support_roles.forEach(r => {
                 if (r && !names.includes(r)) names.push(r);
             });
         }
     }
+
+    // Final safety net: include any roles already used in the form so existing
+    // assignments don't silently slip into the "+ Custom role..." bucket. This
+    // handles edge cases like manually-added roles that aren't in the template.
+    document.querySelectorAll('.part-role-select').forEach(select => {
+        const v = select.value;
+        if (v && v !== '__custom__' && !names.includes(v)) names.push(v);
+    });
+
     return names;
 }
 
@@ -1017,6 +1037,7 @@ function showCreateForm() {
 
 function showEditForm(program) {
     editingId = program.id;
+    editingTemplateId = program.template_id || null;
     document.getElementById('formTitle').textContent = 'Edit Program';
     document.getElementById('templatePicker').classList.add('hidden');
     document.getElementById('progTitle').value = program.title;
@@ -1086,6 +1107,7 @@ function hideForm() {
     document.getElementById('bottomSaveBar').classList.add('hidden');
     document.getElementById('listView').classList.remove('hidden');
     editingId = null;
+    editingTemplateId = null;
 }
 
 // ==================== TEMPLATE AUTO-APPLY ====================
@@ -1269,7 +1291,18 @@ function collectFormData() {
 
     const location_type = document.getElementById('progLocationType').value;
 
-    return { title, service_date, location_type, program_items, participants, admin_announcements, pastors_announcements, prayer_points };
+    // Preserve template_id so the editor can show the template's support_roles
+    // when this program is opened for edit later. Pulled from either the
+    // visible template picker (creating new) or from editingTemplateId (edit).
+    let template_id = null;
+    const tplSelect = document.getElementById('templateSelect');
+    if (tplSelect && tplSelect.value) {
+        template_id = parseInt(tplSelect.value);
+    } else if (editingTemplateId) {
+        template_id = editingTemplateId;
+    }
+
+    return { title, service_date, location_type, program_items, participants, admin_announcements, pastors_announcements, prayer_points, template_id };
 }
 
 async function saveProgram() {
