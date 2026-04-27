@@ -7132,6 +7132,55 @@ def admin_rfm_sync_match_one(request: Request, data: dict = Body(...), db: Sessi
     }
 
 
+@router.post("/admin/rfm-sync/api-search")
+def admin_rfm_sync_api_search(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Free-form search against the central database — used by the admin
+    when the auto-matcher can't find someone they know is there. Takes
+    `query` (any string: name, phone, email) and `member_id` (optional, the
+    local member being reviewed — used to compute name match scores in the
+    response so the UI can show how close each result is)."""
+    _require_committee_or_admin(request, db)
+    query = (data.get("query") or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+    if len(query) < 2:
+        raise HTTPException(status_code=400, detail="query must be at least 2 characters")
+
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured")
+
+    # If the query looks like a phone, normalise it to last-9-digits before
+    # searching (so "+27 61 919 7741" still matches a stored "0619197741").
+    phone_norm = _rfm.normalise_phone(query)
+    search_term = phone_norm if (phone_norm and len(phone_norm) >= 9) else query
+
+    api_result = _rfm.search_members(search=search_term, page=1, size=50, db=db)
+    if api_result.disabled:
+        raise HTTPException(status_code=400, detail="rfm-db integration disabled")
+    if not api_result.ok:
+        raise HTTPException(status_code=502, detail=api_result.error or "Central database error")
+
+    raw = api_result.data or []
+    if isinstance(raw, dict):
+        raw = raw.get("data") or []
+
+    # Score each result against the local member's name (for relative ranking)
+    local_name = ""
+    member_id = data.get("member_id")
+    if member_id:
+        m = db.query(Member).filter(Member.id == int(member_id)).first()
+        if m:
+            local_name = m.full_name or ""
+
+    results = sorted(
+        (_rfm._score_and_strip(item, _rfm.name_match_score(local_name, item)) for item in raw),
+        key=lambda x: x["_score"], reverse=True,
+    )
+    return {"query": query, "count": len(results), "results": results}
+
+
 @router.post("/admin/rfm-sync/match-all")
 def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
     """Walk every member that hasn't been matched yet (or all, with force=true)

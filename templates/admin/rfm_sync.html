@@ -173,7 +173,7 @@
                         </template>
                         <template x-if="!review.result.candidates || review.result.candidates.length === 0">
                             <div class="bg-rose-50 border border-rose-100 rounded-lg p-3 text-sm text-rose-700">
-                                No candidates found. This member may not exist in the central database — they should be added there first.
+                                No candidates found automatically. Try a manual search below.
                             </div>
                         </template>
                     </div>
@@ -181,6 +181,55 @@
                 <template x-if="!review.loading && review.error">
                     <div class="bg-rose-50 border border-rose-100 rounded-lg p-3 text-sm text-rose-700" x-text="review.error"></div>
                 </template>
+
+                <!-- Manual search box — works for orphans + ambiguous, when the
+                     auto-matcher missed someone the admin knows is in the DB. -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <div class="text-[11px] font-semibold text-gray-600 uppercase tracking-wider mb-2">
+                        🔍 Search central database manually
+                    </div>
+                    <p class="text-[11px] text-gray-500 mb-2">Try a name, phone or email — useful when the matcher missed someone.</p>
+                    <div class="flex gap-2">
+                        <input x-model="search.query" @keydown.enter.prevent="runSearch()"
+                            type="text" placeholder="e.g. Mary Smith, 0619197741, mary@example.com"
+                            class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500">
+                        <button @click="runSearch()" :disabled="search.running"
+                            class="px-4 py-2 text-sm bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-medium disabled:opacity-50">
+                            <span x-text="search.running ? 'Searching…' : 'Search'"></span>
+                        </button>
+                    </div>
+                    <template x-if="search.error">
+                        <div class="mt-2 text-xs text-rose-600" x-text="search.error"></div>
+                    </template>
+                    <template x-if="search.attempted && !search.running && search.results.length === 0 && !search.error">
+                        <div class="mt-2 text-xs text-gray-400">No results in central database.</div>
+                    </template>
+                    <template x-if="search.results.length > 0">
+                        <div class="mt-3 space-y-2">
+                            <template x-for="r in search.results" :key="r.id">
+                                <div class="border border-gray-200 rounded-lg p-3 hover:border-sky-300">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <div class="font-medium text-gray-900" x-text="r.full_name"></div>
+                                            <div class="text-xs text-gray-500" x-text="(r.phone || '—') + (r.email ? ' · ' + r.email : '')"></div>
+                                            <div class="text-xs text-gray-400 mt-0.5" x-text="r.address || ''"></div>
+                                            <div class="text-[10px] text-gray-400 font-mono mt-1" x-text="r.id"></div>
+                                        </div>
+                                        <div class="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                            <span class="px-2 py-0.5 text-[10px] font-semibold rounded-full"
+                                                :class="r._score >= 0.7 ? 'bg-emerald-100 text-emerald-700' : (r._score >= 0.4 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600')"
+                                                x-text="r._score > 0 ? Math.round(r._score * 100) + '% match' : 'no name match'"></span>
+                                            <button @click="confirmCandidate(r)" :disabled="review.confirming"
+                                                class="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-60">
+                                                Link this
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
             </div>
         </div>
     </div>
@@ -197,6 +246,7 @@ function rfmSyncApp() {
         running: false,
         lastRunSummary: null,
         review: { open: false, loading: false, member: null, result: null, error: null, confirming: false },
+        search: { query: '', running: false, attempted: false, results: [], error: null },
 
         async init() {
             await this.loadStatus();
@@ -300,6 +350,9 @@ function rfmSyncApp() {
 
         async reviewMember(m) {
             this.review = { open: true, loading: true, member: m, result: null, error: null, confirming: false };
+            // Reset the manual search and pre-fill it with this member's name
+            // so the admin can just hit Enter to broaden the search
+            this.search = { query: m.full_name || '', running: false, attempted: false, results: [], error: null };
             try {
                 const r = await fetch('/api/admin/rfm-sync/match-one', {
                     method: 'POST',
@@ -316,6 +369,38 @@ function rfmSyncApp() {
                 this.review.error = e.message;
             } finally {
                 this.review.loading = false;
+            }
+        },
+
+        async runSearch() {
+            const q = (this.search.query || '').trim();
+            if (q.length < 2) {
+                this.search.error = 'Type at least 2 characters to search';
+                return;
+            }
+            this.search.running = true;
+            this.search.attempted = true;
+            this.search.error = null;
+            this.search.results = [];
+            try {
+                const r = await fetch('/api/admin/rfm-sync/api-search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: q,
+                        member_id: this.review.member ? this.review.member.id : null,
+                    }),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || ('Search failed (HTTP ' + r.status + ')'));
+                }
+                const data = await r.json();
+                this.search.results = data.results || [];
+            } catch (e) {
+                this.search.error = e.message;
+            } finally {
+                this.search.running = false;
             }
         },
 
