@@ -339,6 +339,35 @@ def _name_tokens(s: str) -> set:
     return {t for t in re.split(r"[\s\-]+", s.lower().strip()) if t}
 
 
+# Title prefixes / honorifics — useless as search keywords because they're
+# extremely common and not stored in the API's first_name / last_name fields.
+_TITLE_TOKENS = {
+    "mr", "mrs", "ms", "miss", "dr", "prof", "professor",
+    "rev", "reverend", "pastor", "pst", "ps",
+    "evangelist", "elder", "deacon", "bishop", "apostle",
+    "bro", "brother", "sis", "sister",
+}
+
+
+def _significant_name_tokens(full_name: str) -> list:
+    """Return distinct meaningful name tokens for search queries. Drops
+    titles and 1-character fragments. Order is preserved (so first/last
+    bias is kept) but duplicates are removed."""
+    if not full_name:
+        return []
+    tokens = re.split(r"[\s\-]+", full_name.lower().strip())
+    seen = set()
+    out = []
+    for t in tokens:
+        if not t or len(t) < 2 or t in _TITLE_TOKENS:
+            continue
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+
+
 def names_match_strict(local_full_name: str, api_member: dict) -> bool:
     """True if EITHER the API first_name OR the API last_name fully appears as
     tokens inside the local full_name. (Per user rule: phone match plus at
@@ -412,13 +441,26 @@ def match_local_member(
         if isinstance(raw_phone_hits, dict):
             raw_phone_hits = raw_phone_hits.get("data") or []
 
+    # Name search: the API does substring match within each field independently
+    # (first_name ILIKE %q% OR last_name ILIKE %q% OR ...). Searching with the
+    # full name "Alfred john" therefore finds nothing because neither field
+    # contains the whole string. Search with each significant token instead so
+    # "Alfred" finds first_name=Alfred, "john" finds last_name=John, then we
+    # union the results.
     raw_name_hits = []
-    if name.strip():
-        r = search_members(search=name.strip(), page=1, size=page_size, db=db)
-        if r.ok and r.data:
-            raw_name_hits = r.data
-            if isinstance(raw_name_hits, dict):
-                raw_name_hits = raw_name_hits.get("data") or []
+    seen_name_ids = set()
+    for token in _significant_name_tokens(name):
+        r = search_members(search=token, page=1, size=page_size, db=db)
+        if not r.ok or not r.data:
+            continue
+        items = r.data
+        if isinstance(items, dict):
+            items = items.get("data") or []
+        for it in items:
+            mid = it.get("id")
+            if mid and mid not in seen_name_ids:
+                seen_name_ids.add(mid)
+                raw_name_hits.append(it)
 
     # Combine + dedupe by id
     seen = set()
