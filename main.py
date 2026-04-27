@@ -491,6 +491,30 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (template_id): {e}")
 
+        # Migration: rfm-database integration columns. Nullable so adding them
+        # is a zero-impact change. Behaviour is gated by RFM_API_INTEGRATION_ENABLED.
+        try:
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS external_member_id VARCHAR(36),
+                ADD COLUMN IF NOT EXISTS external_match_status VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS external_synced_at TIMESTAMP WITH TIME ZONE,
+                ADD COLUMN IF NOT EXISTS external_assembly_id VARCHAR(36)
+            """))
+            # Indexes for fast lookup by external id / unmatched listing
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_members_external_member_id
+                ON members(external_member_id)
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_members_external_match_status
+                ON members(external_match_status)
+            """))
+            conn.commit()
+            print("Migration: Added rfm-database integration columns to members")
+        except Exception as e:
+            print(f"Migration note (rfm-db integration): {e}")
+
         # Seed default home church program types (only if table is empty)
         try:
             existing = conn.execute(text("SELECT COUNT(*) FROM home_church_program_types")).scalar()

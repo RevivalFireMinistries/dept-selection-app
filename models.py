@@ -46,6 +46,17 @@ class Member(Base):
     is_active = Column(Boolean, nullable=False, server_default="true")
     reset_token = Column(String, nullable=True)
     reset_token_expires = Column(DateTime(timezone=True), nullable=True)
+    # Link to the central rfm-database (the source of truth for member info).
+    # external_member_id holds the API's UUID once matched; null means we
+    # haven't matched this local member to the API yet (legacy or orphan).
+    external_member_id = Column(String(36), nullable=True, index=True)
+    # 'matched' / 'ambiguous' / 'unmatched' / 'manual' / null
+    external_match_status = Column(String(20), nullable=True)
+    # When we last pulled fresh data from the API for this member
+    external_synced_at = Column(DateTime(timezone=True), nullable=True)
+    # Assembly UUID this member belongs to (drives multi-tenant scoping when
+    # the central API has more than one church).
+    external_assembly_id = Column(String(36), nullable=True, index=True)
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")
