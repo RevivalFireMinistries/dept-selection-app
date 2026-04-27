@@ -7038,3 +7038,209 @@ def admin_home_church_history(
         },
         "recent_notes": notes,
     }
+
+
+
+# ============================================================================
+# RFM-DATABASE SYNC (admin tools — Phase 2)
+# ----------------------------------------------------------------------------
+# Lets the admin see which local members link to the central rfm-database
+# (matched), which look ambiguous, and which are orphans (no record there).
+# Everything is gated by RFM_API_INTEGRATION_ENABLED.
+# ============================================================================
+
+import rfm_api_client as _rfm
+
+
+@router.get("/admin/rfm-sync/status")
+def admin_rfm_sync_status(request: Request, db: Session = Depends(get_db)):
+    """Summary counts + connectivity check. Used by the admin UI banner."""
+    _require_committee_or_admin(request, db)
+
+    enabled = _rfm.is_enabled(db)
+    configured = _rfm.is_configured(db)
+
+    counts = {"matched": 0, "ambiguous": 0, "unmatched": 0, "manual": 0, "pending": 0}
+    for status, count in db.query(
+        Member.external_match_status, func.count(Member.id)
+    ).group_by(Member.external_match_status).all():
+        key = status if status in counts else "pending"
+        counts[key] = (counts.get(key) or 0) + count
+
+    null_count = db.query(Member).filter(Member.external_match_status.is_(None)).count()
+    counts["pending"] = null_count
+
+    total = db.query(Member).count()
+
+    health = None
+    if enabled and configured:
+        h = _rfm.health_check(db)
+        health = {"ok": h.ok, "error": h.error, "status": h.status}
+
+    return {
+        "enabled": enabled,
+        "configured": configured,
+        "api_url": _rfm.get_api_url(db) or None,
+        "ttl_seconds": _rfm.get_ttl_seconds(db),
+        "counts": counts,
+        "total_members": total,
+        "health": health,
+    }
+
+
+@router.get("/admin/rfm-sync/members")
+def admin_rfm_sync_list(
+    request: Request,
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    _require_committee_or_admin(request, db)
+    q = db.query(Member)
+    if status == "pending":
+        q = q.filter(Member.external_match_status.is_(None))
+    elif status:
+        q = q.filter(Member.external_match_status == status)
+    members = q.order_by(Member.full_name).all()
+    return [
+        {
+            "id": m.id,
+            "full_name": m.full_name,
+            "phone": m.phone,
+            "email": m.email,
+            "external_member_id": m.external_member_id,
+            "external_match_status": m.external_match_status,
+            "external_synced_at": m.external_synced_at.isoformat() if m.external_synced_at else None,
+        }
+        for m in members
+    ]
+
+
+@router.post("/admin/rfm-sync/match-one")
+def admin_rfm_sync_match_one(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Run matching for one local member; returns candidates for the UI."""
+    _require_committee_or_admin(request, db)
+    member_id = data.get("member_id")
+    if not member_id:
+        raise HTTPException(status_code=400, detail="member_id required")
+    member = db.query(Member).filter(Member.id == int(member_id)).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    result = _rfm.match_local_member(member, db=db)
+    return {
+        "member": {"id": member.id, "full_name": member.full_name, "phone": member.phone},
+        "result": result,
+    }
+
+
+@router.post("/admin/rfm-sync/match-all")
+def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Walk every member that hasn't been matched yet (or all, with force=true)
+    and persist the matching result. Auto-matched rows store external_id;
+    ambiguous and unmatched rows are flagged for review."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured (URL/key missing)")
+
+    force = bool(data.get("force", False))
+    q = db.query(Member)
+    if not force:
+        q = q.filter(
+            (Member.external_match_status.is_(None))
+            | (Member.external_match_status == "ambiguous")
+            | (Member.external_match_status == "unmatched")
+        )
+    members = q.all()
+
+    summary = {"matched": 0, "ambiguous": 0, "unmatched": 0, "errors": 0, "skipped": 0}
+    errors_sample = []
+    from datetime import datetime as _dt
+
+    for m in members:
+        result = _rfm.match_local_member(m, db=db)
+        status = result.get("status")
+        if status == "matched":
+            m.external_member_id = result.get("external_id")
+            m.external_assembly_id = result.get("assembly_id")
+            m.external_match_status = "matched"
+            m.external_synced_at = _dt.utcnow()
+            summary["matched"] += 1
+        elif status == "ambiguous":
+            m.external_match_status = "ambiguous"
+            summary["ambiguous"] += 1
+        elif status == "unmatched":
+            m.external_match_status = "unmatched"
+            summary["unmatched"] += 1
+        elif status == "disabled":
+            summary["skipped"] += 1
+        else:
+            summary["errors"] += 1
+            if len(errors_sample) < 5:
+                errors_sample.append({"member_id": m.id, "error": result.get("error")})
+
+    db.commit()
+    _log_admin_action(
+        request, db,
+        "rfm_sync_match_all",
+        "members",
+        None,
+        f"Matched {summary['matched']}, ambiguous {summary['ambiguous']}, "
+        f"unmatched {summary['unmatched']}, errors {summary['errors']}"
+        + (" (forced)" if force else ""),
+    )
+    db.commit()
+    return {"summary": summary, "errors_sample": errors_sample, "scanned": len(members)}
+
+
+@router.post("/admin/rfm-sync/confirm")
+def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Manually link a local member to a specific external_member_id."""
+    _require_committee_or_admin(request, db)
+    try:
+        member_id = int(data["member_id"])
+        external_id = str(data["external_member_id"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="member_id and external_member_id required")
+    assembly_id = data.get("assembly_id")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    from datetime import datetime as _dt
+    member.external_member_id = external_id
+    if assembly_id:
+        member.external_assembly_id = str(assembly_id)
+    member.external_match_status = "manual"
+    member.external_synced_at = _dt.utcnow()
+    db.commit()
+    _log_admin_action(
+        request, db, "rfm_sync_manual_match", "member", member.id,
+        f"Manually matched {member.full_name} -> external {external_id}",
+    )
+    db.commit()
+    return {"success": True, "member_id": member.id, "external_member_id": external_id}
+
+
+@router.post("/admin/rfm-sync/unlink")
+def admin_rfm_sync_unlink(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Remove the link for a local member; resets to pending."""
+    _require_committee_or_admin(request, db)
+    try:
+        member_id = int(data["member_id"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="member_id required")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    member.external_member_id = None
+    member.external_match_status = None
+    member.external_synced_at = None
+    member.external_assembly_id = None
+    db.commit()
+    _log_admin_action(
+        request, db, "rfm_sync_unlink", "member", member.id,
+        f"Unlinked {member.full_name} from external database",
+    )
+    db.commit()
+    return {"success": True}

@@ -583,6 +583,15 @@ async def admin_schedules(request: Request):
     return templates.TemplateResponse("admin/schedules.html", {"request": request})
 
 
+@router.get("/admin/rfm-sync")
+async def admin_rfm_sync(request: Request):
+    """Admin: review which local members are matched to / orphaned from
+    the central rfm-database directory."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/rfm_sync.html", {"request": request})
+
+
 @router.get("/admin/home-churches")
 async def admin_home_churches(request: Request, phone: Optional[str] = None):
     """Home Church Committee: manage home churches and preacher roster.

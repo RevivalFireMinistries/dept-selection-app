@@ -287,3 +287,137 @@ def name_match_score(local_name: str, api_member: dict) -> float:
     if not union:
         return 0.0
     return len(a & b) / len(union)
+
+
+# ---------------------------------------------------------------------------
+# Matching service — figures out which API member a given local member is
+# ---------------------------------------------------------------------------
+
+# Tuned thresholds. Raise NAME_AUTO_THRESHOLD if we see false-positives.
+NAME_AUTO_THRESHOLD = 0.7   # auto-confirm when name score >= this
+NAME_CANDIDATE_THRESHOLD = 0.4  # show as candidate when name score >= this
+
+
+def match_local_member(
+    local_member,
+    *,
+    db=None,
+    page_size: int = 50,
+) -> dict:
+    """Try to find the rfm-database equivalent of a local Member row.
+
+    Returns a dict with:
+      status:       'matched' | 'ambiguous' | 'unmatched' | 'disabled' | 'error'
+      external_id:  UUID string when status='matched'
+      assembly_id:  UUID string when status='matched'
+      candidates:   list of API member dicts (always set; useful for UI review)
+      reason:       short human-readable explanation
+      error:        only when status='error'
+
+    The algorithm:
+      1. Normalise the local phone (strip ZA country code, formatting).
+      2. Search the API by phone (uses the API's `search` ILIKE).
+      3. Filter results to those whose normalised phone *exactly* matches.
+      4. If 0 phone-exact hits → check fuzzy name match across the loose
+         search hits to surface possible candidates.
+      5. If 1 phone-exact hit → score the name; auto-match if reasonable,
+         otherwise return as ambiguous.
+      6. If multiple phone-exact hits → pick the highest name score above
+         the auto threshold; otherwise ambiguous.
+    """
+    if not is_enabled(db):
+        return {"status": "disabled", "reason": "rfm-db integration disabled"}
+
+    phone_raw = (getattr(local_member, "phone", None) or "")
+    phone_norm = normalise_phone(phone_raw)
+    name = (getattr(local_member, "full_name", None) or "")
+
+    if not phone_norm:
+        return {"status": "unmatched", "reason": "local member has no phone", "candidates": []}
+
+    api_result = search_members(phone=phone_norm, page=1, size=page_size, db=db)
+    if api_result.disabled:
+        return {"status": "disabled", "reason": api_result.error}
+    if not api_result.ok:
+        return {"status": "error", "error": api_result.error or f"HTTP {api_result.status}"}
+
+    raw_candidates = api_result.data or []
+    if isinstance(raw_candidates, dict):  # safety net
+        raw_candidates = raw_candidates.get("data") or []
+
+    # Bucket candidates by phone-exact match (post-normalise)
+    phone_exact = [m for m in raw_candidates if normalise_phone(m.get("phone") or "") == phone_norm]
+
+    if len(phone_exact) == 1:
+        candidate = phone_exact[0]
+        score = name_match_score(name, candidate)
+        if score >= NAME_AUTO_THRESHOLD:
+            return {
+                "status": "matched",
+                "external_id": candidate.get("id"),
+                "assembly_id": candidate.get("assembly_id"),
+                "candidates": [_score_and_strip(candidate, score)],
+                "reason": f"Phone exact + name match {int(score*100)}%",
+            }
+        # Phone matches but name doesn't — flag for human review
+        return {
+            "status": "ambiguous",
+            "candidates": [_score_and_strip(candidate, score)],
+            "reason": f"Phone matches but name only {int(score*100)}% similar",
+        }
+
+    if len(phone_exact) > 1:
+        scored = sorted(
+            (_score_and_strip(m, name_match_score(name, m)) for m in phone_exact),
+            key=lambda x: x["_score"],
+            reverse=True,
+        )
+        best = scored[0]
+        # Auto-match only if best is decisively better
+        if (
+            best["_score"] >= NAME_AUTO_THRESHOLD
+            and (len(scored) < 2 or best["_score"] - scored[1]["_score"] >= 0.2)
+        ):
+            return {
+                "status": "matched",
+                "external_id": best["id"],
+                "assembly_id": best.get("assembly_id"),
+                "candidates": scored,
+                "reason": f"{len(phone_exact)} phone matches; best name score {int(best['_score']*100)}%",
+            }
+        return {
+            "status": "ambiguous",
+            "candidates": scored,
+            "reason": f"{len(phone_exact)} candidates with same phone — admin review needed",
+        }
+
+    # No phone-exact hits — surface fuzzy name hits as candidates for orphan review
+    name_candidates = sorted(
+        (_score_and_strip(m, name_match_score(name, m)) for m in raw_candidates),
+        key=lambda x: x["_score"],
+        reverse=True,
+    )
+    name_candidates = [c for c in name_candidates if c["_score"] >= NAME_CANDIDATE_THRESHOLD]
+
+    return {
+        "status": "unmatched",
+        "candidates": name_candidates[:5],
+        "reason": "No member with that phone found in central database",
+    }
+
+
+def _score_and_strip(api_member: dict, score: float) -> dict:
+    """Return a UI-friendly subset of the API member with the score attached.
+    The full payload is large; we only need a few fields for review."""
+    return {
+        "id": api_member.get("id"),
+        "assembly_id": api_member.get("assembly_id"),
+        "first_name": api_member.get("first_name"),
+        "last_name": api_member.get("last_name"),
+        "full_name": fullname_from_member(api_member),
+        "phone": api_member.get("phone"),
+        "email": api_member.get("email"),
+        "address": address_from_member(api_member),
+        "membership_status": api_member.get("membership_status"),
+        "_score": round(score, 3),
+    }
