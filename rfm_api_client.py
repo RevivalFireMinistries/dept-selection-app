@@ -368,6 +368,40 @@ def _significant_name_tokens(full_name: str) -> list:
     return out
 
 
+def _smart_titlecase(s: str) -> str:
+    """Title-case if the value is all-lowercase or all-uppercase (probably
+    meant to be proper case), otherwise leave alone. Preserves things like
+    'MacDonald', 'O'Brien', 'van der Walt' that humans wrote intentionally."""
+    if not s:
+        return s
+    if s.islower() or s.isupper():
+        return s[:1].upper() + s[1:].lower()
+    return s
+
+
+def derive_first_last_from_full(full_name: str) -> tuple:
+    """Best-effort split of a single 'full_name' into (first, last). Used when
+    the local portal has only a combined name field but the API expects them
+    split. Strips title prefixes, splits on whitespace only (so 'Mary-Jane'
+    stays as a single first name), and applies smart titlecasing.
+
+      'Pastor Alfred John'  -> ('Alfred', 'John')
+      'mary-jane smith'     -> ('Mary-jane', 'Smith')   (kept hyphenated)
+      'MacDonald'           -> ('MacDonald', '')
+      ''                    -> ('', '')
+    """
+    if not full_name:
+        return ("", "")
+    parts = full_name.strip().split()
+    while parts and parts[0].lower().rstrip(".") in _TITLE_TOKENS:
+        parts.pop(0)
+    if not parts:
+        return ("", "")
+    first = _smart_titlecase(parts[0])
+    last = _smart_titlecase(parts[-1]) if len(parts) > 1 else ""
+    return (first, last)
+
+
 def names_match_strict(local_full_name: str, api_member: dict) -> bool:
     """True if EITHER the API first_name OR the API last_name fully appears as
     tokens inside the local full_name. (Per user rule: phone match plus at

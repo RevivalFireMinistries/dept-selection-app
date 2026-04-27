@@ -161,8 +161,8 @@
                                                 <span class="px-2 py-0.5 text-[10px] font-semibold rounded-full"
                                                       :class="c._score >= 0.7 ? 'bg-emerald-100 text-emerald-700' : (c._score >= 0.4 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600')"
                                                       x-text="Math.round((c._score || 0) * 100) + '% match'"></span>
-                                                <button @click="confirmCandidate(c)" :disabled="review.confirming"
-                                                    class="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-60">
+                                                <button @click="selectCandidate(c)"
+                                                    class="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium">
                                                     Use this
                                                 </button>
                                             </div>
@@ -219,8 +219,8 @@
                                             <span class="px-2 py-0.5 text-[10px] font-semibold rounded-full"
                                                 :class="r._score >= 0.7 ? 'bg-emerald-100 text-emerald-700' : (r._score >= 0.4 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600')"
                                                 x-text="r._score > 0 ? Math.round(r._score * 100) + '% match' : 'no name match'"></span>
-                                            <button @click="confirmCandidate(r)" :disabled="review.confirming"
-                                                class="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium disabled:opacity-60">
+                                            <button @click="selectCandidate(r)"
+                                                class="px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium">
                                                 Link this
                                             </button>
                                         </div>
@@ -230,6 +230,106 @@
                         </div>
                     </template>
                 </div>
+
+                <!-- Confirmation panel: appears after selecting a candidate.
+                     Lets the admin review side-by-side and pick which fields
+                     (if any) to push as overrides to the API. -->
+                <template x-if="confirmPanel.candidate">
+                    <div class="mt-4 pt-4 border-t-2 border-emerald-200">
+                        <div class="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider mb-2">
+                            ✓ Confirm match
+                        </div>
+                        <p class="text-xs text-gray-600 mb-3">
+                            Linking <strong x-text="review.member ? review.member.full_name : ''"></strong>
+                            ↔
+                            <strong x-text="confirmPanel.candidate.full_name"></strong>.
+                            Tick any field below to push the local value up to the central database.
+                        </p>
+
+                        <div class="space-y-3">
+                            <!-- Phone -->
+                            <div class="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                <input type="checkbox" x-model="confirmPanel.push.phone" :disabled="!confirmPanel.localPhoneValid" class="mt-1 w-4 h-4 flex-shrink-0">
+                                <div class="flex-1 min-w-0 text-xs">
+                                    <div class="font-semibold text-gray-700 mb-1">📱 Phone</div>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">Local</div>
+                                            <div class="font-mono" :class="confirmPanel.localPhoneValid ? 'text-gray-900' : 'text-rose-600'" x-text="confirmPanel.localPhoneCanonical || (review.member ? review.member.phone : '') || '—'"></div>
+                                            <div x-show="!confirmPanel.localPhoneValid && review.member && review.member.phone" class="text-[10px] text-rose-500">Not a valid SA mobile — can't push</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">API</div>
+                                            <div class="font-mono text-gray-900" x-text="confirmPanel.candidate.phone || '—'"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- First name -->
+                            <div class="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                <input type="checkbox" x-model="confirmPanel.push.first_name" :disabled="!confirmPanel.derivedFirst" class="mt-1 w-4 h-4 flex-shrink-0">
+                                <div class="flex-1 min-w-0 text-xs">
+                                    <div class="font-semibold text-gray-700 mb-1">👤 First name</div>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">Local (derived)</div>
+                                            <div class="text-gray-900" x-text="confirmPanel.derivedFirst || '—'"></div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">API</div>
+                                            <div class="text-gray-900" x-text="confirmPanel.candidate.first_name || '—'"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Last name -->
+                            <div class="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                <input type="checkbox" x-model="confirmPanel.push.last_name" :disabled="!confirmPanel.derivedLast" class="mt-1 w-4 h-4 flex-shrink-0">
+                                <div class="flex-1 min-w-0 text-xs">
+                                    <div class="font-semibold text-gray-700 mb-1">👤 Last name</div>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">Local (derived)</div>
+                                            <div class="text-gray-900" x-text="confirmPanel.derivedLast || '—'"></div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">API</div>
+                                            <div class="text-gray-900" x-text="confirmPanel.candidate.last_name || '—'"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Email -->
+                            <div class="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                <input type="checkbox" x-model="confirmPanel.push.email" :disabled="!confirmPanel.localEmailValid" class="mt-1 w-4 h-4 flex-shrink-0">
+                                <div class="flex-1 min-w-0 text-xs">
+                                    <div class="font-semibold text-gray-700 mb-1">✉️ Email</div>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">Local</div>
+                                            <div class="text-gray-900 break-all" x-text="(review.member && review.member.email) || '—'"></div>
+                                        </div>
+                                        <div>
+                                            <div class="text-gray-400 text-[10px] uppercase">API</div>
+                                            <div class="text-gray-900 break-all" x-text="confirmPanel.candidate.email || '—'"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2 mt-4">
+                            <button @click="cancelSelection()" class="flex-1 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">Cancel</button>
+                            <button @click="confirmCandidate()" :disabled="review.confirming"
+                                class="flex-1 px-3 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold disabled:opacity-60">
+                                <span x-text="review.confirming ? 'Linking…' : 'Confirm match'"></span>
+                            </button>
+                        </div>
+                    </div>
+                </template>
             </div>
         </div>
     </div>
@@ -247,6 +347,18 @@ function rfmSyncApp() {
         lastRunSummary: null,
         review: { open: false, loading: false, member: null, result: null, error: null, confirming: false },
         search: { query: '', running: false, attempted: false, results: [], error: null },
+        // Two-step confirm: when admin clicks "Use this" / "Link this" we open
+        // this panel showing local vs API for each field plus tickboxes to
+        // optionally push the local value up. Confirm sends explicit overrides.
+        confirmPanel: {
+            candidate: null,
+            derivedFirst: '',
+            derivedLast: '',
+            localPhoneValid: false,
+            localPhoneCanonical: '',
+            localEmailValid: false,
+            push: { phone: false, first_name: false, last_name: false, email: false },
+        },
 
         async init() {
             await this.loadStatus();
@@ -353,6 +465,7 @@ function rfmSyncApp() {
             // Reset the manual search and pre-fill it with this member's name
             // so the admin can just hit Enter to broaden the search
             this.search = { query: m.full_name || '', running: false, attempted: false, results: [], error: null };
+            this.cancelSelection();
             try {
                 const r = await fetch('/api/admin/rfm-sync/match-one', {
                     method: 'POST',
@@ -404,24 +517,126 @@ function rfmSyncApp() {
             }
         },
 
-        async confirmCandidate(c) {
-            if (this.review.confirming) return;
+        // ---- Smart helpers for the confirm panel ----
+
+        _isValidSaMobile(raw) {
+            return !!this._toSaCanonical(raw);
+        },
+        _toSaCanonical(raw) {
+            if (!raw) return '';
+            let digits = String(raw).replace(/\D+/g, '');
+            if (digits.startsWith('0027')) digits = digits.slice(4);
+            else if (digits.startsWith('27') && digits.length === 11) digits = '0' + digits.slice(2);
+            if (digits.length === 9 && /^[678]/.test(digits)) digits = '0' + digits;
+            return /^0[678]\d{8}$/.test(digits) ? digits : '';
+        },
+        _isValidEmail(raw) {
+            const s = (raw || '').trim();
+            if (!s.includes('@')) return false;
+            const after = s.split('@').pop() || '';
+            return after.includes('.');
+        },
+        _deriveFirstLast(fullName) {
+            // Mirror of the server-side helper. Strip titles, smart-titlecase.
+            const TITLES = new Set(['mr','mrs','ms','miss','dr','prof','professor','rev','reverend','pastor','pst','ps','evangelist','elder','deacon','bishop','apostle','bro','brother','sis','sister']);
+            if (!fullName) return ['', ''];
+            let parts = fullName.trim().split(/\s+/);
+            while (parts.length && TITLES.has(parts[0].toLowerCase().replace(/\.$/, ''))) parts.shift();
+            if (!parts.length) return ['', ''];
+            const tc = s => (s === s.toLowerCase() || s === s.toUpperCase())
+                ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+                : s;
+            const first = tc(parts[0]);
+            const last = parts.length > 1 ? tc(parts[parts.length - 1]) : '';
+            return [first, last];
+        },
+
+        // ---- Two-step confirm flow ----
+
+        selectCandidate(c) {
+            const member = this.review.member || {};
+            const [derivedFirst, derivedLast] = this._deriveFirstLast(member.full_name || '');
+            const localPhoneCanonical = this._toSaCanonical(member.phone || '');
+            const localPhoneValid = !!localPhoneCanonical;
+            const localEmailValid = this._isValidEmail(member.email);
+
+            // Smart default ticks: enrich (push) when the API field is empty
+            // AND local has a valid value. Don't auto-tick when API already
+            // has a value — admin must explicitly choose to overwrite.
+            const apiHas = (v) => !!(v && String(v).trim());
+            this.confirmPanel = {
+                candidate: c,
+                derivedFirst,
+                derivedLast,
+                localPhoneValid,
+                localPhoneCanonical,
+                localEmailValid,
+                push: {
+                    phone: localPhoneValid && !apiHas(c.phone),
+                    first_name: !!derivedFirst && !apiHas(c.first_name),
+                    last_name: !!derivedLast && !apiHas(c.last_name),
+                    email: localEmailValid && !apiHas(c.email),
+                },
+            };
+            // Scroll the confirm panel into view
+            this.$nextTick(() => {
+                const panel = document.querySelector('[x-show="review.open"] .border-emerald-200');
+                if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        },
+        cancelSelection() {
+            this.confirmPanel = {
+                candidate: null,
+                derivedFirst: '', derivedLast: '',
+                localPhoneValid: false, localPhoneCanonical: '',
+                localEmailValid: false,
+                push: { phone: false, first_name: false, last_name: false, email: false },
+            };
+        },
+        async confirmCandidate() {
+            if (this.review.confirming || !this.confirmPanel.candidate) return;
             this.review.confirming = true;
             try {
+                const c = this.confirmPanel.candidate;
+                const member = this.review.member;
+                // Build the overrides payload — only include fields the admin ticked
+                const overrides = {};
+                if (this.confirmPanel.push.phone && this.confirmPanel.localPhoneValid) {
+                    overrides.phone = this.confirmPanel.localPhoneCanonical;
+                }
+                if (this.confirmPanel.push.first_name && this.confirmPanel.derivedFirst) {
+                    overrides.first_name = this.confirmPanel.derivedFirst;
+                }
+                if (this.confirmPanel.push.last_name && this.confirmPanel.derivedLast) {
+                    overrides.last_name = this.confirmPanel.derivedLast;
+                }
+                if (this.confirmPanel.push.email && this.confirmPanel.localEmailValid) {
+                    overrides.email = (member.email || '').trim();
+                }
+                const body = {
+                    member_id: member.id,
+                    external_member_id: c.id,
+                    assembly_id: c.assembly_id,
+                };
+                if (Object.keys(overrides).length > 0) {
+                    body.overrides = overrides;
+                }
                 const r = await fetch('/api/admin/rfm-sync/confirm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        member_id: this.review.member.id,
-                        external_member_id: c.id,
-                        assembly_id: c.assembly_id,
-                    }),
+                    body: JSON.stringify(body),
                 });
                 if (!r.ok) {
                     const err = await r.json().catch(() => ({}));
                     throw new Error(err.detail || 'Failed');
                 }
+                const data = await r.json();
                 this.review.open = false;
+                this.cancelSelection();
+                if (data.pushed_fields && data.pushed_fields.length > 0) {
+                    // Soft toast — could be a proper UI toast later
+                    console.log('Pushed to API:', data.pushed_fields.join(', '));
+                }
                 await this.loadStatus();
                 await this.loadMembers();
             } catch (e) {

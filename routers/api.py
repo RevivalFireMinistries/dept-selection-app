@@ -7264,8 +7264,24 @@ def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db
 
 @router.post("/admin/rfm-sync/confirm")
 def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
-    """Manually link a local member to a specific external_member_id, and
-    push any enrichment (phone / email) the API record is missing."""
+    """Manually link a local member to a specific external_member_id and
+    optionally push explicit field overrides (phone / first_name / last_name /
+    email) up to the API. Useful when:
+      * The API record has the wrong phone and the portal has the right one
+      * The API has a typo in first/last name we can correct from local
+      * The API record is missing phone or email entirely
+    Body:
+      {
+        member_id: int (required),
+        external_member_id: uuid (required),
+        assembly_id: uuid (optional),
+        overrides: {
+          phone: str | null,
+          first_name: str | null,
+          last_name: str | null,
+          email: str | null,
+        }   ← when omitted, falls back to fill-only-if-empty enrichment
+      }"""
     _require_committee_or_admin(request, db)
     try:
         member_id = int(data["member_id"])
@@ -7273,6 +7289,7 @@ def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session
     except (KeyError, ValueError, TypeError):
         raise HTTPException(status_code=400, detail="member_id and external_member_id required")
     assembly_id = data.get("assembly_id")
+    overrides = data.get("overrides") or {}
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
@@ -7285,30 +7302,55 @@ def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session
     member.external_synced_at = _dt.utcnow()
     db.commit()
 
-    # Enrichment: re-fetch the API record to see if it's missing fields we
-    # have locally (phone / email). This catches the "names match but phone
-    # is missing in API" case the matcher flagged as ambiguous.
-    enriched_fields = []
-    if _rfm.is_enabled(db) and _rfm.is_configured(db):
-        api_get = _rfm.get_member(external_id, db=db)
-        if api_get.ok and isinstance(api_get.data, dict):
-            hint = _rfm._enrich_diff(api_get.data, phone=member.phone or "", email=member.email or "")
-            if hint:
-                push = _rfm.push_enrichment(external_id, hint, db=db)
-                if push.ok:
-                    enriched_fields = list(hint.keys())
+    # Build the API patch payload.
+    push_fields = {}
+    if overrides:
+        # Explicit overrides path — admin chose specific fields.
+        # Validate phone (only push valid SA mobiles), light-validate email.
+        if overrides.get("phone"):
+            canonical = _rfm.to_sa_canonical_mobile(overrides["phone"])
+            if canonical:
+                push_fields["phone"] = canonical
+        if overrides.get("first_name"):
+            v = str(overrides["first_name"]).strip()
+            if v:
+                push_fields["first_name"] = v
+        if overrides.get("last_name"):
+            v = str(overrides["last_name"]).strip()
+            if v:
+                push_fields["last_name"] = v
+        if overrides.get("email"):
+            v = str(overrides["email"]).strip()
+            if "@" in v and "." in v.split("@")[-1]:
+                push_fields["email"] = v
+    else:
+        # Fallback: re-fetch the API record and only fill missing fields.
+        if _rfm.is_enabled(db) and _rfm.is_configured(db):
+            api_get = _rfm.get_member(external_id, db=db)
+            if api_get.ok and isinstance(api_get.data, dict):
+                push_fields = _rfm._enrich_diff(
+                    api_get.data,
+                    phone=member.phone or "",
+                    email=member.email or "",
+                )
+
+    pushed_fields = []
+    if push_fields:
+        push = _rfm.push_enrichment(external_id, push_fields, db=db)
+        if push.ok:
+            pushed_fields = list(push_fields.keys())
 
     _log_admin_action(
         request, db, "rfm_sync_manual_match", "member", member.id,
         f"Manually matched {member.full_name} -> external {external_id}"
-        + (f" (enriched API with {', '.join(enriched_fields)})" if enriched_fields else ""),
+        + (f" (pushed to API: {', '.join(pushed_fields)})" if pushed_fields else ""),
     )
     db.commit()
     return {
         "success": True,
         "member_id": member.id,
         "external_member_id": external_id,
-        "enriched": enriched_fields,
+        "pushed_fields": pushed_fields,
     }
 
 
