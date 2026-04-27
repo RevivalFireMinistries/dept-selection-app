@@ -1660,10 +1660,22 @@ def admin_create_member(data: dict = Body(...), request: Request = None, db: Ses
 
 @router.put("/admin/members/{member_id}")
 def admin_update_member(member_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
-    """Admin: update a member's personal details (name, phone, email, address)"""
+    """Admin: update a member's personal details (name, phone, email, address).
+    If the member is linked to a central rfm-database record, the same changes
+    are propagated up so the central directory stays in sync. Local saves
+    always succeed even if the API push fails (e.g. central DB unreachable);
+    failure is reported in the response so admin knows."""
     member = db.query(Member).filter(Member.id == member_id).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
+
+    # Capture before-state so we know what actually changed
+    before = {
+        "full_name": member.full_name,
+        "phone": member.phone,
+        "email": member.email or "",
+        "address": member.address or "",
+    }
 
     if "full_name" in data and data["full_name"].strip():
         member.full_name = _title_case_name(data["full_name"].strip())
@@ -1682,8 +1694,60 @@ def admin_update_member(member_id: int, data: dict = Body(...), request: Request
     db.commit()
     db.refresh(member)
 
+    # ---- Central DB propagation ----
+    # Only attempt when the member is linked AND integration is on. Build the
+    # PATCH payload from fields that actually changed; fall through with
+    # api_push details so the UI can show "✓ also synced to central" or
+    # surface failures without blocking the local save.
+    api_push = {"attempted": False, "ok": False, "fields": [], "error": None}
+    try:
+        if member.external_member_id and _rfm.is_enabled(db) and _rfm.is_configured(db):
+            payload = {}
+            if before["full_name"] != member.full_name:
+                first, last = _rfm.derive_first_last_from_full(member.full_name)
+                if first:
+                    payload["first_name"] = first
+                if last:
+                    payload["last_name"] = last
+            if before["phone"] != member.phone:
+                canonical = _rfm.to_sa_canonical_mobile(member.phone or "")
+                if canonical:
+                    payload["phone"] = canonical
+                # If new phone isn't a valid SA mobile we silently skip the push
+                # for that field — local save still happened.
+            if before["email"] != (member.email or ""):
+                v = (member.email or "").strip()
+                if not v:
+                    # Allow clearing — but only push if the request actually
+                    # sent an empty string (vs not sending the field at all).
+                    if "email" in data:
+                        payload["email"] = ""
+                elif "@" in v and "." in v.split("@")[-1]:
+                    payload["email"] = v
+            if before["address"] != (member.address or ""):
+                # Local has a single string; the API splits across 4 fields.
+                # We just push the whole thing into physical_address since we
+                # don't have structured suburb/city/postal from the local UI.
+                payload["physical_address"] = member.address or ""
+
+            if payload:
+                api_push["attempted"] = True
+                api_push["fields"] = list(payload.keys())
+                push_result = _rfm.update_member(member.external_member_id, payload, db=db)
+                api_push["ok"] = push_result.ok
+                if not push_result.ok:
+                    api_push["error"] = push_result.error
+    except Exception as exc:
+        api_push["error"] = f"unexpected: {exc}"
+
     if request:
-        _log_admin_action(request, db, "update_member", "member", member_id, f"Updated member '{member.full_name}'")
+        log_msg = f"Updated member '{member.full_name}'"
+        if api_push["attempted"]:
+            if api_push["ok"]:
+                log_msg += f" (synced to central: {', '.join(api_push['fields'])})"
+            else:
+                log_msg += f" (central sync failed: {api_push['error']})"
+        _log_admin_action(request, db, "update_member", "member", member_id, log_msg)
         db.commit()
 
     return {
@@ -1691,7 +1755,8 @@ def admin_update_member(member_id: int, data: dict = Body(...), request: Request
         "full_name": member.full_name,
         "phone": member.phone,
         "email": member.email,
-        "address": member.address
+        "address": member.address,
+        "api_sync": api_push,
     }
 
 
