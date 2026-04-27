@@ -7153,8 +7153,9 @@ def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db
         )
     members = q.all()
 
-    summary = {"matched": 0, "ambiguous": 0, "unmatched": 0, "errors": 0, "skipped": 0}
+    summary = {"matched": 0, "ambiguous": 0, "unmatched": 0, "errors": 0, "skipped": 0, "enriched": 0}
     errors_sample = []
+    enrichment_sample = []
     from datetime import datetime as _dt
 
     for m in members:
@@ -7166,6 +7167,19 @@ def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db
             m.external_match_status = "matched"
             m.external_synced_at = _dt.utcnow()
             summary["matched"] += 1
+            # Enrichment: push fields the API was missing where we have valid
+            # values (validated SA mobile / email). Never pushes invalid data.
+            hint = result.get("enrich_hint") or {}
+            if hint:
+                push = _rfm.push_enrichment(result.get("external_id"), hint, db=db)
+                if push.ok:
+                    summary["enriched"] += 1
+                    if len(enrichment_sample) < 5:
+                        enrichment_sample.append({
+                            "member_id": m.id,
+                            "name": m.full_name,
+                            "fields": list(hint.keys()),
+                        })
         elif status == "ambiguous":
             m.external_match_status = "ambiguous"
             summary["ambiguous"] += 1
@@ -7186,16 +7200,23 @@ def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db
         "members",
         None,
         f"Matched {summary['matched']}, ambiguous {summary['ambiguous']}, "
-        f"unmatched {summary['unmatched']}, errors {summary['errors']}"
+        f"unmatched {summary['unmatched']}, errors {summary['errors']}, "
+        f"enriched {summary['enriched']}"
         + (" (forced)" if force else ""),
     )
     db.commit()
-    return {"summary": summary, "errors_sample": errors_sample, "scanned": len(members)}
+    return {
+        "summary": summary,
+        "errors_sample": errors_sample,
+        "enrichment_sample": enrichment_sample,
+        "scanned": len(members),
+    }
 
 
 @router.post("/admin/rfm-sync/confirm")
 def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
-    """Manually link a local member to a specific external_member_id."""
+    """Manually link a local member to a specific external_member_id, and
+    push any enrichment (phone / email) the API record is missing."""
     _require_committee_or_admin(request, db)
     try:
         member_id = int(data["member_id"])
@@ -7214,12 +7235,32 @@ def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session
     member.external_match_status = "manual"
     member.external_synced_at = _dt.utcnow()
     db.commit()
+
+    # Enrichment: re-fetch the API record to see if it's missing fields we
+    # have locally (phone / email). This catches the "names match but phone
+    # is missing in API" case the matcher flagged as ambiguous.
+    enriched_fields = []
+    if _rfm.is_enabled(db) and _rfm.is_configured(db):
+        api_get = _rfm.get_member(external_id, db=db)
+        if api_get.ok and isinstance(api_get.data, dict):
+            hint = _rfm._enrich_diff(api_get.data, phone=member.phone or "", email=member.email or "")
+            if hint:
+                push = _rfm.push_enrichment(external_id, hint, db=db)
+                if push.ok:
+                    enriched_fields = list(hint.keys())
+
     _log_admin_action(
         request, db, "rfm_sync_manual_match", "member", member.id,
-        f"Manually matched {member.full_name} -> external {external_id}",
+        f"Manually matched {member.full_name} -> external {external_id}"
+        + (f" (enriched API with {', '.join(enriched_fields)})" if enriched_fields else ""),
     )
     db.commit()
-    return {"success": True, "member_id": member.id, "external_member_id": external_id}
+    return {
+        "success": True,
+        "member_id": member.id,
+        "external_member_id": external_id,
+        "enriched": enriched_fields,
+    }
 
 
 @router.post("/admin/rfm-sync/unlink")

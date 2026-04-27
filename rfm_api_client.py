@@ -241,6 +241,8 @@ def update_member(member_id: str, fields: dict, *, db=None) -> ApiResult:
 # ---------------------------------------------------------------------------
 
 _PHONE_NON_DIGIT = re.compile(r"\D+")
+# SA mobile canonical: 10 digits, leading 0, second digit must be 6/7/8 (mobile prefixes 06X/07X/08X)
+_SA_MOBILE_CANONICAL_RE = re.compile(r"^0[678]\d{8}$")
 
 
 def normalise_phone(raw: str) -> str:
@@ -252,6 +254,46 @@ def normalise_phone(raw: str) -> str:
     # Treat South African numbers — drop leading "27" if present so 27821234567
     # matches 0821234567 by the last-9-digit comparison.
     return digits[-9:] if len(digits) >= 9 else digits
+
+
+def to_sa_canonical_mobile(raw: str) -> str:
+    """Convert any reasonable input into canonical SA mobile format '0XXXXXXXXX'
+    (10 digits, leading 0). Returns empty string if the number is not a valid
+    SA mobile.
+
+    Accepts:
+        '0619197741'       ✓ canonical
+        '619197741'        ✓ missing leading 0 (we add it)
+        '+27619197741'     ✓ international
+        '0027619197741'    ✓ international with 00 prefix
+        '+27 61 919 7741'  ✓ formatting tolerated
+        '0119197741'       ✗ landline (11x), not mobile — rejected
+        '619197741X'       ✗ contains a letter
+        '12345'            ✗ too short
+
+    Validation rule: SA mobile prefixes are 06X / 07X / 08X (e.g. 060–069,
+    071–076, 078–079, 081–084, 087–089). We accept any 0[678] for forward-
+    compatibility — the regulator periodically opens new ranges."""
+    if not raw:
+        return ""
+    digits = _PHONE_NON_DIGIT.sub("", str(raw))
+    # International prefixes — handle "0027..." → "27..." → "0..."
+    if digits.startswith("0027"):
+        digits = digits[4:]  # drop the entire "0027" prefix; the 9 leftover
+                             # digits will get a leading 0 added below
+    elif digits.startswith("27") and len(digits) == 11:
+        digits = "0" + digits[2:]
+    # Missing leading 0 case (9 digits starting with 6/7/8)
+    if len(digits) == 9 and digits[0] in ("6", "7", "8"):
+        digits = "0" + digits
+    if _SA_MOBILE_CANONICAL_RE.match(digits):
+        return digits
+    return ""
+
+
+def is_valid_sa_mobile(raw: str) -> bool:
+    """True if `raw` represents a valid SA mobile number in any format."""
+    return bool(to_sa_canonical_mobile(raw))
 
 
 def fullname_from_member(api_member: dict) -> str:
@@ -289,6 +331,30 @@ def name_match_score(local_name: str, api_member: dict) -> float:
     return len(a & b) / len(union)
 
 
+def _name_tokens(s: str) -> set:
+    """Tokenise a name: lowercased, split on whitespace and hyphens, drop empties.
+    Handles 'Mary-Jane', 'Van Der Walt', 'Pastor John Smith' all sensibly."""
+    if not s:
+        return set()
+    return {t for t in re.split(r"[\s\-]+", s.lower().strip()) if t}
+
+
+def names_match_strict(local_full_name: str, api_member: dict) -> bool:
+    """True if EITHER the API first_name OR the API last_name fully appears as
+    tokens inside the local full_name. (Per user rule: phone match plus at
+    least one of first/last matching → match. Tolerates hyphenated names,
+    title prefixes like "Pastor", marital surname changes, missing middle
+    names, etc.) Case- and hyphen-insensitive."""
+    local = _name_tokens(local_full_name)
+    first = _name_tokens(api_member.get("first_name"))
+    last = _name_tokens(api_member.get("last_name"))
+    if not first and not last:
+        return False
+    first_ok = bool(first) and first.issubset(local)
+    last_ok = bool(last) and last.issubset(local)
+    return first_ok or last_ok
+
+
 # ---------------------------------------------------------------------------
 # Matching service — figures out which API member a given local member is
 # ---------------------------------------------------------------------------
@@ -306,24 +372,23 @@ def match_local_member(
 ) -> dict:
     """Try to find the rfm-database equivalent of a local Member row.
 
-    Returns a dict with:
-      status:       'matched' | 'ambiguous' | 'unmatched' | 'disabled' | 'error'
-      external_id:  UUID string when status='matched'
-      assembly_id:  UUID string when status='matched'
-      candidates:   list of API member dicts (always set; useful for UI review)
-      reason:       short human-readable explanation
-      error:        only when status='error'
+    The user-stated rule:
+      * Phone matches AND first+last names match  →  matched
+      * Phone matches AND names disagree           →  ambiguous (admin review)
+      * Phone is missing on the API side but names match  →  matched
+        (and the caller should push our phone up to enrich the API record)
+      * No phone or name match anywhere            →  unmatched
 
-    The algorithm:
-      1. Normalise the local phone (strip ZA country code, formatting).
-      2. Search the API by phone (uses the API's `search` ILIKE).
-      3. Filter results to those whose normalised phone *exactly* matches.
-      4. If 0 phone-exact hits → check fuzzy name match across the loose
-         search hits to surface possible candidates.
-      5. If 1 phone-exact hit → score the name; auto-match if reasonable,
-         otherwise return as ambiguous.
-      6. If multiple phone-exact hits → pick the highest name score above
-         the auto threshold; otherwise ambiguous.
+    Returns a dict:
+      status:        'matched' | 'ambiguous' | 'unmatched' | 'disabled' | 'error'
+      external_id:   UUID string when status='matched'
+      assembly_id:   UUID string when status='matched'
+      candidates:    list of API member dicts (for the admin review panel)
+      reason:        short human-readable explanation
+      enrich_hint:   dict of {field: value} that the caller should PATCH up
+                     (only when status='matched'; e.g. when API was missing
+                     phone or email and we have it locally)
+      error:         only when status='error'
     """
     if not is_enabled(db):
         return {"status": "disabled", "reason": "rfm-db integration disabled"}
@@ -331,79 +396,166 @@ def match_local_member(
     phone_raw = (getattr(local_member, "phone", None) or "")
     phone_norm = normalise_phone(phone_raw)
     name = (getattr(local_member, "full_name", None) or "")
+    email = (getattr(local_member, "email", None) or "").strip()
 
-    if not phone_norm:
-        return {"status": "unmatched", "reason": "local member has no phone", "candidates": []}
+    # We always run the phone search (when we have a phone) AND a name search,
+    # so we catch the "phone changed in central DB" and "phone missing in
+    # central DB" cases too. Cost: 1-2 paginated requests per local member.
+    raw_phone_hits = []
+    if phone_norm:
+        r = search_members(phone=phone_norm, page=1, size=page_size, db=db)
+        if r.disabled:
+            return {"status": "disabled", "reason": r.error}
+        if not r.ok:
+            return {"status": "error", "error": r.error or f"HTTP {r.status}"}
+        raw_phone_hits = r.data or []
+        if isinstance(raw_phone_hits, dict):
+            raw_phone_hits = raw_phone_hits.get("data") or []
 
-    api_result = search_members(phone=phone_norm, page=1, size=page_size, db=db)
-    if api_result.disabled:
-        return {"status": "disabled", "reason": api_result.error}
-    if not api_result.ok:
-        return {"status": "error", "error": api_result.error or f"HTTP {api_result.status}"}
+    raw_name_hits = []
+    if name.strip():
+        r = search_members(search=name.strip(), page=1, size=page_size, db=db)
+        if r.ok and r.data:
+            raw_name_hits = r.data
+            if isinstance(raw_name_hits, dict):
+                raw_name_hits = raw_name_hits.get("data") or []
 
-    raw_candidates = api_result.data or []
-    if isinstance(raw_candidates, dict):  # safety net
-        raw_candidates = raw_candidates.get("data") or []
+    # Combine + dedupe by id
+    seen = set()
+    all_hits = []
+    for m in (raw_phone_hits + raw_name_hits):
+        mid = m.get("id")
+        if mid and mid not in seen:
+            seen.add(mid)
+            all_hits.append(m)
 
-    # Bucket candidates by phone-exact match (post-normalise)
-    phone_exact = [m for m in raw_candidates if normalise_phone(m.get("phone") or "") == phone_norm]
+    # ---- Step 1: phone-exact bucket ----
+    phone_exact = [m for m in all_hits if phone_norm and normalise_phone(m.get("phone") or "") == phone_norm]
 
-    if len(phone_exact) == 1:
-        candidate = phone_exact[0]
-        score = name_match_score(name, candidate)
-        if score >= NAME_AUTO_THRESHOLD:
+    if phone_exact:
+        # Apply strict first+last name rule
+        full_match = [m for m in phone_exact if names_match_strict(name, m)]
+        if len(full_match) == 1:
+            best = full_match[0]
             return {
                 "status": "matched",
-                "external_id": candidate.get("id"),
-                "assembly_id": candidate.get("assembly_id"),
-                "candidates": [_score_and_strip(candidate, score)],
-                "reason": f"Phone exact + name match {int(score*100)}%",
+                "external_id": best.get("id"),
+                "assembly_id": best.get("assembly_id"),
+                "candidates": [_score_and_strip(best, 1.0)],
+                "reason": "Phone + first/last name match",
+                "enrich_hint": _enrich_diff(best, email=email),  # phone already matches
             }
-        # Phone matches but name doesn't — flag for human review
-        return {
-            "status": "ambiguous",
-            "candidates": [_score_and_strip(candidate, score)],
-            "reason": f"Phone matches but name only {int(score*100)}% similar",
-        }
-
-    if len(phone_exact) > 1:
+        if len(full_match) > 1:
+            scored = sorted(
+                (_score_and_strip(m, name_match_score(name, m)) for m in full_match),
+                key=lambda x: x["_score"], reverse=True,
+            )
+            return {
+                "status": "ambiguous",
+                "candidates": scored,
+                "reason": f"{len(full_match)} candidates share phone AND names — admin review",
+            }
+        # Phone matched but neither candidate has matching first+last — admin review
         scored = sorted(
             (_score_and_strip(m, name_match_score(name, m)) for m in phone_exact),
-            key=lambda x: x["_score"],
-            reverse=True,
+            key=lambda x: x["_score"], reverse=True,
         )
-        best = scored[0]
-        # Auto-match only if best is decisively better
-        if (
-            best["_score"] >= NAME_AUTO_THRESHOLD
-            and (len(scored) < 2 or best["_score"] - scored[1]["_score"] >= 0.2)
-        ):
-            return {
-                "status": "matched",
-                "external_id": best["id"],
-                "assembly_id": best.get("assembly_id"),
-                "candidates": scored,
-                "reason": f"{len(phone_exact)} phone matches; best name score {int(best['_score']*100)}%",
-            }
         return {
             "status": "ambiguous",
             "candidates": scored,
-            "reason": f"{len(phone_exact)} candidates with same phone — admin review needed",
+            "reason": "Phone matches but first/last name do not — admin review",
         }
 
-    # No phone-exact hits — surface fuzzy name hits as candidates for orphan review
-    name_candidates = sorted(
-        (_score_and_strip(m, name_match_score(name, m)) for m in raw_candidates),
-        key=lambda x: x["_score"],
-        reverse=True,
+    # ---- Step 2: no phone match — name-only matches go to AMBIGUOUS ----
+    # Per user rule: auto-confirming purely on names is too risky (different
+    # people share names; phones change rarely). When the phone doesn't match,
+    # surface every name-match as a candidate and let an admin manually pick.
+    # If the admin picks one, the confirm endpoint will run enrichment so the
+    # API gets our phone if it was missing there.
+    name_match_hits = [m for m in all_hits if names_match_strict(name, m)]
+
+    if name_match_hits:
+        scored = sorted(
+            (_score_and_strip(m, name_match_score(name, m)) for m in name_match_hits),
+            key=lambda x: x["_score"], reverse=True,
+        )
+        if len(name_match_hits) == 1:
+            api_phone = (name_match_hits[0].get("phone") or "").strip()
+            reason = (
+                "Names match but phone is missing in central database — admin should confirm"
+                if not api_phone else
+                "Names match but phone differs from local — admin should confirm"
+            )
+        else:
+            reason = f"{len(name_match_hits)} different people with these names — admin must pick"
+        return {
+            "status": "ambiguous",
+            "candidates": scored,
+            "reason": reason,
+        }
+
+    # ---- Step 3: no exact match — surface fuzzy candidates for the orphan view ----
+    fuzzy = sorted(
+        (_score_and_strip(m, name_match_score(name, m)) for m in all_hits),
+        key=lambda x: x["_score"], reverse=True,
     )
-    name_candidates = [c for c in name_candidates if c["_score"] >= NAME_CANDIDATE_THRESHOLD]
+    fuzzy = [c for c in fuzzy if c["_score"] >= NAME_CANDIDATE_THRESHOLD][:5]
 
     return {
         "status": "unmatched",
-        "candidates": name_candidates[:5],
-        "reason": "No member with that phone found in central database",
+        "candidates": fuzzy,
+        "reason": "No member with this phone or name in central database",
     }
+
+
+def _enrich_diff(api_member: dict, *, phone: str = "", email: str = "") -> dict:
+    """Return only the fields the API is missing where we have a valid value.
+    Per user-stated rules:
+      * Phone is only enriched when the local value is a valid SA mobile
+        AND the API record has no phone. We push the canonical 0XXXXXXXXX
+        form so the central database stays consistent.
+      * Email is enriched when the API field is empty and we have a non-
+        empty local value (very light validation — non-empty + has '@').
+    """
+    updates = {}
+    api_phone = (api_member.get("phone") or "").strip()
+    api_email = (api_member.get("email") or "").strip()
+
+    if phone and not api_phone:
+        canonical = to_sa_canonical_mobile(phone)
+        if canonical:
+            updates["phone"] = canonical
+        # If local phone is invalid we silently skip — never push junk into the
+        # central database. The admin sees the local member is matched; the
+        # local invalid phone stays in the local table.
+
+    if email and not api_email:
+        clean = email.strip()
+        if "@" in clean and "." in clean.split("@")[-1]:
+            updates["email"] = clean
+
+    return updates
+
+
+def push_enrichment(api_member_id: str, fields: dict, *, db=None) -> ApiResult:
+    """Convenience: PATCH only the enrichment fields back to the API.
+    Returns the same ApiResult contract as other client functions so callers
+    can log success/failure but never need to handle exceptions."""
+    if not fields:
+        return ApiResult(ok=True, data={"updated": False, "reason": "nothing to enrich"})
+    return update_member(api_member_id, fields, db=db)
+
+
+def _clean_phone_for_display(raw: str) -> str:
+    """API phone for display/storage: canonical SA mobile if possible, else
+    just the digits with all whitespace stripped. Never include spaces."""
+    if not raw:
+        return ""
+    canonical = to_sa_canonical_mobile(raw)
+    if canonical:
+        return canonical
+    # Not a valid SA mobile — strip whitespace so 'foo 123' becomes 'foo123'
+    return re.sub(r"\s+", "", str(raw))
 
 
 def _score_and_strip(api_member: dict, score: float) -> dict:
@@ -415,8 +567,8 @@ def _score_and_strip(api_member: dict, score: float) -> dict:
         "first_name": api_member.get("first_name"),
         "last_name": api_member.get("last_name"),
         "full_name": fullname_from_member(api_member),
-        "phone": api_member.get("phone"),
-        "email": api_member.get("email"),
+        "phone": _clean_phone_for_display(api_member.get("phone")),
+        "email": (api_member.get("email") or "").strip(),
         "address": address_from_member(api_member),
         "membership_status": api_member.get("membership_status"),
         "_score": round(score, 3),
