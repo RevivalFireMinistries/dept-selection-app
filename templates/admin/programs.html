@@ -472,6 +472,55 @@ async function loadMembers() {
     } catch (e) { console.error('Failed to load members:', e); }
 }
 
+// ---- Central rfm-database search helpers (used by name pickers) ----
+// General member searches (anywhere a name is being looked up freely) call
+// the central database and merge results with local. Constrained pickers
+// (HOD list, dept members) stay local because they reference local-only data.
+
+let _centralSearchCache = new Map();  // query -> results (debounce identical queries)
+const _centralSearchTokens = new Map();  // input-id -> latest token (race protection)
+
+async function searchCentralMembers(query) {
+    const q = (query || '').trim();
+    if (q.length < 2) return [];
+    if (_centralSearchCache.has(q)) return _centralSearchCache.get(q);
+    try {
+        const r = await fetch('/api/admin/members/external-search?q=' + encodeURIComponent(q));
+        if (!r.ok) return [];
+        const data = await r.json();
+        if (!data.enabled) return [];
+        const results = data.results || [];
+        // Cap cache to avoid memory bloat over a long session
+        if (_centralSearchCache.size > 50) {
+            const oldest = _centralSearchCache.keys().next().value;
+            _centralSearchCache.delete(oldest);
+        }
+        _centralSearchCache.set(q, results);
+        return results;
+    } catch (e) {
+        return [];
+    }
+}
+
+// Import a central member into the local DB (no department), return the
+// new local member object so callers can use the local id. Used by ID-based
+// pickers (service manager, etc.) — name-only pickers (participants) just
+// display the central name without importing.
+async function importCentralMember(externalId, phoneOverride) {
+    const body = { external_member_id: externalId };
+    if (phoneOverride) body.phone = phoneOverride;
+    const r = await fetch('/api/admin/members/import-from-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || ('Import failed (HTTP ' + r.status + ')'));
+    }
+    return await r.json();
+}
+
 // Track the logged-in admin so we can default the Service Manager picker.
 let currentAdminIdentity = null;
 async function loadCurrentAdmin() {
@@ -509,6 +558,8 @@ function setupServiceManagerAutocomplete() {
     let filtered = [];
     let selectedIndex = -1;
 
+    let lastQuery = "";
+
     function show(items) {
         hide();
         filtered = items;
@@ -516,10 +567,19 @@ function setupServiceManagerAutocomplete() {
         if (items.length === 0) return;
         dropdown = document.createElement('div');
         dropdown.className = 'autocomplete-dropdown';
-        items.forEach((m, i) => {
+        let lastSource = null;
+        items.forEach((m) => {
+            if (m.source === 'central' && lastSource !== 'central') {
+                const hdr = document.createElement('div');
+                hdr.style.cssText = 'padding:4px 10px; font-size:10px; font-weight:600; color:#0369a1; background:#f0f9ff; text-transform:uppercase; letter-spacing:0.5px;';
+                hdr.textContent = '🌐 Central database';
+                dropdown.appendChild(hdr);
+            }
+            lastSource = m.source;
             const div = document.createElement('div');
             div.className = 'ac-item';
-            div.innerHTML = `${escapeHtml(m.titledName || m.fullName)}<span class="ac-phone">${m.phone}</span>`;
+            const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
+            div.innerHTML = `${escapeHtml(display)}<span class="ac-phone">${escapeHtml(m.phone || '')}</span>`;
             div.addEventListener('mousedown', (e) => { e.preventDefault(); pick(m); });
             div.addEventListener('touchstart', () => pick(m), { passive: true });
             dropdown.appendChild(div);
@@ -531,22 +591,48 @@ function setupServiceManagerAutocomplete() {
         dropdown = null;
         selectedIndex = -1;
     }
-    function pick(m) {
+    async function pick(m) {
+        // Local: just use their existing id.
+        // Central: import them first to get a local id, then use it.
+        if (m.source === 'central') {
+            const display = m.full_name;
+            input.value = display + ' (importing…)';
+            try {
+                const result = await importCentralMember(m.id);
+                // Refresh the local member cache so they appear in subsequent searches
+                await loadMembers();
+                setServiceManager(result.member_id, display);
+            } catch (e) {
+                alert('Failed to import: ' + e.message);
+                input.value = '';
+                hidden.value = '';
+            }
+            hide();
+            return;
+        }
         setServiceManager(m.id, m.titledName || m.fullName);
         hide();
     }
 
-    input.addEventListener('input', () => {
+    input.addEventListener('input', async () => {
         // Typing invalidates any previous selection until a match is picked
         hidden.value = '';
-        const query = input.value.trim().toLowerCase();
+        const query = input.value.trim();
+        lastQuery = query;
         if (query.length < 1) { hide(); return; }
-        const matches = allMembers.filter(m =>
-            m.fullName.toLowerCase().includes(query) ||
-            (m.titledName && m.titledName.toLowerCase().includes(query)) ||
-            m.phone.includes(query)
-        ).slice(0, 10);
-        show(matches);
+        const q = query.toLowerCase();
+        const local = allMembers.filter(m =>
+            m.fullName.toLowerCase().includes(q) ||
+            (m.titledName && m.titledName.toLowerCase().includes(q)) ||
+            m.phone.includes(q)
+        ).slice(0, 8).map(m => ({ ...m, source: 'local' }));
+        show(local);
+        if (query.length >= 2) {
+            const central = await searchCentralMembers(query);
+            if (lastQuery !== query) return;
+            const merged = local.concat(central.slice(0, 8).map(c => ({ ...c, source: 'central' })));
+            show(merged);
+        }
     });
     input.addEventListener('keydown', (e) => {
         if (!dropdown) return;
@@ -1019,7 +1105,8 @@ function getGroupRole(group) {
 function setupAutocomplete(input) {
     let dropdown = null;
     let selectedIndex = -1;
-    let filtered = [];
+    let filtered = [];        // unified list shown — each item has source: 'local' | 'central'
+    let lastQuery = "";
 
     function showDropdown(items) {
         closeAllDropdowns();
@@ -1029,10 +1116,22 @@ function setupAutocomplete(input) {
 
         dropdown = document.createElement('div');
         dropdown.className = 'autocomplete-dropdown';
-        items.forEach((m, i) => {
+        let lastSource = null;
+        items.forEach((m) => {
+            // Section header when crossing local→central boundary
+            if (m.source === 'central' && lastSource !== 'central') {
+                const hdr = document.createElement('div');
+                hdr.className = 'ac-section';
+                hdr.style.cssText = 'padding:4px 10px; font-size:10px; font-weight:600; color:#0369a1; background:#f0f9ff; text-transform:uppercase; letter-spacing:0.5px;';
+                hdr.textContent = '🌐 Central database';
+                dropdown.appendChild(hdr);
+            }
+            lastSource = m.source;
             const div = document.createElement('div');
             div.className = 'ac-item';
-            div.innerHTML = `${escapeHtml(m.titledName || m.fullName)}<span class="ac-phone">${m.phone}</span>`;
+            const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
+            const phoneStr = m.phone || '';
+            div.innerHTML = `${escapeHtml(display)}<span class="ac-phone">${escapeHtml(phoneStr)}</span>`;
             div.addEventListener('mousedown', (e) => { e.preventDefault(); selectMember(m); });
             div.addEventListener('touchstart', (e) => { selectMember(m); }, { passive: true });
             dropdown.appendChild(div);
@@ -1047,7 +1146,10 @@ function setupAutocomplete(input) {
     }
 
     function selectMember(m) {
-        input.value = m.titledName || m.fullName;
+        // Participant fields just store the name (no member id); for both
+        // local and central matches we just put the display name in.
+        const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
+        input.value = display;
         hideDropdown();
         updateCounts();
     }
@@ -1059,13 +1161,30 @@ function setupAutocomplete(input) {
         if (selectedIndex >= 0 && items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
     }
 
-    input.addEventListener('input', () => {
-        const query = input.value.trim().toLowerCase();
+    function buildLocalMatches(query) {
+        const q = query.toLowerCase();
+        return allMembers.filter(m =>
+            m.fullName.toLowerCase().includes(q) || (m.titledName && m.titledName.toLowerCase().includes(q)) || m.phone.includes(q)
+        ).slice(0, 8).map(m => ({ ...m, source: 'local' }));
+    }
+
+    input.addEventListener('input', async () => {
+        const query = input.value.trim();
+        lastQuery = query;
         if (query.length < 1) { hideDropdown(); return; }
-        const matches = allMembers.filter(m =>
-            m.fullName.toLowerCase().includes(query) || (m.titledName && m.titledName.toLowerCase().includes(query)) || m.phone.includes(query)
-        ).slice(0, 10);
-        showDropdown(matches);
+
+        // 1) instant local matches
+        const local = buildLocalMatches(query);
+        showDropdown(local);
+
+        // 2) central matches — search in parallel, append when results arrive
+        if (query.length >= 2) {
+            const central = await searchCentralMembers(query);
+            // Bail if user kept typing
+            if (lastQuery !== query) return;
+            const merged = local.concat(central.slice(0, 8).map(c => ({ ...c, source: 'central' })));
+            showDropdown(merged);
+        }
     });
 
     input.addEventListener('keydown', (e) => {
