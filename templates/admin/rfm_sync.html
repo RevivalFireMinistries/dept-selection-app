@@ -231,6 +231,67 @@
                     </template>
                 </div>
 
+                <!-- "Add to central database" panel: when the member doesn't
+                     exist in the API at all and admin wants to push them up. -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <div class="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">📤 Or add to central database</div>
+                            <p class="text-[11px] text-gray-500 mt-1">If they're genuinely missing, push the local data up to create a new record.</p>
+                        </div>
+                        <button x-show="!createPanel.open" @click="openCreatePanel()" class="px-3 py-2 text-xs bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium flex-shrink-0">
+                            + Add to API
+                        </button>
+                    </div>
+
+                    <template x-if="createPanel.open">
+                        <div class="mt-3 p-4 border border-violet-200 rounded-lg bg-violet-50/40">
+                            <p class="text-xs text-gray-600 mb-3">Review the fields below — they're pre-filled from the local record. Edit anything that needs correcting before pushing.</p>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <label class="block">
+                                    <span class="text-[10px] font-semibold text-gray-600 uppercase">First name *</span>
+                                    <input x-model="createPanel.data.first_name" type="text"
+                                        class="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded">
+                                </label>
+                                <label class="block">
+                                    <span class="text-[10px] font-semibold text-gray-600 uppercase">Last name *</span>
+                                    <input x-model="createPanel.data.last_name" type="text"
+                                        class="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded">
+                                </label>
+                                <label class="block">
+                                    <span class="text-[10px] font-semibold text-gray-600 uppercase">Phone (SA mobile)</span>
+                                    <input x-model="createPanel.data.phone" type="text" placeholder="0XXXXXXXXX"
+                                        class="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded font-mono">
+                                    <div x-show="createPanel.data.phone && !_isValidSaMobile(createPanel.data.phone)" class="text-[10px] text-rose-600 mt-0.5">Not a valid SA mobile — won't be pushed</div>
+                                </label>
+                                <label class="block">
+                                    <span class="text-[10px] font-semibold text-gray-600 uppercase">Email</span>
+                                    <input x-model="createPanel.data.email" type="email" placeholder="name@example.com"
+                                        class="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded">
+                                </label>
+                                <label class="block col-span-2">
+                                    <span class="text-[10px] font-semibold text-gray-600 uppercase">Address</span>
+                                    <input x-model="createPanel.data.physical_address" type="text"
+                                        class="mt-1 w-full px-2 py-1.5 text-sm border border-gray-200 rounded">
+                                </label>
+                            </div>
+
+                            <template x-if="createPanel.error">
+                                <div class="mt-2 text-xs text-rose-600" x-text="createPanel.error"></div>
+                            </template>
+
+                            <div class="flex gap-2 mt-3">
+                                <button @click="createPanel.open = false" class="flex-1 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded">Cancel</button>
+                                <button @click="createInApi()" :disabled="createPanel.running"
+                                    class="flex-1 px-3 py-2 text-sm bg-violet-600 hover:bg-violet-700 text-white rounded font-semibold disabled:opacity-60">
+                                    <span x-text="createPanel.running ? 'Pushing…' : 'Push to central database'"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
                 <!-- Confirmation panel: appears after selecting a candidate.
                      Lets the admin review side-by-side and pick which fields
                      (if any) to push as overrides to the API. -->
@@ -359,6 +420,12 @@ function rfmSyncApp() {
             localEmailValid: false,
             push: { phone: false, first_name: false, last_name: false, email: false },
         },
+        createPanel: {
+            open: false,
+            running: false,
+            error: null,
+            data: { first_name: '', last_name: '', phone: '', email: '', physical_address: '' },
+        },
 
         async init() {
             await this.loadStatus();
@@ -466,6 +533,10 @@ function rfmSyncApp() {
             // so the admin can just hit Enter to broaden the search
             this.search = { query: m.full_name || '', running: false, attempted: false, results: [], error: null };
             this.cancelSelection();
+            this.createPanel = {
+                open: false, running: false, error: null,
+                data: { first_name: '', last_name: '', phone: '', email: '', physical_address: '' },
+            };
             try {
                 const r = await fetch('/api/admin/rfm-sync/match-one', {
                     method: 'POST',
@@ -643,6 +714,63 @@ function rfmSyncApp() {
                 alert('Error: ' + e.message);
             } finally {
                 this.review.confirming = false;
+            }
+        },
+
+        // ---- "Add to central database" flow ----
+
+        openCreatePanel() {
+            const m = this.review.member || {};
+            const [first, last] = this._deriveFirstLast(m.full_name || '');
+            const phoneCanonical = this._toSaCanonical(m.phone || '');
+            this.createPanel = {
+                open: true,
+                running: false,
+                error: null,
+                data: {
+                    first_name: first || '',
+                    last_name: last || '',
+                    phone: phoneCanonical || (m.phone || ''),
+                    email: m.email || '',
+                    physical_address: m.address || '',
+                },
+            };
+        },
+
+        async createInApi() {
+            if (this.createPanel.running) return;
+            const d = this.createPanel.data;
+            if (!d.first_name.trim() || !d.last_name.trim()) {
+                this.createPanel.error = 'First name and last name are required';
+                return;
+            }
+            this.createPanel.running = true;
+            this.createPanel.error = null;
+            try {
+                const r = await fetch('/api/admin/rfm-sync/create-from-local', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        member_id: this.review.member.id,
+                        first_name: d.first_name.trim(),
+                        last_name: d.last_name.trim(),
+                        phone: d.phone.trim(),
+                        email: d.email.trim(),
+                        physical_address: d.physical_address.trim(),
+                    }),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || ('Failed (HTTP ' + r.status + ')'));
+                }
+                this.review.open = false;
+                this.createPanel.open = false;
+                await this.loadStatus();
+                await this.loadMembers();
+            } catch (e) {
+                this.createPanel.error = e.message;
+            } finally {
+                this.createPanel.running = false;
             }
         },
 

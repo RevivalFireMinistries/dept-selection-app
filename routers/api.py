@@ -7354,6 +7354,148 @@ def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session
     }
 
 
+def _resolve_default_assembly_id(db: Session) -> Optional[str]:
+    """Best-effort assembly UUID resolver for 'create new in API' flows:
+      1. RFM_ASSEMBLY_ID env var or Settings entry
+      2. external_assembly_id of any locally-matched member (we already store
+         this when matching, so as long as one member is matched we know it)
+      3. First assembly returned by the API (works when the service key is
+         scoped to a single assembly — the common production setup)
+    Returns the UUID string, or None if all three fall through."""
+    import os as _os
+    raw = _os.getenv("RFM_ASSEMBLY_ID")
+    if raw:
+        return raw.strip()
+
+    from models import Settings as _Settings
+    s = db.query(_Settings).filter(_Settings.key == "rfm_assembly_id").first()
+    if s and s.value:
+        return s.value.strip()
+
+    # From any matched local member
+    m = (
+        db.query(Member)
+        .filter(Member.external_assembly_id.isnot(None))
+        .order_by(Member.external_synced_at.desc().nullslast() if hasattr(Member.external_synced_at, "desc") else Member.id.desc())
+        .first()
+    )
+    if m and m.external_assembly_id:
+        return str(m.external_assembly_id)
+
+    # Last resort — call the API
+    if _rfm.is_enabled(db) and _rfm.is_configured(db):
+        result = _rfm.list_assemblies(db=db)
+        if result.ok and result.data:
+            data = result.data
+            if isinstance(data, dict):
+                data = data.get("data") or []
+            if isinstance(data, list) and data:
+                return str(data[0].get("id"))
+    return None
+
+
+@router.post("/admin/rfm-sync/create-from-local")
+def admin_rfm_sync_create_from_local(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Push a local-only member up to the central database, then link the
+    local member to the new external record.
+
+    Used when a member exists in the portal but not in rfm-database (orphan
+    where no manual search candidate is right either). The admin reviews/
+    edits the derived first/last/phone/email in the UI panel and confirms.
+
+    Body:
+      {
+        member_id:   int (required) — the local member to push,
+        first_name:  str (required),
+        last_name:   str (required),
+        phone:       str (optional),
+        email:       str (optional),
+        physical_address: str (optional),
+      }"""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured (URL/key missing)")
+
+    try:
+        member_id = int(data["member_id"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="member_id required")
+
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    first_name = str(data.get("first_name") or "").strip()
+    last_name = str(data.get("last_name") or "").strip()
+    if not first_name or not last_name:
+        raise HTTPException(status_code=400, detail="first_name and last_name required")
+
+    assembly_id = data.get("assembly_id") or _resolve_default_assembly_id(db)
+    if not assembly_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not determine the assembly UUID to create this member under. "
+                "Set the RFM_ASSEMBLY_ID env var, or match at least one existing member first."
+            ),
+        )
+
+    # Validate optional fields with the same rules we use for enrichment
+    payload = {
+        "assembly_id": str(assembly_id),
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+    raw_phone = (data.get("phone") or "").strip()
+    if raw_phone:
+        canonical = _rfm.to_sa_canonical_mobile(raw_phone)
+        if canonical:
+            payload["phone"] = canonical
+    raw_email = (data.get("email") or "").strip()
+    if raw_email and "@" in raw_email and "." in raw_email.split("@")[-1]:
+        payload["email"] = raw_email
+    raw_address = (data.get("physical_address") or "").strip()
+    if raw_address:
+        payload["physical_address"] = raw_address
+
+    # Push it
+    result = _rfm.create_member(payload, db=db)
+    if not result.ok:
+        raise HTTPException(status_code=502, detail=result.error or "Failed to create in central database")
+
+    # Unwrap the new record
+    new_record = result.data
+    if isinstance(new_record, dict) and "data" in new_record:
+        new_record = new_record["data"]
+    new_id = (new_record or {}).get("id")
+    if not new_id:
+        raise HTTPException(status_code=502, detail="Central database did not return a new member id")
+
+    # Link it locally
+    from datetime import datetime as _dt
+    member.external_member_id = str(new_id)
+    member.external_assembly_id = str(assembly_id)
+    member.external_match_status = "manual"
+    member.external_synced_at = _dt.utcnow()
+    db.commit()
+
+    _log_admin_action(
+        request, db, "rfm_sync_create_in_api", "member", member.id,
+        f"Created {member.full_name} in central database (external id {new_id})",
+    )
+    db.commit()
+
+    return {
+        "success": True,
+        "member_id": member.id,
+        "external_member_id": str(new_id),
+        "assembly_id": str(assembly_id),
+        "pushed_fields": list(payload.keys()),
+    }
+
+
 @router.post("/admin/rfm-sync/unlink")
 def admin_rfm_sync_unlink(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
     """Remove the link for a local member; resets to pending."""

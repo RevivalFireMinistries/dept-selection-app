@@ -236,6 +236,20 @@ def update_member(member_id: str, fields: dict, *, db=None) -> ApiResult:
     return _request("PATCH", f"/api/v1/members/{member_id}", db=db, body=fields)
 
 
+def create_member(payload: dict, *, db=None) -> ApiResult:
+    """Create a new member in the central database. Used when an orphan
+    genuinely doesn't exist there yet and admin chooses to push them up.
+    Caller must include assembly_id, first_name, last_name (required by the
+    API's MemberCreate schema)."""
+    return _request("POST", "/api/v1/members", db=db, body=payload)
+
+
+def list_assemblies(*, db=None) -> ApiResult:
+    """List assemblies the API key has access to. With a scoped service key,
+    only one is returned — that's the calling portal's assembly."""
+    return _request("GET", "/api/v1/assemblies", db=db, params={"page": 1, "size": 50})
+
+
 # ---------------------------------------------------------------------------
 # Matching helpers
 # ---------------------------------------------------------------------------
