@@ -7496,6 +7496,200 @@ def admin_rfm_sync_create_from_local(request: Request, data: dict = Body(...), d
     }
 
 
+@router.get("/admin/members/external-search")
+def admin_members_external_search(
+    request: Request,
+    q: str = Query(..., min_length=2, description="Name or phone search query"),
+    db: Session = Depends(get_db),
+):
+    """Search the central rfm-database for members the admin can import into
+    the local portal. Excludes anyone already linked locally (their
+    external_member_id matches an existing local row) so we don't show
+    duplicates. Used by the admin Members page to surface central-only
+    matches alongside local search results."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        return {"enabled": False, "results": []}
+    if not _rfm.is_configured(db):
+        return {"enabled": True, "configured": False, "results": []}
+
+    # Search by each significant token of the query (matches the auto-matcher
+    # behaviour — phone or name substring matches per-field on the API).
+    tokens = _rfm._significant_name_tokens(q)
+    # Phone-only searches (digits) get added as-is too
+    phone_norm = _rfm.normalise_phone(q)
+    if phone_norm and len(phone_norm) >= 6 and phone_norm not in tokens:
+        tokens.append(phone_norm)
+    if not tokens:
+        tokens = [q.strip()]
+
+    seen_ids = set()
+    raw_results = []
+    for token in tokens:
+        api_result = _rfm.search_members(search=token, page=1, size=50, db=db)
+        if not api_result.ok or not api_result.data:
+            continue
+        items = api_result.data
+        if isinstance(items, dict):
+            items = items.get("data") or []
+        for item in items:
+            ext_id = item.get("id")
+            if ext_id and ext_id not in seen_ids:
+                seen_ids.add(ext_id)
+                raw_results.append(item)
+
+    # Drop ones already imported locally
+    if seen_ids:
+        already_linked = {
+            row[0] for row in db.query(Member.external_member_id)
+            .filter(Member.external_member_id.in_(list(seen_ids))).all()
+        }
+    else:
+        already_linked = set()
+
+    results = []
+    for item in raw_results:
+        if item.get("id") in already_linked:
+            continue
+        results.append(_rfm._score_and_strip(item, _rfm.name_match_score(q, item)))
+    # Sort: best name-score first, then alphabetical
+    results.sort(key=lambda r: (-r.get("_score", 0), (r.get("full_name") or "").lower()))
+
+    return {
+        "enabled": True,
+        "configured": True,
+        "query": q,
+        "count": len(results),
+        "results": results,
+    }
+
+
+@router.post("/admin/members/import-from-external")
+def admin_members_import_from_external(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Import a member from the central database into the local portal,
+    optionally assigning them to a department in the same call.
+
+    Body:
+      external_member_id: UUID (required) — the central record to import
+      department_id:      int (optional) — if set, assign immediately
+      phone:              str (optional) — required when central record has
+                                           no phone (local schema requires it)
+
+    Behaviour:
+      * Refuses if a local row already links to this external_id (use the
+        admin Members page to find the existing one and assign there)
+      * Pulls the central record fresh
+      * Builds local fields: full_name from first+last, phone from central
+        (canonicalised) or override, email/address joined
+      * Creates the local Member with status='approved' source='admin' and
+        the link pre-populated
+      * If department_id given, creates an approved MemberDepartment row
+    """
+    actor = _require_committee_or_admin(request, db)
+
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured")
+
+    external_id = (data.get("external_member_id") or "").strip()
+    if not external_id:
+        raise HTTPException(status_code=400, detail="external_member_id required")
+
+    # Reject duplicate links
+    existing = db.query(Member).filter(Member.external_member_id == external_id).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Already imported as local member id {existing.id} ({existing.full_name})",
+        )
+
+    # Fetch the canonical record
+    api_result = _rfm.get_member(external_id, db=db)
+    if not api_result.ok or not isinstance(api_result.data, dict):
+        raise HTTPException(
+            status_code=502,
+            detail=api_result.error or "Could not fetch central member record",
+        )
+    rec = api_result.data
+
+    full_name = _rfm.fullname_from_member(rec) or "Unknown"
+    central_phone = _rfm._clean_phone_for_display(rec.get("phone"))
+    override_phone = (data.get("phone") or "").strip()
+    if override_phone:
+        canonical = _rfm.to_sa_canonical_mobile(override_phone)
+        phone = canonical or override_phone
+    else:
+        phone = central_phone
+    if not phone:
+        raise HTTPException(
+            status_code=400,
+            detail="Central record has no phone — provide one in the request body",
+        )
+
+    email = (rec.get("email") or "").strip()
+    address = _rfm.address_from_member(rec)
+
+    from datetime import datetime as _dt
+    member = Member(
+        full_name=full_name,
+        phone=phone,
+        email=email or "",
+        address=address or "",
+        is_active=True,
+        external_member_id=external_id,
+        external_assembly_id=rec.get("assembly_id"),
+        external_match_status="manual",
+        external_synced_at=_dt.utcnow(),
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+
+    assigned_department = None
+    department_id = data.get("department_id")
+    if department_id:
+        try:
+            department_id_int = int(department_id)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="department_id must be an integer")
+        dept = db.query(Department).options(joinedload(Department.category)).filter(
+            Department.id == department_id_int
+        ).first()
+        if not dept:
+            # Don't roll back the import — admin can assign later
+            assigned_department = {"error": "Department not found, member imported without assignment"}
+        else:
+            md = MemberDepartment(
+                member_id=member.id,
+                department_id=dept.id,
+                status="approved",
+                source="admin",
+                status_changed_at=_dt.utcnow(),
+            )
+            db.add(md)
+            db.commit()
+            assigned_department = {"id": dept.id, "name": dept.name}
+
+    _log_admin_action(
+        request, db, "import_member_from_external", "member", member.id,
+        f"Imported {member.full_name} from central database (external {external_id})"
+        + (f"; assigned to {assigned_department['name']}" if assigned_department and assigned_department.get('name') else ""),
+    )
+    db.commit()
+
+    return {
+        "success": True,
+        "member_id": member.id,
+        "external_member_id": external_id,
+        "assigned_department": assigned_department,
+    }
+
+
 @router.post("/admin/rfm-sync/unlink")
 def admin_rfm_sync_unlink(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
     """Remove the link for a local member; resets to pending."""

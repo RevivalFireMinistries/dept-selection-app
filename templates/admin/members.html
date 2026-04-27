@@ -111,6 +111,54 @@
             </div>
         </div>
 
+        <!-- Central Database Results — populated by extSearch() when integration is enabled -->
+        <div id="centralResults" class="mt-6 hidden">
+            <div class="flex items-center justify-between mb-3 px-1">
+                <div>
+                    <h3 class="text-sm font-medium text-gray-700">🌐 Central Database</h3>
+                    <p class="text-xs text-gray-500">Members in rfm-database not yet in this portal — import + assign in one click.</p>
+                </div>
+                <span class="text-xs text-gray-400"><span id="centralResultCount">0</span> result(s)</span>
+            </div>
+            <div id="centralResultsContainer" class="space-y-2 max-h-[400px] overflow-y-auto"></div>
+        </div>
+        <div id="centralLoading" class="mt-3 hidden text-xs text-gray-400 flex items-center gap-2">
+            <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400"></div>
+            Searching central database…
+        </div>
+
+        <!-- Import + Assign Department dialog -->
+        <div id="importPanel" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center" onclick="if (event.target === this) closeImportPanel()">
+            <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+            <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl">
+                <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                        <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Import from central database</div>
+                        <div class="font-semibold text-gray-900" id="importMemberName"></div>
+                        <div class="text-xs text-gray-500" id="importMemberPhone"></div>
+                    </div>
+                    <button onclick="closeImportPanel()" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <label class="block">
+                        <span class="text-xs font-semibold text-gray-700">Assign to department (optional)</span>
+                        <select id="importDeptSelect" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"></select>
+                        <p class="text-[11px] text-gray-500 mt-1">Pick a department to also assign them on import. Skip this to just bring them into the portal.</p>
+                    </label>
+                    <label class="block hidden" id="importPhoneOverrideRow">
+                        <span class="text-xs font-semibold text-gray-700">Phone (required — central record has none)</span>
+                        <input id="importPhoneOverride" type="tel" placeholder="0XXXXXXXXX"
+                            class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono">
+                    </label>
+                    <div id="importError" class="hidden text-xs text-rose-600"></div>
+                    <div class="flex gap-2 pt-1">
+                        <button onclick="closeImportPanel()" class="flex-1 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg">Cancel</button>
+                        <button id="importConfirmBtn" onclick="confirmImport()" class="flex-1 px-3 py-2 text-sm bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-semibold">Import</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Loading -->
         <div id="searchLoading" class="mt-6 hidden">
             <div class="flex justify-center py-8">
@@ -207,6 +255,7 @@ function searchMembers() {
     if (!query) {
         document.getElementById('searchResults').classList.add('hidden');
         document.getElementById('noResults').classList.add('hidden');
+        document.getElementById('centralResults').classList.add('hidden');
         return;
     }
 
@@ -215,7 +264,7 @@ function searchMembers() {
     document.getElementById('searchResults').classList.add('hidden');
     document.getElementById('noResults').classList.add('hidden');
 
-    // Filter members
+    // Filter local members
     filteredMembers = allMembers.filter(member => {
         const name = (member.fullName || '').toLowerCase();
         const phone = (member.phone || '').toLowerCase();
@@ -225,6 +274,154 @@ function searchMembers() {
 
     applyFilter();
     renderResults();
+
+    // Also query the central database in parallel — surfaces members who exist
+    // there but aren't yet in the portal so admin can import + assign.
+    if (query.length >= 2) {
+        searchCentral(query);
+    }
+}
+
+let centralSearchToken = 0;
+async function searchCentral(query) {
+    const tok = ++centralSearchToken;
+    document.getElementById('centralLoading').classList.remove('hidden');
+    document.getElementById('centralResults').classList.add('hidden');
+    try {
+        const res = await fetch('/api/admin/members/external-search?q=' + encodeURIComponent(query));
+        if (tok !== centralSearchToken) return;  // stale response; user typed something newer
+        if (!res.ok) {
+            document.getElementById('centralLoading').classList.add('hidden');
+            return;
+        }
+        const data = await res.json();
+        if (!data.enabled) {
+            document.getElementById('centralLoading').classList.add('hidden');
+            return;
+        }
+        renderCentralResults(data.results || []);
+    } catch (e) {
+        console.error('Central search failed:', e);
+    } finally {
+        if (tok === centralSearchToken) {
+            document.getElementById('centralLoading').classList.add('hidden');
+        }
+    }
+}
+
+function renderCentralResults(results) {
+    const container = document.getElementById('centralResultsContainer');
+    const wrapper = document.getElementById('centralResults');
+    const countEl = document.getElementById('centralResultCount');
+
+    if (!results || results.length === 0) {
+        wrapper.classList.add('hidden');
+        return;
+    }
+    countEl.textContent = results.length;
+    wrapper.classList.remove('hidden');
+
+    container.innerHTML = results.map(r => {
+        const safeName = escapeHtml(r.full_name || '');
+        const safePhone = escapeHtml(r.phone || '');
+        const safeEmail = escapeHtml(r.email || '');
+        const safeAddress = escapeHtml(r.address || '');
+        const score = Math.round((r._score || 0) * 100);
+        const scoreColor = score >= 70 ? 'bg-emerald-100 text-emerald-700' : (score >= 40 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600');
+        return `
+            <div class="bg-white border border-sky-100 rounded-lg p-3 flex items-start justify-between gap-3 hover:border-sky-300">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="font-medium text-gray-900">${safeName}</span>
+                        <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${scoreColor}">${score}% match</span>
+                        <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700">CENTRAL</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-0.5">${safePhone || '—'}${safeEmail ? ' · ' + safeEmail : ''}</div>
+                    <div class="text-[11px] text-gray-400 mt-0.5">${safeAddress}</div>
+                </div>
+                <button onclick='openImportPanel(${JSON.stringify(r)})' class="px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium flex-shrink-0">
+                    + Import
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+let importTarget = null;
+let allDepartments = [];
+
+async function openImportPanel(centralMember) {
+    importTarget = centralMember;
+    if (allDepartments.length === 0) {
+        try {
+            const r = await fetch('/api/departments');
+            if (r.ok) {
+                const data = await r.json();
+                // /api/departments returns { categories, uncategorized } — flatten
+                const flat = [];
+                (data.uncategorized || []).forEach(d => flat.push(d));
+                (data.categories || []).forEach(c => (c.departments || []).forEach(d => flat.push(d)));
+                allDepartments = flat;
+            }
+        } catch (e) {}
+    }
+    document.getElementById('importMemberName').textContent = centralMember.full_name || '';
+    document.getElementById('importMemberPhone').textContent = centralMember.phone || '—';
+    const sel = document.getElementById('importDeptSelect');
+    sel.innerHTML = '<option value="">— No department (just import) —</option>'
+        + allDepartments.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    const phoneInput = document.getElementById('importPhoneOverride');
+    phoneInput.value = centralMember.phone || '';
+    phoneInput.parentElement.classList.toggle('hidden', !!centralMember.phone);
+    document.getElementById('importError').classList.add('hidden');
+    document.getElementById('importPanel').classList.remove('hidden');
+}
+
+function closeImportPanel() {
+    document.getElementById('importPanel').classList.add('hidden');
+    importTarget = null;
+}
+
+async function confirmImport() {
+    if (!importTarget) return;
+    const btn = document.getElementById('importConfirmBtn');
+    const errEl = document.getElementById('importError');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = 'Importing…';
+    try {
+        const body = {
+            external_member_id: importTarget.id,
+        };
+        const deptId = document.getElementById('importDeptSelect').value;
+        if (deptId) body.department_id = parseInt(deptId);
+        const phoneOverride = document.getElementById('importPhoneOverride').value.trim();
+        if (phoneOverride) body.phone = phoneOverride;
+
+        const r = await fetch('/api/admin/members/import-from-external', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            throw new Error(e.detail || ('Import failed (HTTP ' + r.status + ')'));
+        }
+        closeImportPanel();
+        // Refresh local list and re-run search so the new member shows in local results
+        await loadData();
+        searchMembers();
+    } catch (e) {
+        errEl.textContent = e.message;
+        errEl.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Import';
+    }
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function applyFilter() {
