@@ -1516,19 +1516,17 @@ async function loadPrograms() {
                         ${p.location_type === 'online'
                             ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
                             : ''}
+                        ${p.created_by_name ? `
+                            <span class="text-xs text-gray-500" title="Service Manager">
+                                created by <span class="font-medium text-gray-700">${escapeHtml(p.created_by_name)}</span>
+                            </span>
+                        ` : ''}
                     </div>
                     <div class="flex items-center gap-2 mt-0.5 flex-wrap">
                         ${isDraft ? `<p class="text-xs font-medium text-gray-500">${escapeHtml(p.title)}</p><span class="text-xs text-gray-300">&middot;</span>` : ''}
                         <p class="text-xs text-gray-500">${dateStr}</p>
                         <span class="text-xs text-gray-300">&middot;</span>
                         <p class="text-xs text-gray-400 card-summary">${summaryText}</p>
-                        ${p.created_by_name ? `
-                            <span class="text-xs text-gray-300">&middot;</span>
-                            <span class="inline-flex items-center gap-1 text-xs text-gray-500" title="Service Manager">
-                                <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                                <span class="font-medium">${escapeHtml(p.created_by_name)}</span>
-                            </span>
-                        ` : ''}
                     </div>
                 </div>
                 <svg class="w-5 h-5 text-gray-400 card-chevron transition-transform flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>

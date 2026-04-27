@@ -5113,6 +5113,21 @@ def create_program(data: ServiceProgramCreate, request: Request, db: Session = D
     if not data.program_items:
         raise HTTPException(status_code=400, detail="At least one program item is required")
 
+    # Resolve who's creating this program. Priority order:
+    #   1. Explicit created_by_member_id in the request payload (portal sends this)
+    #   2. The admin identity cookie (set when an admin logs in via /admin/login)
+    # Without this fallback, programs created from the admin form had no
+    # `created_by_member_id` and the list view couldn't show a Service Manager.
+    created_by_id = data.created_by_member_id
+    if not created_by_id:
+        try:
+            from routers.pages import get_admin_identity
+            identity = get_admin_identity(request)
+            if identity and identity.get("member_id"):
+                created_by_id = identity["member_id"]
+        except Exception:
+            pass
+
     program = ServiceProgram(
         title=data.title,
         service_date=data.service_date,
@@ -5123,7 +5138,7 @@ def create_program(data: ServiceProgramCreate, request: Request, db: Session = D
         pastors_announcements=json.dumps(data.pastors_announcements or []),
         prayer_points=json.dumps(data.prayer_points or []),
         template_id=data.template_id,
-        created_by_member_id=data.created_by_member_id
+        created_by_member_id=created_by_id
     )
     db.add(program)
     db.commit()
