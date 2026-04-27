@@ -319,9 +319,23 @@
 
     /* Program item rows - mobile friendly */
     .prog-item-row {
-        display: flex; gap: 8px; align-items: center;
+        display: flex; gap: 6px; align-items: center;
         background: #f9fafb; border-radius: 12px; padding: 8px;
+        transition: opacity 0.15s;
     }
+    .prog-item-row.dragging { opacity: 0.4; }
+    .prog-item-row.drag-over { border-top: 2px solid #3b82f6; }
+    .prog-item-row .drag-handle {
+        cursor: grab; touch-action: none; display: flex; align-items: center;
+        padding: 4px 2px; color: #d1d5db; flex-shrink: 0;
+    }
+    .prog-item-row .drag-handle:active { cursor: grabbing; }
+    .prog-item-row .move-btns { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+    .prog-item-row .move-btns button {
+        width: 24px; height: 20px; display: flex; align-items: center; justify-content: center;
+        border: none; background: none; color: #9ca3af; border-radius: 4px; cursor: pointer; padding: 0;
+    }
+    .prog-item-row .move-btns button:hover { background: #e5e7eb; color: #6b7280; }
     .prog-item-row input[type="time"] {
         width: 110px; padding: 10px 8px; border: 1px solid #e5e7eb;
         border-radius: 8px; font-size: 14px; background: white;
@@ -563,13 +577,37 @@ function addProgramItem(time = '', item = '') {
     const closeRow = container.querySelector('.close-item-row');
     const row = document.createElement('div');
     row.className = 'prog-item-row program-item-row';
+    row.draggable = true;
     row.innerHTML = `
+        <div class="drag-handle" title="Drag to reorder">
+            <svg width="14" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="11" r="1.5"/><circle cx="15" cy="11" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>
+        </div>
+        <div class="move-btns">
+            <button type="button" onclick="moveProgramItem(this.closest('.prog-item-row'), -1)" title="Move up">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"/></svg>
+            </button>
+            <button type="button" onclick="moveProgramItem(this.closest('.prog-item-row'), 1)" title="Move down">
+                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+        </div>
         <input type="time" value="${time}" placeholder="09:30" class="prog-item-time">
         <input type="text" value="${escapeHtml(item)}" placeholder="e.g., Prayer" class="prog-item-name">
-        <button type="button" onclick="this.parentElement.remove(); refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts()" class="btn-remove" title="Remove">
+        <button type="button" onclick="confirmRemoveProgramItem(this)" class="btn-remove" title="Remove">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
+    // Drag-and-drop events
+    row.addEventListener('dragstart', onProgItemDragStart);
+    row.addEventListener('dragover', onProgItemDragOver);
+    row.addEventListener('drop', onProgItemDrop);
+    row.addEventListener('dragend', onProgItemDragEnd);
+    row.addEventListener('dragleave', (e) => e.currentTarget.classList.remove('drag-over'));
+    // Touch reorder via drag handle
+    const handle = row.querySelector('.drag-handle');
+    handle.addEventListener('touchstart', onProgItemTouchStart, { passive: false });
+    handle.addEventListener('touchmove', onProgItemTouchMove, { passive: false });
+    handle.addEventListener('touchend', onProgItemTouchEnd);
+
     if (closeRow) {
         container.insertBefore(row, closeRow);
     } else {
@@ -595,6 +633,198 @@ function ensureCloseItem(time = '') {
     `;
     container.appendChild(row);
     updateCounts();
+}
+
+// ==================== PROGRAM ITEM REORDER ====================
+
+function moveProgramItem(row, direction) {
+    const container = document.getElementById('programItems');
+    const rows = [...container.querySelectorAll('.prog-item-row:not(.close-item-row)')];
+    const index = rows.indexOf(row);
+    if (index < 0) return;
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= rows.length) return;
+    if (direction === -1) {
+        container.insertBefore(row, rows[newIndex]);
+    } else {
+        const after = rows[newIndex].nextElementSibling;
+        container.insertBefore(row, after);
+    }
+    refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts();
+}
+
+// Desktop drag-and-drop
+let progDragRow = null;
+
+function onProgItemDragStart(e) {
+    if (this.classList.contains('close-item-row')) { e.preventDefault(); return; }
+    progDragRow = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function onProgItemDragOver(e) {
+    e.preventDefault();
+    if (!progDragRow || this === progDragRow || this.classList.contains('close-item-row')) return;
+    e.dataTransfer.dropEffect = 'move';
+    this.classList.add('drag-over');
+}
+
+function onProgItemDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+    if (!progDragRow || this === progDragRow || this.classList.contains('close-item-row')) return;
+    const container = document.getElementById('programItems');
+    const rows = [...container.querySelectorAll('.prog-item-row:not(.close-item-row)')];
+    const fromIdx = rows.indexOf(progDragRow);
+    const toIdx = rows.indexOf(this);
+    if (fromIdx < toIdx) {
+        this.after(progDragRow);
+    } else {
+        container.insertBefore(progDragRow, this);
+    }
+    refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts();
+}
+
+function onProgItemDragEnd() {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.prog-item-row').forEach(r => r.classList.remove('drag-over'));
+    progDragRow = null;
+}
+
+// Touch reorder for mobile
+let progTouchRow = null;
+let progTouchClone = null;
+let progTouchStartY = 0;
+let progTouchOrigTop = 0;
+
+function onProgItemTouchStart(e) {
+    const row = e.target.closest('.prog-item-row');
+    if (!row || row.classList.contains('close-item-row')) return;
+    progTouchRow = row;
+    progTouchStartY = e.touches[0].clientY;
+    const rect = row.getBoundingClientRect();
+    progTouchOrigTop = rect.top;
+    row.classList.add('dragging');
+    progTouchClone = row.cloneNode(true);
+    progTouchClone.style.cssText = `position:fixed;left:${rect.left}px;right:${window.innerWidth - rect.right}px;top:${rect.top}px;z-index:100;opacity:0.9;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.15);border-radius:12px;background:#fff;`;
+    document.body.appendChild(progTouchClone);
+    e.preventDefault();
+}
+
+function onProgItemTouchMove(e) {
+    if (!progTouchRow || !progTouchClone) return;
+    const touch = e.touches[0];
+    const dy = touch.clientY - progTouchStartY;
+    progTouchClone.style.top = (progTouchOrigTop + dy) + 'px';
+    const container = document.getElementById('programItems');
+    container.querySelectorAll('.prog-item-row:not(.close-item-row)').forEach(r => {
+        r.classList.remove('drag-over');
+        if (r === progTouchRow) return;
+        const rect = r.getBoundingClientRect();
+        if (touch.clientY > rect.top && touch.clientY < rect.bottom) {
+            r.classList.add('drag-over');
+        }
+    });
+    e.preventDefault();
+}
+
+function onProgItemTouchEnd(e) {
+    if (!progTouchRow) return;
+    if (progTouchClone) { progTouchClone.remove(); progTouchClone = null; }
+    const container = document.getElementById('programItems');
+    const lastTouch = e.changedTouches[0];
+    let target = null;
+    container.querySelectorAll('.prog-item-row:not(.close-item-row)').forEach(r => {
+        r.classList.remove('drag-over');
+        if (r === progTouchRow) return;
+        const rect = r.getBoundingClientRect();
+        if (lastTouch.clientY > rect.top && lastTouch.clientY < rect.bottom) {
+            target = r;
+        }
+    });
+    if (target) {
+        const rows = [...container.querySelectorAll('.prog-item-row:not(.close-item-row)')];
+        const fromIdx = rows.indexOf(progTouchRow);
+        const toIdx = rows.indexOf(target);
+        if (fromIdx < toIdx) {
+            target.after(progTouchRow);
+        } else {
+            container.insertBefore(progTouchRow, target);
+        }
+        refreshActivityDropdowns(); refreshPrayerActivityDropdowns(); updateCounts();
+    }
+    progTouchRow.classList.remove('dragging');
+    progTouchRow = null;
+}
+
+// ==================== DELETE CONFIRMATIONS ====================
+// Always confirm before destroying entered content. Empty rows just delete.
+
+function _rowHasAnyValue(...inputs) {
+    for (const input of inputs) {
+        if (input && (input.value || '').trim()) return true;
+    }
+    return false;
+}
+
+function confirmRemoveProgramItem(btn) {
+    const row = btn.closest('.prog-item-row');
+    if (!row) return;
+    const time = row.querySelector('.prog-item-time');
+    const name = row.querySelector('.prog-item-name');
+    if (_rowHasAnyValue(time, name)) {
+        const label = (name?.value || time?.value || '').trim() || 'this item';
+        if (!confirm(`Remove "${label}" from the program?`)) return;
+    }
+    row.remove();
+    refreshActivityDropdowns();
+    refreshPrayerActivityDropdowns();
+    updateCounts();
+}
+
+function confirmRemoveAnnouncement(btn) {
+    const row = btn.parentElement;
+    const input = row.querySelector('input');
+    const text = (input?.value || '').trim();
+    if (text && !confirm(`Remove this announcement?\n\n"${text}"`)) return;
+    row.remove();
+    updateCounts();
+}
+
+function confirmRemovePrayerPoint(btn) {
+    const row = btn.parentElement;
+    const input = row.querySelector('input');
+    const text = (input?.value || '').trim();
+    if (text && !confirm(`Remove this prayer point?\n\n"${text}"`)) return;
+    row.remove();
+    updateCounts();
+}
+
+function confirmRemoveParticipantGroup(btn) {
+    const group = btn.closest('.participant-group');
+    if (!group) return;
+    const sel = group.querySelector('.part-role-select');
+    const customRole = group.querySelector('.part-role-custom');
+    const role = (sel && sel.value && sel.value !== '__custom__' ? sel.value : (customRole?.value || '')).trim();
+    const names = [...group.querySelectorAll('.part-name-input, .ac-input, .part-names-list input[type="text"]')]
+        .map(i => (i.value || '').trim()).filter(Boolean);
+    if (role || names.length) {
+        const label = role || 'this activity';
+        const peopleNote = names.length ? ` and ${names.length} assigned ${names.length === 1 ? 'person' : 'people'}` : '';
+        if (!confirm(`Remove "${label}"${peopleNote}?`)) return;
+    }
+    group.remove();
+    updateCounts();
+}
+
+function confirmRemoveNameSlot(btn) {
+    const slot = btn.closest('.part-name-slot');
+    if (!slot) return;
+    const input = slot.querySelector('input[type="text"]');
+    const text = (input?.value || '').trim();
+    if (text && !confirm(`Remove "${text}"?`)) return;
+    removeNameSlot(btn);
 }
 
 // ==================== ACTIVITY DROPDOWN ====================
@@ -671,7 +901,7 @@ function addParticipantGroup(role = '', names = ['']) {
                 <input type="text" value="${isCustom ? escapeHtml(role) : ''}" placeholder="Type role name..."
                     class="w-full mt-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white part-role-custom ${isCustom ? '' : 'hidden'}">
             </div>
-            <button type="button" onclick="this.closest('.participant-group').remove(); updateCounts()" class="btn-remove" title="Remove activity">
+            <button type="button" onclick="confirmRemoveParticipantGroup(this)" class="btn-remove" title="Remove activity">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             </button>
         </div>
@@ -701,7 +931,7 @@ function addNameSlot(groupId, name = '') {
             <input type="text" value="${escapeHtml(name)}" placeholder="Search or type name..."
                 id="${id}" class="part-name" autocomplete="off">
         </div>
-        <button type="button" onclick="removeNameSlot(this)" class="btn-remove" style="width:32px;height:32px;min-width:32px;" title="Remove person">
+        <button type="button" onclick="confirmRemoveNameSlot(this)" class="btn-remove" style="width:32px;height:32px;min-width:32px;" title="Remove person">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
@@ -821,7 +1051,7 @@ function addAnnouncement(containerId, text = '') {
     row.className = 'announcement-row';
     row.innerHTML = `
         <input type="text" value="${escapeHtml(text)}" placeholder="Type here...">
-        <button type="button" onclick="this.parentElement.remove(); updateCounts()" class="btn-remove" title="Remove">
+        <button type="button" onclick="confirmRemoveAnnouncement(this)" class="btn-remove" title="Remove">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
@@ -867,7 +1097,7 @@ function addPrayerPoint(text = '', linkedActivity = '') {
             <input type="text" value="${escapeHtml(text)}" placeholder="Type prayer point..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
         </div>
         ${selectHtml}
-        <button type="button" onclick="this.parentElement.remove(); updateCounts()" class="btn-remove flex-shrink-0 mt-1" title="Remove">
+        <button type="button" onclick="confirmRemovePrayerPoint(this)" class="btn-remove flex-shrink-0 mt-1" title="Remove">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
@@ -1337,11 +1567,18 @@ async function loadPrograms() {
                             ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'
                             : ''}
                     </div>
-                    <div class="flex items-center gap-2 mt-0.5">
+                    <div class="flex items-center gap-2 mt-0.5 flex-wrap">
                         ${isDraft ? `<p class="text-xs font-medium text-gray-500">${escapeHtml(p.title)}</p><span class="text-xs text-gray-300">&middot;</span>` : ''}
                         <p class="text-xs text-gray-500">${dateStr}</p>
                         <span class="text-xs text-gray-300">&middot;</span>
                         <p class="text-xs text-gray-400 card-summary">${summaryText}</p>
+                        ${p.created_by_name ? `
+                            <span class="text-xs text-gray-300">&middot;</span>
+                            <span class="inline-flex items-center gap-1 text-xs text-gray-500" title="Service Manager">
+                                <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                <span class="font-medium">${escapeHtml(p.created_by_name)}</span>
+                            </span>
+                        ` : ''}
                     </div>
                 </div>
                 <svg class="w-5 h-5 text-gray-400 card-chevron transition-transform flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
