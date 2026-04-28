@@ -121,20 +121,30 @@ async function syncDepartmentsToCentral() {
         }
         const s = data.summary;
         const lines = [
-            `✓ Scanned ${data.scanned} department(s):`,
+            `Scanned ${data.scanned} department(s):`,
             `  · ${s.created} created in central`,
             `  · ${s.linked} linked to existing central record`,
             `  · ${s.skipped} already linked`,
         ];
-        if (s.errors > 0) lines.push(`  · ⚠ ${s.errors} error(s)`);
-        result.className = (s.errors > 0)
-            ? 'p-3 rounded-lg text-sm bg-amber-50 text-amber-800 border border-amber-200 whitespace-pre-line'
-            : 'p-3 rounded-lg text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-pre-line';
-        result.textContent = lines.join('\n');
-        result.classList.remove('hidden');
-        if (data.errors_sample && data.errors_sample.length > 0) {
-            console.error('Sync errors sample:', data.errors_sample);
+        if (s.errors > 0) {
+            lines.push(`  · ⚠ ${s.errors} error(s)`);
+            // Surface the actual error message(s) inline so the operator can
+            // see why things failed without opening DevTools.
+            if (data.errors_sample && data.errors_sample.length > 0) {
+                lines.push('');
+                lines.push('Sample errors:');
+                data.errors_sample.slice(0, 3).forEach(e => {
+                    lines.push(`  · ${e.name}: ${e.error || '(no detail)'}`);
+                });
+                console.error('Full errors sample:', data.errors_sample);
+            }
         }
+        const allOk = s.errors === 0 && (s.created + s.linked + s.skipped) > 0;
+        result.className = (s.errors > 0)
+            ? 'p-3 rounded-lg text-sm bg-amber-50 text-amber-800 border border-amber-200 whitespace-pre-line font-mono'
+            : 'p-3 rounded-lg text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-pre-line';
+        result.textContent = (allOk ? '✓ ' : '⚠ ') + lines.join('\n');
+        result.classList.remove('hidden');
         // Refresh so the synced state shows
         await loadData();
     } catch (e) {
