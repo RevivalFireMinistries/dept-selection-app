@@ -23,6 +23,11 @@ class Department(Base):
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     hod_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Link to the central rfm-database department record. Same pattern we use
+    # for members — gated by RFM_API_INTEGRATION_ENABLED, populated on first
+    # sync, kept in lockstep on every CRUD edit.
+    external_department_id = Column(String(36), nullable=True, index=True)
+    external_synced_at = Column(DateTime(timezone=True), nullable=True)
 
     category = relationship("Category", back_populates="departments")
     hod = relationship("Member", foreign_keys=[hod_member_id])

@@ -725,6 +725,133 @@ def get_departments(db: Session = Depends(get_db)):
     }
 
 
+def _sync_member_departments_to_central(member_id: int, db: Session) -> dict:
+    """Best-effort propagation of a member's APPROVED department assignments
+    to the central API. Used after assign / approve / reject / replace so
+    the central record's department_ids stays in lockstep with our local
+    member_departments rows.
+
+    Returns a status dict for inclusion in the calling endpoint's response.
+    Failures never block the local commit (kill switch / unreachable / member
+    not linked / departments not yet synced are all silently no-op'd)."""
+    status = {"attempted": False, "ok": False, "department_count": 0, "skipped_unlinked": 0, "error": None}
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        return status
+
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member or not member.external_member_id:
+        return status
+
+    # Approved (or admin-source) member_department rows
+    rows = db.query(MemberDepartment).options(
+        joinedload(MemberDepartment.department)
+    ).filter(
+        MemberDepartment.member_id == member_id,
+        MemberDepartment.status == "approved",
+    ).all()
+
+    ext_ids = []
+    skipped = 0
+    for md in rows:
+        dept = md.department
+        if dept and dept.external_department_id:
+            ext_ids.append(str(dept.external_department_id))
+        else:
+            skipped += 1
+
+    status["attempted"] = True
+    status["department_count"] = len(ext_ids)
+    status["skipped_unlinked"] = skipped
+    try:
+        result = _rfm.update_member(
+            member.external_member_id,
+            {"department_ids": ext_ids},
+            db=db,
+        )
+        status["ok"] = result.ok
+        if not result.ok:
+            status["error"] = result.error
+    except Exception as exc:
+        status["error"] = f"unexpected: {exc}"
+    return status
+
+
+def _push_department_to_central(department: Department, request: Request, db: Session, *, action: str) -> dict:
+    """Best-effort propagation of a department CRUD change to the central API.
+    Returns a small status dict the caller can include in its response.
+    Failures are logged + ignored so the local commit always wins."""
+    status = {"attempted": False, "ok": False, "fields": [], "error": None}
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        return status
+
+    try:
+        if action == "delete":
+            if not department.external_department_id:
+                return status
+            status["attempted"] = True
+            r = _rfm.delete_department(department.external_department_id, db=db)
+            status["ok"] = r.ok
+            if not r.ok:
+                status["error"] = r.error
+            return status
+
+        # Resolve assembly id; same priority chain as members
+        assembly_id = _resolve_default_assembly_id(db)
+        if not assembly_id:
+            status["error"] = "could not resolve assembly_id; central sync skipped"
+            return status
+
+        if action == "create" or not department.external_department_id:
+            # Try create. If the API rejects "name already exists" because
+            # someone created the same dept centrally, fall back to matching
+            # by name so we still link.
+            payload = {
+                "assembly_id": str(assembly_id),
+                "name": department.name,
+                "sort_order": department.id,
+            }
+            status["attempted"] = True
+            r = _rfm.create_department(payload, db=db)
+            if r.ok and isinstance(r.data, dict):
+                rec = r.data.get("data", r.data) if "data" in r.data else r.data
+                ext_id = rec.get("id") if isinstance(rec, dict) else None
+                if ext_id:
+                    department.external_department_id = str(ext_id)
+                    from datetime import datetime as _dt
+                    department.external_synced_at = _dt.utcnow()
+                    db.commit()
+                    status["ok"] = True
+                    status["fields"] = ["created"]
+                    return status
+            # Try matching by name
+            ls = _rfm.list_departments(assembly_id=str(assembly_id), include_inactive=True, db=db)
+            if ls.ok and ls.data:
+                items = ls.data if isinstance(ls.data, list) else ls.data.get("data") or []
+                for d in items:
+                    if _rfm.names_match_dept(department.name, d.get("name") or ""):
+                        department.external_department_id = str(d.get("id"))
+                        from datetime import datetime as _dt
+                        department.external_synced_at = _dt.utcnow()
+                        db.commit()
+                        status["ok"] = True
+                        status["fields"] = ["linked-by-name"]
+                        return status
+            status["error"] = r.error if not r.ok else "could not create or match dept centrally"
+            return status
+
+        # Update path
+        status["attempted"] = True
+        r = _rfm.update_department(department.external_department_id, {"name": department.name}, db=db)
+        status["ok"] = r.ok
+        status["fields"] = ["name"] if r.ok else []
+        if not r.ok:
+            status["error"] = r.error
+        return status
+    except Exception as exc:
+        status["error"] = f"unexpected: {exc}"
+        return status
+
+
 @router.post("/departments")
 def create_department(data: DepartmentCreate, request: Request, db: Session = Depends(get_db)):
     """Create a new department"""
@@ -736,10 +863,19 @@ def create_department(data: DepartmentCreate, request: Request, db: Session = De
     db.commit()
     db.refresh(department)
 
-    _log_admin_action(request, db, "create_department", "department", department.id, f"Created department '{department.name}'")
+    api_sync = _push_department_to_central(department, request, db, action="create")
+
+    log_msg = f"Created department '{department.name}'"
+    if api_sync["attempted"]:
+        log_msg += f" (central: {'synced' if api_sync['ok'] else 'failed - ' + (api_sync['error'] or '?')})"
+    _log_admin_action(request, db, "create_department", "department", department.id, log_msg)
     db.commit()
 
-    return {"id": department.id, "name": department.name, "categoryId": department.category_id}
+    return {
+        "id": department.id, "name": department.name, "categoryId": department.category_id,
+        "external_department_id": department.external_department_id,
+        "api_sync": api_sync,
+    }
 
 
 @router.put("/departments")
@@ -757,10 +893,21 @@ def update_department(data: DepartmentUpdate, request: Request, db: Session = De
     department.category_id = data.category_id
     db.commit()
 
-    _log_admin_action(request, db, "update_department", "department", department.id, f"Updated department '{old_name}' → '{department.name}'")
+    api_sync = {"attempted": False, "ok": False, "fields": [], "error": None}
+    if old_name != department.name or not department.external_department_id:
+        api_sync = _push_department_to_central(department, request, db, action="update")
+
+    log_msg = f"Updated department '{old_name}' → '{department.name}'"
+    if api_sync["attempted"]:
+        log_msg += f" (central: {'synced' if api_sync['ok'] else 'failed - ' + (api_sync['error'] or '?')})"
+    _log_admin_action(request, db, "update_department", "department", department.id, log_msg)
     db.commit()
 
-    return {"id": department.id, "name": department.name, "categoryId": department.category_id}
+    return {
+        "id": department.id, "name": department.name, "categoryId": department.category_id,
+        "external_department_id": department.external_department_id,
+        "api_sync": api_sync,
+    }
 
 
 @router.delete("/departments")
@@ -771,14 +918,19 @@ def delete_department(id: int = Query(...), request: Request = None, db: Session
         raise HTTPException(status_code=404, detail="Department not found")
 
     dept_name = department.name
+    api_sync = _push_department_to_central(department, request, db, action="delete")
+
     db.delete(department)
     db.commit()
 
     if request:
-        _log_admin_action(request, db, "delete_department", "department", id, f"Deleted department '{dept_name}'")
+        log_msg = f"Deleted department '{dept_name}'"
+        if api_sync["attempted"]:
+            log_msg += f" (central: {'soft-deleted' if api_sync['ok'] else 'failed - ' + (api_sync['error'] or '?')})"
+        _log_admin_action(request, db, "delete_department", "department", id, log_msg)
         db.commit()
 
-    return {"success": True}
+    return {"success": True, "api_sync": api_sync}
 
 
 # ============ CATEGORIES ============
@@ -1542,10 +1694,16 @@ def update_review_status(
     md.admin_note = data.admin_note
     md.status_changed_at = datetime.now()
     action = "review_approve" if data.status == "approved" else "review_reject"
-    if request:
-        _log_admin_action(request, db, action, "member_department", member_department_id,
-            f"{'Approved' if data.status == 'approved' else 'Rejected'} {md.member.full_name} for {md.department.name}")
     db.commit()
+
+    # Status change might add or remove from approved bucket; resync.
+    api_sync = _sync_member_departments_to_central(md.member_id, db)
+    if request:
+        log_msg = f"{'Approved' if data.status == 'approved' else 'Rejected'} {md.member.full_name} for {md.department.name}"
+        if api_sync["attempted"]:
+            log_msg += f" (central: {'synced ' + str(api_sync['department_count']) + ' depts' if api_sync['ok'] else 'failed - ' + (api_sync['error'] or '?')})"
+        _log_admin_action(request, db, action, "member_department", member_department_id, log_msg)
+        db.commit()
 
     # Dispatch notification
     try:
@@ -1564,7 +1722,7 @@ def update_review_status(
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
 
-    return {"success": True, "id": member_department_id, "status": data.status}
+    return {"success": True, "id": member_department_id, "status": data.status, "api_sync": api_sync}
 
 
 @router.post("/admin/reviews/{member_department_id}/replace")
@@ -1837,11 +1995,19 @@ def assign_department(
         status_changed_at=datetime.now()
     )
     db.add(md)
-    if request:
-        _log_admin_action(request, db, "assign_department", "member", member_id,
-            f"Assigned {dept.name} to {member.full_name}")
     db.commit()
     db.refresh(md)
+
+    # Propagate to central (best-effort) — admin-assigned == approved status
+    api_sync = _sync_member_departments_to_central(member_id, db)
+    if request:
+        log_msg = f"Assigned {dept.name} to {member.full_name}"
+        if api_sync["attempted"]:
+            log_msg += f" (central: {'synced ' + str(api_sync['department_count']) + ' depts' if api_sync['ok'] else 'failed - ' + (api_sync['error'] or '?')})"
+            if api_sync["skipped_unlinked"]:
+                log_msg += f"; {api_sync['skipped_unlinked']} dept(s) not yet linked"
+        _log_admin_action(request, db, "assign_department", "member", member_id, log_msg)
+        db.commit()
 
     # Dispatch notification
     try:
@@ -1859,7 +2025,7 @@ def assign_department(
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
 
-    return {"success": True, "id": md.id}
+    return {"success": True, "id": md.id, "api_sync": api_sync}
 
 
 @router.post("/admin/reviews/bulk-approve")
@@ -7753,6 +7919,45 @@ def admin_members_import_from_external(
         "external_member_id": external_id,
         "assigned_department": assigned_department,
     }
+
+
+@router.post("/admin/rfm-sync/departments/sync-all")
+def admin_rfm_sync_departments_all(request: Request, db: Session = Depends(get_db)):
+    """Push every local department up to the central database, linking by
+    name where the central record already exists. Idempotent — running twice
+    is safe; already-linked departments are skipped."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured")
+
+    summary = {"linked": 0, "created": 0, "errors": 0, "skipped": 0}
+    errors_sample = []
+
+    departments = db.query(Department).all()
+    for d in departments:
+        if d.external_department_id:
+            summary["skipped"] += 1
+            continue
+        result = _push_department_to_central(d, request, db, action="create")
+        if result["ok"]:
+            if "created" in result["fields"]:
+                summary["created"] += 1
+            else:
+                summary["linked"] += 1
+        else:
+            summary["errors"] += 1
+            if len(errors_sample) < 5:
+                errors_sample.append({"department_id": d.id, "name": d.name, "error": result["error"]})
+
+    _log_admin_action(
+        request, db, "rfm_sync_departments", "departments", None,
+        f"Linked {summary['linked']}, created {summary['created']}, "
+        f"skipped {summary['skipped']}, errors {summary['errors']}",
+    )
+    db.commit()
+    return {"summary": summary, "errors_sample": errors_sample, "scanned": len(departments)}
 
 
 @router.post("/admin/rfm-sync/unlink")

@@ -515,6 +515,23 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (rfm-db integration): {e}")
 
+        # Migration: same external link columns on departments — central API
+        # now supports departments, so we sync local <-> central by UUID.
+        try:
+            conn.execute(text("""
+                ALTER TABLE departments
+                ADD COLUMN IF NOT EXISTS external_department_id VARCHAR(36),
+                ADD COLUMN IF NOT EXISTS external_synced_at TIMESTAMP WITH TIME ZONE
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_departments_external_department_id
+                ON departments(external_department_id)
+            """))
+            conn.commit()
+            print("Migration: Added rfm-db integration columns to departments")
+        except Exception as e:
+            print(f"Migration note (departments rfm-db): {e}")
+
         # Seed default home church program types (only if table is empty)
         try:
             existing = conn.execute(text("SELECT COUNT(*) FROM home_church_program_types")).scalar()

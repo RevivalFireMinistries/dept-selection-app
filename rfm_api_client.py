@@ -250,6 +250,44 @@ def list_assemblies(*, db=None) -> ApiResult:
     return _request("GET", "/api/v1/assemblies", db=db, params={"page": 1, "size": 50})
 
 
+# ---- Departments ----
+
+def list_departments(*, assembly_id: Optional[str] = None, include_inactive: bool = False, db=None) -> ApiResult:
+    """List departments in the central database. With a scoped service key the
+    assembly is implied; we still pass it explicitly when known so the call
+    works whether the key is scoped or admin-grade."""
+    params = {"include_inactive": "true" if include_inactive else "false"}
+    if assembly_id:
+        params["assembly_id"] = assembly_id
+    return _request("GET", "/api/v1/departments", db=db, params=params)
+
+
+def create_department(payload: dict, *, db=None) -> ApiResult:
+    """Create a department centrally. Required: assembly_id, name."""
+    return _request("POST", "/api/v1/departments", db=db, body=payload)
+
+
+def update_department(department_id: str, fields: dict, *, db=None) -> ApiResult:
+    """PUT a department in the central API."""
+    return _request("PUT", f"/api/v1/departments/{department_id}", db=db, body=fields)
+
+
+def delete_department(department_id: str, *, db=None) -> ApiResult:
+    """Soft-delete a department centrally (sets is_active=false)."""
+    return _request("DELETE", f"/api/v1/departments/{department_id}", db=db)
+
+
+def names_match_dept(local_name: str, api_name: str) -> bool:
+    """Departments match by case-insensitive name comparison after stripping
+    surrounding whitespace and collapsing internal whitespace runs. Tolerates
+    'Home Church Committee' vs 'Home Church  Committee' and 'choir' vs 'Choir'."""
+    if not local_name or not api_name:
+        return False
+    a = re.sub(r"\s+", " ", local_name.strip()).lower()
+    b = re.sub(r"\s+", " ", api_name.strip()).lower()
+    return a == b
+
+
 # ---------------------------------------------------------------------------
 # Matching helpers
 # ---------------------------------------------------------------------------
