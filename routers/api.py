@@ -7921,6 +7921,67 @@ def admin_members_import_from_external(
     }
 
 
+@router.post("/admin/rfm-sync/memberships/sync-all")
+def admin_rfm_sync_memberships_all(request: Request, db: Session = Depends(get_db)):
+    """Push every locally-linked member's approved department assignments
+    to the central API. Idempotent — safe to run as many times as needed.
+    Members not yet linked, and assignments to departments not yet linked,
+    are silently skipped (with counts surfaced in the summary)."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured")
+
+    summary = {
+        "members_scanned": 0,
+        "members_synced": 0,
+        "members_unlinked": 0,
+        "members_no_changes": 0,
+        "errors": 0,
+        "total_assignments_pushed": 0,
+        "skipped_unlinked_depts": 0,
+    }
+    errors_sample = []
+
+    # Only members with an external_member_id can be synced; others are orphans
+    # and must be matched / imported first via the rfm-sync UI.
+    linked_members = db.query(Member).filter(Member.external_member_id.isnot(None)).all()
+    summary["members_scanned"] = len(linked_members)
+
+    for m in linked_members:
+        result = _sync_member_departments_to_central(m.id, db)
+        if not result["attempted"]:
+            summary["members_unlinked"] += 1
+            continue
+        if result["ok"]:
+            summary["members_synced"] += 1
+            summary["total_assignments_pushed"] += result["department_count"]
+            summary["skipped_unlinked_depts"] += result["skipped_unlinked"]
+        else:
+            summary["errors"] += 1
+            if len(errors_sample) < 5:
+                errors_sample.append({
+                    "member_id": m.id,
+                    "name": m.full_name,
+                    "error": result["error"],
+                })
+
+    # Members who weren't linked don't count as errors — they're just not
+    # ready yet (need to go through the matcher first).
+    summary["members_unlinked"] = summary["members_scanned"] - summary["members_synced"] - summary["errors"]
+
+    _log_admin_action(
+        request, db, "rfm_sync_memberships", "members", None,
+        f"Synced {summary['members_synced']}/{summary['members_scanned']} members "
+        f"({summary['total_assignments_pushed']} dept assignments pushed, "
+        f"{summary['errors']} errors, {summary['skipped_unlinked_depts']} dept(s) not yet linked)",
+    )
+    db.commit()
+
+    return {"summary": summary, "errors_sample": errors_sample}
+
+
 @router.post("/admin/rfm-sync/departments/sync-all")
 def admin_rfm_sync_departments_all(request: Request, db: Session = Depends(get_db)):
     """Push every local department up to the central database, linking by

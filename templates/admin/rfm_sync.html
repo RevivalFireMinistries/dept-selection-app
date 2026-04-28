@@ -31,6 +31,11 @@
                         class="px-3 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-medium disabled:opacity-60">
                         <span x-text="running ? 'Matching…' : '🔍 Match all pending'"></span>
                     </button>
+                    <button x-show="status.enabled && status.configured" @click="syncAllMemberships()" :disabled="syncingMemberships"
+                        title="Push every linked member's approved department list up to the central database"
+                        class="px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium disabled:opacity-60">
+                        <span x-text="syncingMemberships ? 'Syncing…' : '📋 Sync all memberships'"></span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -84,6 +89,33 @@
                 </span>
             </div>
             <button @click="lastRunSummary = null" class="text-emerald-600 hover:text-emerald-800">✕</button>
+        </div>
+    </template>
+
+    <template x-if="lastMembershipSync">
+        <div :class="lastMembershipSync.summary.errors > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-violet-50 border-violet-200 text-violet-800'"
+             class="border rounded-xl p-4 text-sm flex items-start justify-between gap-3">
+            <div>
+                <div class="font-medium mb-1">📋 Membership sync</div>
+                <div>
+                    Synced <strong x-text="lastMembershipSync.summary.members_synced"></strong>/<strong x-text="lastMembershipSync.summary.members_scanned"></strong> linked members
+                    · <strong x-text="lastMembershipSync.summary.total_assignments_pushed"></strong> dept assignment(s) pushed
+                    <span x-show="lastMembershipSync.summary.skipped_unlinked_depts > 0">
+                        · <span class="text-amber-700"><strong x-text="lastMembershipSync.summary.skipped_unlinked_depts"></strong> dept(s) skipped (not yet linked centrally — run "Sync to central DB" on the Departments page)</span>
+                    </span>
+                    <span x-show="lastMembershipSync.summary.errors > 0" class="text-rose-700">
+                        · <strong x-text="lastMembershipSync.summary.errors"></strong> error(s)
+                    </span>
+                </div>
+                <template x-if="lastMembershipSync.errors_sample && lastMembershipSync.errors_sample.length > 0">
+                    <ul class="mt-2 text-[11px] font-mono">
+                        <template x-for="e in lastMembershipSync.errors_sample" :key="e.member_id">
+                            <li x-text="e.name + ': ' + (e.error || '?')"></li>
+                        </template>
+                    </ul>
+                </template>
+            </div>
+            <button @click="lastMembershipSync = null" class="opacity-60 hover:opacity-100">✕</button>
         </div>
     </template>
 
@@ -406,6 +438,8 @@ function rfmSyncApp() {
         loading: false,
         running: false,
         lastRunSummary: null,
+        syncingMemberships: false,
+        lastMembershipSync: null,
         review: { open: false, loading: false, member: null, result: null, error: null, confirming: false },
         search: { query: '', running: false, attempted: false, results: [], error: null },
         // Two-step confirm: when admin clicks "Use this" / "Link this" we open
@@ -524,6 +558,28 @@ function rfmSyncApp() {
                 alert('Error: ' + e.message);
             } finally {
                 this.running = false;
+            }
+        },
+
+        async syncAllMemberships() {
+            if (this.syncingMemberships) return;
+            if (!confirm('Push every linked member\'s approved department list to the central database?\n\nIdempotent — safe to run again.')) return;
+            this.syncingMemberships = true;
+            this.lastMembershipSync = null;
+            try {
+                const r = await fetch('/api/admin/rfm-sync/memberships/sync-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Membership sync failed');
+                }
+                this.lastMembershipSync = await r.json();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.syncingMemberships = false;
             }
         },
 
