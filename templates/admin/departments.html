@@ -4,13 +4,20 @@
 
 {% block admin_content %}
 <div class="space-y-6">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-2xl font-bold text-gray-900">Departments</h2>
-        <button onclick="toggleForm()" id="toggleBtn"
-            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-            Add Department
-        </button>
+        <div class="flex items-center gap-2">
+            <button onclick="syncDepartmentsToCentral()" id="syncCentralBtn" title="Push all local departments to the central rfm-database (idempotent)"
+                class="px-3 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors flex items-center gap-1.5">
+                <span>🔗</span><span>Sync to central DB</span>
+            </button>
+            <button onclick="toggleForm()" id="toggleBtn"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                Add Department
+            </button>
+        </div>
     </div>
+    <div id="syncCentralResult" class="hidden p-3 rounded-lg text-sm"></div>
 
     <!-- Add/Edit Form -->
     <div id="formSection" class="hidden bg-white rounded-xl shadow p-6">
@@ -91,6 +98,54 @@ let categories = [];
 let allMembers = [];
 let editingId = null;
 let hodDeptId = null;
+
+async function syncDepartmentsToCentral() {
+    const btn = document.getElementById('syncCentralBtn');
+    const result = document.getElementById('syncCentralResult');
+    result.className = 'hidden p-3 rounded-lg text-sm';
+    if (!confirm('Push every local department to the central rfm-database?\n\n' +
+        'Already-linked departments are skipped. New ones are created or linked by name. Safe to run again.')) return;
+
+    btn.disabled = true;
+    const origText = btn.innerHTML;
+    btn.innerHTML = '<span>⏳</span><span>Syncing…</span>';
+
+    try {
+        const r = await fetch('/api/admin/rfm-sync/departments/sync-all', { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) {
+            result.className = 'p-3 rounded-lg text-sm bg-rose-50 text-rose-700 border border-rose-200';
+            result.textContent = data.detail || 'Sync failed';
+            result.classList.remove('hidden');
+            return;
+        }
+        const s = data.summary;
+        const lines = [
+            `✓ Scanned ${data.scanned} department(s):`,
+            `  · ${s.created} created in central`,
+            `  · ${s.linked} linked to existing central record`,
+            `  · ${s.skipped} already linked`,
+        ];
+        if (s.errors > 0) lines.push(`  · ⚠ ${s.errors} error(s)`);
+        result.className = (s.errors > 0)
+            ? 'p-3 rounded-lg text-sm bg-amber-50 text-amber-800 border border-amber-200 whitespace-pre-line'
+            : 'p-3 rounded-lg text-sm bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-pre-line';
+        result.textContent = lines.join('\n');
+        result.classList.remove('hidden');
+        if (data.errors_sample && data.errors_sample.length > 0) {
+            console.error('Sync errors sample:', data.errors_sample);
+        }
+        // Refresh so the synced state shows
+        await loadData();
+    } catch (e) {
+        result.className = 'p-3 rounded-lg text-sm bg-rose-50 text-rose-700 border border-rose-200';
+        result.textContent = 'Network error: ' + e.message;
+        result.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+    }
+}
 
 async function loadData() {
     try {
