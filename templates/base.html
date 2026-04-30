@@ -7,6 +7,19 @@
     <meta property="og:title" content="RFM Stellenbosch Portal">
     <meta property="og:description" content="Your church community hub for department selection, service programs, and more">
     <title>{% block title %}RFM Stellenbosch Portal{% endblock %}</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="application-name" content="RFM Portal">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="RFM Portal">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/static/icons/icon-512.png">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,5 +32,71 @@
 <body class="min-h-screen bg-gray-50">
     {% block content %}{% endblock %}
     {% block scripts %}{% endblock %}
+
+    <!-- PWA install prompt -->
+    <div id="pwa-install-banner" class="hidden fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:max-w-sm bg-white border border-indigo-200 shadow-lg rounded-xl p-4 z-50">
+        <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold flex-shrink-0">RFM</div>
+            <div class="flex-1 min-w-0">
+                <p class="font-semibold text-gray-900">Install RFM Portal</p>
+                <p class="text-xs text-gray-600 mt-0.5">Get quick access from your home screen.</p>
+                <div class="mt-2 flex gap-2">
+                    <button id="pwa-install-accept" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700">Install</button>
+                    <button id="pwa-install-dismiss" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">Not now</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Register the service worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js', { scope: '/' })
+                    .catch((err) => console.warn('SW registration failed:', err));
+            });
+        }
+
+        // Custom install prompt
+        (function () {
+            let deferredPrompt = null;
+            const banner = document.getElementById('pwa-install-banner');
+            const accept = document.getElementById('pwa-install-accept');
+            const dismiss = document.getElementById('pwa-install-dismiss');
+            const DISMISS_KEY = 'pwa-install-dismissed-at';
+
+            function shouldShow() {
+                try {
+                    const t = localStorage.getItem(DISMISS_KEY);
+                    if (!t) return true;
+                    // Re-show after 14 days
+                    return (Date.now() - Number(t)) > 14 * 24 * 60 * 60 * 1000;
+                } catch (e) { return true; }
+            }
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                if (banner && shouldShow()) banner.classList.remove('hidden');
+            });
+
+            if (accept) accept.addEventListener('click', async () => {
+                if (!deferredPrompt) { banner.classList.add('hidden'); return; }
+                deferredPrompt.prompt();
+                await deferredPrompt.userChoice;
+                deferredPrompt = null;
+                banner.classList.add('hidden');
+            });
+
+            if (dismiss) dismiss.addEventListener('click', () => {
+                try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch (e) {}
+                banner.classList.add('hidden');
+            });
+
+            window.addEventListener('appinstalled', () => {
+                if (banner) banner.classList.add('hidden');
+            });
+        })();
+    </script>
 </body>
 </html>

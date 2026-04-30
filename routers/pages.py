@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Depends, Form, Response
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 import hmac, hashlib, os
@@ -107,6 +107,28 @@ def set_member_session(response: Response, member_id: int):
         max_age=SESSION_MAX_AGE,
         samesite="lax"
     )
+
+
+# ============ PWA ROUTES ============
+
+@router.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    """Serve the service worker at the site root so it can claim '/' scope."""
+    response = FileResponse("static/sw.js", media_type="application/javascript")
+    # Allow root scope and prevent stale SW being cached aggressively
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@router.get("/manifest.webmanifest", include_in_schema=False)
+async def manifest():
+    return FileResponse("static/manifest.webmanifest", media_type="application/manifest+json")
+
+
+@router.get("/offline", include_in_schema=False)
+async def offline_page(request: Request):
+    return templates.TemplateResponse("offline.html", {"request": request})
 
 
 # ============ PUBLIC ROUTES ============
