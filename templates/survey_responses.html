@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Survey responses · RFM Portal{% endblock %}
+
+{% block content %}
+{% include "_survey_responses_partial.html" %}
+<script>
+window.__SURVEY_RESPONSES_CONFIG__ = {
+    listUrl: '/surveys',
+    backLabel: 'Back to my surveys',
+};
+</script>
+{% endblock %}

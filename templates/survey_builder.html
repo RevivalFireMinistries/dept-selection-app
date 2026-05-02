@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Survey builder · RFM Portal{% endblock %}
+
+{% block content %}
+{% include "_survey_builder_partial.html" %}
+<script>
+window.__SURVEY_BUILDER_CONFIG__ = {
+    listUrl: '/surveys',
+    backLabel: 'Back to my surveys',
+};
+</script>
+{% endblock %}

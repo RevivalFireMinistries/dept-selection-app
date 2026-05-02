@@ -1,0 +1,213 @@
+<div class="max-w-3xl mx-auto px-4 py-6" x-data="surveyBuilder()" x-init="init()">
+
+    <div class="flex items-center gap-3 mb-4">
+        <a :href="config.listUrl" class="text-gray-400 hover:text-gray-600 text-sm" x-text="`← ${config.backLabel}`"></a>
+    </div>
+
+    <h1 class="text-2xl font-bold text-gray-900 mb-1" x-text="form.id ? 'Edit survey' : 'New survey'"></h1>
+    <p class="text-sm text-gray-500 mb-6">Build your survey, then share the link with respondents.</p>
+
+    <div x-show="locked" class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+        Responses already collected — you can no longer edit questions or anonymity (this preserves data integrity). You can still rename, close/reopen, or share.
+    </div>
+
+    <div x-show="errorMsg" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="errorMsg"></div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+            <input type="text" x-model="form.title" placeholder="e.g. Sunday service feedback" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Description (optional)</label>
+            <textarea x-model="form.description" rows="2" placeholder="A short note shown to respondents." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
+        </div>
+        <div class="flex flex-wrap gap-4">
+            <label class="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" x-model="form.is_anonymous" :disabled="locked" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                <span>Anonymous responses</span>
+                <span class="text-xs text-gray-500">— respondent identity is never recorded.</span>
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm" x-show="form.id">
+                <input type="checkbox" x-model="form.is_active" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                <span>Active (accepting responses)</span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Questions -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="font-semibold text-gray-900">Questions</h2>
+            <button @click="addQuestion()" :disabled="locked" class="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 disabled:opacity-50">+ Add question</button>
+        </div>
+
+        <template x-for="(q, idx) in form.questions" :key="idx">
+            <div class="border border-gray-200 rounded-lg p-3 mb-3">
+                <div class="flex items-start justify-between gap-2 mb-2">
+                    <span class="text-xs font-semibold text-gray-500" x-text="`Q${idx + 1}`"></span>
+                    <div class="flex items-center gap-1">
+                        <button @click="moveUp(idx)" :disabled="idx===0 || locked" class="text-gray-400 hover:text-gray-700 px-1 disabled:opacity-30">↑</button>
+                        <button @click="moveDown(idx)" :disabled="idx===form.questions.length-1 || locked" class="text-gray-400 hover:text-gray-700 px-1 disabled:opacity-30">↓</button>
+                        <button @click="removeQuestion(idx)" :disabled="locked" class="text-red-500 hover:text-red-700 px-1 disabled:opacity-30">✕</button>
+                    </div>
+                </div>
+
+                <textarea x-model="q.question_text" :disabled="locked" rows="2" placeholder="Type your question…" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 mb-2"></textarea>
+
+                <div class="flex flex-wrap gap-3">
+                    <select x-model="q.question_type" :disabled="locked" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm">
+                        <option value="text">Short text</option>
+                        <option value="long_text">Long text</option>
+                        <option value="single_choice">Single choice</option>
+                        <option value="multi_choice">Multiple choice</option>
+                        <option value="yes_no">Yes / No</option>
+                        <option value="rating">Rating (1–5)</option>
+                    </select>
+                    <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                        <input type="checkbox" x-model="q.required" :disabled="locked" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                        Required
+                    </label>
+                </div>
+
+                <div x-show="q.question_type === 'single_choice' || q.question_type === 'multi_choice'" class="mt-2">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Options (one per line)</label>
+                    <textarea x-model="q.optionsText" :disabled="locked" rows="3" placeholder="Option 1&#10;Option 2&#10;Option 3" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"></textarea>
+                </div>
+            </div>
+        </template>
+
+        <div x-show="!form.questions.length" class="text-center text-sm text-gray-400 italic py-4">No questions yet. Click "+ Add question" to start.</div>
+    </div>
+
+    <!-- Action bar -->
+    <div class="flex items-center justify-between gap-2 sticky bottom-0 bg-white border border-gray-200 rounded-xl p-3 shadow-md">
+        <div class="text-xs text-gray-500" x-show="form.slug">
+            <span class="font-medium">Share:</span>
+            <code class="px-2 py-1 bg-gray-100 rounded text-indigo-700" x-text="`${location.origin}/s/${form.slug}`"></code>
+            <button @click="copyShareLink()" class="ml-1 text-indigo-600 hover:text-indigo-800">Copy</button>
+        </div>
+        <div class="flex items-center gap-2 ml-auto">
+            <a :href="config.listUrl" class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg">Cancel</a>
+            <button @click="save()" :disabled="saving" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50" x-text="saving ? 'Saving…' : (form.id ? 'Save changes' : 'Create survey')"></button>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function surveyBuilder() {
+    return {
+        config: window.__SURVEY_BUILDER_CONFIG__ || {listUrl: '/surveys', backLabel: 'Back'},
+        saving: false,
+        errorMsg: '',
+        locked: false,
+        form: {
+            id: null,
+            slug: '',
+            title: '',
+            description: '',
+            is_anonymous: true,
+            is_active: true,
+            questions: [],
+        },
+
+        async init() {
+            const params = new URLSearchParams(location.search);
+            const id = params.get('id');
+            if (id) await this.loadExisting(id);
+        },
+
+        async loadExisting(id) {
+            try {
+                const res = await fetch(`/api/surveys/${id}`);
+                if (!res.ok) { this.errorMsg = 'Could not load survey'; return; }
+                const data = await res.json();
+                this.form = {
+                    id: data.id,
+                    slug: data.slug,
+                    title: data.title,
+                    description: data.description || '',
+                    is_anonymous: data.is_anonymous,
+                    is_active: data.is_active,
+                    questions: (data.questions || []).map(q => ({
+                        question_text: q.question_text,
+                        question_type: q.question_type,
+                        required: !!q.required,
+                        optionsText: (q.options || []).join('\n'),
+                    })),
+                };
+                this.locked = (data.response_count || 0) > 0;
+            } catch (e) { this.errorMsg = String(e); }
+        },
+
+        addQuestion() {
+            this.form.questions.push({question_text: '', question_type: 'text', required: false, optionsText: ''});
+        },
+        removeQuestion(i) { this.form.questions.splice(i, 1); },
+        moveUp(i) { if (i === 0) return; const a = this.form.questions; [a[i-1], a[i]] = [a[i], a[i-1]]; },
+        moveDown(i) { const a = this.form.questions; if (i === a.length - 1) return; [a[i+1], a[i]] = [a[i], a[i+1]]; },
+
+        _toPayload() {
+            const questions = this.form.questions.map(q => {
+                const isChoice = q.question_type === 'single_choice' || q.question_type === 'multi_choice';
+                const opts = isChoice ? (q.optionsText || '').split('\n').map(s => s.trim()).filter(Boolean) : [];
+                return {
+                    question_text: q.question_text,
+                    question_type: q.question_type,
+                    required: !!q.required,
+                    options: opts,
+                };
+            });
+            return {
+                title: this.form.title,
+                description: this.form.description,
+                is_anonymous: this.form.is_anonymous,
+                is_active: this.form.is_active,
+                questions,
+            };
+        },
+
+        async save() {
+            this.errorMsg = '';
+            if (!this.form.title.trim()) { this.errorMsg = 'Title is required'; return; }
+            if (!this.form.questions.length) { this.errorMsg = 'Add at least one question'; return; }
+            this.saving = true;
+            try {
+                const payload = this._toPayload();
+                // If locked (responses exist), don't send questions/anonymity in update
+                if (this.form.id && this.locked) {
+                    delete payload.questions;
+                    delete payload.is_anonymous;
+                }
+                const url = this.form.id ? `/api/surveys/${this.form.id}` : '/api/surveys';
+                const method = this.form.id ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method, headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    this.errorMsg = err.detail || 'Save failed';
+                    this.saving = false;
+                    return;
+                }
+                const data = await res.json();
+                if (!this.form.id) {
+                    location.href = `${this.config.listUrl}`;
+                } else {
+                    this.form.slug = data.slug;
+                    this.errorMsg = '';
+                    alert('Saved.');
+                }
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+
+        copyShareLink() {
+            const url = `${location.origin}/s/${this.form.slug}`;
+            navigator.clipboard.writeText(url).then(() => alert('Link copied:\n' + url));
+        },
+    };
+}
+</script>

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}{{ slug }} · RFM Survey{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-b from-indigo-50 to-white px-4 py-8" x-data="publicSurvey()" x-init="load()">
+    <div class="max-w-2xl mx-auto">
+
+        <div x-show="loading" class="text-center text-sm text-gray-500 py-12">Loading…</div>
+
+        <!-- Closed state -->
+        <div x-show="!loading && data?.closed" class="bg-white border border-gray-200 rounded-xl p-8 text-center">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-gray-100 text-gray-500 flex items-center justify-center text-3xl">📋</div>
+            <h1 class="mt-4 text-xl font-bold text-gray-900" x-text="data?.title || 'Survey closed'"></h1>
+            <p class="mt-2 text-sm text-gray-600">This survey is no longer accepting responses.</p>
+        </div>
+
+        <!-- Submitted state -->
+        <div x-show="!loading && submitted" class="bg-white border border-emerald-200 rounded-xl p-8 text-center">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl">✓</div>
+            <h1 class="mt-4 text-xl font-bold text-gray-900">Thank you</h1>
+            <p class="mt-2 text-sm text-gray-600">Your response has been recorded.</p>
+        </div>
+
+        <!-- Form -->
+        <div x-show="!loading && !data?.closed && !submitted">
+            <div class="mb-4">
+                <h1 class="text-2xl font-bold text-gray-900" x-text="data?.title || ''"></h1>
+                <p x-show="data?.description" class="mt-1 text-sm text-gray-600" x-text="data?.description"></p>
+                <div x-show="data?.is_anonymous" class="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full text-xs text-amber-800">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    Anonymous — your identity is not recorded.
+                </div>
+            </div>
+
+            <div x-show="errorMsg" class="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="errorMsg"></div>
+
+            <div class="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+
+                <!-- Optional name when not anonymous -->
+                <div x-show="!data?.is_anonymous">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Your name (optional)</label>
+                    <input type="text" x-model="respondentName" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+                </div>
+
+                <template x-for="(q, idx) in (data?.questions || [])" :key="q.id">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-900 mb-2">
+                            <span x-text="`${idx + 1}. ${q.question_text}`"></span>
+                            <span x-show="q.required" class="text-red-500">*</span>
+                        </label>
+
+                        <!-- text -->
+                        <input x-show="q.question_type === 'text'" type="text" x-model="answers[q.id].answer_text" class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+
+                        <!-- long_text -->
+                        <textarea x-show="q.question_type === 'long_text'" x-model="answers[q.id].answer_text" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-lg"></textarea>
+
+                        <!-- single_choice -->
+                        <div x-show="q.question_type === 'single_choice'" class="space-y-2">
+                            <template x-for="opt in q.options" :key="opt">
+                                <label class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="radio" :name="`q${q.id}`" :value="opt" x-model="answers[q.id].answer_text" class="text-indigo-600" />
+                                    <span class="text-sm" x-text="opt"></span>
+                                </label>
+                            </template>
+                        </div>
+
+                        <!-- multi_choice -->
+                        <div x-show="q.question_type === 'multi_choice'" class="space-y-2">
+                            <template x-for="opt in q.options" :key="opt">
+                                <label class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                    <input type="checkbox" :value="opt" @change="toggleMulti(q.id, opt, $event.target.checked)" :checked="(answers[q.id].answer_options || []).includes(opt)" class="text-indigo-600 rounded" />
+                                    <span class="text-sm" x-text="opt"></span>
+                                </label>
+                            </template>
+                        </div>
+
+                        <!-- yes_no -->
+                        <div x-show="q.question_type === 'yes_no'" class="flex gap-2">
+                            <label class="flex-1 flex items-center justify-center gap-2 p-3 border border-gray-200 rounded-lg cursor-pointer" :class="answers[q.id].answer_text === 'Yes' ? 'border-indigo-500 bg-indigo-50' : ''">
+                                <input type="radio" :name="`q${q.id}`" value="Yes" x-model="answers[q.id].answer_text" class="hidden" />
+                                <span>Yes</span>
+                            </label>
+                            <label class="flex-1 flex items-center justify-center gap-2 p-3 border border-gray-200 rounded-lg cursor-pointer" :class="answers[q.id].answer_text === 'No' ? 'border-indigo-500 bg-indigo-50' : ''">
+                                <input type="radio" :name="`q${q.id}`" value="No" x-model="answers[q.id].answer_text" class="hidden" />
+                                <span>No</span>
+                            </label>
+                        </div>
+
+                        <!-- rating -->
+                        <div x-show="q.question_type === 'rating'" class="flex gap-2">
+                            <template x-for="n in [1,2,3,4,5]" :key="n">
+                                <button type="button" @click="answers[q.id].answer_text = String(n)" class="w-12 h-12 rounded-lg border text-lg font-bold" :class="answers[q.id].answer_text === String(n) ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-700'" x-text="n"></button>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <button @click="submit()" :disabled="submitting" class="w-full px-4 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50" x-text="submitting ? 'Submitting…' : 'Submit'"></button>
+            </div>
+
+            <p class="mt-4 text-xs text-gray-400 text-center">RFM Stellenbosch Portal</p>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function publicSurvey() {
+    return {
+        slug: {{ slug | tojson }},
+        loading: true,
+        submitting: false,
+        submitted: false,
+        errorMsg: '',
+        data: null,
+        respondentName: '',
+        answers: {},
+
+        async load() {
+            try {
+                const res = await fetch(`/api/surveys/public/${this.slug}`);
+                if (!res.ok) { this.errorMsg = 'Survey not found.'; this.loading = false; return; }
+                this.data = await res.json();
+                if (this.data && !this.data.closed && this.data.questions) {
+                    for (const q of this.data.questions) {
+                        this.answers[q.id] = {answer_text: '', answer_options: []};
+                    }
+                }
+            } catch (e) { this.errorMsg = String(e); }
+            this.loading = false;
+        },
+
+        toggleMulti(qid, opt, checked) {
+            const arr = this.answers[qid].answer_options || [];
+            if (checked) {
+                if (!arr.includes(opt)) arr.push(opt);
+            } else {
+                const i = arr.indexOf(opt);
+                if (i >= 0) arr.splice(i, 1);
+            }
+            this.answers[qid].answer_options = arr;
+        },
+
+        async submit() {
+            this.errorMsg = '';
+            this.submitting = true;
+            try {
+                const payload = {
+                    answers: this.answers,
+                    ...(this.data.is_anonymous ? {} : {respondent_name: this.respondentName.trim()}),
+                };
+                const res = await fetch(`/api/surveys/public/${this.slug}/respond`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    this.errorMsg = err.detail || 'Submission failed';
+                    this.submitting = false;
+                    return;
+                }
+                this.submitted = true;
+            } catch (e) { this.errorMsg = String(e); }
+            this.submitting = false;
+        },
+    };
+}
+</script>
+{% endblock %}

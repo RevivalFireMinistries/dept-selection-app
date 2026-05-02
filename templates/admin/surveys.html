@@ -1,0 +1,163 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Surveys · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-5xl mx-auto px-4 py-6" x-data="surveysAdmin()" x-init="load()">
+
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Surveys</h1>
+            <p class="text-sm text-gray-500">Build, share, and review survey responses.</p>
+        </div>
+        <a href="/admin/surveys/builder" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">+ New survey</a>
+    </div>
+
+    <!-- Creator allowlist -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+        <div class="flex items-center justify-between mb-2">
+            <h2 class="font-semibold text-gray-900">Who can create surveys</h2>
+            <button @click="creatorPanel = !creatorPanel" class="text-xs text-indigo-600 hover:text-indigo-800" x-text="creatorPanel ? 'Hide' : 'Manage'"></button>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Members granted this permission can build & share their own surveys.</p>
+
+        <div class="flex flex-wrap gap-2 mb-2">
+            <template x-for="m in creators" :key="m.id">
+                <span class="inline-flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs">
+                    <span x-text="m.full_name"></span>
+                    <button @click="revokeCreator(m)" class="text-indigo-500 hover:text-red-600">×</button>
+                </span>
+            </template>
+            <span x-show="!creators.length" class="text-xs text-gray-400 italic">No members granted yet.</span>
+        </div>
+
+        <div x-show="creatorPanel" class="mt-3 border-t border-gray-100 pt-3">
+            <input type="text" x-model="memberQuery" @input.debounce.300ms="searchMembers()" placeholder="Search a member by name or phone…" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+            <div class="mt-2 space-y-1 max-h-60 overflow-y-auto">
+                <template x-for="m in memberResults" :key="m.id">
+                    <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                        <div>
+                            <div class="text-sm text-gray-900" x-text="m.full_name"></div>
+                            <div class="text-xs text-gray-500" x-text="m.phone"></div>
+                        </div>
+                        <button @click="grantCreator(m)" class="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700">Grant</button>
+                    </div>
+                </template>
+                <div x-show="memberQuery && !memberResults.length" class="text-xs text-gray-400 italic p-2">No matches.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Survey list -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <h2 class="font-semibold text-gray-900">All surveys</h2>
+        </div>
+        <div x-show="loading" class="p-6 text-center text-sm text-gray-500">Loading…</div>
+        <div x-show="!loading && !surveys.length" class="p-6 text-center text-sm text-gray-500">No surveys yet. Create your first one.</div>
+        <div class="divide-y divide-gray-100">
+            <template x-for="s in surveys" :key="s.id">
+                <div class="p-4 flex items-start justify-between gap-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <a :href="`/admin/surveys/${s.id}/responses`" class="font-semibold text-gray-900 hover:text-indigo-600 truncate" x-text="s.title"></a>
+                            <span x-show="s.is_anonymous" class="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-medium rounded uppercase tracking-wide">Anonymous</span>
+                            <span x-show="!s.is_active" class="px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-medium rounded">Closed</span>
+                            <span x-show="s.is_active" class="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-medium rounded">Active</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span x-text="`${s.response_count || 0} responses`"></span>
+                            <span x-show="s.created_by" x-text="`by ${s.created_by?.full_name || ''}`"></span>
+                            <button @click="copyLink(s)" class="text-indigo-600 hover:text-indigo-800">Copy share link</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <a :href="`/admin/surveys/${s.id}/responses`" class="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700">Responses</a>
+                        <a :href="`/admin/surveys/builder?id=${s.id}`" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded hover:bg-gray-50">Edit</a>
+                        <button @click="deleteSurvey(s)" class="px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function surveysAdmin() {
+    return {
+        loading: true,
+        surveys: [],
+        creators: [],
+        creatorPanel: false,
+        memberQuery: '',
+        memberResults: [],
+
+        async load() {
+            this.loading = true;
+            try {
+                const [s, c] = await Promise.all([
+                    fetch('/api/surveys').then(r => r.json()),
+                    fetch('/api/admin/survey-creators').then(r => r.json()),
+                ]);
+                this.surveys = s.surveys || [];
+                this.creators = c || [];
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+
+        _allMembers: null,
+        async searchMembers() {
+            if (!this.memberQuery || this.memberQuery.length < 2) { this.memberResults = []; return; }
+            try {
+                if (!this._allMembers) {
+                    const res = await fetch('/api/members');
+                    const data = await res.json();
+                    this._allMembers = (Array.isArray(data) ? data : []).map(m => ({
+                        id: m.id, full_name: m.fullName || m.full_name || '', phone: m.phone || '', email: m.email || ''
+                    }));
+                }
+                const q = this.memberQuery.toLowerCase();
+                const grantedIds = new Set(this.creators.map(c => c.id));
+                this.memberResults = this._allMembers
+                    .filter(m => !grantedIds.has(m.id))
+                    .filter(m => m.full_name.toLowerCase().includes(q) || (m.phone || '').includes(q))
+                    .slice(0, 20);
+            } catch (e) { console.error(e); this.memberResults = []; }
+        },
+
+        async grantCreator(m) {
+            const res = await fetch(`/api/admin/survey-creators/${m.id}`, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({can_create_surveys: true}),
+            });
+            if (res.ok) {
+                this.creators.push({id: m.id, full_name: m.full_name, phone: m.phone, email: m.email});
+                this.memberResults = this.memberResults.filter(x => x.id !== m.id);
+            }
+        },
+
+        async revokeCreator(m) {
+            if (!confirm(`Revoke survey-creator from ${m.full_name}?`)) return;
+            const res = await fetch(`/api/admin/survey-creators/${m.id}`, {
+                method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({can_create_surveys: false}),
+            });
+            if (res.ok) this.creators = this.creators.filter(c => c.id !== m.id);
+        },
+
+        copyLink(s) {
+            const url = `${location.origin}/s/${s.slug}`;
+            navigator.clipboard.writeText(url).then(() => alert('Link copied:\n' + url));
+        },
+
+        async deleteSurvey(s) {
+            if (!confirm(`Delete "${s.title}" and all responses? This cannot be undone.`)) return;
+            const res = await fetch(`/api/surveys/${s.id}`, {method: 'DELETE'});
+            if (res.ok) this.surveys = this.surveys.filter(x => x.id !== s.id);
+            else alert('Delete failed');
+        },
+    };
+}
+</script>
+{% endblock %}

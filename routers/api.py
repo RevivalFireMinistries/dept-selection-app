@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -458,7 +458,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         "email": member.email,
         "leadership_roles": roles,
         "departments": departments,
-        "needs_password_setup": needs_password_setup
+        "needs_password_setup": needs_password_setup,
+        "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
     }
 
 
@@ -8043,3 +8044,503 @@ def admin_rfm_sync_unlink(request: Request, data: dict = Body(...), db: Session 
     )
     db.commit()
     return {"success": True}
+
+
+# ============ SURVEYS ============
+#
+# Permission model
+#   - admin (admin_session cookie)              -> full control of all surveys + creator allowlist
+#   - member with can_create_surveys=True       -> CRUD their OWN surveys, view their OWN responses
+#   - public (no auth)                          -> view active survey by slug, submit one response
+#
+# Anonymity guarantee
+#   When survey.is_anonymous is True, the response endpoint NEVER stores
+#   respondent_member_id and NEVER stores respondent_name. Server-side enforced.
+
+VALID_QUESTION_TYPES = {"text", "long_text", "single_choice", "multi_choice", "rating", "yes_no"}
+
+
+def _is_admin(request: Request) -> bool:
+    from routers.pages import is_authenticated
+    return is_authenticated(request)
+
+
+def _current_member(request: Request, db: Session) -> Optional[Member]:
+    from routers.pages import get_current_member
+    return get_current_member(request, db)
+
+
+def _can_manage_survey(request: Request, db: Session, survey: Survey) -> bool:
+    if _is_admin(request):
+        return True
+    member = _current_member(request, db)
+    if not member or not getattr(member, "can_create_surveys", False):
+        return False
+    return survey.created_by_member_id == member.id
+
+
+def _generate_survey_slug(db: Session) -> str:
+    """Short, URL-safe, unguessable slug. Re-tries on the (extremely rare) collision."""
+    import secrets
+    for _ in range(5):
+        slug = secrets.token_urlsafe(8).replace("_", "").replace("-", "")[:12].lower()
+        if not slug:
+            continue
+        exists = db.query(Survey).filter(Survey.slug == slug).first()
+        if not exists:
+            return slug
+    # Last-resort fallback
+    return uuid.uuid4().hex[:12]
+
+
+def _serialize_question(q: SurveyQuestion, *, include_answers: bool = False) -> dict:
+    options = []
+    if q.options:
+        try:
+            options = json.loads(q.options) or []
+        except (ValueError, TypeError):
+            options = []
+    return {
+        "id": q.id,
+        "position": q.position,
+        "question_text": q.question_text,
+        "question_type": q.question_type,
+        "options": options,
+        "required": bool(q.required),
+    }
+
+
+def _serialize_survey(s: Survey, *, include_questions: bool = True, include_counts: bool = False, db: Session = None) -> dict:
+    out = {
+        "id": s.id,
+        "title": s.title,
+        "description": s.description or "",
+        "slug": s.slug,
+        "is_anonymous": bool(s.is_anonymous),
+        "is_active": bool(s.is_active),
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "closed_at": s.closed_at.isoformat() if s.closed_at else None,
+        "created_by": {
+            "id": s.created_by.id,
+            "full_name": s.created_by.full_name,
+        } if s.created_by else None,
+    }
+    if include_questions:
+        out["questions"] = [_serialize_question(q) for q in sorted(s.questions, key=lambda x: x.position)]
+    if include_counts and db is not None:
+        out["response_count"] = db.query(SurveyResponse).filter(SurveyResponse.survey_id == s.id).count()
+    return out
+
+
+def _validate_question_payload(q: dict) -> Tuple[Optional[dict], Optional[str]]:
+    """Returns (clean_dict, error). clean_dict has fields ready for the model."""
+    text = (q.get("question_text") or "").strip()
+    qtype = (q.get("question_type") or "").strip()
+    if not text:
+        return None, "Question text is required"
+    if qtype not in VALID_QUESTION_TYPES:
+        return None, f"Unknown question type: {qtype}"
+    options = q.get("options") or []
+    if qtype in ("single_choice", "multi_choice"):
+        clean_opts = [str(o).strip() for o in options if str(o).strip()]
+        if len(clean_opts) < 2:
+            return None, f"'{text[:40]}': choice questions need at least 2 options"
+        options_json = json.dumps(clean_opts)
+    else:
+        options_json = None
+    return {
+        "question_text": text,
+        "question_type": qtype,
+        "options": options_json,
+        "required": bool(q.get("required", False)),
+    }, None
+
+
+@router.get("/surveys")
+def list_surveys(request: Request, db: Session = Depends(get_db)):
+    """List surveys: admin sees all, creators see their own."""
+    if _is_admin(request):
+        rows = db.query(Survey).options(joinedload(Survey.created_by)).order_by(Survey.created_at.desc()).all()
+        scope = "admin"
+    else:
+        member = _current_member(request, db)
+        if not member or not getattr(member, "can_create_surveys", False):
+            raise HTTPException(status_code=403, detail="You don't have permission to manage surveys")
+        rows = (
+            db.query(Survey)
+            .options(joinedload(Survey.created_by))
+            .filter(Survey.created_by_member_id == member.id)
+            .order_by(Survey.created_at.desc())
+            .all()
+        )
+        scope = "creator"
+    return {
+        "scope": scope,
+        "surveys": [_serialize_survey(s, include_questions=False, include_counts=True, db=db) for s in rows],
+    }
+
+
+@router.post("/surveys")
+def create_survey(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Create a survey. Admin or any member with can_create_surveys."""
+    creator_member_id = None
+    if _is_admin(request):
+        from routers.pages import get_admin_identity
+        identity = get_admin_identity(request)
+        creator_member_id = (identity or {}).get("member_id")
+    else:
+        member = _current_member(request, db)
+        if not member or not getattr(member, "can_create_surveys", False):
+            raise HTTPException(status_code=403, detail="You don't have permission to create surveys")
+        creator_member_id = member.id
+
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    questions_payload = payload.get("questions") or []
+    if not isinstance(questions_payload, list) or len(questions_payload) == 0:
+        raise HTTPException(status_code=400, detail="At least one question is required")
+
+    # Validate questions before any DB writes
+    cleaned: List[dict] = []
+    for q in questions_payload:
+        clean, err = _validate_question_payload(q)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        cleaned.append(clean)
+
+    survey = Survey(
+        title=title[:300],
+        description=(payload.get("description") or "").strip() or None,
+        slug=_generate_survey_slug(db),
+        is_anonymous=bool(payload.get("is_anonymous", True)),
+        is_active=bool(payload.get("is_active", True)),
+        created_by_member_id=creator_member_id,
+    )
+    db.add(survey)
+    db.flush()
+    for idx, c in enumerate(cleaned):
+        db.add(SurveyQuestion(
+            survey_id=survey.id,
+            position=idx,
+            question_text=c["question_text"],
+            question_type=c["question_type"],
+            options=c["options"],
+            required=c["required"],
+        ))
+    db.commit()
+    db.refresh(survey)
+    return _serialize_survey(survey, include_questions=True)
+
+
+@router.get("/surveys/{survey_id}")
+def get_survey(survey_id: int, request: Request, db: Session = Depends(get_db)):
+    survey = db.query(Survey).options(joinedload(Survey.created_by)).filter(Survey.id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    return _serialize_survey(survey, include_questions=True, include_counts=True, db=db)
+
+
+@router.put("/surveys/{survey_id}")
+def update_survey(survey_id: int, payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    survey = db.query(Survey).filter(Survey.id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    # Top-level fields
+    if "title" in payload:
+        title = (payload.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Title cannot be empty")
+        survey.title = title[:300]
+    if "description" in payload:
+        survey.description = (payload.get("description") or "").strip() or None
+    if "is_anonymous" in payload:
+        # Once responses exist, lock the anonymity setting to preserve guarantees.
+        existing_response_count = db.query(SurveyResponse).filter(SurveyResponse.survey_id == survey.id).count()
+        if existing_response_count > 0 and bool(payload["is_anonymous"]) != bool(survey.is_anonymous):
+            raise HTTPException(status_code=400, detail="Cannot change anonymity after responses have been collected")
+        survey.is_anonymous = bool(payload["is_anonymous"])
+    if "is_active" in payload:
+        survey.is_active = bool(payload["is_active"])
+        survey.closed_at = None if survey.is_active else datetime.utcnow()
+
+    # Questions: full replace if provided
+    if "questions" in payload:
+        questions_payload = payload.get("questions") or []
+        if not isinstance(questions_payload, list) or len(questions_payload) == 0:
+            raise HTTPException(status_code=400, detail="At least one question is required")
+        cleaned: List[dict] = []
+        for q in questions_payload:
+            clean, err = _validate_question_payload(q)
+            if err:
+                raise HTTPException(status_code=400, detail=err)
+            cleaned.append(clean)
+        # If responses already exist, we keep historical questions intact by
+        # blocking question edits — first iteration: keep it simple.
+        existing_response_count = db.query(SurveyResponse).filter(SurveyResponse.survey_id == survey.id).count()
+        if existing_response_count > 0:
+            raise HTTPException(status_code=400, detail="Cannot edit questions after responses have been collected")
+        # wipe & recreate
+        db.query(SurveyQuestion).filter(SurveyQuestion.survey_id == survey.id).delete()
+        for idx, c in enumerate(cleaned):
+            db.add(SurveyQuestion(
+                survey_id=survey.id,
+                position=idx,
+                question_text=c["question_text"],
+                question_type=c["question_type"],
+                options=c["options"],
+                required=c["required"],
+            ))
+
+    db.commit()
+    db.refresh(survey)
+    return _serialize_survey(survey, include_questions=True, include_counts=True, db=db)
+
+
+@router.delete("/surveys/{survey_id}")
+def delete_survey(survey_id: int, request: Request, db: Session = Depends(get_db)):
+    survey = db.query(Survey).filter(Survey.id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    db.delete(survey)
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/surveys/{survey_id}/responses")
+def get_survey_responses(survey_id: int, request: Request, db: Session = Depends(get_db)):
+    survey = (
+        db.query(Survey)
+        .options(joinedload(Survey.questions))
+        .filter(Survey.id == survey_id)
+        .first()
+    )
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    responses = (
+        db.query(SurveyResponse)
+        .options(joinedload(SurveyResponse.answers))
+        .filter(SurveyResponse.survey_id == survey_id)
+        .order_by(SurveyResponse.submitted_at.desc())
+        .all()
+    )
+
+    questions_sorted = sorted(survey.questions, key=lambda q: q.position)
+    q_lookup = {q.id: q for q in questions_sorted}
+
+    rows = []
+    for r in responses:
+        answers_by_q = {}
+        for a in r.answers:
+            opts = []
+            if a.answer_options:
+                try:
+                    opts = json.loads(a.answer_options) or []
+                except (ValueError, TypeError):
+                    opts = []
+            answers_by_q[a.question_id] = {
+                "answer_text": a.answer_text or "",
+                "answer_options": opts,
+            }
+        rows.append({
+            "id": r.id,
+            "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+            # NEVER include identity for anonymous surveys
+            "respondent_name": (r.respondent_name if not survey.is_anonymous else None),
+            "answers": answers_by_q,
+        })
+
+    # Per-question summary stats (counts for choice/yes_no/rating, sample texts otherwise)
+    summaries = []
+    for q in questions_sorted:
+        qsum: dict = {"question_id": q.id, "question_text": q.question_text, "question_type": q.question_type}
+        if q.question_type in ("single_choice", "yes_no", "rating"):
+            counts: dict = {}
+            for r in responses:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_text:
+                    counts[a.answer_text] = counts.get(a.answer_text, 0) + 1
+            qsum["counts"] = counts
+        elif q.question_type == "multi_choice":
+            counts = {}
+            for r in responses:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_options:
+                    try:
+                        for opt in json.loads(a.answer_options) or []:
+                            counts[opt] = counts.get(opt, 0) + 1
+                    except (ValueError, TypeError):
+                        pass
+            qsum["counts"] = counts
+        else:
+            samples = []
+            for r in responses[:50]:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_text:
+                    samples.append(a.answer_text)
+            qsum["samples"] = samples
+        summaries.append(qsum)
+
+    return {
+        "survey": _serialize_survey(survey, include_questions=True, include_counts=False),
+        "is_anonymous": bool(survey.is_anonymous),
+        "responses": rows,
+        "summaries": summaries,
+        "total": len(responses),
+    }
+
+
+# --- Public endpoints ---
+
+@router.get("/surveys/public/{slug}")
+def get_public_survey(slug: str, db: Session = Depends(get_db)):
+    """Return survey + questions for the public response page."""
+    survey = db.query(Survey).filter(Survey.slug == slug).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not survey.is_active:
+        return {
+            "closed": True,
+            "title": survey.title,
+            "description": survey.description or "",
+            "is_anonymous": bool(survey.is_anonymous),
+        }
+    return {
+        "closed": False,
+        "id": survey.id,
+        "title": survey.title,
+        "description": survey.description or "",
+        "is_anonymous": bool(survey.is_anonymous),
+        "questions": [_serialize_question(q) for q in sorted(survey.questions, key=lambda x: x.position)],
+    }
+
+
+@router.post("/surveys/public/{slug}/respond")
+def submit_public_response(slug: str, payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Public response submission. Anonymity is enforced server-side."""
+    survey = (
+        db.query(Survey)
+        .options(joinedload(Survey.questions))
+        .filter(Survey.slug == slug)
+        .first()
+    )
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not survey.is_active:
+        raise HTTPException(status_code=400, detail="This survey is closed")
+
+    answers_payload = payload.get("answers") or {}  # { question_id: {answer_text?, answer_options?} }
+    if not isinstance(answers_payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid answers payload")
+
+    questions_by_id = {q.id: q for q in survey.questions}
+
+    # Validate required + structure
+    for q in survey.questions:
+        a = answers_payload.get(str(q.id)) or answers_payload.get(q.id) or {}
+        text = (a.get("answer_text") or "").strip() if isinstance(a, dict) else ""
+        opts = a.get("answer_options") if isinstance(a, dict) else None
+        has_value = bool(text) or (isinstance(opts, list) and len(opts) > 0)
+        if q.required and not has_value:
+            raise HTTPException(status_code=400, detail=f"'{q.question_text[:60]}' is required")
+        if q.question_type in ("single_choice", "yes_no", "rating") and text:
+            # accept anything for text in 'rating' (numeric string)
+            if q.question_type in ("single_choice",):
+                allowed = []
+                try:
+                    allowed = json.loads(q.options) if q.options else []
+                except (ValueError, TypeError):
+                    allowed = []
+                if allowed and text not in allowed:
+                    raise HTTPException(status_code=400, detail=f"Invalid choice for '{q.question_text[:60]}'")
+        if q.question_type == "multi_choice" and isinstance(opts, list):
+            try:
+                allowed = json.loads(q.options) if q.options else []
+            except (ValueError, TypeError):
+                allowed = []
+            for o in opts:
+                if allowed and o not in allowed:
+                    raise HTTPException(status_code=400, detail=f"Invalid option for '{q.question_text[:60]}'")
+
+    # SERVER-ENFORCED ANONYMITY: ignore identity fields entirely if anonymous.
+    respondent_member_id = None
+    respondent_name = None
+    if not survey.is_anonymous:
+        # Allow optional self-identification on non-anonymous surveys.
+        member = _current_member(request, db)
+        if member:
+            respondent_member_id = member.id
+            respondent_name = member.full_name
+        else:
+            # accept a name string from the form (no auth)
+            name = (payload.get("respondent_name") or "").strip()
+            respondent_name = name[:200] if name else None
+
+    response = SurveyResponse(
+        survey_id=survey.id,
+        respondent_member_id=respondent_member_id,
+        respondent_name=respondent_name,
+    )
+    db.add(response)
+    db.flush()
+
+    for q in survey.questions:
+        a = answers_payload.get(str(q.id)) or answers_payload.get(q.id) or {}
+        text = (a.get("answer_text") or "").strip() if isinstance(a, dict) else ""
+        opts = a.get("answer_options") if isinstance(a, dict) else None
+        opts_json = None
+        if isinstance(opts, list) and opts:
+            cleaned_opts = [str(o) for o in opts]
+            opts_json = json.dumps(cleaned_opts)
+        if not text and not opts_json:
+            continue
+        db.add(SurveyAnswer(
+            response_id=response.id,
+            question_id=q.id,
+            answer_text=text or None,
+            answer_options=opts_json,
+        ))
+
+    db.commit()
+    return {"success": True}
+
+
+# --- Admin: manage who can create surveys ---
+
+@router.get("/admin/survey-creators")
+def list_survey_creators(request: Request, db: Session = Depends(get_db)):
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    rows = db.query(Member).filter(Member.can_create_surveys == True).order_by(Member.full_name).all()
+    return [
+        {"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email}
+        for m in rows
+    ]
+
+
+@router.put("/admin/survey-creators/{member_id}")
+def set_survey_creator(member_id: int, payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    can = bool(payload.get("can_create_surveys", False))
+    member.can_create_surveys = can
+    _log_admin_action(
+        request, db, "survey_creator_toggle", "member", member.id,
+        f"{'Granted' if can else 'Revoked'} survey-creator for {member.full_name}",
+    )
+    db.commit()
+    return {"id": member.id, "full_name": member.full_name, "can_create_surveys": can}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Surveys · RFM Portal{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center px-6">
+    <div class="max-w-md text-center">
+        <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-3xl">📋</div>
+        <h1 class="mt-4 text-xl font-bold text-gray-900">You don't have survey access</h1>
+        <p class="mt-2 text-sm text-gray-600">
+            Surveys can only be built by members an admin has authorised.
+            If you believe this is wrong, please ask an admin to grant you access.
+        </p>
+        <a href="/portal" class="mt-6 inline-block px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">Back to portal</a>
+    </div>
+</div>
+{% endblock %}

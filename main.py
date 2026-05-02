@@ -532,6 +532,19 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (departments rfm-db): {e}")
 
+        # Migration: surveys feature — members.can_create_surveys flag.
+        # Survey/Question/Response/Answer tables are created by metadata.create_all
+        # on lifespan startup (no manual ALTER needed for new tables).
+        try:
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS can_create_surveys BOOLEAN NOT NULL DEFAULT FALSE
+            """))
+            conn.commit()
+            print("Migration: Added can_create_surveys flag to members")
+        except Exception as e:
+            print(f"Migration note (can_create_surveys): {e}")
+
         # Seed default home church program types (only if table is empty)
         try:
             existing = conn.execute(text("SELECT COUNT(*) FROM home_church_program_types")).scalar()

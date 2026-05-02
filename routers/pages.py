@@ -370,6 +370,75 @@ async def admin_members(request: Request):
     return templates.TemplateResponse("admin/members.html", {"request": request})
 
 
+@router.get("/admin/surveys")
+async def admin_surveys_page(request: Request):
+    """Admin: list all surveys + manage who can create them."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/surveys.html", {"request": request})
+
+
+@router.get("/admin/surveys/builder")
+async def admin_surveys_builder(request: Request):
+    """Admin: create or edit a survey (?id=N for edit)."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/survey_builder.html", {"request": request})
+
+
+@router.get("/admin/surveys/{survey_id}/responses")
+async def admin_survey_responses_page(request: Request, survey_id: int):
+    """Admin: view responses for a survey."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/survey_responses.html", {"request": request})
+
+
+@router.get("/surveys")
+async def member_surveys_page(request: Request, db: Session = Depends(get_db)):
+    """Authorised member's survey list."""
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/surveys", status_code=302)
+    if not getattr(member, "can_create_surveys", False) and not is_authenticated(request):
+        # Not authorised — show the explanatory page so they know who to ask.
+        return templates.TemplateResponse(
+            "surveys_unauthorised.html", {"request": request}, status_code=403
+        )
+    return templates.TemplateResponse("surveys_list.html", {"request": request})
+
+
+@router.get("/surveys/builder")
+async def member_surveys_builder(request: Request, db: Session = Depends(get_db)):
+    """Member-side builder."""
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/surveys/builder", status_code=302)
+    if not getattr(member, "can_create_surveys", False) and not is_authenticated(request):
+        return templates.TemplateResponse(
+            "surveys_unauthorised.html", {"request": request}, status_code=403
+        )
+    return templates.TemplateResponse("survey_builder.html", {"request": request})
+
+
+@router.get("/surveys/{survey_id}/responses")
+async def member_survey_responses_page(request: Request, survey_id: int, db: Session = Depends(get_db)):
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url=f"/?next=/surveys/{survey_id}/responses", status_code=302)
+    if not getattr(member, "can_create_surveys", False) and not is_authenticated(request):
+        return templates.TemplateResponse(
+            "surveys_unauthorised.html", {"request": request}, status_code=403
+        )
+    return templates.TemplateResponse("survey_responses.html", {"request": request})
+
+
+@router.get("/s/{slug}")
+async def public_survey_page(request: Request, slug: str):
+    """Public response page — no auth required."""
+    return templates.TemplateResponse("public_survey.html", {"request": request, "slug": slug})
+
+
 @router.get("/admin/member/{member_id}/profile")
 async def admin_member_profile(request: Request, member_id: int):
     """Admin member profile page"""

@@ -1,0 +1,13 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Survey builder · Admin{% endblock %}
+
+{% block admin_content %}
+{% include "_survey_builder_partial.html" %}
+<script>
+window.__SURVEY_BUILDER_CONFIG__ = {
+    listUrl: '/admin/surveys',
+    backLabel: 'Back to surveys',
+};
+</script>
+{% endblock %}

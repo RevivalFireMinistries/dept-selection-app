@@ -62,6 +62,8 @@ class Member(Base):
     # Assembly UUID this member belongs to (drives multi-tenant scoping when
     # the central API has more than one church).
     external_assembly_id = Column(String(36), nullable=True, index=True)
+    # Surveys: members granted this flag by an admin can build and share surveys.
+    can_create_surveys = Column(Boolean, nullable=False, server_default="false")
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")
@@ -516,3 +518,83 @@ class HomeChurchAttendance(Base):
 
     home_church = relationship("HomeChurch")
     submitted_by = relationship("Member", foreign_keys=[submitted_by_member_id])
+
+
+# ============ SURVEYS ============
+
+class Survey(Base):
+    """A survey built by an authorised creator. Shared via a public slug URL.
+    When is_anonymous is true, responses MUST never carry respondent identity —
+    the API enforces this server-side regardless of any client cookie state."""
+    __tablename__ = "surveys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=True)
+    slug = Column(String(40), unique=True, nullable=False, index=True)  # public token
+    is_anonymous = Column(Boolean, nullable=False, server_default="true")
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+
+    questions = relationship(
+        "SurveyQuestion",
+        back_populates="survey",
+        cascade="all, delete-orphan",
+        order_by="SurveyQuestion.position",
+    )
+    responses = relationship(
+        "SurveyResponse",
+        back_populates="survey",
+        cascade="all, delete-orphan",
+    )
+    created_by = relationship("Member", foreign_keys=[created_by_member_id])
+
+
+class SurveyQuestion(Base):
+    __tablename__ = "survey_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    survey_id = Column(Integer, ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    position = Column(Integer, nullable=False, server_default="0")
+    question_text = Column(Text, nullable=False)
+    # text | long_text | single_choice | multi_choice | rating | yes_no
+    question_type = Column(String(20), nullable=False)
+    options = Column(Text, nullable=True)  # JSON list of strings (for choice types)
+    required = Column(Boolean, nullable=False, server_default="false")
+
+    survey = relationship("Survey", back_populates="questions")
+
+
+class SurveyResponse(Base):
+    __tablename__ = "survey_responses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    survey_id = Column(Integer, ForeignKey("surveys.id", ondelete="CASCADE"), nullable=False)
+    # ALWAYS null for anonymous surveys. The API never sets these for an
+    # is_anonymous survey, even if a logged-in cookie is present.
+    respondent_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    respondent_name = Column(String(200), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    survey = relationship("Survey", back_populates="responses")
+    answers = relationship(
+        "SurveyAnswer",
+        back_populates="response",
+        cascade="all, delete-orphan",
+    )
+
+
+class SurveyAnswer(Base):
+    __tablename__ = "survey_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    response_id = Column(Integer, ForeignKey("survey_responses.id", ondelete="CASCADE"), nullable=False)
+    question_id = Column(Integer, ForeignKey("survey_questions.id", ondelete="CASCADE"), nullable=False)
+    answer_text = Column(Text, nullable=True)       # text/long_text/single_choice/rating/yes_no
+    answer_options = Column(Text, nullable=True)    # JSON array for multi_choice
+
+    response = relationship("SurveyResponse", back_populates="answers")
+    question = relationship("SurveyQuestion")
