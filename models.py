@@ -534,6 +534,9 @@ class Survey(Base):
     slug = Column(String(40), unique=True, nullable=False, index=True)  # public token
     is_anonymous = Column(Boolean, nullable=False, server_default="true")
     is_active = Column(Boolean, nullable=False, server_default="true")
+    # When true, the public response page offers a "Submit another response"
+    # button on the thank-you screen so the same device can submit repeatedly.
+    allow_multiple_responses = Column(Boolean, nullable=False, server_default="false")
     created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

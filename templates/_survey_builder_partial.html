@@ -32,6 +32,11 @@
                 <input type="checkbox" x-model="form.is_active" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                 <span>Active (accepting responses)</span>
             </label>
+            <label class="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" x-model="form.allow_multiple_responses" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                <span>Allow multiple responses</span>
+                <span class="text-xs text-gray-500">— show "Submit another" on the thank-you screen.</span>
+            </label>
         </div>
     </div>
 
@@ -109,6 +114,7 @@ function surveyBuilder() {
             description: '',
             is_anonymous: true,
             is_active: true,
+            allow_multiple_responses: false,
             questions: [],
         },
 
@@ -130,6 +136,7 @@ function surveyBuilder() {
                     description: data.description || '',
                     is_anonymous: data.is_anonymous,
                     is_active: data.is_active,
+                    allow_multiple_responses: !!data.allow_multiple_responses,
                     questions: (data.questions || []).map(q => ({
                         question_text: q.question_text,
                         question_type: q.question_type,
@@ -164,6 +171,7 @@ function surveyBuilder() {
                 description: this.form.description,
                 is_anonymous: this.form.is_anonymous,
                 is_active: this.form.is_active,
+                allow_multiple_responses: this.form.allow_multiple_responses,
                 questions,
             };
         },

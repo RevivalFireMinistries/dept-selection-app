@@ -532,6 +532,17 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (departments rfm-db): {e}")
 
+        # Migration: allow_multiple_responses on surveys (added after initial ship)
+        try:
+            conn.execute(text("""
+                ALTER TABLE surveys
+                ADD COLUMN IF NOT EXISTS allow_multiple_responses BOOLEAN NOT NULL DEFAULT FALSE
+            """))
+            conn.commit()
+            print("Migration: Added allow_multiple_responses to surveys")
+        except Exception as e:
+            print(f"Migration note (allow_multiple_responses): {e}")
+
         # Migration: surveys feature — members.can_create_surveys flag.
         # Survey/Question/Response/Answer tables are created by metadata.create_all
         # on lifespan startup (no manual ALTER needed for new tables).

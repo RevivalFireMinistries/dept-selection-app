@@ -22,6 +22,9 @@
             <div class="w-16 h-16 mx-auto rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl">✓</div>
             <h1 class="mt-4 text-xl font-bold text-gray-900">Thank you</h1>
             <p class="mt-2 text-sm text-gray-600">Your response has been recorded.</p>
+            <div class="mt-5 flex flex-col sm:flex-row gap-2 justify-center" x-show="data?.allow_multiple_responses">
+                <button @click="submitAnother()" class="px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">Submit another response</button>
+            </div>
         </div>
 
         <!-- Form -->
@@ -143,6 +146,20 @@ function publicSurvey() {
                 if (i >= 0) arr.splice(i, 1);
             }
             this.answers[qid].answer_options = arr;
+        },
+
+        submitAnother() {
+            // Reset form for a fresh submission. The survey questions stay loaded.
+            this.respondentName = '';
+            this.answers = {};
+            if (this.data && this.data.questions) {
+                for (const q of this.data.questions) {
+                    this.answers[q.id] = {answer_text: '', answer_options: []};
+                }
+            }
+            this.errorMsg = '';
+            this.submitted = false;
+            window.scrollTo({top: 0, behavior: 'smooth'});
         },
 
         async submit() {

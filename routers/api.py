@@ -8118,6 +8118,7 @@ def _serialize_survey(s: Survey, *, include_questions: bool = True, include_coun
         "slug": s.slug,
         "is_anonymous": bool(s.is_anonymous),
         "is_active": bool(s.is_active),
+        "allow_multiple_responses": bool(getattr(s, "allow_multiple_responses", False)),
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "closed_at": s.closed_at.isoformat() if s.closed_at else None,
         "created_by": {
@@ -8216,6 +8217,7 @@ def create_survey(payload: dict = Body(...), request: Request = None, db: Sessio
         slug=_generate_survey_slug(db),
         is_anonymous=bool(payload.get("is_anonymous", True)),
         is_active=bool(payload.get("is_active", True)),
+        allow_multiple_responses=bool(payload.get("allow_multiple_responses", False)),
         created_by_member_id=creator_member_id,
     )
     db.add(survey)
@@ -8269,6 +8271,8 @@ def update_survey(survey_id: int, payload: dict = Body(...), request: Request = 
     if "is_active" in payload:
         survey.is_active = bool(payload["is_active"])
         survey.closed_at = None if survey.is_active else datetime.utcnow()
+    if "allow_multiple_responses" in payload:
+        survey.allow_multiple_responses = bool(payload["allow_multiple_responses"])
 
     # Questions: full replace if provided
     if "questions" in payload:
@@ -8422,6 +8426,7 @@ def get_public_survey(slug: str, db: Session = Depends(get_db)):
         "title": survey.title,
         "description": survey.description or "",
         "is_anonymous": bool(survey.is_anonymous),
+        "allow_multiple_responses": bool(getattr(survey, "allow_multiple_responses", False)),
         "questions": [_serialize_question(q) for q in sorted(survey.questions, key=lambda x: x.position)],
     }
 
