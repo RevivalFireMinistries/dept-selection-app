@@ -11,7 +11,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session, joinedload
 
 from database import SessionLocal
-from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate, HomeChurch, HomeChurchRoster, HomeChurchProgramType, HomeChurchAttendance
+from models import Meeting, MemberDepartment, Member, Department, ServiceProgram, ServiceSchedule, ProgramTemplate, HomeChurch, HomeChurchRoster, HomeChurchProgramType, HomeChurchAttendance, Survey
 
 
 # Global scheduler instance
@@ -100,8 +100,42 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # Survey auto-expiry — runs daily at 02:00. Surveys auto-delete (with all
+    # their questions and responses) once they're older than SURVEY_RETENTION_DAYS.
+    scheduler.add_job(
+        purge_expired_surveys,
+        CronTrigger(hour=2, minute=0),
+        id="purge_expired_surveys",
+        name="Purge Expired Surveys",
+        replace_existing=True,
+    )
+
     scheduler.start()
     print(f"Scheduler started. Meeting reminders scheduled for {reminder_hour:02d}:{reminder_minute:02d} daily")
+
+
+def purge_expired_surveys() -> Dict[str, Any]:
+    """Delete surveys older than SURVEY_RETENTION_DAYS (default 90).
+    Cascades to questions and responses via the FK relationships."""
+    retention_days = int(os.getenv("SURVEY_RETENTION_DAYS", "90"))
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    db: Session = SessionLocal()
+    deleted = 0
+    try:
+        expired = db.query(Survey).filter(Survey.created_at < cutoff).all()
+        for s in expired:
+            db.delete(s)
+            deleted += 1
+        if deleted:
+            db.commit()
+        print(f"[Survey purge] retention={retention_days}d cutoff={cutoff.isoformat()} deleted={deleted}")
+    except Exception as e:
+        db.rollback()
+        print(f"[Survey purge] error: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        db.close()
+    return {"success": True, "deleted": deleted, "retention_days": retention_days}
 
 
 def shutdown_scheduler():

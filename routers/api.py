@@ -8518,6 +8518,266 @@ def submit_public_response(slug: str, payload: dict = Body(...), request: Reques
 
 # --- Admin: manage who can create surveys ---
 
+@router.delete("/surveys/{survey_id}/responses/{response_id}")
+def delete_survey_response(survey_id: int, response_id: int, request: Request, db: Session = Depends(get_db)):
+    """Delete a single response. Admin or the survey creator only."""
+    survey = db.query(Survey).filter(Survey.id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    resp = (
+        db.query(SurveyResponse)
+        .filter(SurveyResponse.id == response_id, SurveyResponse.survey_id == survey_id)
+        .first()
+    )
+    if not resp:
+        raise HTTPException(status_code=404, detail="Response not found")
+    db.delete(resp)
+    db.commit()
+    return {"success": True}
+
+
+@router.delete("/surveys/{survey_id}/responses")
+def delete_all_survey_responses(survey_id: int, request: Request, db: Session = Depends(get_db)):
+    """Wipe every response on a survey (keeps the survey & its questions)."""
+    survey = db.query(Survey).filter(Survey.id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    deleted = db.query(SurveyResponse).filter(SurveyResponse.survey_id == survey_id).delete()
+    db.commit()
+    return {"success": True, "deleted": deleted}
+
+
+@router.get("/surveys/{survey_id}/export.pdf")
+def export_survey_responses_pdf(survey_id: int, request: Request, db: Session = Depends(get_db)):
+    """PDF export of all responses with per-question summaries.
+    Uses ReportLab if available; falls back to a clean printable HTML otherwise."""
+    survey = (
+        db.query(Survey)
+        .options(joinedload(Survey.questions))
+        .filter(Survey.id == survey_id)
+        .first()
+    )
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if not _can_manage_survey(request, db, survey):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    responses = (
+        db.query(SurveyResponse)
+        .options(joinedload(SurveyResponse.answers))
+        .filter(SurveyResponse.survey_id == survey_id)
+        .order_by(SurveyResponse.submitted_at.desc())
+        .all()
+    )
+    questions_sorted = sorted(survey.questions, key=lambda q: q.position)
+
+    # Build summaries
+    summaries = []
+    for q in questions_sorted:
+        s = {"q": q, "counts": None, "samples": None}
+        if q.question_type in ("single_choice", "yes_no", "rating"):
+            counts: dict = {}
+            for r in responses:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_text:
+                    counts[a.answer_text] = counts.get(a.answer_text, 0) + 1
+            s["counts"] = counts
+        elif q.question_type == "multi_choice":
+            counts = {}
+            for r in responses:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_options:
+                    try:
+                        for opt in json.loads(a.answer_options) or []:
+                            counts[opt] = counts.get(opt, 0) + 1
+                    except (ValueError, TypeError):
+                        pass
+            s["counts"] = counts
+        else:
+            samples = []
+            for r in responses:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_text:
+                    samples.append(a.answer_text)
+            s["samples"] = samples
+        summaries.append(s)
+
+    # Try ReportLab; otherwise fall back to a printable HTML page.
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.lib import colors
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        )
+    except Exception:
+        # Fallback: HTML the browser can print to PDF.
+        return _survey_pdf_html_fallback(survey, questions_sorted, summaries, responses)
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18 * mm, rightMargin=18 * mm,
+        topMargin=18 * mm, bottomMargin=18 * mm,
+        title=f"Survey: {survey.title}",
+    )
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle("h1", parent=styles["Heading1"], fontSize=18, textColor=colors.HexColor("#4f46e5"), spaceAfter=4)
+    h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontSize=13, textColor=colors.HexColor("#1f2937"), spaceBefore=12, spaceAfter=4)
+    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=10, leading=13)
+    small = ParagraphStyle("small", parent=styles["BodyText"], fontSize=8, textColor=colors.HexColor("#6b7280"))
+    qstyle = ParagraphStyle("q", parent=styles["BodyText"], fontSize=11, textColor=colors.HexColor("#111827"), spaceBefore=8, spaceAfter=2, leading=14)
+
+    flow = []
+    flow.append(Paragraph(survey.title, h1))
+    flow.append(Paragraph(
+        f"{'Anonymous · ' if survey.is_anonymous else ''}"
+        f"{len(responses)} response{'s' if len(responses) != 1 else ''} · "
+        f"Created {survey.created_at.strftime('%d %b %Y') if survey.created_at else ''}",
+        small,
+    ))
+    if survey.description:
+        flow.append(Spacer(1, 4))
+        flow.append(Paragraph(survey.description, body))
+
+    # Summary section
+    flow.append(Paragraph("Summary", h2))
+    for s in summaries:
+        q = s["q"]
+        flow.append(Paragraph(f"<b>{q.question_text}</b> <font size=8 color='#6b7280'>({q.question_type.replace('_', ' ')})</font>", qstyle))
+        if s["counts"] is not None:
+            counts = s["counts"]
+            total = sum(counts.values()) or 1
+            rows = [["Option", "Count", "%"]]
+            for opt, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+                rows.append([opt, str(n), f"{round((n / total) * 100)}%"])
+            if len(rows) == 1:
+                flow.append(Paragraph("<i>No answers yet.</i>", small))
+            else:
+                t = Table(rows, hAlign="LEFT", colWidths=[80 * mm, 25 * mm, 25 * mm])
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef2ff")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#3730a3")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e5e7eb")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+                ]))
+                flow.append(t)
+        else:
+            samples = s["samples"] or []
+            if not samples:
+                flow.append(Paragraph("<i>No answers yet.</i>", small))
+            else:
+                for txt in samples[:200]:
+                    flow.append(Paragraph(f"• {txt}", body))
+
+    # Per-response detail
+    if responses:
+        flow.append(PageBreak())
+        flow.append(Paragraph("Individual responses", h2))
+        for idx, r in enumerate(responses, 1):
+            who = "Anonymous" if survey.is_anonymous else (r.respondent_name or "—")
+            when = r.submitted_at.strftime("%d %b %Y %H:%M") if r.submitted_at else ""
+            flow.append(Paragraph(f"<b>#{idx}</b> &nbsp; {who} &nbsp; <font color='#6b7280'>· {when}</font>", qstyle))
+            for q in questions_sorted:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_options:
+                    try:
+                        ans = ", ".join(json.loads(a.answer_options) or [])
+                    except (ValueError, TypeError):
+                        ans = "—"
+                elif a and a.answer_text:
+                    ans = a.answer_text
+                else:
+                    ans = "—"
+                flow.append(Paragraph(f"<font color='#6b7280'>{q.question_text}</font>", small))
+                flow.append(Paragraph(ans, body))
+            flow.append(Spacer(1, 6))
+
+    doc.build(flow)
+    buf.seek(0)
+    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", survey.title or "survey").strip("_") or "survey"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_title}_responses.pdf"'},
+    )
+
+
+def _survey_pdf_html_fallback(survey: Survey, questions_sorted: list, summaries: list, responses: list) -> Response:
+    """Printable HTML fallback when ReportLab isn't installed.
+    Browsers' Print-to-PDF produces a clean PDF from this."""
+    from html import escape
+    rows = []
+    rows.append(f"<h1 style='color:#4f46e5;margin:0 0 4px 0'>{escape(survey.title)}</h1>")
+    rows.append(f"<p style='color:#6b7280;margin:0 0 12px 0;font-size:12px'>"
+                f"{'Anonymous · ' if survey.is_anonymous else ''}{len(responses)} response(s) · "
+                f"Created {survey.created_at.strftime('%d %b %Y') if survey.created_at else ''}</p>")
+    if survey.description:
+        rows.append(f"<p>{escape(survey.description)}</p>")
+
+    rows.append("<h2 style='margin-top:24px;color:#1f2937'>Summary</h2>")
+    for s in summaries:
+        q = s["q"]
+        rows.append(f"<p style='margin:14px 0 4px 0'><b>{escape(q.question_text)}</b> "
+                    f"<span style='font-size:11px;color:#6b7280'>({q.question_type.replace('_', ' ')})</span></p>")
+        if s["counts"] is not None:
+            counts = s["counts"]
+            total = sum(counts.values()) or 1
+            if not counts:
+                rows.append("<p style='color:#9ca3af'><i>No answers yet.</i></p>")
+            else:
+                rows.append("<table border='1' cellspacing='0' cellpadding='6' style='border-collapse:collapse;font-size:12px;width:100%;border-color:#e5e7eb'>")
+                rows.append("<tr style='background:#eef2ff;color:#3730a3'><th align='left'>Option</th><th>Count</th><th>%</th></tr>")
+                for opt, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+                    rows.append(f"<tr><td>{escape(opt)}</td><td align='center'>{n}</td><td align='center'>{round((n / total) * 100)}%</td></tr>")
+                rows.append("</table>")
+        else:
+            samples = s["samples"] or []
+            if not samples:
+                rows.append("<p style='color:#9ca3af'><i>No answers yet.</i></p>")
+            else:
+                rows.append("<ul>" + "".join(f"<li>{escape(t)}</li>" for t in samples[:200]) + "</ul>")
+
+    if responses:
+        rows.append("<h2 style='margin-top:24px;color:#1f2937;page-break-before:always'>Individual responses</h2>")
+        for idx, r in enumerate(responses, 1):
+            who = "Anonymous" if survey.is_anonymous else (r.respondent_name or "—")
+            when = r.submitted_at.strftime("%d %b %Y %H:%M") if r.submitted_at else ""
+            rows.append(f"<div style='margin-top:12px'><b>#{idx}</b> &nbsp; {escape(who)} "
+                        f"<span style='color:#6b7280'>· {when}</span></div>")
+            for q in questions_sorted:
+                a = next((x for x in r.answers if x.question_id == q.id), None)
+                if a and a.answer_options:
+                    try:
+                        ans = ", ".join(json.loads(a.answer_options) or [])
+                    except (ValueError, TypeError):
+                        ans = "—"
+                elif a and a.answer_text:
+                    ans = a.answer_text
+                else:
+                    ans = "—"
+                rows.append(f"<p style='margin:6px 0 2px;color:#6b7280;font-size:11px'>{escape(q.question_text)}</p>"
+                            f"<p style='margin:0 0 4px;font-size:13px'>{escape(ans)}</p>")
+
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"<title>{escape(survey.title)} — responses</title>"
+        "<style>body{font-family:Inter,Arial,sans-serif;max-width:800px;margin:24px auto;padding:0 16px;color:#111827}"
+        "@media print{body{margin:0}}</style>"
+        "<script>window.onload=()=>setTimeout(()=>window.print(),300)</script>"
+        "</head><body>" + "".join(rows) + "</body></html>"
+    )
+    return Response(content=html, media_type="text/html")
+
+
 @router.get("/admin/survey-creators")
 def list_survey_creators(request: Request, db: Session = Depends(get_db)):
     if not _is_admin(request):
