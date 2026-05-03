@@ -288,6 +288,35 @@ def names_match_dept(local_name: str, api_name: str) -> bool:
     return a == b
 
 
+# ---- Home churches ----
+
+def list_home_churches(*, assembly_id: Optional[str] = None, include_inactive: bool = False, db=None) -> ApiResult:
+    """List home churches in the central database."""
+    params = {"include_inactive": "true" if include_inactive else "false"}
+    if assembly_id:
+        params["assembly_id"] = assembly_id
+    return _request("GET", "/api/v1/home-churches", db=db, params=params)
+
+
+def create_home_church(payload: dict, *, db=None) -> ApiResult:
+    """Create a home church centrally. Required: assembly_id, name."""
+    return _request("POST", "/api/v1/home-churches", db=db, body=payload)
+
+
+def update_home_church(home_church_id: str, fields: dict, *, db=None) -> ApiResult:
+    return _request("PUT", f"/api/v1/home-churches/{home_church_id}", db=db, body=fields)
+
+
+def delete_home_church(home_church_id: str, *, db=None) -> ApiResult:
+    """Soft-delete a home church centrally (sets is_active=false)."""
+    return _request("DELETE", f"/api/v1/home-churches/{home_church_id}", db=db)
+
+
+def names_match_home_church(local_name: str, api_name: str) -> bool:
+    """Same loose name comparison as departments."""
+    return names_match_dept(local_name, api_name)
+
+
 # ---------------------------------------------------------------------------
 # Matching helpers
 # ---------------------------------------------------------------------------

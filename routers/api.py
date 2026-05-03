@@ -853,6 +853,120 @@ def _push_department_to_central(department: Department, request: Request, db: Se
         return status
 
 
+def _home_church_payload(hc: HomeChurch, db: Session, *, assembly_id: str) -> dict:
+    """Map a local HomeChurch into the central schema. The local model
+    splits suburb/address/meeting_day/meeting_time/whatsapp_link, none of
+    which map 1:1 to central — we put the structured bits into metadata
+    and combine address+suburb into the human-facing 'location' string."""
+    location_parts = [p for p in [hc.address, hc.suburb] if p]
+    location = ", ".join(location_parts) if location_parts else None
+
+    leader_id = None
+    leader_name = None
+    if hc.leader_member_id:
+        leader = db.query(Member).filter(Member.id == hc.leader_member_id).first()
+        if leader:
+            leader_name = leader.full_name
+            if leader.external_member_id:
+                leader_id = str(leader.external_member_id)
+
+    metadata = {
+        "meeting_day": int(hc.meeting_day) if hc.meeting_day is not None else 0,
+        "meeting_time": hc.meeting_time or "19:00",
+        "whatsapp_link": hc.whatsapp_link or "",
+        "suburb": hc.suburb or "",
+        "address": hc.address or "",
+        "local_id": hc.id,
+    }
+    payload = {
+        "assembly_id": str(assembly_id),
+        "name": hc.name,
+        "leader_name": leader_name,
+        "location": location,
+        "notes": hc.notes,
+        "sort_order": hc.id,
+        "metadata": metadata,
+    }
+    if leader_id:
+        payload["leader_id"] = leader_id
+    return payload
+
+
+def _push_home_church_to_central(hc: HomeChurch, request: Request, db: Session, *, action: str) -> dict:
+    """Best-effort push of a HomeChurch CRUD change to the central API.
+    Same pattern as departments: failures are logged + ignored, local commit wins."""
+    status = {"attempted": False, "ok": False, "fields": [], "error": None}
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        return status
+
+    try:
+        if action == "delete":
+            if not hc.external_home_church_id:
+                return status
+            status["attempted"] = True
+            r = _rfm.delete_home_church(hc.external_home_church_id, db=db)
+            status["ok"] = r.ok
+            if not r.ok:
+                status["error"] = r.error
+            return status
+
+        assembly_id = _resolve_default_assembly_id(db)
+        if not assembly_id:
+            status["error"] = "could not resolve assembly_id; central sync skipped"
+            return status
+
+        if action == "create" or not hc.external_home_church_id:
+            payload = _home_church_payload(hc, db, assembly_id=assembly_id)
+            status["attempted"] = True
+            r = _rfm.create_home_church(payload, db=db)
+            if r.ok and isinstance(r.data, dict):
+                rec = r.data.get("data", r.data) if "data" in r.data else r.data
+                ext_id = rec.get("id") if isinstance(rec, dict) else None
+                if ext_id:
+                    hc.external_home_church_id = str(ext_id)
+                    from datetime import datetime as _dt
+                    hc.external_synced_at = _dt.utcnow()
+                    db.commit()
+                    status["ok"] = True
+                    status["fields"] = ["created"]
+                    return status
+            # Fall back: link by name if a record already exists centrally
+            ls = _rfm.list_home_churches(assembly_id=str(assembly_id), include_inactive=True, db=db)
+            if ls.ok and ls.data:
+                items = ls.data if isinstance(ls.data, list) else ls.data.get("data") or []
+                for d in items:
+                    if _rfm.names_match_home_church(hc.name, d.get("name") or ""):
+                        hc.external_home_church_id = str(d.get("id"))
+                        from datetime import datetime as _dt
+                        hc.external_synced_at = _dt.utcnow()
+                        db.commit()
+                        status["ok"] = True
+                        status["fields"] = ["linked-by-name"]
+                        return status
+            status["error"] = r.error if not r.ok else "could not create or match home church centrally"
+            return status
+
+        # Update path
+        payload = _home_church_payload(hc, db, assembly_id=assembly_id)
+        # central PUT only accepts mutable fields (no assembly_id)
+        update_fields = {k: v for k, v in payload.items() if k != "assembly_id"}
+        update_fields["is_active"] = bool(hc.is_active)
+        status["attempted"] = True
+        r = _rfm.update_home_church(hc.external_home_church_id, update_fields, db=db)
+        status["ok"] = r.ok
+        status["fields"] = list(update_fields.keys()) if r.ok else []
+        if not r.ok:
+            status["error"] = r.error
+        if r.ok:
+            from datetime import datetime as _dt
+            hc.external_synced_at = _dt.utcnow()
+            db.commit()
+        return status
+    except Exception as exc:
+        status["error"] = f"unexpected: {exc}"
+        return status
+
+
 @router.post("/departments")
 def create_department(data: DepartmentCreate, request: Request, db: Session = Depends(get_db)):
     """Create a new department"""
@@ -6355,6 +6469,7 @@ def admin_create_home_church(request: Request, data: dict = Body(...), db: Sessi
     db.refresh(hc)
     _log_admin_action(request, db, "create_home_church", "home_church", hc.id, f"Created home church '{hc.name}'")
     db.commit()
+    _push_home_church_to_central(hc, request, db, action="create")
     return _home_church_to_dict(hc, db)
 
 
@@ -6376,6 +6491,7 @@ def admin_update_home_church(hc_id: int, request: Request, data: dict = Body(...
     db.commit()
     _log_admin_action(request, db, "update_home_church", "home_church", hc.id, f"Updated '{hc.name}'")
     db.commit()
+    _push_home_church_to_central(hc, request, db, action="update")
     return _home_church_to_dict(hc, db)
 
 
@@ -6386,6 +6502,8 @@ def admin_delete_home_church(hc_id: int, request: Request, db: Session = Depends
     if not hc:
         raise HTTPException(status_code=404, detail="Home church not found")
     name = hc.name
+    # Push delete BEFORE removing the local row so we still have the external id
+    _push_home_church_to_central(hc, request, db, action="delete")
     db.delete(hc)
     db.commit()
     _log_admin_action(request, db, "delete_home_church", "home_church", hc_id, f"Deleted home church '{name}'")
@@ -8020,6 +8138,46 @@ def admin_rfm_sync_departments_all(request: Request, db: Session = Depends(get_d
     )
     db.commit()
     return {"summary": summary, "errors_sample": errors_sample, "scanned": len(departments)}
+
+
+@router.post("/admin/rfm-sync/home-churches/sync-all")
+def admin_rfm_sync_home_churches_all(request: Request, db: Session = Depends(get_db)):
+    """Push every local home church up to the central database. Idempotent —
+    already-linked rows are refreshed (PUT) so updates flow up too."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured")
+
+    summary = {"linked": 0, "created": 0, "updated": 0, "errors": 0, "skipped": 0}
+    errors_sample = []
+
+    rows = db.query(HomeChurch).all()
+    for hc in rows:
+        action = "update" if hc.external_home_church_id else "create"
+        result = _push_home_church_to_central(hc, request, db, action=action)
+        if result["ok"]:
+            if "created" in result["fields"]:
+                summary["created"] += 1
+            elif "linked-by-name" in result["fields"]:
+                summary["linked"] += 1
+            else:
+                summary["updated"] += 1
+        elif not result["attempted"]:
+            summary["skipped"] += 1
+        else:
+            summary["errors"] += 1
+            if len(errors_sample) < 5:
+                errors_sample.append({"home_church_id": hc.id, "name": hc.name, "error": result["error"]})
+
+    _log_admin_action(
+        request, db, "rfm_sync_home_churches", "home_churches", None,
+        f"Linked {summary['linked']}, created {summary['created']}, "
+        f"updated {summary['updated']}, skipped {summary['skipped']}, errors {summary['errors']}",
+    )
+    db.commit()
+    return {"summary": summary, "errors_sample": errors_sample, "scanned": len(rows)}
 
 
 @router.post("/admin/rfm-sync/unlink")

@@ -444,6 +444,10 @@ class HomeChurch(Base):
     is_active = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Central rfm-database link — populated when synced. Behaviour gated by
+    # RFM_API_INTEGRATION_ENABLED.
+    external_home_church_id = Column(String(36), nullable=True, index=True)
+    external_synced_at = Column(DateTime(timezone=True), nullable=True)
 
     leader = relationship("Member", foreign_keys=[leader_member_id])
     roster_entries = relationship("HomeChurchRoster", back_populates="home_church", cascade="all, delete-orphan")

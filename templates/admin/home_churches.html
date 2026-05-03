@@ -429,10 +429,29 @@
 
     <!-- CHURCHES TAB -->
     <div x-show="activeTab==='churches'" x-cloak>
-        <div class="flex justify-end mb-3">
+        <div class="flex flex-wrap justify-end gap-2 mb-3">
+            <button @click="syncHomeChurchesToCentral()" :disabled="hcSync.running"
+                class="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-sky-300 text-sky-700 hover:bg-sky-50 disabled:opacity-50 text-sm font-medium rounded-lg">
+                🔗 <span x-text="hcSync.running ? 'Syncing…' : 'Sync to central DB'"></span>
+            </button>
             <button @click="openHCEditor(null)" class="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg">
                 + New home church
             </button>
+        </div>
+
+        <div x-show="hcSync.result" class="mb-3 p-3 rounded-lg text-sm"
+             :class="hcSync.result?.summary?.errors ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-emerald-50 border border-emerald-200 text-emerald-900'">
+            <div class="font-semibold mb-1">Sync complete</div>
+            <div class="text-xs">
+                Scanned <span x-text="hcSync.result?.scanned"></span> ·
+                Created <span x-text="hcSync.result?.summary?.created || 0"></span> ·
+                Updated <span x-text="hcSync.result?.summary?.updated || 0"></span> ·
+                Linked by name <span x-text="hcSync.result?.summary?.linked || 0"></span> ·
+                Errors <span x-text="hcSync.result?.summary?.errors || 0"></span>
+            </div>
+            <template x-for="e in (hcSync.result?.errors_sample || [])" :key="e.home_church_id">
+                <div class="text-[11px] text-amber-700 mt-1">• <span x-text="e.name"></span>: <span x-text="e.error"></span></div>
+            </template>
         </div>
         <template x-if="homeChurches.length === 0">
             <div class="bg-white rounded-xl p-8 text-center border-2 border-dashed border-gray-200">
@@ -1005,6 +1024,7 @@ function homeChurchApp() {
         dates: [],
         matrix: [],
         homeChurches: [],
+        hcSync: { running: false, result: null },
         programTypes: [],
         allProgramTypes: [],
         preachers: [],
@@ -1355,6 +1375,25 @@ function homeChurchApp() {
             if (!r.ok) { alert('Failed to delete'); return; }
             await this.loadHomeChurches();
             await this.loadRoster();
+        },
+
+        async syncHomeChurchesToCentral() {
+            if (this.hcSync.running) return;
+            this.hcSync.running = true;
+            this.hcSync.result = null;
+            try {
+                const r = await fetch('/api/admin/rfm-sync/home-churches/sync-all', { method: 'POST' });
+                const data = await r.json();
+                if (!r.ok) {
+                    alert(data.detail || 'Sync failed');
+                } else {
+                    this.hcSync.result = data;
+                }
+            } catch (e) {
+                alert('Sync failed: ' + e.message);
+            } finally {
+                this.hcSync.running = false;
+            }
         },
 
         // ---- program type editor ----

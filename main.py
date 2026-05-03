@@ -532,6 +532,22 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (departments rfm-db): {e}")
 
+        # Migration: rfm-db link columns on home_churches
+        try:
+            conn.execute(text("""
+                ALTER TABLE home_churches
+                ADD COLUMN IF NOT EXISTS external_home_church_id VARCHAR(36),
+                ADD COLUMN IF NOT EXISTS external_synced_at TIMESTAMP WITH TIME ZONE
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_home_churches_external_id
+                ON home_churches(external_home_church_id)
+            """))
+            conn.commit()
+            print("Migration: Added rfm-db integration columns to home_churches")
+        except Exception as e:
+            print(f"Migration note (home_churches rfm-db): {e}")
+
         # Migration: allow_multiple_responses on surveys (added after initial ship)
         try:
             conn.execute(text("""
