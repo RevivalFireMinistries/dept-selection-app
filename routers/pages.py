@@ -434,9 +434,30 @@ async def member_survey_responses_page(request: Request, survey_id: int, db: Ses
 
 
 @router.get("/s/{slug}")
-async def public_survey_page(request: Request, slug: str):
-    """Public response page — no auth required."""
-    return templates.TemplateResponse("public_survey.html", {"request": request, "slug": slug})
+async def public_survey_page(request: Request, slug: str, db: Session = Depends(get_db)):
+    """Public response page — no auth required. Server-rendered meta so link
+    previews (WhatsApp / FB / Twitter) show the survey title."""
+    from models import Survey
+    survey = db.query(Survey).filter(Survey.slug == slug).first()
+    meta = {
+        "title": "RFM Survey",
+        "description": "Networking nations through Christ Jesus.",
+        "is_anonymous": False,
+        "exists": survey is not None,
+    }
+    if survey:
+        meta["title"] = survey.title
+        meta["is_anonymous"] = bool(survey.is_anonymous)
+        if survey.is_anonymous:
+            meta["description"] = "Anonymous survey — your identity is not recorded."
+        elif survey.description:
+            meta["description"] = survey.description[:200]
+        else:
+            meta["description"] = f"Respond to: {survey.title[:140]}"
+    return templates.TemplateResponse(
+        "public_survey.html",
+        {"request": request, "slug": slug, "meta": meta},
+    )
 
 
 @router.get("/admin/member/{member_id}/profile")

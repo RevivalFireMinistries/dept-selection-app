@@ -1,7 +1,7 @@
 {
-  "name": "RFM Stellenbosch Portal",
+  "name": "RFM Portal",
   "short_name": "RFM Portal",
-  "description": "Department selection, service programs, home churches, and more for Revival Fire Ministries Stellenbosch.",
+  "description": "Networking nations through Christ Jesus.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
