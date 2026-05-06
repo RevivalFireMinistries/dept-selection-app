@@ -6246,17 +6246,26 @@ def _preacher_pool_dept_ids(db: Session) -> List[int]:
     return out
 
 
-def _require_hc_access(request: Request, db: Session, hc: HomeChurch) -> Member:
-    """Admins and committee members can manage any home church.
-    A home church leader can manage only their own home church."""
+def _require_hc_access(request: Request, db: Session, hc: HomeChurch) -> Optional[Member]:
+    """Admins, committee members, AND home church leaders can manage members.
+      - admin (admin_session cookie) -> any home church, no restrictions
+      - committee member             -> any home church
+      - home church leader           -> only the home church they lead
+
+    Returns the acting Member when one is resolvable (used for audit logs),
+    or None for an admin whose identity isn't tied to a local Member row.
+    Raises 401/403 when access is denied."""
     from routers.pages import get_admin_identity, is_authenticated, MEMBER_COOKIE_NAME, _verify_member_session
 
+    # Admin path — always allowed, regardless of whether a local Member row exists
     if is_authenticated(request):
         identity = get_admin_identity(request)
         if identity and identity.get("member_id"):
             m = db.query(Member).filter(Member.id == identity["member_id"]).first()
             if m:
                 return m
+        return None  # admin without a mapped local member — still allowed
+
     token = request.cookies.get(MEMBER_COOKIE_NAME)
     member_id = _verify_member_session(token)
     if not member_id:
@@ -6659,10 +6668,13 @@ def admin_hc_add_member(hc_id: int, payload: dict = Body(...), request: Request 
     r = _rfm.update_member(external_id, {"home_church_id": hc.external_home_church_id}, db=db)
     if not r.ok:
         raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
-    _log_member_action(
-        request, db, actor, "hc_add_member", "home_church", hc.id,
-        f"Added external member {external_id} to '{hc.name}'",
-    )
+    from routers.pages import is_authenticated as _is_admin_auth
+    if _is_admin_auth(request):
+        _log_admin_action(request, db, "hc_add_member", "home_church", hc.id,
+                          f"Added external member {external_id} to '{hc.name}'")
+    else:
+        _log_member_action(request, db, actor, "hc_add_member", "home_church", hc.id,
+                           f"Added external member {external_id} to '{hc.name}'")
     db.commit()
     return {"success": True, "member": _hc_member_dict(r.data if isinstance(r.data, dict) else {})}
 
@@ -6678,10 +6690,13 @@ def admin_hc_remove_member(hc_id: int, external_member_id: str, request: Request
     r = _rfm.update_member(external_member_id, {"home_church_id": None}, db=db)
     if not r.ok:
         raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
-    _log_member_action(
-        request, db, actor, "hc_remove_member", "home_church", hc.id,
-        f"Removed external member {external_member_id} from '{hc.name}'",
-    )
+    from routers.pages import is_authenticated as _is_admin_auth
+    if _is_admin_auth(request):
+        _log_admin_action(request, db, "hc_remove_member", "home_church", hc.id,
+                          f"Removed external member {external_member_id} from '{hc.name}'")
+    else:
+        _log_member_action(request, db, actor, "hc_remove_member", "home_church", hc.id,
+                           f"Removed external member {external_member_id} from '{hc.name}'")
     db.commit()
     return {"success": True}
 
