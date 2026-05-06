@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer, MemberChangeRequest
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -9190,3 +9190,272 @@ def set_survey_creator(member_id: int, payload: dict = Body(...), request: Reque
     )
     db.commit()
     return {"id": member.id, "full_name": member.full_name, "can_create_surveys": can}
+
+
+# ============ MEMBER PORTAL (member-centric) ============
+#
+# These endpoints power the redesigned portal. Each call requires a logged-in
+# member. The portal aggregates local data with a best-effort fetch from the
+# central rfm-database for ministries and home church (which live there).
+
+def _require_logged_in_member(request: Request, db: Session) -> Member:
+    from routers.pages import get_current_member
+    member = get_current_member(request, db)
+    if not member:
+        raise HTTPException(status_code=401, detail="Please log in")
+    return member
+
+
+def _portal_central_lookup(member: Member, db: Session) -> dict:
+    """Best-effort fetch of ministries + home church from the central API.
+    Returns {} on any failure — never raises so the portal always loads."""
+    out: dict = {"ministries": [], "home_church": None, "central_synced": False}
+    if not member.external_member_id:
+        return out
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        return out
+    try:
+        r = _rfm.get_member(member.external_member_id, db=db)
+        if not r.ok or not isinstance(r.data, dict):
+            return out
+        api_member = r.data
+        out["central_synced"] = True
+        ministries_raw = api_member.get("ministries") or []
+        ministries: List[dict] = []
+        for m in ministries_raw:
+            if isinstance(m, str):
+                ministries.append({"name": m})
+            elif isinstance(m, dict):
+                ministries.append({"id": m.get("id"), "name": m.get("name") or ""})
+        out["ministries"] = ministries
+        hc_id = api_member.get("home_church_id")
+        hc_name = api_member.get("home_church_name") or api_member.get("home_church")
+        if hc_id or hc_name:
+            local_hc = None
+            if hc_id:
+                local_hc = db.query(HomeChurch).filter(HomeChurch.external_home_church_id == str(hc_id)).first()
+            if not local_hc and hc_name:
+                local_hc = db.query(HomeChurch).filter(HomeChurch.name == hc_name).first()
+            out["home_church"] = {
+                "id": local_hc.id if local_hc else None,
+                "external_id": str(hc_id) if hc_id else None,
+                "name": (local_hc.name if local_hc else hc_name) or "",
+                "meeting_day": local_hc.meeting_day if local_hc else None,
+                "meeting_time": local_hc.meeting_time if local_hc else None,
+                "address": local_hc.address if local_hc else None,
+                "suburb": local_hc.suburb if local_hc else None,
+            }
+    except Exception:
+        pass
+    return out
+
+
+@router.get("/portal/me")
+def portal_me(request: Request, db: Session = Depends(get_db)):
+    """Comprehensive member-centric snapshot for the redesigned portal."""
+    member = _require_logged_in_member(request, db)
+
+    member = db.query(Member).options(
+        joinedload(Member.departments).joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).filter(Member.id == member.id).first()
+
+    approved_departments = []
+    pending_departments = []
+    rejected_departments = []
+    for md in member.departments:
+        if not md.department:
+            continue
+        record = {
+            "id": md.id,
+            "department_id": md.department.id,
+            "department_name": md.department.name,
+            "category_name": md.department.category.name if md.department.category else None,
+            "status": md.status or "pending",
+            "source": md.source or "member",
+            "admin_note": md.admin_note,
+        }
+        if record["status"] == "approved":
+            approved_departments.append(record)
+        elif record["status"] == "rejected":
+            rejected_departments.append(record)
+        else:
+            pending_departments.append(record)
+
+    leadership_roles: List[str] = []
+    if member.leadership_roles:
+        try:
+            leadership_roles = json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else list(member.leadership_roles)
+        except (ValueError, TypeError):
+            leadership_roles = []
+
+    is_hc_leader = db.query(HomeChurch).filter(HomeChurch.leader_member_id == member.id).count() > 0
+    led_home_churches = [
+        {"id": hc.id, "name": hc.name}
+        for hc in db.query(HomeChurch).filter(HomeChurch.leader_member_id == member.id).all()
+    ]
+    is_committee = _is_committee_member(db, member)
+    hod_departments = [
+        {"id": d.id, "name": d.name}
+        for d in db.query(Department).filter(Department.hod_member_id == member.id).all()
+    ]
+
+    central = _portal_central_lookup(member, db)
+
+    open_change_requests = (
+        db.query(MemberChangeRequest)
+        .filter(MemberChangeRequest.member_id == member.id, MemberChangeRequest.status == "pending")
+        .count()
+    )
+
+    return {
+        "member": {
+            "id": member.id,
+            "full_name": member.full_name,
+            "phone": member.phone,
+            "email": member.email or "",
+            "address": member.address or "",
+            "leadership_roles": leadership_roles,
+            "external_synced": bool(member.external_member_id),
+        },
+        "departments": {
+            "approved": approved_departments,
+            "pending": pending_departments,
+            "rejected": rejected_departments,
+        },
+        "ministries": central.get("ministries", []),
+        "home_church": central.get("home_church"),
+        "central_synced": central.get("central_synced", False),
+        "leadership": {
+            "is_hc_leader": is_hc_leader,
+            "led_home_churches": led_home_churches,
+            "is_hc_committee": is_committee,
+            "is_hod": len(hod_departments) > 0,
+            "hod_departments": hod_departments,
+            "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
+        },
+        "open_change_requests": open_change_requests,
+    }
+
+
+def _serialize_change_request(cr: MemberChangeRequest) -> dict:
+    payload = None
+    if cr.payload:
+        try:
+            payload = json.loads(cr.payload)
+        except (ValueError, TypeError):
+            payload = None
+    return {
+        "id": cr.id,
+        "member_id": cr.member_id,
+        "member_name": cr.member.full_name if cr.member else "",
+        "member_phone": cr.member.phone if cr.member else "",
+        "change_type": cr.change_type,
+        "summary": cr.summary,
+        "details": cr.details,
+        "payload": payload,
+        "status": cr.status,
+        "admin_response": cr.admin_response,
+        "reviewed_by_id": cr.reviewed_by_id,
+        "reviewed_by_name": cr.reviewed_by.full_name if cr.reviewed_by else None,
+        "reviewed_at": cr.reviewed_at.isoformat() if cr.reviewed_at else None,
+        "created_at": cr.created_at.isoformat() if cr.created_at else None,
+    }
+
+
+@router.get("/portal/change-requests")
+def portal_my_change_requests(request: Request, db: Session = Depends(get_db)):
+    member = _require_logged_in_member(request, db)
+    rows = (
+        db.query(MemberChangeRequest)
+        .options(joinedload(MemberChangeRequest.reviewed_by))
+        .filter(MemberChangeRequest.member_id == member.id)
+        .order_by(MemberChangeRequest.created_at.desc())
+        .all()
+    )
+    return [_serialize_change_request(r) for r in rows]
+
+
+@router.post("/portal/change-requests")
+def portal_create_change_request(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    member = _require_logged_in_member(request, db)
+    change_type = (payload.get("change_type") or "").strip().lower()
+    summary = (payload.get("summary") or "").strip()
+    details = (payload.get("details") or "").strip() or None
+    structured = payload.get("payload") or None
+
+    valid_types = {"profile", "department", "ministry", "home_church", "other"}
+    if change_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Unknown change_type")
+    if not summary:
+        raise HTTPException(status_code=400, detail="Summary is required")
+    if len(summary) > 300:
+        summary = summary[:300]
+
+    cr = MemberChangeRequest(
+        member_id=member.id,
+        change_type=change_type,
+        summary=summary,
+        details=details,
+        payload=json.dumps(structured) if structured else None,
+        status="pending",
+    )
+    db.add(cr)
+    db.commit()
+    db.refresh(cr)
+    _log_member_action(
+        request, db, member, "submit_change_request", "change_request", cr.id,
+        f"{change_type}: {summary[:120]}",
+    )
+    db.commit()
+    return _serialize_change_request(cr)
+
+
+@router.get("/admin/change-requests")
+def admin_list_change_requests(
+    status: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Admin only: list change requests, optionally filtered by status."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    q = db.query(MemberChangeRequest).options(
+        joinedload(MemberChangeRequest.member),
+        joinedload(MemberChangeRequest.reviewed_by),
+    )
+    if status:
+        q = q.filter(MemberChangeRequest.status == status)
+    rows = q.order_by(MemberChangeRequest.created_at.desc()).all()
+    return [_serialize_change_request(r) for r in rows]
+
+
+@router.put("/admin/change-requests/{cr_id}")
+def admin_resolve_change_request(
+    cr_id: int,
+    payload: dict = Body(...),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    from routers.pages import is_authenticated, get_admin_identity
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    cr = db.query(MemberChangeRequest).filter(MemberChangeRequest.id == cr_id).first()
+    if not cr:
+        raise HTTPException(status_code=404, detail="Change request not found")
+
+    new_status = (payload.get("status") or "").strip().lower()
+    if new_status not in {"approved", "rejected", "applied", "pending"}:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    cr.status = new_status
+    cr.admin_response = (payload.get("admin_response") or "").strip() or None
+    identity = get_admin_identity(request) or {}
+    cr.reviewed_by_id = identity.get("member_id")
+    cr.reviewed_at = datetime.utcnow()
+    _log_admin_action(
+        request, db, "change_request_resolve", "change_request", cr.id,
+        f"{new_status} — {cr.summary[:120]}",
+    )
+    db.commit()
+    db.refresh(cr)
+    return _serialize_change_request(cr)

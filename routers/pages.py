@@ -370,6 +370,13 @@ async def admin_members(request: Request):
     return templates.TemplateResponse("admin/members.html", {"request": request})
 
 
+@router.get("/admin/change-requests")
+async def admin_change_requests_page(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/change_requests.html", {"request": request})
+
+
 @router.get("/admin/surveys")
 async def admin_surveys_page(request: Request):
     """Admin: list all surveys + manage who can create them."""
@@ -562,12 +569,25 @@ async def admin_appeals(request: Request):
 
 @router.get("/portal")
 async def member_portal(request: Request, db: Session = Depends(get_db)):
-    """Member portal - requires login session or redirects to login"""
+    """Member-centric portal - requires login session or redirects to login.
+    Replaced the legacy department-selection view in May 2026; the old
+    portal lives at /portal/classic for any flows we haven't migrated yet."""
     member = get_current_member(request, db)
     phone = request.query_params.get("phone")
     if not member and not phone:
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse("portal.html", {"request": request})
+
+
+@router.get("/portal/classic")
+async def member_portal_classic(request: Request, db: Session = Depends(get_db)):
+    """Legacy portal — kept for flows that haven't moved to the new design
+    (department selection form, family profile selector, design-team etc.)."""
+    member = get_current_member(request, db)
+    phone = request.query_params.get("phone")
+    if not member and not phone:
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("portal_classic.html", {"request": request})
 
 
 @router.get("/programs")
