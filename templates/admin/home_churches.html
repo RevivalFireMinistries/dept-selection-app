@@ -429,7 +429,38 @@
 
     <!-- CHURCHES TAB -->
     <div x-show="activeTab==='churches'" x-cloak>
+        {% if is_admin or is_committee %}
+        <!-- Membership stats card -->
+        <div class="mb-3 bg-white border border-gray-200 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+                <div class="font-semibold text-gray-900">Membership stats</div>
+                <button @click="loadMembershipStats()" :disabled="memStats.loading" class="text-xs text-violet-600 hover:underline">
+                    <span x-text="memStats.loading ? 'Loading…' : (memStats.data ? '↻ Refresh' : 'Load stats')"></span>
+                </button>
+            </div>
+            <div x-show="memStats.error" class="text-xs text-amber-700 mb-2" x-text="memStats.error"></div>
+            <div x-show="memStats.data" class="grid grid-cols-3 gap-2 text-center">
+                <div class="bg-violet-50 rounded-lg p-3">
+                    <div class="text-xl font-bold text-violet-700" x-text="memStats.data?.total_members ?? 0"></div>
+                    <div class="text-[11px] text-violet-700/70 uppercase tracking-wider">Total members</div>
+                </div>
+                <div class="bg-emerald-50 rounded-lg p-3">
+                    <div class="text-xl font-bold text-emerald-700" x-text="memStats.data?.with_home_church ?? 0"></div>
+                    <div class="text-[11px] text-emerald-700/70 uppercase tracking-wider">In a home church</div>
+                </div>
+                <div class="bg-amber-50 rounded-lg p-3">
+                    <div class="text-xl font-bold text-amber-700" x-text="memStats.data?.without_home_church ?? 0"></div>
+                    <div class="text-[11px] text-amber-700/70 uppercase tracking-wider">Not in any</div>
+                </div>
+            </div>
+            <div x-show="memStats.data?.unsynced_home_church_count" class="mt-2 text-[11px] text-amber-700">
+                ⚠ <span x-text="memStats.data?.unsynced_home_church_count"></span> home church(es) not yet synced to the central DB.
+            </div>
+        </div>
+        {% endif %}
+
         <div class="flex flex-wrap justify-end gap-2 mb-3">
+            {% if is_admin or is_committee %}
             <button @click="syncHomeChurchesToCentral()" :disabled="hcSync.running"
                 class="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-sky-300 text-sky-700 hover:bg-sky-50 disabled:opacity-50 text-sm font-medium rounded-lg">
                 🔗 <span x-text="hcSync.running ? 'Syncing…' : 'Sync to central DB'"></span>
@@ -437,6 +468,7 @@
             <button @click="openHCEditor(null)" class="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg">
                 + New home church
             </button>
+            {% endif %}
         </div>
 
         <div x-show="hcSync.result" class="mb-3 p-3 rounded-lg text-sm"
@@ -461,7 +493,7 @@
             </div>
         </template>
         <div class="grid gap-3 sm:grid-cols-2">
-            <template x-for="hc in homeChurches" :key="hc.id">
+            <template x-for="hc in visibleHomeChurches()" :key="hc.id">
                 <div class="bg-white rounded-xl shadow-sm p-4 flex items-start gap-3">
                     <div class="w-10 h-10 flex-shrink-0 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-lg">🏠</div>
                     <div class="flex-1 min-w-0">
@@ -474,9 +506,12 @@
                         <template x-if="!hc.is_active">
                             <div class="text-[10px] text-amber-600 font-semibold mt-1">INACTIVE</div>
                         </template>
-                        <div class="flex gap-2 mt-2">
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <button @click="openMembersSheet(hc)" class="text-xs text-violet-700 bg-violet-50 hover:bg-violet-100 px-2 py-1 rounded font-medium">👥 Members</button>
+                            {% if is_admin or is_committee %}
                             <button @click="openHCEditor(hc)" class="text-xs text-violet-600 font-medium hover:underline">Edit</button>
                             <button @click="deleteHC(hc)" class="text-xs text-red-500 font-medium hover:underline">Delete</button>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -795,6 +830,72 @@
         </div>
     </div>
 
+    <!-- MEMBERS SHEET -->
+    <div x-show="membersSheet.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="membersSheet.open = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="min-w-0">
+                    <div class="text-xs text-gray-500">Members of</div>
+                    <div class="font-semibold text-gray-900 truncate" x-text="membersSheet.hc ? membersSheet.hc.name : ''"></div>
+                </div>
+                <button @click="membersSheet.open = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div x-show="membersSheet.loading" class="text-sm text-gray-500 text-center py-6">Loading…</div>
+                <div x-show="membersSheet.error" class="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm" x-text="membersSheet.error"></div>
+
+                <!-- Add member -->
+                <div x-show="!membersSheet.loading && !membersSheet.error">
+                    <div class="text-xs font-semibold text-gray-700 mb-1">Add a member</div>
+                    <input type="text" x-model="membersSheet.searchQuery" @input.debounce.250ms="searchMembersToAdd()"
+                        placeholder="Search by name or phone…"
+                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    <div x-show="membersSheet.searchQuery.length >= 2 && !membersSheet.searchResults.length" class="text-[11px] text-gray-400 italic mt-1">No matches.</div>
+                    <div x-show="membersSheet.searching" class="text-[11px] text-gray-400 italic mt-1">Searching…</div>
+                    <div class="mt-2 max-h-44 overflow-y-auto space-y-1">
+                        <template x-for="m in membersSheet.searchResults" :key="m.id">
+                            <div class="flex items-center justify-between gap-2 p-2 border border-gray-200 rounded-lg">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-medium text-gray-900 truncate" x-text="m.full_name"></div>
+                                    <div class="text-[11px] text-gray-500 truncate" x-text="(m.phone || '') + (m.home_church_id ? ' · already in another HC' : '')"></div>
+                                </div>
+                                <button @click="addMemberToHC(m)" :disabled="membersSheet.adding === m.id"
+                                    class="text-xs px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded disabled:opacity-50">
+                                    <span x-text="membersSheet.adding === m.id ? 'Adding…' : 'Add'"></span>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Current members list -->
+                <div x-show="!membersSheet.loading">
+                    <div class="text-xs font-semibold text-gray-700 mb-2 mt-2 flex items-center justify-between">
+                        <span>Current members</span>
+                        <span class="text-[11px] text-gray-500" x-text="`${(membersSheet.members || []).length} total`"></span>
+                    </div>
+                    <div x-show="!(membersSheet.members || []).length" class="text-[11px] text-gray-400 italic text-center py-4">No members yet.</div>
+                    <div class="space-y-1">
+                        <template x-for="m in (membersSheet.members || [])" :key="m.id">
+                            <div class="flex items-center justify-between gap-2 p-2 border border-gray-100 rounded-lg">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-medium text-gray-900 truncate" x-text="m.full_name"></div>
+                                    <div class="text-[11px] text-gray-500 truncate" x-text="m.phone || ''"></div>
+                                </div>
+                                <button @click="removeMemberFromHC(m)" :disabled="membersSheet.removing === m.id"
+                                    class="text-xs px-2 py-1 text-red-600 hover:bg-red-50 rounded disabled:opacity-50">
+                                    <span x-text="membersSheet.removing === m.id ? 'Removing…' : 'Remove'"></span>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- HOME CHURCH EDITOR -->
     <div x-show="hcEditor.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="hcEditor.open = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -1051,6 +1152,15 @@ function homeChurchApp() {
         matrix: [],
         homeChurches: [],
         hcSync: { running: false, result: null },
+        memStats: { loading: false, data: null, error: null },
+        leaderHcIds: {{ leader_hc_ids | default([]) | tojson }},
+        isHcLeaderOnly: {{ (is_hc_leader and not is_committee and not is_admin) | default(false) | tojson }},
+        membersSheet: {
+            open: false, hc: null, members: [],
+            loading: false, error: '',
+            searchQuery: '', searchResults: [],
+            searching: false, adding: null, removing: null,
+        },
         programTypes: [],
         allProgramTypes: [],
         preachers: [],
@@ -1483,6 +1593,106 @@ function homeChurchApp() {
             if (!r.ok) { alert('Failed to delete'); return; }
             await this.loadHomeChurches();
             await this.loadRoster();
+        },
+
+        visibleHomeChurches() {
+            // Leaders only see their own home church(es). Committee/admin see all.
+            if (!this.isHcLeaderOnly) return this.homeChurches;
+            const allowed = new Set((this.leaderHcIds || []).map(Number));
+            return this.homeChurches.filter(hc => allowed.has(Number(hc.id)));
+        },
+
+        async loadMembershipStats() {
+            this.memStats = { loading: true, data: null, error: null };
+            try {
+                const r = await fetch('/api/admin/home-church/membership-stats');
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail || 'Stats unavailable');
+                this.memStats.data = data;
+            } catch (e) {
+                this.memStats.error = String(e.message || e);
+            } finally {
+                this.memStats.loading = false;
+            }
+        },
+
+        async openMembersSheet(hc) {
+            this.membersSheet = {
+                open: true, hc, members: [],
+                loading: true, error: '',
+                searchQuery: '', searchResults: [],
+                searching: false, adding: null, removing: null,
+            };
+            try {
+                const r = await fetch(`/api/admin/home-church/${hc.id}/members`);
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail || 'Could not load members');
+                this.membersSheet.members = data.members || [];
+            } catch (e) {
+                this.membersSheet.error = String(e.message || e);
+            } finally {
+                this.membersSheet.loading = false;
+            }
+        },
+
+        async searchMembersToAdd() {
+            const q = (this.membersSheet.searchQuery || '').trim().toLowerCase();
+            if (q.length < 2) { this.membersSheet.searchResults = []; return; }
+            this.membersSheet.searching = true;
+            try {
+                if (!this._allMembersCache) {
+                    const res = await fetch('/api/members');
+                    const data = await res.json();
+                    this._allMembersCache = (Array.isArray(data) ? data : []).map(m => ({
+                        id: m.id, full_name: m.fullName || m.full_name || '', phone: m.phone || ''
+                    }));
+                }
+                const inHcExternalIds = new Set((this.membersSheet.members || []).map(m => String(m.id)));
+                this.membersSheet.searchResults = this._allMembersCache
+                    .filter(m => m.full_name.toLowerCase().includes(q) || (m.phone || '').includes(q))
+                    .slice(0, 25);
+            } catch (e) { console.error(e); this.membersSheet.searchResults = []; }
+            this.membersSheet.searching = false;
+        },
+
+        async addMemberToHC(m) {
+            if (this.membersSheet.adding) return;
+            this.membersSheet.adding = m.id;
+            try {
+                const r = await fetch(`/api/admin/home-church/${this.membersSheet.hc.id}/members`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ member_id: m.id }),
+                });
+                const data = await r.json();
+                if (!r.ok) throw new Error(data.detail || 'Add failed');
+                // Reload the membership list
+                await this.openMembersSheet(this.membersSheet.hc);
+                // refresh stats card too if it was loaded
+                if (this.memStats.data) await this.loadMembershipStats();
+            } catch (e) {
+                alert('Could not add: ' + (e.message || e));
+            } finally {
+                this.membersSheet.adding = null;
+            }
+        },
+
+        async removeMemberFromHC(m) {
+            if (!confirm(`Remove ${m.full_name} from ${this.membersSheet.hc.name}?`)) return;
+            this.membersSheet.removing = m.id;
+            try {
+                const r = await fetch(`/api/admin/home-church/${this.membersSheet.hc.id}/members/${encodeURIComponent(m.id)}`, {
+                    method: 'DELETE',
+                });
+                const data = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(data.detail || 'Remove failed');
+                this.membersSheet.members = this.membersSheet.members.filter(x => x.id !== m.id);
+                if (this.memStats.data) await this.loadMembershipStats();
+            } catch (e) {
+                alert('Could not remove: ' + (e.message || e));
+            } finally {
+                this.membersSheet.removing = null;
+            }
         },
 
         async syncHomeChurchesToCentral() {

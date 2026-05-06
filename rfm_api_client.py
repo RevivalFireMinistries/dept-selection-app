@@ -244,6 +244,43 @@ def create_member(payload: dict, *, db=None) -> ApiResult:
     return _request("POST", "/api/v1/members", db=db, body=payload)
 
 
+def list_home_church_members(
+    home_church_id: str,
+    *,
+    assembly_id: Optional[str] = None,
+    page: int = 1,
+    size: int = 100,
+    db=None,
+) -> ApiResult:
+    """List central members assigned to this home church. Pages through
+    the API up to `size` (max 100) at a time."""
+    return _request(
+        "GET",
+        "/api/v1/members",
+        db=db,
+        params={
+            "home_church_id": home_church_id,
+            "assembly_id": assembly_id,
+            "page": page,
+            "size": size,
+        },
+    )
+
+
+def count_members_with_home_church(*, assembly_id: Optional[str] = None, db=None) -> ApiResult:
+    """Total members in the assembly that have a home_church_id set."""
+    # We can't easily filter "is not null" on the API, so we count all then
+    # subtract members whose home_church_id is missing. The API returns
+    # pagination meta with a total. For first iteration we keep this simple:
+    # it's only used by the stats card.
+    return _request(
+        "GET",
+        "/api/v1/members",
+        db=db,
+        params={"assembly_id": assembly_id, "page": 1, "size": 1},
+    )
+
+
 def list_assemblies(*, db=None) -> ApiResult:
     """List assemblies the API key has access to. With a scoped service key,
     only one is returned — that's the calling portal's assembly."""

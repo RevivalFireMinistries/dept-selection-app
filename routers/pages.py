@@ -713,7 +713,14 @@ async def admin_home_churches(request: Request, phone: Optional[str] = None):
     if is_authenticated(request):
         return templates.TemplateResponse(
             "admin/home_churches.html",
-            {"request": request, "is_admin": True, "actor_phone": None},
+            {
+                "request": request,
+                "is_admin": True,
+                "actor_phone": None,
+                "is_hc_leader": False,
+                "is_committee": True,
+                "leader_hc_ids": [],
+            },
         )
 
     from database import get_db as _get_db
@@ -749,9 +756,16 @@ async def admin_home_churches(request: Request, phone: Optional[str] = None):
             MemberDepartment.department_id.in_(committee_dept_ids),
             MemberDepartment.status == "approved",
         ).count() > 0
-        if not is_committee:
+        # Home church leaders also get access (their own home church only —
+        # the API enforces per-cell access checks via _require_hc_access).
+        from models import HomeChurch as _HC
+        is_hc_leader = db.query(_HC).filter(_HC.leader_member_id == acting_member.id).count() > 0
+        if not is_committee and not is_hc_leader:
             return RedirectResponse(url=f"/portal?phone={acting_member.phone}", status_code=302)
         actor_phone = acting_member.phone
+        leader_hc_ids = [
+            hc.id for hc in db.query(_HC).filter(_HC.leader_member_id == acting_member.id).all()
+        ]
     finally:
         try:
             db.close()
@@ -760,7 +774,14 @@ async def admin_home_churches(request: Request, phone: Optional[str] = None):
 
     response = templates.TemplateResponse(
         "admin/home_churches.html",
-        {"request": request, "is_admin": False, "actor_phone": actor_phone},
+        {
+            "request": request,
+            "is_admin": False,
+            "actor_phone": actor_phone,
+            "is_hc_leader": is_hc_leader,
+            "is_committee": is_committee,
+            "leader_hc_ids": leader_hc_ids,
+        },
     )
     # Set the member session cookie so the API calls from this page pass auth
     if member_id is None and actor_phone:

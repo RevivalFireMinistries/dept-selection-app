@@ -460,6 +460,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         "departments": departments,
         "needs_password_setup": needs_password_setup,
         "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
+        "is_hc_leader": db.query(HomeChurch).filter(HomeChurch.leader_member_id == member.id).count() > 0,
     }
 
 
@@ -2427,6 +2428,8 @@ def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
             except (ValueError, TypeError):
                 member_leadership_roles = []
 
+        is_hc_leader = db.query(HomeChurch).filter(HomeChurch.leader_member_id == member.id).count() > 0
+
         members_data.append({
             "id": member.id,
             "full_name": member.full_name,
@@ -2436,7 +2439,8 @@ def get_member_results(phone: str = Query(...), db: Session = Depends(get_db)):
             "approved_departments": approved,
             "pending_departments": pending,
             "rejected_departments": rejected,
-            "admin_added_departments": admin_added
+            "admin_added_departments": admin_added,
+            "is_hc_leader": is_hc_leader,
         })
 
     return {
@@ -6242,6 +6246,31 @@ def _preacher_pool_dept_ids(db: Session) -> List[int]:
     return out
 
 
+def _require_hc_access(request: Request, db: Session, hc: HomeChurch) -> Member:
+    """Admins and committee members can manage any home church.
+    A home church leader can manage only their own home church."""
+    from routers.pages import get_admin_identity, is_authenticated, MEMBER_COOKIE_NAME, _verify_member_session
+
+    if is_authenticated(request):
+        identity = get_admin_identity(request)
+        if identity and identity.get("member_id"):
+            m = db.query(Member).filter(Member.id == identity["member_id"]).first()
+            if m:
+                return m
+    token = request.cookies.get(MEMBER_COOKIE_NAME)
+    member_id = _verify_member_session(token)
+    if not member_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if _is_committee_member(db, member):
+        return member
+    if hc.leader_member_id == member.id:
+        return member
+    raise HTTPException(status_code=403, detail="You don't have access to this home church")
+
+
 def _is_committee_member(db: Session, member: Member) -> bool:
     if not member:
         return False
@@ -6521,6 +6550,185 @@ def admin_list_preachers(request: Request, db: Session = Depends(get_db)):
         return []
     members = db.query(Member).filter(Member.id.in_(member_ids), Member.is_active == True).order_by(Member.full_name).all()
     return [{"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email} for m in members]
+
+
+# ---- HOME CHURCH MEMBERSHIP (sourced from rfm-database) ----
+#
+# Membership lives in the central rfm-database — `church_members.home_church_id`
+# points at the home_churches table. The portal here is just a UI: every read
+# and write below proxies to the central API. Local data isn't used.
+
+def _hc_member_dict(api_member: dict) -> dict:
+    """Trim a central member record to the fields we render on the page."""
+    if not isinstance(api_member, dict):
+        return {}
+    full = " ".join(filter(None, [api_member.get("first_name"), api_member.get("last_name")])).strip()
+    if not full:
+        full = api_member.get("full_name") or ""
+    return {
+        "id": api_member.get("id"),
+        "full_name": full,
+        "phone": (api_member.get("phone") or "").replace(" ", ""),
+        "email": api_member.get("email") or "",
+        "home_church_id": api_member.get("home_church_id"),
+        "gender": api_member.get("gender"),
+    }
+
+
+def _ensure_central_synced(hc: HomeChurch, request: Request, db: Session):
+    """Make sure this home church has a central UUID; auto-push if not."""
+    if hc.external_home_church_id:
+        return
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        raise HTTPException(
+            status_code=400,
+            detail="Central database integration is disabled or unconfigured."
+        )
+    result = _push_home_church_to_central(hc, request, db, action="create")
+    if not result["ok"] or not hc.external_home_church_id:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not sync this home church to the central database: {result.get('error') or 'unknown error'}",
+        )
+
+
+@router.get("/admin/home-church/{hc_id}/members")
+def admin_hc_members(hc_id: int, request: Request, db: Session = Depends(get_db)):
+    """List members assigned to this home church (sourced from rfm-database)."""
+    hc = db.query(HomeChurch).filter(HomeChurch.id == hc_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+    _require_hc_access(request, db, hc)
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="Central database integration is disabled or unconfigured")
+    _ensure_central_synced(hc, request, db)
+
+    assembly_id = _resolve_default_assembly_id(db)
+    members: List[dict] = []
+    page = 1
+    while True:
+        r = _rfm.list_home_church_members(
+            hc.external_home_church_id,
+            assembly_id=str(assembly_id) if assembly_id else None,
+            page=page, size=100, db=db,
+        )
+        if not r.ok:
+            raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+        items = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+        members.extend([_hc_member_dict(m) for m in items])
+        if not isinstance(r.data, dict):
+            break
+        meta = r.data.get("meta") or {}
+        if len(items) < 100 or page >= int(meta.get("pages") or 1):
+            break
+        page += 1
+    members.sort(key=lambda m: (m.get("full_name") or "").lower())
+    return {
+        "home_church": {"id": hc.id, "name": hc.name, "external_id": hc.external_home_church_id},
+        "members": members,
+        "total": len(members),
+    }
+
+
+@router.post("/admin/home-church/{hc_id}/members")
+def admin_hc_add_member(hc_id: int, payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Add a member to this home church.
+
+    Accepts either a local `member_id` (the portal's Member.id, which we
+    resolve to the central UUID) or `external_member_id` directly."""
+    hc = db.query(HomeChurch).filter(HomeChurch.id == hc_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+    actor = _require_hc_access(request, db, hc)
+    _ensure_central_synced(hc, request, db)
+
+    external_id = (payload.get("external_member_id") or "").strip() or None
+    if not external_id and payload.get("member_id"):
+        local = db.query(Member).filter(Member.id == int(payload["member_id"])).first()
+        if not local:
+            raise HTTPException(status_code=404, detail="Member not found locally")
+        if not local.external_member_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{local.full_name} isn't synced to the central database yet. Use Member Sync first.",
+            )
+        external_id = local.external_member_id
+    if not external_id:
+        raise HTTPException(status_code=400, detail="Provide member_id or external_member_id")
+
+    r = _rfm.update_member(external_id, {"home_church_id": hc.external_home_church_id}, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    _log_member_action(
+        request, db, actor, "hc_add_member", "home_church", hc.id,
+        f"Added external member {external_id} to '{hc.name}'",
+    )
+    db.commit()
+    return {"success": True, "member": _hc_member_dict(r.data if isinstance(r.data, dict) else {})}
+
+
+@router.delete("/admin/home-church/{hc_id}/members/{external_member_id}")
+def admin_hc_remove_member(hc_id: int, external_member_id: str, request: Request, db: Session = Depends(get_db)):
+    """Remove a member from this home church (sets home_church_id = null centrally)."""
+    hc = db.query(HomeChurch).filter(HomeChurch.id == hc_id).first()
+    if not hc:
+        raise HTTPException(status_code=404, detail="Home church not found")
+    actor = _require_hc_access(request, db, hc)
+
+    r = _rfm.update_member(external_member_id, {"home_church_id": None}, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    _log_member_action(
+        request, db, actor, "hc_remove_member", "home_church", hc.id,
+        f"Removed external member {external_member_id} from '{hc.name}'",
+    )
+    db.commit()
+    return {"success": True}
+
+
+@router.get("/admin/home-church/membership-stats")
+def admin_hc_membership_stats(request: Request, db: Session = Depends(get_db)):
+    """Counts: total members, with HC, without HC, plus per-home-church count.
+    Committee/admin only — leaders don't need the global view."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="Central database integration is disabled or unconfigured")
+
+    assembly_id = _resolve_default_assembly_id(db)
+    if not assembly_id:
+        raise HTTPException(status_code=400, detail="Could not resolve assembly_id")
+
+    # Total members in the assembly
+    total_r = _rfm.search_members(assembly_id=str(assembly_id), page=1, size=1, db=db)
+    if not total_r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {total_r.error}")
+    meta = (total_r.data or {}).get("meta") or {} if isinstance(total_r.data, dict) else {}
+    total_members = int(meta.get("total") or 0)
+
+    # Per-home-church count + sum
+    hcs = db.query(HomeChurch).filter(HomeChurch.external_home_church_id.isnot(None)).all()
+    per_hc = []
+    members_with_hc = 0
+    for hc in hcs:
+        r = _rfm.list_home_church_members(
+            hc.external_home_church_id,
+            assembly_id=str(assembly_id),
+            page=1, size=1, db=db,
+        )
+        count = 0
+        if r.ok and isinstance(r.data, dict):
+            count = int(((r.data.get("meta") or {}).get("total")) or 0)
+        members_with_hc += count
+        per_hc.append({"id": hc.id, "name": hc.name, "count": count})
+    per_hc.sort(key=lambda x: x["count"], reverse=True)
+
+    return {
+        "total_members": total_members,
+        "with_home_church": members_with_hc,
+        "without_home_church": max(0, total_members - members_with_hc),
+        "per_home_church": per_hc,
+        "unsynced_home_church_count": db.query(HomeChurch).filter(HomeChurch.external_home_church_id.is_(None)).count(),
+    }
 
 
 # ---- ROSTER ----

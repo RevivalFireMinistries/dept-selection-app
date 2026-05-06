@@ -1428,12 +1428,17 @@ function renderHomeChurchCommitteeCard() {
     // Tolerant match: "Home Church Committee", "Home Church committee", etc.
     const depts = (currentMember.approved_departments || []).map(d => (d.department_name || '').toLowerCase());
     const isCommittee = depts.some(n => n.includes('home church') && n.includes('committee'));
-    if (isCommittee) {
+    const isHcLeader = !!currentMember.is_hc_leader;
+    if (isCommittee || isHcLeader) {
         banner.classList.remove('hidden');
-        // Pass phone so the route can authenticate the committee member without
-        // needing a prior member_session cookie (the route sets one on response).
         const link = document.getElementById('homeChurchCommitteeLink');
         if (link && phone) link.href = `/admin/home-churches?phone=${encodeURIComponent(phone)}`;
+        const subtitle = document.getElementById('homeChurchCommitteeSubtitle');
+        if (subtitle) {
+            subtitle.textContent = isCommittee
+                ? 'Manage programme, preachers & members'
+                : 'Manage your home church members';
+        }
     } else {
         banner.classList.add('hidden');
     }
