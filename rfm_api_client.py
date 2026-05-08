@@ -379,6 +379,12 @@ def member_contribution_summary(
     )
 
 
+def create_contribution(payload: dict, *, db=None) -> ApiResult:
+    """Push a captured contribution into the central database. The portal uses
+    this after a successful Yoco payment to keep the central ledger in sync."""
+    return _request("POST", "/api/v1/contributions", db=db, body=payload)
+
+
 def list_member_contributions(
     member_id: str,
     *,

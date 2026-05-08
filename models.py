@@ -633,3 +633,37 @@ class MemberChangeRequest(Base):
 
     member = relationship("Member", foreign_keys=[member_id])
     reviewed_by = relationship("Member", foreign_keys=[reviewed_by_id])
+
+
+# ============ ONLINE PAYMENTS (Yoco) ============
+
+class PaymentTransaction(Base):
+    """A payment attempt initiated from the member portal. Created with status
+    'pending' when the checkout is created, then flipped to 'captured' or
+    'failed' by the Yoco webhook. Once captured, the equivalent contribution
+    is pushed to the central rfm-database (gateway_* fields stamped on it)."""
+    __tablename__ = "payment_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    # The Yoco checkout id (returned by POST /checkouts) — primary correlation handle
+    external_reference = Column(String(120), unique=True, nullable=False, index=True)
+    provider = Column(String(20), nullable=False, server_default="yoco")
+    status = Column(String(20), nullable=False, server_default="pending")  # pending | captured | failed | cancelled
+    amount_cents = Column(Integer, nullable=False)
+    currency = Column(String(8), nullable=False, server_default="ZAR")
+    # What the member chose to give towards
+    category = Column(String(50), nullable=False)  # TITHE | OFFERING | BUILDING_FUND | OTHER
+    custom_label = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    # Where this contribution lands in the central DB once captured
+    central_contribution_id = Column(String(36), nullable=True)
+    central_pushed_at = Column(DateTime(timezone=True), nullable=True)
+    central_push_error = Column(Text, nullable=True)
+    # For diagnostics — last webhook payload type/details
+    last_event_type = Column(String(60), nullable=True)
+    last_event_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    member = relationship("Member", foreign_keys=[member_id])

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Payment cancelled · RFM{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center px-6 bg-gray-50">
+    <div class="max-w-md text-center">
+        <div class="w-20 h-20 mx-auto rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-3xl">✕</div>
+        <h1 class="mt-4 text-2xl font-bold text-gray-900">No worries</h1>
+        <p class="mt-2 text-sm text-gray-600">The payment was cancelled and nothing was charged.</p>
+        <a href="/portal" class="mt-6 inline-block px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg">Back to portal</a>
+    </div>
+</div>
+{% endblock %}

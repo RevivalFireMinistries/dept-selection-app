@@ -139,17 +139,13 @@
                 <!-- Online giving -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Give online</h2>
-                    <a x-show="banking?.online_giving_url" :href="banking?.online_giving_url" target="_blank" rel="noopener"
-                       class="block w-full p-4 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white text-center hover:from-emerald-600 hover:to-emerald-800">
+                    <button @click="openPay()" :disabled="!data.member.external_synced"
+                        class="block w-full p-4 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white text-center hover:from-emerald-600 hover:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
                         <div class="text-2xl mb-1">📲</div>
-                        <div class="font-semibold">Give online now</div>
-                        <div class="text-[11px] opacity-80 mt-0.5">Secure payment via the church's online portal</div>
-                    </a>
-                    <div x-show="!banking?.online_giving_url" class="p-4 rounded-xl bg-gray-50 border border-dashed border-gray-200 text-center">
-                        <div class="text-2xl">📲</div>
-                        <div class="text-sm font-semibold text-gray-700 mt-1">Online giving — coming soon</div>
-                        <div class="text-[11px] text-gray-500 mt-0.5">Use the bank details below for now.</div>
-                    </div>
+                        <div class="font-semibold">Pay tithes & offerings</div>
+                        <div class="text-[11px] opacity-80 mt-0.5">Secure card payment via Yoco</div>
+                    </button>
+                    <p x-show="!data.member.external_synced" class="text-[11px] text-amber-700 mt-2 text-center">Available once your record is linked to the central database.</p>
                 </section>
 
                 <!-- Banking details -->
@@ -394,6 +390,62 @@
         </aside>
     </div>
 
+    <!-- ==================== PAY (ONLINE GIVING) MODAL ==================== -->
+    <div x-show="payOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="payOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div>
+                    <div class="font-semibold text-gray-900">Give online</div>
+                    <div class="text-[11px] text-gray-500">Secure payment via Yoco</div>
+                </div>
+                <button @click="payOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-2">Category</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <template x-for="opt in payCategories" :key="opt.value">
+                            <button type="button" @click="payForm.category = opt.value"
+                                :class="payForm.category === opt.value ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white'"
+                                class="p-3 rounded-xl border text-left">
+                                <div class="text-xl" x-text="opt.icon"></div>
+                                <div class="text-xs font-semibold text-gray-900 mt-1" x-text="opt.label"></div>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <div x-show="payForm.category === 'OTHER'">
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">What is this for?</label>
+                    <input type="text" x-model="payForm.custom_label" maxlength="100" placeholder="e.g. Mission trip" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Amount (ZAR)</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">R</span>
+                        <input type="number" inputmode="decimal" min="1" step="0.01" x-model="payForm.amount" placeholder="0.00"
+                            class="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-base text-right font-semibold" />
+                    </div>
+                    <div class="mt-2 flex flex-wrap gap-1.5">
+                        <template x-for="amt in payQuickAmounts" :key="amt">
+                            <button type="button" @click="payForm.amount = amt" class="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-full" x-text="`R ${amt}`"></button>
+                        </template>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Note (optional)</label>
+                    <input type="text" x-model="payForm.notes" maxlength="200" placeholder="Anything you'd like recorded with this gift" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div x-show="payError" class="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="payError"></div>
+                <button @click="startPayment()" :disabled="paySubmitting"
+                    class="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-lg">
+                    <span x-text="paySubmitting ? 'Connecting to Yoco…' : `Pay ${formatPayAmount()}`"></span>
+                </button>
+                <p class="text-[11px] text-gray-400 text-center">You'll be redirected to Yoco's secure payment page. Card details are never seen by RFM.</p>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== HOME CHURCH INFO MODAL ==================== -->
     <div x-show="hcInfoOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="hcInfoOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -533,6 +585,19 @@ function memberPortal() {
         _givingLoaded: false,
         banking: null,
         bankingCopied: false,
+        // Online payment (Yoco)
+        payOpen: false,
+        payError: '',
+        paySubmitting: false,
+        payForm: { category: 'TITHE', amount: '', custom_label: '', notes: '' },
+        payCategories: [
+            { value: 'TITHE',         icon: '🙏', label: 'Tithe' },
+            { value: 'OFFERING',      icon: '💝', label: 'Offering' },
+            { value: 'BUILDING_FUND', icon: '🏛', label: 'Building fund' },
+            { value: 'MISSIONS',      icon: '🌍', label: 'Missions' },
+            { value: 'OTHER',         icon: '✨', label: 'Other' },
+        ],
+        payQuickAmounts: [50, 100, 200, 500, 1000],
 
         // Meetings (home tab)
         meetingsLoading: false,
@@ -586,6 +651,54 @@ function memberPortal() {
         hasBanking() {
             const b = this.banking || {};
             return !!(b.bank_name || b.account_holder || b.account_number || b.branch_code);
+        },
+
+        openPay() {
+            if (!this.data?.member?.external_synced) return;
+            this.payForm = { category: 'TITHE', amount: '', custom_label: '', notes: '' };
+            this.payError = '';
+            this.payOpen = true;
+        },
+
+        formatPayAmount() {
+            const amt = parseFloat(this.payForm.amount || '0');
+            if (!amt || amt <= 0) return '';
+            try { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amt); }
+            catch (e) { return `R ${amt.toFixed(2)}`; }
+        },
+
+        async startPayment() {
+            this.payError = '';
+            const amt = parseFloat(this.payForm.amount || '0');
+            if (!amt || amt < 1) { this.payError = 'Enter an amount of at least R1.00.'; return; }
+            if (this.payForm.category === 'OTHER' && !(this.payForm.custom_label || '').trim()) {
+                this.payError = 'Please describe what this gift is for.'; return;
+            }
+            this.paySubmitting = true;
+            try {
+                const res = await fetch('/api/payments/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        category: this.payForm.category,
+                        amount: amt,
+                        custom_label: this.payForm.custom_label || null,
+                        notes: this.payForm.notes || null,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    this.payError = data.detail || 'Could not start payment.';
+                    this.paySubmitting = false;
+                    return;
+                }
+                // Stash the txn id so the success page can poll for it
+                try { sessionStorage.setItem('rfm_pending_txn', String(data.transaction_id)); } catch (e) {}
+                window.location.assign(data.redirect_url);
+            } catch (e) {
+                this.payError = String(e);
+                this.paySubmitting = false;
+            }
         },
 
         copyBanking() {

@@ -579,6 +579,21 @@ async def member_portal(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("portal.html", {"request": request})
 
 
+@router.get("/portal/payment/success")
+async def payment_success_page(request: Request):
+    return templates.TemplateResponse("payment_success.html", {"request": request})
+
+
+@router.get("/portal/payment/cancel")
+async def payment_cancel_page(request: Request):
+    return templates.TemplateResponse("payment_cancel.html", {"request": request})
+
+
+@router.get("/portal/payment/failure")
+async def payment_failure_page(request: Request):
+    return templates.TemplateResponse("payment_failure.html", {"request": request})
+
+
 @router.get("/portal/classic")
 async def member_portal_classic(request: Request, db: Session = Depends(get_db)):
     """Legacy portal — kept for flows that haven't moved to the new design
