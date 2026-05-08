@@ -35,6 +35,7 @@ import urllib.request
 
 
 YOCO_CHECKOUTS_URL = "https://payments.yoco.com/api/checkouts"
+YOCO_WEBHOOKS_URL = "https://payments.yoco.com/api/webhooks"
 WEBHOOK_TOLERANCE_SECONDS = 5 * 60  # reject events older than 5 min
 DEFAULT_TIMEOUT = 15
 
@@ -140,6 +141,60 @@ def create_checkout(
         status=str(payload.get("status", "created")),
         raw=payload,
     )
+
+
+def _api_call(method: str, url: str, *, secret_key: str, body: Optional[dict] = None, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    """Helper for arbitrary calls to the Yoco Checkout API surface (webhooks)."""
+    if not secret_key:
+        raise YocoError("Yoco is not configured (missing secret key)")
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {
+        "Authorization": f"Bearer {secret_key}",
+        "Accept": "application/json",
+    }
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="ignore")
+        status = e.code
+    except urllib.error.URLError as e:
+        raise YocoError(f"Could not reach Yoco: {e.reason}")
+    except Exception as e:
+        raise YocoError(f"Yoco request failed: {e}")
+    try:
+        payload = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        payload = {"_raw": raw}
+    if status >= 400:
+        msg = payload.get("detail") or payload.get("title") or f"HTTP {status}"
+        raise YocoError(f"Yoco API error ({status}): {msg}")
+    return payload if isinstance(payload, dict) else {"_raw": payload}
+
+
+def register_webhook(*, secret_key: str, name: str, url: str) -> dict:
+    """Register a webhook subscription. Returns the dict including the
+    one-time `secret` (whsec_…) — caller MUST persist it immediately."""
+    return _api_call("POST", YOCO_WEBHOOKS_URL, secret_key=secret_key, body={"name": name, "url": url})
+
+
+def list_webhooks(*, secret_key: str) -> list:
+    """List webhook subscriptions registered against this key."""
+    payload = _api_call("GET", YOCO_WEBHOOKS_URL, secret_key=secret_key)
+    if isinstance(payload, dict) and "subscriptions" in payload:
+        return payload["subscriptions"] or []
+    if isinstance(payload, list):
+        return payload
+    return payload.get("data") or []
+
+
+def delete_webhook(*, secret_key: str, subscription_id: str) -> None:
+    """Delete a webhook subscription by id (wsub_...)."""
+    _api_call("DELETE", f"{YOCO_WEBHOOKS_URL}/{subscription_id}", secret_key=secret_key)
 
 
 # ---------------------------------------------------------------------------

@@ -196,6 +196,163 @@ def _push_to_central(txn: PaymentTransaction, db: Session) -> None:
             txn.central_contribution_id = str(cid)
 
 
+# ============ ADMIN: Yoco configuration ============
+
+YOCO_SETTING_KEYS = {
+    "yoco_public_key",
+    "yoco_secret_key",
+    "yoco_webhook_secret",
+    "yoco_test_mode",
+    "portal_base_url",
+}
+
+
+def _mask(value: str, keep: int = 4) -> str:
+    if not value:
+        return ""
+    if len(value) <= keep + 4:
+        return "•" * len(value)
+    return value[:keep] + "•" * (len(value) - keep - 4) + value[-4:]
+
+
+def _set(db: Session, key: str, value: str) -> None:
+    row = db.query(Settings).filter(Settings.key == key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(Settings(key=key, value=value))
+
+
+def _require_admin(request: Request) -> None:
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+
+@router.get("/admin/yoco/config")
+def admin_yoco_config(request: Request, db: Session = Depends(get_db)):
+    """Returns Yoco config with the secret values masked. Use this to
+    populate the admin settings form."""
+    _require_admin(request)
+    sk = _setting(db, "yoco_secret_key")
+    whsec = _setting(db, "yoco_webhook_secret")
+    return {
+        "yoco_public_key": _setting(db, "yoco_public_key"),
+        "yoco_secret_key_masked": _mask(sk),
+        "yoco_secret_key_set": bool(sk),
+        "yoco_webhook_secret_masked": _mask(whsec),
+        "yoco_webhook_secret_set": bool(whsec),
+        "yoco_test_mode": _setting(db, "yoco_test_mode") or "true",
+        "portal_base_url": _setting(db, "portal_base_url"),
+        "is_live_key": sk.startswith("sk_live_") if sk else False,
+    }
+
+
+@router.put("/admin/yoco/config")
+def admin_yoco_config_save(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Save any subset of Yoco settings. Empty strings clear a key.
+    Sending the masked placeholder for a secret leaves the existing value alone."""
+    _require_admin(request)
+    updated: list = []
+    for key, value in (payload or {}).items():
+        if key not in YOCO_SETTING_KEYS:
+            continue
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            value = str(value)
+        # Don't overwrite a stored secret with the masked placeholder
+        if value and "•" in value:
+            continue
+        _set(db, key, value.strip())
+        updated.append(key)
+    db.commit()
+    return {"updated": updated}
+
+
+@router.post("/admin/yoco/webhook/register")
+def admin_yoco_register_webhook(payload: dict = Body(default={}), request: Request = None, db: Session = Depends(get_db)):
+    """Register a Yoco webhook subscription using the stored secret key,
+    persist the returned whsec_… into Settings.yoco_webhook_secret, and
+    optionally clean up old subscriptions pointing at the same URL."""
+    _require_admin(request)
+    secret_key = _setting(db, "yoco_secret_key")
+    if not secret_key:
+        raise HTTPException(status_code=400, detail="Save a Yoco secret key first.")
+
+    base = (payload.get("portal_base_url") or _setting(db, "portal_base_url") or "").strip()
+    if not base:
+        # Reconstruct from the request — works behind Railway's proxy
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+        base = f"{proto}://{host}"
+    base = base.rstrip("/")
+    webhook_url = f"{base}/api/payments/yoco/webhook"
+    name = (payload.get("name") or "RFM portal").strip() or "RFM portal"
+
+    # Remove any prior subscriptions pointing at the same URL — keeps things tidy
+    removed: list = []
+    try:
+        existing = yoco.list_webhooks(secret_key=secret_key)
+        for sub in existing:
+            if sub.get("url") == webhook_url and sub.get("id"):
+                try:
+                    yoco.delete_webhook(secret_key=secret_key, subscription_id=sub["id"])
+                    removed.append(sub["id"])
+                except yoco.YocoError:
+                    pass
+    except yoco.YocoError as e:
+        # If listing fails (e.g. permissions), proceed with just create
+        pass
+
+    try:
+        result = yoco.register_webhook(secret_key=secret_key, name=name, url=webhook_url)
+    except yoco.YocoError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    secret = result.get("secret")
+    if not secret:
+        raise HTTPException(status_code=502, detail="Yoco didn't return a webhook secret. Try again.")
+    _set(db, "yoco_webhook_secret", str(secret))
+    if base != _setting(db, "portal_base_url"):
+        _set(db, "portal_base_url", base)
+    db.commit()
+    return {
+        "registered_url": webhook_url,
+        "subscription_id": result.get("id"),
+        "name": result.get("name") or name,
+        "secret_saved": True,
+        "removed_old_subscriptions": removed,
+    }
+
+
+@router.get("/admin/yoco/webhook/list")
+def admin_yoco_list_webhooks(request: Request, db: Session = Depends(get_db)):
+    """List all webhook subscriptions Yoco has on file for this secret key."""
+    _require_admin(request)
+    secret_key = _setting(db, "yoco_secret_key")
+    if not secret_key:
+        raise HTTPException(status_code=400, detail="Save a Yoco secret key first.")
+    try:
+        subs = yoco.list_webhooks(secret_key=secret_key)
+    except yoco.YocoError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"subscriptions": subs}
+
+
+@router.delete("/admin/yoco/webhook/{sub_id}")
+def admin_yoco_delete_webhook(sub_id: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    secret_key = _setting(db, "yoco_secret_key")
+    if not secret_key:
+        raise HTTPException(status_code=400, detail="Save a Yoco secret key first.")
+    try:
+        yoco.delete_webhook(secret_key=secret_key, subscription_id=sub_id)
+    except yoco.YocoError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"deleted": sub_id}
+
+
 @router.post("/payments/yoco/webhook")
 async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
     """Yoco webhook receiver. Source of truth for payment outcome."""
