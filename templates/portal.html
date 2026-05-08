@@ -426,11 +426,6 @@
                         <input type="number" inputmode="decimal" min="1" step="0.01" x-model="payForm.amount" placeholder="0.00"
                             class="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-base text-right font-semibold" />
                     </div>
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                        <template x-for="amt in payQuickAmounts" :key="amt">
-                            <button type="button" @click="payForm.amount = amt" class="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-full" x-text="`R ${amt}`"></button>
-                        </template>
-                    </div>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Note (optional)</label>
@@ -597,7 +592,6 @@ function memberPortal() {
             { value: 'TOUCH_OF_FIRE',    icon: '🔥', label: 'Touch Of Fire' },
             { value: 'OTHER',            icon: '✨', label: 'Other' },
         ],
-        payQuickAmounts: [50, 100, 200, 500, 1000],
 
         // Meetings (home tab)
         meetingsLoading: false,
