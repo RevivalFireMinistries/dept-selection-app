@@ -66,6 +66,33 @@
                     <div class="text-sm text-gray-500 italic">No announcements right now. Check back soon.</div>
                 </section>
 
+                <!-- Where you serve -->
+                <section x-show="(data.departments.approved || []).length || (data.ministries || []).length"
+                         class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">🤝 Where you serve</h2>
+                        <button @click="setTab('departments')" class="text-xs text-indigo-600 hover:underline">View all</button>
+                    </div>
+
+                    <div x-show="(data.departments.approved || []).length" class="mb-3">
+                        <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Departments</div>
+                        <div class="flex flex-wrap gap-1.5">
+                            <template x-for="d in data.departments.approved" :key="d.id">
+                                <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-full" x-text="d.department_name"></span>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div x-show="(data.ministries || []).length">
+                        <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Ministries</div>
+                        <div class="flex flex-wrap gap-1.5">
+                            <template x-for="m in data.ministries" :key="m.name + (m.id || '')">
+                                <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-50 border border-violet-200 text-violet-800 text-xs rounded-full" x-text="m.name"></span>
+                            </template>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Upcoming meetings -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
