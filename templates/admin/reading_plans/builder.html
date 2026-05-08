@@ -1,0 +1,253 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Reading plan builder · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-3xl mx-auto px-4 py-6" x-data="planBuilder()" x-init="init()">
+
+    <a href="/admin/reading-plans" class="text-xs text-gray-400 hover:text-gray-600">← Back to plans</a>
+    <h1 class="text-2xl font-bold text-gray-900 mt-2 mb-1" x-text="form.id ? 'Edit plan' : 'New plan'"></h1>
+    <p class="text-sm text-gray-500 mb-4">Build the day-by-day reading list. Save as draft and publish when ready.</p>
+
+    <div x-show="errorMsg" class="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="errorMsg"></div>
+
+    <!-- Meta -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 space-y-3">
+        <div class="flex gap-3 items-start">
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Cover</label>
+                <input type="text" x-model="form.cover_emoji" maxlength="4" placeholder="📖"
+                    class="w-16 px-2 py-2 text-2xl text-center border border-gray-300 rounded-lg" />
+            </div>
+            <div class="flex-1">
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+                <input type="text" x-model="form.title" placeholder="e.g. John in 21 days"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg" />
+            </div>
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Description</label>
+            <textarea x-model="form.description" rows="2" placeholder="A short note shown on the plan card."
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"></textarea>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Plan type</label>
+                <select x-model="form.plan_type" class="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="BOOK">Book</option>
+                    <option value="PERSON">Person</option>
+                    <option value="THEME">Theme</option>
+                    <option value="CHRONOLOGICAL">Chronological</option>
+                    <option value="DEVOTIONAL">Devotional</option>
+                    <option value="CUSTOM">Custom</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Cadence</label>
+                <select x-model="form.cadence" class="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="DAILY">Daily</option>
+                    <option value="WEEKDAYS_ONLY">Weekdays only</option>
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="MEMBER_PACED">Self-paced</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Audience</label>
+                <select x-model="form.audience" class="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Anyone</option>
+                    <option value="ADULTS">Adults</option>
+                    <option value="NEW_BELIEVERS">New believers</option>
+                    <option value="FAMILY">Family</option>
+                    <option value="YOUTH">Youth</option>
+                </select>
+            </div>
+        </div>
+        <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Tags <span class="font-normal text-gray-400">(comma-separated)</span></label>
+            <input type="text" x-model="form.tagsText" placeholder="e.g. gospel, jesus, 21-day"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+        </div>
+        <div class="flex flex-wrap gap-4 pt-1">
+            <label class="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" x-model="form.featured" class="rounded text-amber-600" />
+                <span>Featured</span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Days -->
+    <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 class="font-semibold text-gray-900">Days</h2>
+            <div class="flex flex-wrap gap-2">
+                <button @click="addDay()" class="px-3 py-1.5 bg-amber-600 text-white text-sm rounded">+ Add day</button>
+                <button @click="bulkPasteOpen = !bulkPasteOpen" class="px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded">Bulk paste</button>
+            </div>
+        </div>
+
+        <div x-show="bulkPasteOpen" class="mb-3 p-3 bg-gray-50 rounded-lg">
+            <p class="text-xs text-gray-600 mb-1">One reading per line. Use a tab or pipe to add a theme: <code class="text-[11px] bg-white px-1 rounded">John 1 | The Word made flesh</code></p>
+            <textarea x-model="bulkPasteText" rows="6" placeholder="Genesis 1&#10;Genesis 2&#10;Genesis 3 | The fall"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"></textarea>
+            <button @click="applyBulkPaste()" class="mt-2 px-3 py-1.5 bg-amber-600 text-white text-sm rounded">Replace days</button>
+        </div>
+
+        <div class="space-y-2">
+            <template x-for="(d, idx) in form.days" :key="idx">
+                <div class="border border-gray-200 rounded-lg p-3">
+                    <div class="flex items-start gap-2">
+                        <span class="text-xs font-semibold text-gray-500 w-12 text-right pt-2" x-text="`Day ${idx + 1}`"></span>
+                        <div class="flex-1 space-y-1">
+                            <input type="text" x-model="d.passages" placeholder="e.g. John 1"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                            <input type="text" x-model="d.theme" placeholder="Theme (optional)"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs" />
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <button @click="moveUp(idx)" :disabled="idx === 0" class="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">↑</button>
+                            <button @click="moveDown(idx)" :disabled="idx === form.days.length - 1" class="text-xs text-gray-400 hover:text-gray-700 disabled:opacity-30">↓</button>
+                            <button @click="removeDay(idx)" class="text-xs text-red-500 hover:text-red-700">✕</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+        <div x-show="!form.days.length" class="text-center text-sm text-gray-400 italic py-4">No days yet. Click "+ Add day" or use Bulk paste.</div>
+    </div>
+
+    <!-- Action bar -->
+    <div class="flex items-center justify-between gap-2 sticky bottom-0 bg-white border border-gray-200 rounded-xl p-3 shadow-md">
+        <div class="text-xs text-gray-500" x-show="form.id">
+            <span x-text="`Status: ${form.status || 'draft'}`"></span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 ml-auto">
+            <a href="/admin/reading-plans" class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg">Cancel</a>
+            <button @click="save()" :disabled="saving" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg disabled:opacity-50" x-text="saving ? 'Saving…' : (form.id ? 'Save changes' : 'Save draft')"></button>
+            <button x-show="form.id && form.status !== 'published'" @click="publish()" :disabled="saving" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">Publish</button>
+            <button x-show="form.id && form.status === 'published'" @click="archive()" :disabled="saving" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg">Archive</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function planBuilder() {
+    return {
+        saving: false,
+        errorMsg: '',
+        bulkPasteOpen: false,
+        bulkPasteText: '',
+        form: {
+            id: null,
+            title: '',
+            description: '',
+            cover_emoji: '📖',
+            plan_type: 'CUSTOM',
+            cadence: 'MEMBER_PACED',
+            audience: '',
+            tagsText: '',
+            featured: false,
+            status: 'draft',
+            days: [],
+        },
+        async init() {
+            const params = new URLSearchParams(location.search);
+            const id = params.get('id');
+            if (id) await this.load(id);
+        },
+        async load(id) {
+            try {
+                const r = await fetch(`/api/reading-plans/${id}`);
+                if (!r.ok) { this.errorMsg = 'Could not load plan'; return; }
+                const data = await r.json();
+                this.form = {
+                    id: data.id,
+                    title: data.title,
+                    description: data.description || '',
+                    cover_emoji: data.cover_emoji || '📖',
+                    plan_type: data.plan_type || 'CUSTOM',
+                    cadence: data.cadence || 'MEMBER_PACED',
+                    audience: data.audience || '',
+                    tagsText: (data.tags || []).join(', '),
+                    featured: !!data.featured,
+                    status: data.status,
+                    days: (data.days || []).map(d => ({ passages: d.passages || '', theme: d.theme || '' })),
+                };
+            } catch (e) { this.errorMsg = String(e); }
+        },
+        addDay() { this.form.days.push({ passages: '', theme: '' }); },
+        removeDay(i) { this.form.days.splice(i, 1); },
+        moveUp(i) { if (i === 0) return; const a = this.form.days; [a[i-1], a[i]] = [a[i], a[i-1]]; },
+        moveDown(i) { const a = this.form.days; if (i === a.length - 1) return; [a[i+1], a[i]] = [a[i], a[i+1]]; },
+        applyBulkPaste() {
+            const lines = (this.bulkPasteText || '').split('\n').map(s => s.trim()).filter(Boolean);
+            const out = [];
+            for (const line of lines) {
+                let passages = line, theme = '';
+                if (line.includes('|')) { const parts = line.split('|'); passages = parts[0].trim(); theme = parts.slice(1).join('|').trim(); }
+                else if (line.includes('\t')) { const parts = line.split('\t'); passages = parts[0].trim(); theme = parts.slice(1).join(' ').trim(); }
+                out.push({ passages, theme });
+            }
+            if (!out.length) return;
+            this.form.days = out;
+            this.bulkPasteOpen = false;
+            this.bulkPasteText = '';
+        },
+        _payload() {
+            return {
+                title: this.form.title,
+                description: this.form.description,
+                cover_emoji: this.form.cover_emoji,
+                plan_type: this.form.plan_type,
+                cadence: this.form.cadence,
+                audience: this.form.audience || null,
+                tags: (this.form.tagsText || '').split(',').map(s => s.trim()).filter(Boolean),
+                featured: this.form.featured,
+                days: this.form.days.map(d => ({ passages: d.passages, theme: d.theme })),
+            };
+        },
+        async save() {
+            this.errorMsg = '';
+            if (!this.form.title.trim()) { this.errorMsg = 'Title is required'; return; }
+            if (!this.form.days.length) { this.errorMsg = 'Add at least one day'; return; }
+            this.saving = true;
+            try {
+                const url = this.form.id ? `/api/reading-plans/${this.form.id}` : '/api/reading-plans';
+                const method = this.form.id ? 'PUT' : 'POST';
+                const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(this._payload()) });
+                const data = await r.json();
+                if (!r.ok) { this.errorMsg = data.detail || 'Save failed'; this.saving = false; return; }
+                if (!this.form.id) { location.href = `/admin/reading-plans/builder?id=${data.id}`; return; }
+                this.form.status = data.status;
+                this.errorMsg = '';
+                alert('Saved.');
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+        async publish() {
+            await this.save();
+            if (this.errorMsg) return;
+            this.saving = true;
+            try {
+                const r = await fetch(`/api/reading-plans/${this.form.id}/publish`, { method: 'POST' });
+                const data = await r.json();
+                if (!r.ok) { this.errorMsg = data.detail || 'Publish failed'; }
+                else { this.form.status = data.status; alert('Published.'); }
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+        async archive() {
+            if (!confirm('Archive this plan? Members will no longer see it on the discovery page.')) return;
+            this.saving = true;
+            try {
+                const r = await fetch(`/api/reading-plans/${this.form.id}/archive`, { method: 'POST' });
+                const data = await r.json();
+                if (!r.ok) { this.errorMsg = data.detail || 'Archive failed'; }
+                else { this.form.status = data.status; alert('Archived.'); }
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,138 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Plan metrics · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-5xl mx-auto px-4 py-6" x-data="planMetrics()" x-init="load()">
+
+    <a href="/admin/reading-plans" class="text-xs text-gray-400 hover:text-gray-600">← Back to plans</a>
+
+    <div x-show="loading" class="text-sm text-gray-500 text-center py-8">Loading…</div>
+
+    <div x-show="!loading && data">
+        <div class="mt-2 flex items-start justify-between gap-3 flex-wrap">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900" x-text="data?.plan?.title || ''"></h1>
+                <p class="text-xs text-gray-500" x-text="`${data?.plan?.duration_days || 0} days · ${data?.plan?.plan_type} · ${data?.plan?.cadence}`"></p>
+            </div>
+            <a :href="`/admin/reading-plans/builder?id=${data?.plan?.id}`" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Edit plan</a>
+        </div>
+
+        <!-- Top stats -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+            <div class="bg-white rounded-xl border border-gray-100 p-4">
+                <div class="text-2xl font-bold text-amber-700" x-text="data?.follower_count || 0"></div>
+                <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Followers</div>
+            </div>
+            <div class="bg-white rounded-xl border border-gray-100 p-4">
+                <div class="text-2xl font-bold text-emerald-700" x-text="`${data?.average_completion_pct || 0}%`"></div>
+                <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Avg progress</div>
+            </div>
+            <div class="bg-white rounded-xl border border-gray-100 p-4">
+                <div class="text-2xl font-bold text-emerald-700" x-text="data?.completed_count || 0"></div>
+                <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Finished</div>
+            </div>
+            <div class="bg-white rounded-xl border border-gray-100 p-4">
+                <div class="text-2xl font-bold text-amber-700" x-text="(data?.stale_followers || []).length"></div>
+                <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Inactive 7+ days</div>
+            </div>
+        </div>
+
+        <!-- Drop-off curve -->
+        <section class="mt-6 bg-white rounded-xl border border-gray-100 p-5">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Drop-off curve</h2>
+                <p class="text-[11px] text-gray-500">% of followers who completed each day</p>
+            </div>
+            <div class="space-y-1">
+                <template x-for="row in (data?.drop_off || [])" :key="row.day">
+                    <div class="flex items-center gap-2">
+                        <div class="w-12 text-[10px] text-gray-500 font-mono" x-text="`Day ${row.day}`"></div>
+                        <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                            <div class="h-full bg-amber-500" :style="`width:${row.pct}%`"></div>
+                        </div>
+                        <div class="w-20 text-right text-xs text-gray-600">
+                            <span x-text="`${row.completed} (${row.pct}%)`"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- Streak histogram -->
+        <section class="mt-6 bg-white rounded-xl border border-gray-100 p-5">
+            <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Streaks</h2>
+            <div class="grid grid-cols-5 gap-2">
+                <template x-for="(count, bucket) in (data?.streak_buckets || {})" :key="bucket">
+                    <div class="text-center p-3 rounded-lg" :class="bucket === '0' ? 'bg-gray-50' : 'bg-amber-50'">
+                        <div class="text-lg font-bold" :class="bucket === '0' ? 'text-gray-500' : 'text-amber-700'" x-text="count"></div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-1" x-text="`${bucket} day${bucket === '0' ? '' : 's'}`"></div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- Stale followers -->
+        <section x-show="(data?.stale_followers || []).length" class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">
+            <h2 class="text-sm font-bold text-amber-900 uppercase tracking-wider mb-3">Inactive 7+ days — reach out</h2>
+            <div class="space-y-1">
+                <template x-for="r in (data?.stale_followers || [])" :key="r.follower_id">
+                    <div class="flex items-center justify-between gap-2 text-sm">
+                        <div>
+                            <span class="font-medium text-gray-900" x-text="r.member_name"></span>
+                            <span class="text-gray-500 text-xs ml-1" x-text="r.phone || ''"></span>
+                        </div>
+                        <span class="text-xs text-amber-700" x-text="`Day ${r.current_day} · ${r.completion_pct}%`"></span>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <!-- Followers list -->
+        <section class="mt-6 bg-white rounded-xl border border-gray-100 p-5">
+            <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Followers</h2>
+            <div x-show="!(data?.followers || []).length" class="text-sm text-gray-500 italic">No followers yet.</div>
+            <div class="divide-y divide-gray-100">
+                <template x-for="r in (data?.followers || [])" :key="r.follower_id">
+                    <div class="flex items-center justify-between gap-2 py-2 text-sm">
+                        <div class="min-w-0">
+                            <div class="font-medium text-gray-900 truncate" x-text="r.member_name"></div>
+                            <div class="text-[11px] text-gray-500" x-text="`Started ${r.started_on || '—'} · ${r.phone || ''}`"></div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs">
+                                <span class="font-semibold text-gray-900" x-text="`${r.completion_pct}%`"></span>
+                                <span class="text-gray-500 ml-1" x-text="`(${r.completed_count} of ${data?.plan?.duration_days || 0})`"></span>
+                            </div>
+                            <div class="text-[10px] text-gray-500 mt-0.5">
+                                <span x-show="r.streak > 0" x-text="`🔥 ${r.streak}d streak`"></span>
+                                <span x-show="r.completed_at" class="text-emerald-700">✓ Finished</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function planMetrics() {
+    return {
+        loading: true,
+        data: null,
+        async load() {
+            const m = location.pathname.match(/\/reading-plans\/(\d+)\/metrics/);
+            const id = m ? m[1] : null;
+            if (!id) { this.loading = false; return; }
+            try {
+                const r = await fetch(`/api/reading-plans/${id}/metrics`);
+                if (r.ok) this.data = await r.json();
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+    };
+}
+</script>
+{% endblock %}

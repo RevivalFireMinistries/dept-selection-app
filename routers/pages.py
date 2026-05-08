@@ -579,6 +579,43 @@ async def member_portal(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("portal.html", {"request": request})
 
 
+@router.get("/reading-plans")
+async def member_reading_plans(request: Request, db: Session = Depends(get_db)):
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/reading-plans", status_code=302)
+    return templates.TemplateResponse("reading_plans/discover.html", {"request": request})
+
+
+@router.get("/reading-plans/{slug}")
+async def member_reading_plan_detail(request: Request, slug: str, db: Session = Depends(get_db)):
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url=f"/?next=/reading-plans/{slug}", status_code=302)
+    return templates.TemplateResponse("reading_plans/detail.html", {"request": request, "slug": slug})
+
+
+@router.get("/admin/reading-plans")
+async def admin_reading_plans_page(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/reading_plans/list.html", {"request": request})
+
+
+@router.get("/admin/reading-plans/builder")
+async def admin_reading_plans_builder(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/reading_plans/builder.html", {"request": request})
+
+
+@router.get("/admin/reading-plans/{plan_id}/metrics")
+async def admin_reading_plan_metrics_page(request: Request, plan_id: int):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/reading_plans/metrics.html", {"request": request})
+
+
 @router.get("/portal/payment/success")
 async def payment_success_page(request: Request):
     return templates.TemplateResponse("payment_success.html", {"request": request})

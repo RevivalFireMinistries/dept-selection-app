@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Reading plans · RFM{% endblock %}
+
+{% block content %}
+<div x-data="readingPlansDiscover()" x-init="load()" class="min-h-screen bg-gray-50 pb-16">
+
+    <header class="bg-gradient-to-br from-amber-500 to-orange-700 text-white px-5 pt-6 pb-8">
+        <div class="max-w-3xl mx-auto">
+            <a href="/portal" class="text-xs text-amber-100/80 hover:text-white">← Back to portal</a>
+            <h1 class="mt-2 text-2xl font-bold">📖 Reading plans</h1>
+            <p class="text-sm text-amber-100/90 mt-1">Pick a plan to follow. Mark days as you go.</p>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-4 py-4 space-y-4">
+
+        <div x-show="loading" class="text-sm text-gray-500 text-center py-8">Loading…</div>
+
+        <!-- My plans -->
+        <section x-show="!loading && (mine?.plans || []).length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">📌 Currently following</h2>
+            <div class="space-y-2">
+                <template x-for="row in (mine?.plans || [])" :key="row.plan.id">
+                    <a :href="`/reading-plans/${row.plan.slug}`" class="block p-3 border border-gray-200 rounded-xl hover:border-amber-300">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center text-xl" x-text="row.plan.cover_emoji || '📖'"></div>
+                            <div class="flex-1 min-w-0">
+                                <div class="font-semibold text-gray-900 truncate" x-text="row.plan.title"></div>
+                                <div class="text-[11px] text-gray-500" x-text="`Day ${row.progress.current_day} of ${row.plan.duration_days} · ${row.progress.completion_pct}% complete`"></div>
+                            </div>
+                            <div class="text-right shrink-0" x-show="row.streak > 0">
+                                <div class="text-lg" x-text="row.streak >= 3 ? '🔥' : ''"></div>
+                                <div class="text-[10px] text-gray-500 font-semibold uppercase" x-text="`${row.streak} day streak`"></div>
+                            </div>
+                        </div>
+                        <div class="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-amber-500" :style="`width:${row.progress.completion_pct}%`"></div>
+                        </div>
+                    </a>
+                </template>
+            </div>
+        </section>
+
+        <!-- Featured -->
+        <section x-show="!loading && featured.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">⭐ Featured</h2>
+            <div class="grid sm:grid-cols-2 gap-3">
+                <template x-for="p in featured" :key="p.id">
+                    <a :href="`/reading-plans/${p.slug}`" class="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 hover:from-amber-100">
+                        <div class="text-2xl" x-text="p.cover_emoji || '📖'"></div>
+                        <div class="font-semibold text-gray-900 mt-1" x-text="p.title"></div>
+                        <div class="text-[11px] text-gray-600 line-clamp-2" x-text="p.description || ''"></div>
+                        <div class="text-[10px] text-amber-700 font-semibold uppercase tracking-wider mt-2" x-text="`${p.duration_days} days · ${planTypeLabel(p.plan_type)}`"></div>
+                    </a>
+                </template>
+            </div>
+        </section>
+
+        <!-- Browse by type -->
+        <section x-show="!loading" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Browse</h2>
+                <div class="flex flex-wrap gap-1">
+                    <button @click="typeFilter = ''" :class="typeFilter === '' ? 'bg-amber-600 text-white' : 'bg-white border border-gray-200 text-gray-600'" class="px-2.5 py-1 text-[11px] font-medium rounded-full">All</button>
+                    <template x-for="t in browseTypes" :key="t.value">
+                        <button @click="typeFilter = t.value"
+                                :class="typeFilter === t.value ? 'bg-amber-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                                class="px-2.5 py-1 text-[11px] font-medium rounded-full">
+                            <span x-text="t.icon + ' ' + t.label"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+            <div x-show="!filtered().length" class="text-sm text-gray-500 italic text-center py-6">No plans in this category yet.</div>
+            <div class="space-y-2">
+                <template x-for="p in filtered()" :key="p.id">
+                    <a :href="`/reading-plans/${p.slug}`" class="flex items-center gap-3 p-3 border border-gray-200 rounded-xl hover:border-amber-300">
+                        <div class="w-10 h-10 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center text-xl" x-text="p.cover_emoji || '📖'"></div>
+                        <div class="flex-1 min-w-0">
+                            <div class="font-semibold text-gray-900 truncate" x-text="p.title"></div>
+                            <div class="text-[11px] text-gray-500 truncate" x-text="p.description || ''"></div>
+                            <div class="text-[10px] text-gray-400 mt-0.5" x-text="`${p.duration_days} days · ${planTypeLabel(p.plan_type)} · ${cadenceLabel(p.cadence)}`"></div>
+                        </div>
+                        <span class="text-gray-300">›</span>
+                    </a>
+                </template>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function readingPlansDiscover() {
+    return {
+        loading: true,
+        plans: [],
+        mine: null,
+        typeFilter: '',
+        browseTypes: [
+            { value: 'BOOK',          icon: '📚', label: 'Books' },
+            { value: 'PERSON',        icon: '👤', label: 'People' },
+            { value: 'THEME',         icon: '✨', label: 'Themes' },
+            { value: 'CHRONOLOGICAL', icon: '🗓', label: 'Chronological' },
+            { value: 'DEVOTIONAL',    icon: '🕊', label: 'Devotional' },
+            { value: 'CUSTOM',        icon: '✏️', label: 'Custom' },
+        ],
+        async load() {
+            try {
+                const [pRes, mRes] = await Promise.all([
+                    fetch('/api/reading-plans'),
+                    fetch('/api/reading-plans/me'),
+                ]);
+                if (pRes.ok) {
+                    const data = await pRes.json();
+                    this.plans = data.plans || [];
+                }
+                if (mRes.ok) this.mine = await mRes.json();
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+        get featured() {
+            const followed = new Set((this.mine?.plans || []).map(r => r.plan.id));
+            return this.plans.filter(p => p.featured && !followed.has(p.id));
+        },
+        filtered() {
+            const followed = new Set((this.mine?.plans || []).map(r => r.plan.id));
+            let list = this.plans.filter(p => !p.featured && !followed.has(p.id));
+            if (this.typeFilter) list = list.filter(p => p.plan_type === this.typeFilter);
+            return list;
+        },
+        planTypeLabel(t) {
+            return ({BOOK:'Book',PERSON:'Person',THEME:'Theme',CHRONOLOGICAL:'Chronological',DEVOTIONAL:'Devotional',CUSTOM:'Custom'})[t] || t;
+        },
+        cadenceLabel(c) {
+            return ({DAILY:'Daily',WEEKDAYS_ONLY:'Weekdays',WEEKLY:'Weekly',MEMBER_PACED:'Self-paced'})[c] || c;
+        },
+    };
+}
+</script>
+{% endblock %}

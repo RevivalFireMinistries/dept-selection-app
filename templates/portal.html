@@ -66,6 +66,35 @@
                     <div class="text-sm text-gray-500 italic">No announcements right now. Check back soon.</div>
                 </section>
 
+                <!-- Today's reading -->
+                <section x-show="readingPlans.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">📖 Today's reading</h2>
+                        <a href="/reading-plans" class="text-xs text-amber-700 hover:underline">All plans</a>
+                    </div>
+                    <div class="space-y-3">
+                        <template x-for="row in readingPlans" :key="row.plan.id">
+                            <a :href="`/reading-plans/${row.plan.slug}`" class="block p-3 border border-gray-200 rounded-xl hover:border-amber-300">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center text-lg" x-text="row.plan.cover_emoji || '📖'"></div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold" x-text="`${row.plan.title} · day ${row.progress.current_day} of ${row.plan.duration_days}`"></div>
+                                        <div class="font-semibold text-gray-900 truncate" x-text="row.next_day ? (row.next_day.theme || row.next_day.passages) : '✓ Plan complete'"></div>
+                                        <div x-show="row.next_day && row.next_day.theme && row.next_day.theme !== row.next_day.passages" class="text-[11px] text-gray-500 truncate" x-text="row.next_day?.passages"></div>
+                                    </div>
+                                    <div class="text-right shrink-0" x-show="row.streak > 0">
+                                        <div class="text-base" x-text="row.streak >= 3 ? '🔥' : ''"></div>
+                                        <div class="text-[9px] text-gray-500 font-bold uppercase" x-text="`${row.streak}d`"></div>
+                                    </div>
+                                </div>
+                                <div class="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-amber-500" :style="`width:${row.progress.completion_pct}%`"></div>
+                                </div>
+                            </a>
+                        </template>
+                    </div>
+                </section>
+
                 <!-- Upcoming meetings -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
@@ -267,6 +296,16 @@
                 <div class="text-xs text-gray-500 truncate" x-text="data?.member?.email || ''"></div>
                 <div class="text-xs text-gray-500" x-text="data?.member?.address || ''"></div>
             </div>
+
+            <!-- Reading plans -->
+            <a href="/reading-plans" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">📖</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Reading plans</div>
+                    <div class="text-[11px] text-gray-500">Daily Bible reading & progress</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
 
             <!-- My home church (read-only quick view) -->
             <a href="#" @click.prevent="hcInfoOpen = true; menuOpen = false"
@@ -597,6 +636,9 @@ function memberPortal() {
         meetingsLoading: false,
         upcomingMeetings: [],
 
+        // Reading plans (home tab)
+        readingPlans: [],
+
         async init() {
             try {
                 const [meRes, crRes] = await Promise.all([
@@ -627,11 +669,24 @@ function memberPortal() {
         },
 
         onTabEnter(id) {
-            if (id === 'home') this.loadUpcomingMeetings();
+            if (id === 'home') {
+                this.loadUpcomingMeetings();
+                this.loadReadingPlans();
+            }
             if (id === 'contributions') {
                 this.loadBanking();
                 if (this.data?.member?.external_synced) this.loadGiving();
             }
+        },
+
+        async loadReadingPlans() {
+            if (this.readingPlans.length) return;
+            try {
+                const r = await fetch('/api/reading-plans/me');
+                if (!r.ok) return;
+                const data = await r.json();
+                this.readingPlans = data.plans || [];
+            } catch (e) { /* non-fatal */ }
         },
 
         async loadBanking() {

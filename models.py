@@ -667,3 +667,102 @@ class PaymentTransaction(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     member = relationship("Member", foreign_keys=[member_id])
+
+
+# ============ READING PLANS ============
+
+class ReadingPlan(Base):
+    """A reading plan built by the Bible Reading Plan team. Members can
+    follow published plans and progress at their own pace."""
+    __tablename__ = "reading_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    slug = Column(String(80), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    cover_emoji = Column(String(10), nullable=True)
+    # BOOK | PERSON | THEME | CHRONOLOGICAL | DEVOTIONAL | CUSTOM
+    plan_type = Column(String(30), nullable=False, server_default="CUSTOM")
+    # DAILY | WEEKDAYS_ONLY | WEEKLY | MEMBER_PACED
+    cadence = Column(String(20), nullable=False, server_default="MEMBER_PACED")
+    duration_days = Column(Integer, nullable=False)
+    audience = Column(String(30), nullable=True)  # ADULTS | NEW_BELIEVERS | FAMILY | YOUTH
+    tags = Column(Text, nullable=True)  # JSON list of strings
+    status = Column(String(20), nullable=False, server_default="draft")  # draft | published | archived
+    visibility = Column(String(20), nullable=False, server_default="INTERNAL")  # PUBLIC | INTERNAL
+    featured = Column(Boolean, nullable=False, server_default="false")
+    is_default = Column(Boolean, nullable=False, server_default="false")
+    created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+
+    days = relationship(
+        "ReadingPlanDay",
+        back_populates="plan",
+        cascade="all, delete-orphan",
+        order_by="ReadingPlanDay.day_number",
+    )
+    followers = relationship(
+        "PlanFollower",
+        back_populates="plan",
+        cascade="all, delete-orphan",
+    )
+    created_by = relationship("Member", foreign_keys=[created_by_member_id])
+
+
+class ReadingPlanDay(Base):
+    __tablename__ = "reading_plan_days"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(Integer, ForeignKey("reading_plans.id", ondelete="CASCADE"), nullable=False)
+    day_number = Column(Integer, nullable=False)
+    passages = Column(Text, nullable=False)  # free text, e.g. "John 1; Psalm 23"
+    theme = Column(String(200), nullable=True)
+
+    plan = relationship("ReadingPlan", back_populates="days")
+
+    __table_args__ = (
+        UniqueConstraint("plan_id", "day_number", name="uq_plan_day"),
+    )
+
+
+class PlanFollower(Base):
+    __tablename__ = "plan_followers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(Integer, ForeignKey("reading_plans.id", ondelete="CASCADE"), nullable=False)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False)
+    started_on = Column(Date, nullable=False, server_default=func.current_date())
+    last_active_at = Column(DateTime(timezone=True), nullable=True)
+    current_day = Column(Integer, nullable=False, server_default="1")
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    plan = relationship("ReadingPlan", back_populates="followers")
+    member = relationship("Member")
+    completions = relationship(
+        "DayCompletion",
+        back_populates="follower",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("plan_id", "member_id", name="uq_plan_member_follower"),
+    )
+
+
+class DayCompletion(Base):
+    __tablename__ = "day_completions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    follower_id = Column(Integer, ForeignKey("plan_followers.id", ondelete="CASCADE"), nullable=False)
+    day_number = Column(Integer, nullable=False)
+    completed_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    follower = relationship("PlanFollower", back_populates="completions")
+
+    __table_args__ = (
+        UniqueConstraint("follower_id", "day_number", name="uq_follower_day"),
+    )

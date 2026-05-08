@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Reading plan · RFM{% endblock %}
+
+{% block content %}
+<div x-data="readingPlanDetail()" x-init="load()" class="min-h-screen bg-gray-50 pb-16">
+
+    <header class="bg-gradient-to-br from-amber-500 to-orange-700 text-white px-5 pt-6 pb-8">
+        <div class="max-w-3xl mx-auto">
+            <a href="/reading-plans" class="text-xs text-amber-100/80 hover:text-white">← All plans</a>
+            <div x-show="plan" class="mt-3 flex items-start gap-4">
+                <div class="text-5xl" x-text="plan?.cover_emoji || '📖'"></div>
+                <div class="min-w-0">
+                    <h1 class="text-2xl font-bold" x-text="plan?.title || ''"></h1>
+                    <p class="text-sm text-amber-100/90 mt-1" x-text="plan?.description || ''"></p>
+                    <div class="text-[10px] uppercase tracking-widest text-amber-100 mt-2 font-semibold">
+                        <span x-text="`${plan?.duration_days || 0} days`"></span>
+                        · <span x-text="planTypeLabel(plan?.plan_type)"></span>
+                        · <span x-text="cadenceLabel(plan?.cadence)"></span>
+                        <span x-show="plan?.follower_count > 0"> · <span x-text="`${plan.follower_count} ${plan.follower_count === 1 ? 'reader' : 'readers'}`"></span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-3xl mx-auto px-4 -mt-6 space-y-4">
+
+        <div x-show="loading" class="text-sm text-gray-500 text-center py-8">Loading…</div>
+
+        <!-- Action card -->
+        <section x-show="plan" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <template x-if="!plan?.am_following">
+                <div class="text-center">
+                    <p class="text-sm text-gray-600 mb-3">Add this plan and start reading at your own pace.</p>
+                    <button @click="follow()" :disabled="busy"
+                        class="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg disabled:opacity-50">
+                        <span x-text="busy ? 'Adding…' : 'Start this plan'"></span>
+                    </button>
+                </div>
+            </template>
+            <template x-if="plan?.am_following">
+                <div>
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                            <div class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">My progress</div>
+                            <div class="text-2xl font-bold text-amber-700" x-text="`${plan?.my_progress?.completion_pct || 0}%`"></div>
+                            <div class="text-[11px] text-gray-500" x-text="`${plan?.my_progress?.completed_count || 0} of ${plan?.duration_days || 0} days`"></div>
+                        </div>
+                        <div class="text-right" x-show="(plan?.my_streak || 0) > 0">
+                            <div class="text-3xl" x-text="(plan?.my_streak || 0) >= 3 ? '🔥' : '✨'"></div>
+                            <div class="text-[10px] text-gray-500 font-semibold uppercase" x-text="`${plan?.my_streak || 0} day streak`"></div>
+                        </div>
+                    </div>
+                    <div class="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div class="h-full bg-amber-500" :style="`width:${plan?.my_progress?.completion_pct || 0}%`"></div>
+                    </div>
+                    <button @click="unfollow()" :disabled="busy"
+                        class="mt-4 text-xs text-gray-500 hover:text-red-600">Stop following</button>
+                </div>
+            </template>
+        </section>
+
+        <!-- Days -->
+        <section x-show="plan" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Days</h2>
+            <div class="space-y-2">
+                <template x-for="d in (plan?.days || [])" :key="d.id">
+                    <div class="flex items-start gap-3 p-3 rounded-xl border" :class="isCompleted(d.day_number) ? 'bg-emerald-50/50 border-emerald-200' : 'border-gray-200'">
+                        <button x-show="plan.am_following" @click="toggleDay(d.day_number)" :disabled="busy"
+                            :class="isCompleted(d.day_number) ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-gray-400 border-gray-300'"
+                            class="w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <span x-show="isCompleted(d.day_number)">✓</span>
+                        </button>
+                        <div x-show="!plan.am_following" class="w-7 h-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5" x-text="d.day_number"></div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-[10px] uppercase tracking-widest text-gray-400 font-semibold" x-text="`Day ${d.day_number}`"></div>
+                            <div class="font-semibold text-gray-900" x-text="d.theme || d.passages"></div>
+                            <div x-show="d.theme && d.theme !== d.passages" class="text-sm text-gray-600 mt-0.5">
+                                <template x-for="(p, i) in passageList(d.passages)" :key="i">
+                                    <a :href="bibleLink(p)" target="_blank" rel="noopener" class="text-amber-700 hover:underline mr-2" x-text="p"></a>
+                                </template>
+                            </div>
+                            <div x-show="!d.theme || d.theme === d.passages" class="text-sm text-gray-600 mt-0.5">
+                                <template x-for="(p, i) in passageList(d.passages)" :key="i">
+                                    <a :href="bibleLink(p)" target="_blank" rel="noopener" class="text-amber-700 hover:underline mr-2" x-text="p"></a>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <p class="text-[11px] text-gray-400 text-center pt-2">Tap a passage to open it on Bible.com.</p>
+    </main>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function readingPlanDetail() {
+    return {
+        slug: {{ slug | tojson }},
+        plan: null,
+        loading: true,
+        busy: false,
+        async load() {
+            try {
+                // First resolve slug -> id by listing
+                const list = await fetch('/api/reading-plans').then(r => r.json()).catch(() => ({plans: []}));
+                const found = (list.plans || []).find(p => p.slug === this.slug);
+                if (!found) { this.loading = false; return; }
+                const r = await fetch(`/api/reading-plans/${found.id}`);
+                if (r.ok) this.plan = await r.json();
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+        isCompleted(dayNumber) {
+            return (this.plan?.my_progress?.completed_days || []).includes(dayNumber);
+        },
+        async follow() {
+            if (this.busy) return;
+            this.busy = true;
+            try {
+                const r = await fetch(`/api/reading-plans/${this.plan.id}/follow`, { method: 'POST' });
+                if (r.ok) await this.refresh();
+            } finally { this.busy = false; }
+        },
+        async unfollow() {
+            if (!confirm('Stop following this plan? Your progress will be removed.')) return;
+            if (this.busy) return;
+            this.busy = true;
+            try {
+                const r = await fetch(`/api/reading-plans/${this.plan.id}/follow`, { method: 'DELETE' });
+                if (r.ok) await this.refresh();
+            } finally { this.busy = false; }
+        },
+        async toggleDay(n) {
+            if (this.busy) return;
+            this.busy = true;
+            const completed = this.isCompleted(n);
+            try {
+                const url = `/api/reading-plans/${this.plan.id}/days/${n}/complete`;
+                const r = await fetch(url, { method: completed ? 'DELETE' : 'POST' });
+                if (r.ok) await this.refresh();
+            } finally { this.busy = false; }
+        },
+        async refresh() {
+            const r = await fetch(`/api/reading-plans/${this.plan.id}`);
+            if (r.ok) this.plan = await r.json();
+        },
+        passageList(passages) {
+            return (passages || '').split(/[;,]/).map(s => s.trim()).filter(Boolean);
+        },
+        bibleLink(passage) {
+            // Bible.com search URL — works for "John 1", "Psalm 23", "1 Kings 19:9-18", etc.
+            return `https://www.bible.com/search/bible?q=${encodeURIComponent(passage)}`;
+        },
+        planTypeLabel(t) {
+            return ({BOOK:'Book',PERSON:'Person',THEME:'Theme',CHRONOLOGICAL:'Chronological',DEVOTIONAL:'Devotional',CUSTOM:'Custom'})[t] || t;
+        },
+        cadenceLabel(c) {
+            return ({DAILY:'Daily',WEEKDAYS_ONLY:'Weekdays',WEEKLY:'Weekly',MEMBER_PACED:'Self-paced'})[c] || c;
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Reading plans · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-5xl mx-auto px-4 py-6" x-data="readingPlansAdmin()" x-init="load()">
+    <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">📖 Reading plans</h1>
+            <p class="text-sm text-gray-500">Build, publish, and track Bible reading plans for the church.</p>
+        </div>
+        <a href="/admin/reading-plans/builder" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg">+ New plan</a>
+    </div>
+
+    <div class="flex items-center gap-1 mb-4">
+        <template x-for="opt in filters" :key="opt.value">
+            <button @click="filter = opt.value; load()"
+                :class="filter === opt.value ? 'bg-amber-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                class="px-3 py-1.5 text-xs font-medium rounded-lg" x-text="opt.label"></button>
+        </template>
+    </div>
+
+    <div x-show="loading" class="p-8 text-center text-sm text-gray-500">Loading…</div>
+    <div x-show="!loading && !plans.length" class="p-8 text-center text-sm text-gray-500 bg-white rounded-xl border border-gray-100">No plans yet.</div>
+
+    <div class="space-y-2">
+        <template x-for="p in plans" :key="p.id">
+            <div class="bg-white border border-gray-200 rounded-xl p-4">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center text-2xl" x-text="p.cover_emoji || '📖'"></div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center flex-wrap gap-2">
+                            <a :href="`/admin/reading-plans/builder?id=${p.id}`" class="font-semibold text-gray-900 hover:text-amber-700 truncate" x-text="p.title"></a>
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 font-semibold rounded" :class="statusClass(p.status)" x-text="p.status"></span>
+                            <span x-show="p.featured" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold uppercase">Featured</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-0.5" x-text="`${p.duration_days} days · ${planTypeLabel(p.plan_type)} · ${cadenceLabel(p.cadence)}`"></div>
+                        <div class="text-xs text-gray-500 mt-1 line-clamp-1" x-text="p.description || ''"></div>
+                    </div>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <a :href="`/admin/reading-plans/${p.id}/metrics`" class="px-3 py-1.5 text-xs bg-amber-600 text-white rounded">Metrics</a>
+                        <a :href="`/admin/reading-plans/builder?id=${p.id}`" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Edit</a>
+                        <button @click="clonePlan(p)" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Clone</button>
+                        <button @click="deletePlan(p)" class="px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function readingPlansAdmin() {
+    return {
+        loading: true,
+        plans: [],
+        filter: '',
+        filters: [
+            { value: '',          label: 'All' },
+            { value: 'draft',     label: 'Draft' },
+            { value: 'published', label: 'Published' },
+            { value: 'archived',  label: 'Archived' },
+        ],
+        async load() {
+            this.loading = true;
+            try {
+                const url = this.filter ? `/api/reading-plans?status=${this.filter}` : '/api/reading-plans';
+                const r = await fetch(url);
+                const data = await r.json();
+                this.plans = data.plans || [];
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+        statusClass(s) {
+            return ({
+                draft: 'bg-gray-100 text-gray-700',
+                published: 'bg-emerald-100 text-emerald-700',
+                archived: 'bg-amber-100 text-amber-700',
+            })[s] || 'bg-gray-100 text-gray-700';
+        },
+        planTypeLabel(t) {
+            return ({BOOK:'Book',PERSON:'Person',THEME:'Theme',CHRONOLOGICAL:'Chronological',DEVOTIONAL:'Devotional',CUSTOM:'Custom'})[t] || t;
+        },
+        cadenceLabel(c) {
+            return ({DAILY:'Daily',WEEKDAYS_ONLY:'Weekdays',WEEKLY:'Weekly',MEMBER_PACED:'Self-paced'})[c] || c;
+        },
+        async clonePlan(p) {
+            if (!confirm(`Clone "${p.title}" as a new draft?`)) return;
+            const r = await fetch(`/api/reading-plans/${p.id}/clone`, { method: 'POST' });
+            const data = await r.json();
+            if (!r.ok) { alert(data.detail || 'Clone failed'); return; }
+            location.href = `/admin/reading-plans/builder?id=${data.id}`;
+        },
+        async deletePlan(p) {
+            if (!confirm(`Delete "${p.title}" and all follower progress? This cannot be undone.`)) return;
+            const r = await fetch(`/api/reading-plans/${p.id}`, { method: 'DELETE' });
+            if (!r.ok) { alert('Delete failed'); return; }
+            this.plans = this.plans.filter(x => x.id !== p.id);
+        },
+    };
+}
+</script>
+{% endblock %}

@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages, display, songlist, payments
+from routers import api, pages, display, songlist, payments, reading_plans
 
 
 def run_migrations():
@@ -572,6 +572,113 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (can_create_surveys): {e}")
 
+        # Seed starter reading plans (drafts) if the table is empty so the
+        # Bible Reading Plan team has something to clone-and-edit instead
+        # of an empty page on day one.
+        try:
+            existing = conn.execute(text("SELECT COUNT(*) FROM reading_plans")).scalar()
+            if existing == 0:
+                from datetime import datetime as _dt
+                starter_plans = [
+                    {
+                        "title": "Psalms in 30",
+                        "slug": "psalms-30",
+                        "description": "Walk through the Psalter five psalms at a time over a month.",
+                        "cover_emoji": "🎵",
+                        "plan_type": "BOOK",
+                        "cadence": "DAILY",
+                        "tags": ["psalms", "worship", "30-day"],
+                        "days": [
+                            (i + 1, f"Psalm {a}-{b}", f"Day {i + 1}")
+                            for i, (a, b) in enumerate(
+                                [(1,5),(6,10),(11,15),(16,20),(21,25),(26,30),(31,35),(36,40),
+                                 (41,45),(46,50),(51,55),(56,60),(61,65),(66,70),(71,75),(76,80),
+                                 (81,85),(86,90),(91,95),(96,100),(101,105),(106,110),(111,115),
+                                 (116,118),(119,119),(120,124),(125,131),(132,138),(139,145),(146,150)]
+                            )
+                        ],
+                    },
+                    {
+                        "title": "Proverbs in 31",
+                        "slug": "proverbs-31",
+                        "description": "A chapter a day matched to the calendar — wisdom for every day of the month.",
+                        "cover_emoji": "📜",
+                        "plan_type": "BOOK",
+                        "cadence": "DAILY",
+                        "tags": ["proverbs", "wisdom"],
+                        "days": [(i, f"Proverbs {i}", None) for i in range(1, 32)],
+                    },
+                    {
+                        "title": "John in 21",
+                        "slug": "john-21",
+                        "description": "The fourth gospel, one chapter a day. See and believe.",
+                        "cover_emoji": "✝️",
+                        "plan_type": "BOOK",
+                        "cadence": "DAILY",
+                        "tags": ["gospel", "jesus", "21-day"],
+                        "days": [(i, f"John {i}", None) for i in range(1, 22)],
+                    },
+                    {
+                        "title": "Elijah in 14",
+                        "slug": "elijah-14",
+                        "description": "Two weeks with the prophet who called down fire — courage, doubt, and rest.",
+                        "cover_emoji": "🔥",
+                        "plan_type": "PERSON",
+                        "cadence": "MEMBER_PACED",
+                        "tags": ["prophet", "elijah", "14-day"],
+                        "days": [
+                            (1,  "1 Kings 16:29-17:7",  "Drought announced"),
+                            (2,  "1 Kings 17:8-24",     "Cared for at Zarephath"),
+                            (3,  "1 Kings 18:1-19",     "Confronting Ahab"),
+                            (4,  "1 Kings 18:20-40",    "Mount Carmel"),
+                            (5,  "1 Kings 18:41-46",    "Rain returns"),
+                            (6,  "1 Kings 19:1-9a",     "Burned out under the broom tree"),
+                            (7,  "1 Kings 19:9b-18",    "The still, small voice"),
+                            (8,  "1 Kings 19:19-21",    "Calling Elisha"),
+                            (9,  "1 Kings 21",          "Naboth's vineyard"),
+                            (10, "2 Kings 1",           "Fire from heaven"),
+                            (11, "2 Kings 2:1-12",      "Taken up to heaven"),
+                            (12, "Malachi 4:5-6",       "The Elijah to come"),
+                            (13, "Matthew 17:1-13",     "Elijah on the mountain with Jesus"),
+                            (14, "James 5:13-18",       "A man like us — pray like him"),
+                        ],
+                    },
+                ]
+                for plan in starter_plans:
+                    duration = len(plan["days"])
+                    plan_id = conn.execute(text("""
+                        INSERT INTO reading_plans
+                            (title, slug, description, cover_emoji, plan_type, cadence,
+                             duration_days, tags, status, visibility, featured, is_default)
+                        VALUES (:title, :slug, :description, :cover_emoji, :plan_type, :cadence,
+                                :duration, :tags, 'draft', 'INTERNAL', false, false)
+                        RETURNING id
+                    """), {
+                        "title": plan["title"],
+                        "slug": plan["slug"],
+                        "description": plan["description"],
+                        "cover_emoji": plan["cover_emoji"],
+                        "plan_type": plan["plan_type"],
+                        "cadence": plan["cadence"],
+                        "duration": duration,
+                        "tags": __import__("json").dumps(plan["tags"]),
+                    }).scalar()
+                    for day_number, passages, theme in plan["days"]:
+                        conn.execute(text("""
+                            INSERT INTO reading_plan_days
+                                (plan_id, day_number, passages, theme)
+                            VALUES (:plan_id, :day_number, :passages, :theme)
+                        """), {
+                            "plan_id": plan_id,
+                            "day_number": day_number,
+                            "passages": passages,
+                            "theme": theme,
+                        })
+                conn.commit()
+                print(f"Migration: Seeded {len(starter_plans)} draft reading plans")
+        except Exception as e:
+            print(f"Migration note (reading plans seed): {e}")
+
         # Seed default home church program types (only if table is empty)
         try:
             existing = conn.execute(text("SELECT COUNT(*) FROM home_church_program_types")).scalar()
@@ -651,6 +758,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Include routers
 app.include_router(api.router, prefix="/api", tags=["api"])
 app.include_router(payments.router, prefix="/api", tags=["payments"])
+app.include_router(reading_plans.router, prefix="/api", tags=["reading-plans"])
 app.include_router(display.router, prefix="/api/display", tags=["display"])
 app.include_router(songlist.router, tags=["songlist"])
 app.include_router(pages.router, tags=["pages"])
