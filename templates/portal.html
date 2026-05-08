@@ -136,34 +136,6 @@
                     <div class="text-sm text-amber-900">Your record isn't linked to the central database yet, so we can't show your contributions. Please ask an admin to run Member Sync.</div>
                 </section>
 
-                <section x-show="data.member.external_synced" class="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5">
-                    <div class="text-xs uppercase tracking-wider opacity-80">Total giving</div>
-                    <div class="text-3xl font-bold mt-1" x-text="givingLoading ? '…' : formatMoney(givingSummary?.total_amount || 0, givingSummary?.currency)"></div>
-                    <div class="text-[11px] opacity-75 mt-1">All-time, sourced from the central database.</div>
-                </section>
-
-                <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">By category</h2>
-                    <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
-                    <div x-show="!givingLoading && !(givingSummary?.rows || []).length" class="text-sm text-gray-500 italic">No contributions on record yet.</div>
-                    <div class="space-y-2">
-                        <template x-for="row in (givingSummary?.rows || [])" :key="row.category">
-                            <div>
-                                <div class="flex items-center justify-between text-sm">
-                                    <span class="font-medium text-gray-900" x-text="row.category"></span>
-                                    <span class="text-gray-700">
-                                        <span x-text="formatMoney(row.total_amount, givingSummary?.currency)"></span>
-                                        <span class="text-[10px] text-gray-400 ml-1">×<span x-text="row.count"></span></span>
-                                    </span>
-                                </div>
-                                <div class="h-2 bg-gray-100 rounded mt-1 overflow-hidden">
-                                    <div class="h-full bg-emerald-500" :style="`width:${givingPct(row.total_amount)}%`"></div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </section>
-
                 <!-- Online giving -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Give online</h2>
