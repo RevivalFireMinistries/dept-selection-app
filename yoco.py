@@ -38,6 +38,10 @@ YOCO_CHECKOUTS_URL = "https://payments.yoco.com/api/checkouts"
 YOCO_WEBHOOKS_URL = "https://payments.yoco.com/api/webhooks"
 WEBHOOK_TOLERANCE_SECONDS = 5 * 60  # reject events older than 5 min
 DEFAULT_TIMEOUT = 15
+# Yoco's edge (Cloudflare) blocks the default `Python-urllib/3.x` UA as bot
+# traffic and returns 403 "The site owner has blocked access based on your
+# browser's signature." Using an explicit, legitimate UA fixes it.
+USER_AGENT = "RFM-Portal/1.0 (+https://github.com/RevivalFireMinistries)"
 
 
 class YocoError(RuntimeError):
@@ -106,6 +110,7 @@ def create_checkout(
             "Authorization": f"Bearer {secret_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )
@@ -151,6 +156,7 @@ def _api_call(method: str, url: str, *, secret_key: str, body: Optional[dict] = 
     headers = {
         "Authorization": f"Bearer {secret_key}",
         "Accept": "application/json",
+        "User-Agent": USER_AGENT,
     }
     if data is not None:
         headers["Content-Type"] = "application/json"
