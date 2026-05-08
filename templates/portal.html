@@ -2,17 +2,17 @@
 {% block title %}My portal · RFM{% endblock %}
 
 {% block content %}
-<div x-data="memberPortal()" x-init="init()" x-cloak class="min-h-screen bg-gray-50 pb-24">
+<div x-data="memberPortal()" x-init="init()" x-cloak class="min-h-screen bg-gray-50">
 
-    <!-- Loading -->
+    <!-- Loading state -->
     <div x-show="loading" class="min-h-screen flex items-center justify-center">
         <div class="text-center">
             <div class="w-12 h-12 mx-auto rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold animate-pulse">RFM</div>
-            <p class="mt-3 text-sm text-gray-500">Loading your portal…</p>
+            <p class="mt-3 text-sm text-gray-500">Loading…</p>
         </div>
     </div>
 
-    <!-- Auth error -->
+    <!-- Auth fallback -->
     <div x-show="!loading && !data" class="min-h-screen flex items-center justify-center px-6">
         <div class="max-w-sm text-center">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-2xl">🔒</div>
@@ -25,310 +25,337 @@
     <div x-show="!loading && data">
 
         <!-- Header -->
-        <header class="bg-gradient-to-br from-indigo-600 to-violet-700 text-white px-5 pt-8 pb-16">
-            <div class="max-w-3xl mx-auto">
-                <div class="flex items-center justify-between mb-6">
-                    <div class="text-xs uppercase tracking-widest text-indigo-100/80">RFM Portal</div>
-                    <div class="flex items-center gap-2">
-                        <button @click="changeOpen = true" class="text-xs px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full">Request a change</button>
-                        <a href="/logout" class="text-xs px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full">Log out</a>
-                    </div>
-                </div>
-                <div class="flex items-center gap-4">
-                    <div class="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-xl font-bold" x-text="initials(data.member.full_name)"></div>
+        <header class="bg-gradient-to-br from-indigo-600 to-violet-700 text-white px-5 pt-6 pb-4 sticky top-0 z-30 shadow-sm">
+            <div class="max-w-3xl mx-auto flex items-center justify-between">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center text-sm font-bold" x-text="initials(data.member.full_name)"></div>
                     <div class="min-w-0">
-                        <h1 class="text-2xl font-bold truncate" x-text="data.member.full_name"></h1>
-                        <p class="text-sm text-indigo-100 truncate" x-text="data.member.phone || ''"></p>
+                        <div class="text-[10px] uppercase tracking-widest text-indigo-100/80">RFM Portal</div>
+                        <div class="text-base font-semibold truncate" x-text="data.member.full_name"></div>
                     </div>
                 </div>
+                <button @click="menuOpen = true" aria-label="Open menu"
+                    class="w-10 h-10 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                </button>
             </div>
         </header>
 
-        <!-- Body -->
-        <main class="max-w-3xl mx-auto px-5 -mt-10 space-y-4">
+        <!-- Main content -->
+        <main class="max-w-3xl mx-auto px-4 py-4 pb-28 space-y-4">
 
-            <!-- About you -->
-            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">About you</h2>
-                    <button @click="openChangeForm('profile', 'Update my profile details')" class="text-xs text-indigo-600 hover:underline">Request edit</button>
-                </div>
-                <dl class="space-y-3 text-sm">
-                    <div class="flex items-start gap-3">
-                        <dt class="w-20 shrink-0 text-xs uppercase tracking-wider text-gray-400 mt-0.5">Phone</dt>
-                        <dd class="flex-1 text-gray-900" x-text="data.member.phone"></dd>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <dt class="w-20 shrink-0 text-xs uppercase tracking-wider text-gray-400 mt-0.5">Email</dt>
-                        <dd class="flex-1 text-gray-900" x-text="data.member.email || '—'"></dd>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <dt class="w-20 shrink-0 text-xs uppercase tracking-wider text-gray-400 mt-0.5">Address</dt>
-                        <dd class="flex-1 text-gray-900" x-text="data.member.address || '—'"></dd>
-                    </div>
-                </dl>
-                <div x-show="!data.central_synced" class="mt-3 text-[11px] text-amber-700">⚠ Some details (ministries, home church) aren't yet linked to the central database. Ask an admin to run Member Sync.</div>
-            </section>
+            <!-- ==================== HOME TAB ==================== -->
+            <div x-show="tab === 'home'" class="space-y-4">
 
-            <!-- Departments -->
-            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">My departments</h2>
-                    <button @click="openChangeForm('department', 'Change department assignment')" class="text-xs text-indigo-600 hover:underline">Request change</button>
-                </div>
-                <div x-show="!data.departments.approved.length && !data.departments.pending.length" class="text-sm text-gray-500 italic">You aren't in any departments yet.</div>
-                <div class="space-y-2">
-                    <template x-for="d in data.departments.approved" :key="d.id">
-                        <div class="flex items-center justify-between gap-2 p-3 bg-emerald-50/50 border border-emerald-200 rounded-xl">
-                            <div class="min-w-0">
-                                <div class="font-medium text-gray-900 truncate" x-text="d.department_name"></div>
-                                <div class="text-[11px] text-gray-500" x-text="d.category_name || ''"></div>
-                            </div>
-                            <span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 font-semibold rounded-full uppercase tracking-wider">Approved</span>
-                        </div>
-                    </template>
-                    <template x-for="d in data.departments.pending" :key="d.id">
-                        <div class="flex items-center justify-between gap-2 p-3 bg-amber-50/50 border border-amber-200 rounded-xl">
-                            <div class="min-w-0">
-                                <div class="font-medium text-gray-900 truncate" x-text="d.department_name"></div>
-                                <div class="text-[11px] text-gray-500" x-text="d.category_name || ''"></div>
-                            </div>
-                            <span class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 font-semibold rounded-full uppercase tracking-wider">Pending</span>
-                        </div>
-                    </template>
-                </div>
-            </section>
-
-            <!-- Ministries -->
-            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">My ministries</h2>
-                    <button @click="openChangeForm('ministry', 'Change ministry assignment')" class="text-xs text-indigo-600 hover:underline">Request change</button>
-                </div>
-                <div x-show="!data.ministries.length" class="text-sm text-gray-500 italic">No ministries recorded.</div>
-                <div class="flex flex-wrap gap-2">
-                    <template x-for="m in data.ministries" :key="m.name + (m.id || '')">
-                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 text-violet-800 text-sm rounded-full">
-                            <span>📖</span><span x-text="m.name"></span>
-                        </span>
-                    </template>
-                </div>
-            </section>
-
-            <!-- Home church -->
-            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">My home church</h2>
-                    <button @click="openChangeForm('home_church', 'Change my home church')" class="text-xs text-indigo-600 hover:underline">Request change</button>
-                </div>
-                <div x-show="!data.home_church" class="text-sm text-gray-500 italic">You aren't assigned to a home church yet.</div>
-                <div x-show="data.home_church" class="p-3 bg-violet-50/40 border border-violet-100 rounded-xl">
-                    <div class="font-semibold text-gray-900" x-text="data.home_church?.name"></div>
-                    <div class="text-xs text-gray-600 mt-1" x-show="data.home_church?.suburb || data.home_church?.address">
-                        <span x-text="[data.home_church?.address, data.home_church?.suburb].filter(Boolean).join(', ')"></span>
+                <!-- Greeting -->
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="text-sm text-gray-500" x-text="greeting()"></div>
+                    <div class="text-xl font-bold text-gray-900 mt-1" x-text="firstName(data.member.full_name) + ' 👋'"></div>
+                    <div x-show="data.open_change_requests > 0" class="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        ✏️ You have <span x-text="data.open_change_requests"></span> change request(s) awaiting approval.
                     </div>
-                    <div class="text-xs text-gray-500 mt-1" x-show="data.home_church?.meeting_day !== null && data.home_church?.meeting_time">
-                        <span x-text="dayName(data.home_church?.meeting_day) + 's · ' + data.home_church?.meeting_time"></span>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <!-- My change requests -->
-            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5" x-show="changeRequests.length">
-                <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">My change requests</h2>
-                <div class="space-y-2">
-                    <template x-for="cr in changeRequests" :key="cr.id">
-                        <div class="p-3 border border-gray-200 rounded-xl">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0">
-                                    <div class="text-[10px] uppercase tracking-wider text-gray-400" x-text="cr.change_type.replace('_', ' ')"></div>
-                                    <div class="text-sm font-medium text-gray-900" x-text="cr.summary"></div>
-                                    <div class="text-xs text-gray-500 mt-0.5" x-text="formatDate(cr.created_at)"></div>
+                <!-- Announcements -->
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">📣 Announcements</h2>
+                    </div>
+                    <div class="text-sm text-gray-500 italic">No announcements right now. Check back soon.</div>
+                </section>
+
+                <!-- Upcoming meetings -->
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">📅 Upcoming meetings</h2>
+                    </div>
+                    <div x-show="meetingsLoading" class="text-xs text-gray-400 italic">Loading…</div>
+                    <div x-show="!meetingsLoading && !upcomingMeetings.length" class="text-sm text-gray-500 italic">Nothing scheduled.</div>
+                    <div class="space-y-2">
+                        <template x-for="m in upcomingMeetings" :key="m.id">
+                            <div class="p-3 border border-gray-100 rounded-xl">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <div class="font-semibold text-gray-900 text-sm" x-text="m.title"></div>
+                                        <div class="text-xs text-gray-500 mt-0.5" x-text="meetingWhen(m)"></div>
+                                        <div x-show="m.location" class="text-xs text-gray-500" x-text="'📍 ' + m.location"></div>
+                                    </div>
                                 </div>
-                                <span class="text-[10px] px-2 py-0.5 font-semibold rounded-full uppercase tracking-wider whitespace-nowrap"
-                                      :class="statusClass(cr.status)" x-text="cr.status"></span>
                             </div>
-                            <div x-show="cr.admin_response" class="mt-2 text-xs text-gray-600 bg-gray-50 rounded p-2" x-text="cr.admin_response"></div>
+                        </template>
+                    </div>
+                </section>
+
+                <!-- Coming soon -->
+                <section class="bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-dashed border-gray-200 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Coming soon</h2>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="p-3 bg-white border border-gray-100 rounded-xl text-center">
+                            <div class="text-2xl">📲</div>
+                            <div class="text-[11px] font-semibold text-gray-700 mt-1">Online tithes</div>
                         </div>
-                    </template>
-                </div>
-            </section>
-
-            <!-- Coming soon -->
-            <section class="bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-dashed border-gray-200 p-5">
-                <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Coming soon</h2>
-                <div class="grid grid-cols-2 gap-2">
-                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
-                        <div class="text-2xl">📅</div>
-                        <div class="text-xs font-semibold text-gray-700 mt-1">Service attendance</div>
-                        <div class="text-[10px] text-gray-400">Coming soon</div>
+                        <div class="p-3 bg-white border border-gray-100 rounded-xl text-center">
+                            <div class="text-2xl">🏦</div>
+                            <div class="text-[11px] font-semibold text-gray-700 mt-1">Banking details</div>
+                        </div>
+                        <div class="p-3 bg-white border border-gray-100 rounded-xl text-center">
+                            <div class="text-2xl">📖</div>
+                            <div class="text-[11px] font-semibold text-gray-700 mt-1">Devotionals</div>
+                        </div>
                     </div>
-                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
-                        <div class="text-2xl">📲</div>
-                        <div class="text-xs font-semibold text-gray-700 mt-1">Online tithes & offerings</div>
-                        <div class="text-[10px] text-gray-400">Coming soon</div>
-                    </div>
-                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
-                        <div class="text-2xl">🏦</div>
-                        <div class="text-xs font-semibold text-gray-700 mt-1">Church banking details</div>
-                        <div class="text-[10px] text-gray-400">Coming soon</div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Footer links: discreet entry points to less-frequent things -->
-            <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2 text-xs">
-                <button @click="openGiving()" :disabled="!data.member.external_synced"
-                    class="text-gray-500 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
-                    View my giving
-                </button>
+                </section>
             </div>
 
-            <!-- Leadership tools (only when applicable) -->
-            <section x-show="hasLeadership()" class="mt-6">
-                <div class="flex items-center gap-2 mb-3 px-2">
-                    <span class="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Leadership tools</span>
-                    <div class="flex-1 h-px bg-gray-200"></div>
-                </div>
-                <div class="grid gap-2">
-                    <a x-show="data.leadership.is_hc_committee || data.leadership.is_hc_leader"
-                       :href="`/admin/home-churches?phone=${encodeURIComponent(data.member.phone)}`"
-                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-violet-300">
-                        <div class="w-10 h-10 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-lg">🏠</div>
-                        <div class="flex-1">
-                            <div class="font-semibold text-sm text-gray-900">Home church roster</div>
-                            <div class="text-xs text-gray-500" x-text="data.leadership.is_hc_committee ? 'Programme, preachers & members' : 'Manage your home church members'"></div>
+            <!-- ==================== MY DEPARTMENTS ==================== -->
+            <div x-show="tab === 'departments'" class="space-y-4">
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">My departments</h2>
+                    <div x-show="!data.departments.approved.length && !data.departments.pending.length" class="text-sm text-gray-500 italic">You aren't in any departments yet.</div>
+                    <div class="space-y-2">
+                        <template x-for="d in data.departments.approved" :key="d.id">
+                            <div class="flex items-center justify-between gap-2 p-3 bg-emerald-50/50 border border-emerald-200 rounded-xl">
+                                <div class="min-w-0">
+                                    <div class="font-medium text-gray-900 truncate" x-text="d.department_name"></div>
+                                    <div class="text-[11px] text-gray-500" x-text="d.category_name || ''"></div>
+                                </div>
+                                <span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 font-semibold rounded-full uppercase tracking-wider">Approved</span>
+                            </div>
+                        </template>
+                        <template x-for="d in data.departments.pending" :key="d.id">
+                            <div class="flex items-center justify-between gap-2 p-3 bg-amber-50/50 border border-amber-200 rounded-xl">
+                                <div class="min-w-0">
+                                    <div class="font-medium text-gray-900 truncate" x-text="d.department_name"></div>
+                                    <div class="text-[11px] text-gray-500" x-text="d.category_name || ''"></div>
+                                </div>
+                                <span class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 font-semibold rounded-full uppercase tracking-wider">Pending</span>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
+                <!-- Ministries — sit alongside departments since both come from central -->
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5" x-show="data.ministries.length">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Ministries</h2>
+                    <div class="flex flex-wrap gap-2">
+                        <template x-for="m in data.ministries" :key="m.name + (m.id || '')">
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 text-violet-800 text-sm rounded-full">
+                                <span>📖</span><span x-text="m.name"></span>
+                            </span>
+                        </template>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ==================== MY CONTRIBUTIONS ==================== -->
+            <div x-show="tab === 'contributions'" class="space-y-4">
+                <section x-show="!data.member.external_synced" class="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+                    <div class="text-sm text-amber-900">Your record isn't linked to the central database yet, so we can't show your contributions. Please ask an admin to run Member Sync.</div>
+                </section>
+
+                <section x-show="data.member.external_synced" class="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5">
+                    <div class="text-xs uppercase tracking-wider opacity-80">Total giving</div>
+                    <div class="text-3xl font-bold mt-1" x-text="givingLoading ? '…' : formatMoney(givingSummary?.total_amount || 0, givingSummary?.currency)"></div>
+                    <div class="text-[11px] opacity-75 mt-1">All-time, sourced from the central database.</div>
+                </section>
+
+                <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">By category</h2>
+                    <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
+                    <div x-show="!givingLoading && !(givingSummary?.rows || []).length" class="text-sm text-gray-500 italic">No contributions on record yet.</div>
+                    <div class="space-y-2">
+                        <template x-for="row in (givingSummary?.rows || [])" :key="row.category">
+                            <div>
+                                <div class="flex items-center justify-between text-sm">
+                                    <span class="font-medium text-gray-900" x-text="row.category"></span>
+                                    <span class="text-gray-700">
+                                        <span x-text="formatMoney(row.total_amount, givingSummary?.currency)"></span>
+                                        <span class="text-[10px] text-gray-400 ml-1">×<span x-text="row.count"></span></span>
+                                    </span>
+                                </div>
+                                <div class="h-2 bg-gray-100 rounded mt-1 overflow-hidden">
+                                    <div class="h-full bg-emerald-500" :style="`width:${givingPct(row.total_amount)}%`"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
+                <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Recent</h2>
+                    <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
+                    <div x-show="!givingLoading && !(givingRecent?.items || []).length" class="text-sm text-gray-500 italic">No recent contributions.</div>
+                    <div class="space-y-2">
+                        <template x-for="c in (givingRecent?.items || [])" :key="c.id">
+                            <div class="p-3 border border-gray-200 rounded-xl">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
+                                            <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-600" x-text="formatLongDate(c.contribution_date)"></div>
+                                        <div x-show="c.payment_method || c.reference" class="text-[11px] text-gray-400 mt-0.5">
+                                            <span x-show="c.payment_method" x-text="c.payment_method"></span>
+                                            <span x-show="c.payment_method && c.reference"> · </span>
+                                            <span x-show="c.reference" x-text="`Ref ${c.reference}`"></span>
+                                        </div>
+                                    </div>
+                                    <div class="text-right shrink-0">
+                                        <div class="font-bold text-gray-900" x-text="formatMoney(c.amount, c.currency)"></div>
+                                        <div x-show="c.receipt_sent" class="text-[10px] text-emerald-600 mt-0.5">✓ Receipted</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ==================== HOME CHURCH ==================== -->
+            <div x-show="tab === 'home_church'" class="space-y-4">
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">My home church</h2>
+                    <div x-show="!data.home_church" class="text-sm text-gray-500 italic">You aren't assigned to a home church yet. Use the menu to request one.</div>
+                    <div x-show="data.home_church" class="p-4 bg-violet-50/40 border border-violet-100 rounded-xl">
+                        <div class="font-semibold text-gray-900 text-base" x-text="data.home_church?.name"></div>
+                        <div class="text-xs text-gray-600 mt-1" x-show="data.home_church?.suburb || data.home_church?.address">
+                            📍 <span x-text="[data.home_church?.address, data.home_church?.suburb].filter(Boolean).join(', ')"></span>
                         </div>
-                        <span class="text-gray-300">›</span>
-                    </a>
-                    <a x-show="data.leadership.is_hod"
-                       :href="`/portal/classic?phone=${encodeURIComponent(data.member.phone)}`"
-                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-violet-300">
-                        <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg">👥</div>
-                        <div class="flex-1">
-                            <div class="font-semibold text-sm text-gray-900">My department(s)</div>
-                            <div class="text-xs text-gray-500" x-text="(data.leadership.hod_departments || []).map(d => d.name).join(', ') || 'Head of department tools'"></div>
+                        <div class="text-xs text-gray-500 mt-1" x-show="data.home_church?.meeting_day !== null && data.home_church?.meeting_time">
+                            📅 <span x-text="dayName(data.home_church?.meeting_day) + 's · ' + data.home_church?.meeting_time"></span>
                         </div>
-                        <span class="text-gray-300">›</span>
-                    </a>
-                    <a x-show="data.leadership.can_create_surveys" href="/surveys"
-                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-violet-300">
-                        <div class="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center text-lg">📋</div>
-                        <div class="flex-1">
-                            <div class="font-semibold text-sm text-gray-900">Surveys</div>
-                            <div class="text-xs text-gray-500">Build and share surveys</div>
-                        </div>
-                        <span class="text-gray-300">›</span>
-                    </a>
-                    <a :href="`/portal/classic?phone=${encodeURIComponent(data.member.phone)}`"
-                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-gray-300">
-                        <div class="w-10 h-10 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-lg">⚙</div>
-                        <div class="flex-1">
-                            <div class="font-semibold text-sm text-gray-900">Classic portal</div>
-                            <div class="text-xs text-gray-500">Department selection, programs, design requests</div>
-                        </div>
-                        <span class="text-gray-300">›</span>
-                    </a>
-                </div>
-            </section>
+                    </div>
+                </section>
+            </div>
 
         </main>
+
+        <!-- ==================== BOTTOM TAB BAR ==================== -->
+        <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-30">
+            <div class="max-w-3xl mx-auto grid grid-cols-4">
+                <template x-for="t in tabs" :key="t.id">
+                    <button @click="setTab(t.id)"
+                        :class="tab === t.id ? 'text-indigo-600' : 'text-gray-500'"
+                        class="flex flex-col items-center justify-center py-2.5 hover:bg-gray-50 transition">
+                        <span class="text-xl" x-text="t.icon"></span>
+                        <span class="text-[10px] font-semibold mt-0.5" x-text="t.label"></span>
+                    </button>
+                </template>
+            </div>
+        </nav>
     </div>
 
-    <!-- Giving sheet -->
-    <div x-show="givingOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="givingOpen = false">
-        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
-        <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
-                <div class="min-w-0">
-                    <div class="text-xs text-gray-500 uppercase tracking-wider">My giving</div>
-                    <div class="font-semibold text-gray-900 truncate" x-text="data?.member?.full_name || ''"></div>
-                </div>
-                <button @click="givingOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+    <!-- ==================== HAMBURGER DRAWER ==================== -->
+    <div x-show="menuOpen" x-cloak class="fixed inset-0 z-50" @keydown.escape.window="menuOpen = false">
+        <div class="absolute inset-0 bg-black/40" @click="menuOpen = false"></div>
+        <aside class="absolute right-0 top-0 bottom-0 w-80 max-w-full bg-white shadow-2xl overflow-y-auto"
+               x-transition:enter="transition ease-out duration-200"
+               x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0"
+               x-transition:leave="transition ease-in duration-150"
+               x-transition:leave-start="translate-x-0" x-transition:leave-end="translate-x-full">
+
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-semibold text-gray-900">Menu</div>
+                <button @click="menuOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
             </div>
 
-            <div class="p-5 space-y-5">
-
-                <div x-show="givingLoading" class="text-sm text-gray-500 text-center py-6">Loading…</div>
-                <div x-show="givingError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="givingError"></div>
-
-                <div x-show="!givingLoading && !givingError">
-
-                    <!-- Tabs -->
-                    <div class="flex items-center gap-1 mb-4">
-                        <button @click="givingTab = 'summary'"
-                            :class="givingTab === 'summary' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg">Summary</button>
-                        <button @click="givingTab = 'recent'"
-                            :class="givingTab === 'recent' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
-                            class="px-3 py-1.5 text-xs font-medium rounded-lg">Recent contributions</button>
-                    </div>
-
-                    <!-- Summary -->
-                    <div x-show="givingTab === 'summary'">
-                        <div class="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5 mb-4">
-                            <div class="text-xs uppercase tracking-wider opacity-80">Total giving</div>
-                            <div class="text-3xl font-bold mt-1" x-text="formatMoney(givingSummary?.total_amount || 0, givingSummary?.currency)"></div>
-                            <div class="text-[11px] opacity-75 mt-1" x-text="(givingSummary?.from_date || givingSummary?.to_date) ? `${givingSummary?.from_date || 'all time'} — ${givingSummary?.to_date || 'today'}` : 'All time'"></div>
-                        </div>
-
-                        <div x-show="!(givingSummary?.rows || []).length" class="text-sm text-gray-500 italic text-center py-6">No contributions on record yet.</div>
-
-                        <div class="space-y-2">
-                            <template x-for="row in (givingSummary?.rows || [])" :key="row.category">
-                                <div>
-                                    <div class="flex items-center justify-between text-sm">
-                                        <span class="font-medium text-gray-900" x-text="row.category"></span>
-                                        <span class="text-gray-700">
-                                            <span x-text="formatMoney(row.total_amount, givingSummary?.currency)"></span>
-                                            <span class="text-[10px] text-gray-400 ml-1">×<span x-text="row.count"></span></span>
-                                        </span>
-                                    </div>
-                                    <div class="h-2 bg-gray-100 rounded mt-1 overflow-hidden">
-                                        <div class="h-full bg-emerald-500" :style="`width:${givingPct(row.total_amount)}%`"></div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-
-                    <!-- Recent contributions -->
-                    <div x-show="givingTab === 'recent'">
-                        <div x-show="!(givingRecent?.items || []).length" class="text-sm text-gray-500 italic text-center py-6">No recent contributions.</div>
-                        <div class="space-y-2">
-                            <template x-for="c in (givingRecent?.items || [])" :key="c.id">
-                                <div class="p-3 border border-gray-200 rounded-xl">
-                                    <div class="flex items-start justify-between gap-2">
-                                        <div class="min-w-0">
-                                            <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
-                                                <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
-                                            </div>
-                                            <div class="mt-1 text-sm text-gray-600" x-text="formatLongDate(c.contribution_date)"></div>
-                                            <div x-show="c.payment_method || c.reference" class="text-[11px] text-gray-400 mt-0.5">
-                                                <span x-show="c.payment_method" x-text="c.payment_method"></span>
-                                                <span x-show="c.payment_method && c.reference"> · </span>
-                                                <span x-show="c.reference" x-text="`Ref ${c.reference}`"></span>
-                                            </div>
-                                            <div x-show="c.notes" class="text-[11px] text-gray-500 mt-1 italic" x-text="c.notes"></div>
-                                        </div>
-                                        <div class="text-right shrink-0">
-                                            <div class="font-bold text-gray-900" x-text="formatMoney(c.amount, c.currency)"></div>
-                                            <div x-show="c.receipt_sent" class="text-[10px] text-emerald-600 mt-0.5">✓ Receipted</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-
-                <p class="text-[11px] text-gray-400 text-center mt-4">Records sourced from RFM central database.</p>
+            <!-- Profile -->
+            <div class="px-5 py-4 border-b border-gray-100">
+                <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Profile</div>
+                <div class="text-sm font-medium text-gray-900" x-text="data?.member?.full_name || ''"></div>
+                <div class="text-xs text-gray-500" x-text="data?.member?.phone || ''"></div>
+                <div class="text-xs text-gray-500 truncate" x-text="data?.member?.email || ''"></div>
+                <div class="text-xs text-gray-500" x-text="data?.member?.address || ''"></div>
             </div>
-        </div>
+
+            <!-- One change request entry -->
+            <a href="#" @click.prevent="changeOpen = true; menuOpen = false"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">✏️</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Request a change</div>
+                    <div class="text-[11px] text-gray-500">Profile, departments, ministry, home church…</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+
+            <!-- My change requests -->
+            <a href="#" @click.prevent="setTab('change_requests'); menuOpen = false"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100"
+               x-show="changeRequests.length">
+                <div class="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-sm">📋</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">My change requests</div>
+                    <div class="text-[11px] text-gray-500" x-text="`${changeRequests.length} on record`"></div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+
+            <!-- Leadership tools — only when applicable -->
+            <div x-show="hasLeadership()" class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Leadership tools</div>
+            <a x-show="data?.leadership?.is_hc_committee || data?.leadership?.is_hc_leader"
+               :href="`/admin/home-churches?phone=${encodeURIComponent(data.member.phone)}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-sm">🏠</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">Home church admin</div>
+                    <div class="text-[11px] text-gray-500" x-text="data.leadership.is_hc_committee ? 'Programme, preachers, members' : 'Manage your home church members'"></div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <a x-show="data?.leadership?.is_hod"
+               :href="`/portal/classic?phone=${encodeURIComponent(data.member.phone)}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-sm">👥</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">My department(s)</div>
+                    <div class="text-[11px] text-gray-500" x-text="(data.leadership.hod_departments || []).map(d => d.name).join(', ') || 'Head of department tools'"></div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <a x-show="data?.leadership?.can_create_surveys" href="/surveys"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center text-sm">📋</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">Surveys</div>
+                    <div class="text-[11px] text-gray-500">Build and share surveys</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+
+            <!-- More links -->
+            <div class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">More</div>
+            <a :href="`/programs?phone=${encodeURIComponent(data?.member?.phone || '')}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm">🗓</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">Service programs</div>
+                    <div class="text-[11px] text-gray-500">Today's order of service</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <a :href="`/portal/classic?phone=${encodeURIComponent(data?.member?.phone || '')}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-sm">⚙</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">Classic portal</div>
+                    <div class="text-[11px] text-gray-500">Department selection, design requests, family selector</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+
+            <div class="border-t border-gray-100 mt-3"></div>
+            <a href="/logout" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 text-red-600">
+                <div class="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-sm">↩</div>
+                <div class="flex-1 text-sm font-medium">Log out</div>
+            </a>
+            <div class="px-5 py-3 text-[10px] text-gray-400 text-center">RFM Stellenbosch Portal</div>
+        </aside>
     </div>
 
-    <!-- Change request modal -->
+    <!-- ==================== CHANGE REQUEST MODAL (single entry) ==================== -->
     <div x-show="changeOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="changeOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
         <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -336,31 +363,72 @@
                 <div class="font-semibold text-gray-900">Request a change</div>
                 <button @click="changeOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
             </div>
-            <div class="p-5 space-y-3">
+            <div class="p-5 space-y-4">
+
+                <!-- Step 1: choose -->
                 <div>
-                    <label class="block text-xs font-semibold text-gray-700 mb-1">What would you like to change?</label>
-                    <select x-model="changeForm.change_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                        <option value="profile">My profile (name, phone, email, address)</option>
-                        <option value="department">My departments</option>
-                        <option value="ministry">My ministries</option>
-                        <option value="home_church">My home church</option>
-                        <option value="other">Something else</option>
-                    </select>
+                    <label class="block text-xs font-semibold text-gray-700 mb-2">What would you like to change?</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <template x-for="opt in changeOptions" :key="opt.value">
+                            <button type="button" @click="changeForm.change_type = opt.value"
+                                :class="changeForm.change_type === opt.value ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white'"
+                                class="p-3 rounded-xl border text-left transition">
+                                <div class="text-xl" x-text="opt.icon"></div>
+                                <div class="text-xs font-semibold text-gray-900 mt-1" x-text="opt.label"></div>
+                                <div class="text-[10px] text-gray-500" x-text="opt.hint"></div>
+                            </button>
+                        </template>
+                    </div>
                 </div>
+
+                <!-- Step 2: details -->
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Brief summary <span class="text-red-500">*</span></label>
-                    <input type="text" x-model="changeForm.summary" maxlength="300" placeholder="e.g. Update my phone number to 071 234 5678" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    <input type="text" x-model="changeForm.summary" maxlength="300"
+                        :placeholder="summaryPlaceholder()"
+                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Details (optional)</label>
-                    <textarea x-model="changeForm.details" rows="4" placeholder="Add any context that helps the admin process your request." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
+                    <textarea x-model="changeForm.details" rows="4" placeholder="Anything else the admin should know."
+                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
                 </div>
+
                 <div x-show="changeFormError" class="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="changeFormError"></div>
-                <button @click="submitChange()" :disabled="changeFormSaving" class="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+
+                <button @click="submitChange()" :disabled="changeFormSaving"
+                    class="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg disabled:opacity-50">
                     <span x-text="changeFormSaving ? 'Submitting…' : 'Submit for approval'"></span>
                 </button>
-                <p class="text-[11px] text-gray-400 text-center">An admin or pastor will review and update your record.</p>
+                <p class="text-[11px] text-gray-400 text-center">An admin or pastor will review your request.</p>
             </div>
+        </div>
+    </div>
+
+    <!-- ==================== CHANGE REQUESTS LIST (overlay tab) ==================== -->
+    <div x-show="tab === 'change_requests'" x-cloak class="fixed inset-0 z-40 bg-gray-50 overflow-y-auto pb-28">
+        <header class="bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-3 sticky top-0">
+            <button @click="setTab('home')" class="text-gray-400 hover:text-gray-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <h1 class="font-semibold text-gray-900">My change requests</h1>
+        </header>
+        <div class="max-w-3xl mx-auto px-4 py-4 space-y-2">
+            <template x-for="cr in changeRequests" :key="cr.id">
+                <div class="p-3 bg-white border border-gray-200 rounded-xl">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="text-[10px] uppercase tracking-wider text-gray-400" x-text="cr.change_type.replace('_', ' ')"></div>
+                            <div class="text-sm font-medium text-gray-900" x-text="cr.summary"></div>
+                            <div class="text-xs text-gray-500 mt-0.5" x-text="formatDate(cr.created_at)"></div>
+                        </div>
+                        <span class="text-[10px] px-2 py-0.5 font-semibold rounded-full uppercase tracking-wider whitespace-nowrap"
+                              :class="statusClass(cr.status)" x-text="cr.status"></span>
+                    </div>
+                    <div x-show="cr.admin_response" class="mt-2 text-xs text-gray-600 bg-gray-50 rounded p-2" x-text="cr.admin_response"></div>
+                </div>
+            </template>
+            <div x-show="!changeRequests.length" class="text-sm text-gray-500 italic text-center py-12">No change requests yet.</div>
         </div>
     </div>
 </div>
@@ -371,18 +439,39 @@ function memberPortal() {
     return {
         loading: true,
         data: null,
-        changeRequests: [],
+        tab: 'home',
+        menuOpen: false,
+        tabs: [
+            { id: 'home', icon: '🏠', label: 'Home' },
+            { id: 'departments', icon: '🛠', label: 'Departments' },
+            { id: 'contributions', icon: '💝', label: 'Giving' },
+            { id: 'home_church', icon: '🏘', label: 'Home Church' },
+        ],
+
+        // Change requests
         changeOpen: false,
         changeForm: { change_type: 'profile', summary: '', details: '' },
         changeFormSaving: false,
         changeFormError: '',
+        changeRequests: [],
+        changeOptions: [
+            { value: 'profile',      icon: '🪪', label: 'Profile',     hint: 'Name, phone, email, address' },
+            { value: 'department',   icon: '🛠', label: 'Departments', hint: 'Which dept(s) you serve in' },
+            { value: 'ministry',     icon: '📖', label: 'Ministry',    hint: 'Ministry assignments' },
+            { value: 'home_church',  icon: '🏘', label: 'Home church', hint: 'Where you fellowship' },
+            { value: 'other',        icon: '💬', label: 'Other',       hint: 'Anything else' },
+        ],
 
-        givingOpen: false,
-        givingTab: 'summary',
+        // Giving
         givingLoading: false,
         givingError: '',
         givingSummary: null,
         givingRecent: null,
+        _givingLoaded: false,
+
+        // Meetings (home tab)
+        meetingsLoading: false,
+        upcomingMeetings: [],
 
         async init() {
             try {
@@ -391,38 +480,113 @@ function memberPortal() {
                     fetch('/api/portal/change-requests'),
                 ]);
                 if (meRes.status === 401) {
-                    // Try ?phone= fallback for first arrivals from email link
                     const params = new URLSearchParams(location.search);
                     const phone = params.get('phone');
-                    if (phone) {
-                        // Old-style entry: bounce to login flow
-                        location.href = `/?phone=${encodeURIComponent(phone)}`;
-                        return;
-                    }
-                    this.loading = false;
-                    return;
+                    if (phone) { location.href = `/?phone=${encodeURIComponent(phone)}`; return; }
+                    this.loading = false; return;
                 }
                 if (!meRes.ok) { this.loading = false; return; }
                 this.data = await meRes.json();
                 if (crRes.ok) this.changeRequests = await crRes.json();
+                // Restore last tab
+                try { this.tab = localStorage.getItem('rfm-portal-tab') || 'home'; } catch (e) {}
+                if (!this.tabs.some(t => t.id === this.tab)) this.tab = 'home';
+                this.onTabEnter(this.tab);
             } catch (e) { console.error(e); }
             this.loading = false;
         },
 
-        initials(name) {
-            return (name || '').split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase();
+        setTab(id) {
+            this.tab = id;
+            try { localStorage.setItem('rfm-portal-tab', id); } catch (e) {}
+            this.onTabEnter(id);
         },
 
+        onTabEnter(id) {
+            if (id === 'home') this.loadUpcomingMeetings();
+            if (id === 'contributions' && this.data?.member?.external_synced) this.loadGiving();
+        },
+
+        async loadUpcomingMeetings() {
+            if (this.upcomingMeetings.length || this.meetingsLoading) return;
+            const phone = this.data?.member?.phone;
+            if (!phone) return;
+            this.meetingsLoading = true;
+            try {
+                const r = await fetch(`/api/meetings?phone=${encodeURIComponent(phone)}`);
+                if (!r.ok) { this.meetingsLoading = false; return; }
+                const data = await r.json();
+                const list = Array.isArray(data) ? data : (data.meetings || []);
+                const now = Date.now();
+                this.upcomingMeetings = list
+                    .filter(m => {
+                        const t = (m.meeting_date || '') + 'T' + this.slotToTime(m.start_slot);
+                        return new Date(t).getTime() >= now - 12 * 3600 * 1000;
+                    })
+                    .sort((a, b) => (a.meeting_date || '').localeCompare(b.meeting_date || ''))
+                    .slice(0, 5);
+            } catch (e) { console.error(e); }
+            this.meetingsLoading = false;
+        },
+
+        async loadGiving() {
+            if (this._givingLoaded || this.givingLoading) return;
+            this.givingLoading = true;
+            try {
+                const [s, r] = await Promise.all([
+                    fetch('/api/portal/giving/summary'),
+                    fetch('/api/portal/giving/recent?limit=20'),
+                ]);
+                if (s.ok) this.givingSummary = await s.json();
+                if (r.ok) this.givingRecent = await r.json();
+                this._givingLoaded = true;
+            } catch (e) { console.error(e); }
+            this.givingLoading = false;
+        },
+
+        // ---- Helpers ----
+        initials(name) { return (name || '').split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase(); },
+        firstName(name) { return (name || '').split(' ')[0] || ''; },
+        greeting() {
+            const h = new Date().getHours();
+            if (h < 12) return 'Good morning,';
+            if (h < 17) return 'Good afternoon,';
+            return 'Good evening,';
+        },
         dayName(d) {
             const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
             return (d === null || d === undefined) ? '' : (names[d] || '');
         },
-
-        formatDate(iso) {
+        formatDate(iso) { return iso ? new Date(iso).toLocaleDateString() : ''; },
+        formatLongDate(iso) {
             if (!iso) return '';
-            return new Date(iso).toLocaleDateString();
+            try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch (e) { return iso; }
         },
-
+        slotToTime(slot) {
+            if (slot === null || slot === undefined) return '00:00:00';
+            const h = Math.floor(slot / 2);
+            const m = (slot % 2) * 30;
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`;
+        },
+        meetingWhen(m) {
+            try {
+                const date = m.meeting_date ? new Date(m.meeting_date + 'T' + this.slotToTime(m.start_slot)) : null;
+                if (!date) return '';
+                const d = date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+                const t = this.slotToTime(m.start_slot).slice(0, 5);
+                return `${d} · ${t}`;
+            } catch (e) { return ''; }
+        },
+        formatMoney(value, currency) {
+            const n = Number(value || 0);
+            const code = currency || 'ZAR';
+            try { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: code, minimumFractionDigits: 2 }).format(n); }
+            catch (e) { return `${code} ${n.toFixed(2)}`; }
+        },
+        givingPct(amount) {
+            const total = this.givingSummary?.total_amount || 0;
+            return total > 0 ? Math.round((amount / total) * 100) : 0;
+        },
         statusClass(s) {
             return ({
                 pending: 'bg-amber-100 text-amber-700',
@@ -431,73 +595,20 @@ function memberPortal() {
                 rejected: 'bg-red-100 text-red-700',
             })[s] || 'bg-gray-100 text-gray-700';
         },
-
         hasLeadership() {
             const l = this.data?.leadership || {};
             return l.is_hc_leader || l.is_hc_committee || l.is_hod || l.can_create_surveys;
         },
-
-        openChangeForm(type, hint) {
-            this.changeForm = { change_type: type, summary: '', details: '' };
-            if (hint) this.changeForm.summary = '';
-            this.changeFormError = '';
-            this.changeOpen = true;
+        summaryPlaceholder() {
+            const t = this.changeForm.change_type;
+            return ({
+                profile: 'e.g. Update my phone number to 071 234 5678',
+                department: 'e.g. Move me to Ushering',
+                ministry: 'e.g. Add me to Worship ministry',
+                home_church: 'e.g. Move me to Eersterivier West',
+                other: 'Briefly describe what you would like to change',
+            })[t] || '';
         },
-
-        async openGiving() {
-            if (!this.data?.member?.external_synced) return;
-            this.givingOpen = true;
-            this.givingTab = 'summary';
-            this.givingError = '';
-            if (this.givingSummary && this.givingRecent) return; // cached for the session
-            this.givingLoading = true;
-            try {
-                const [s, r] = await Promise.all([
-                    fetch('/api/portal/giving/summary'),
-                    fetch('/api/portal/giving/recent?limit=20'),
-                ]);
-                if (s.ok) {
-                    this.givingSummary = await s.json();
-                } else {
-                    const err = await s.json().catch(() => ({}));
-                    this.givingError = err.detail || 'Could not load giving summary.';
-                }
-                if (r.ok) {
-                    this.givingRecent = await r.json();
-                } else if (!this.givingError) {
-                    const err = await r.json().catch(() => ({}));
-                    this.givingError = err.detail || 'Could not load recent contributions.';
-                }
-            } catch (e) { this.givingError = String(e); }
-            this.givingLoading = false;
-        },
-
-        givingPct(amount) {
-            const total = this.givingSummary?.total_amount || 0;
-            return total > 0 ? Math.round((amount / total) * 100) : 0;
-        },
-
-        formatMoney(value, currency) {
-            const n = Number(value || 0);
-            const code = currency || 'ZAR';
-            try {
-                return new Intl.NumberFormat('en-ZA', {
-                    style: 'currency', currency: code, minimumFractionDigits: 2,
-                }).format(n);
-            } catch (e) {
-                return `${code} ${n.toFixed(2)}`;
-            }
-        },
-
-        formatLongDate(iso) {
-            if (!iso) return '';
-            try {
-                return new Date(iso).toLocaleDateString(undefined, {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                });
-            } catch (e) { return iso; }
-        },
-
         async submitChange() {
             this.changeFormError = '';
             const summary = (this.changeForm.summary || '').trim();
@@ -514,11 +625,11 @@ function memberPortal() {
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
                     this.changeFormError = err.detail || 'Submission failed';
-                    this.changeFormSaving = false;
-                    return;
+                    this.changeFormSaving = false; return;
                 }
                 const cr = await res.json();
                 this.changeRequests = [cr, ...this.changeRequests];
+                this.changeForm = { change_type: 'profile', summary: '', details: '' };
                 this.changeOpen = false;
             } catch (e) { this.changeFormError = String(e); }
             this.changeFormSaving = false;
