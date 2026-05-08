@@ -9593,6 +9593,43 @@ def portal_giving_recent(
     }
 
 
+@router.get("/admin/debug/central-member/{member_id}")
+def admin_debug_central_member(member_id: int, request: Request, db: Session = Depends(get_db)):
+    """Admin diagnostic: dump the raw central API response for a local member.
+    Useful when something the portal expects (ministries, home_church_id…)
+    isn't surfacing — we can see exactly what the central API returned."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Local member not found")
+    out = {
+        "local": {
+            "id": member.id,
+            "full_name": member.full_name,
+            "phone": member.phone,
+            "external_member_id": member.external_member_id,
+            "external_assembly_id": member.external_assembly_id,
+            "external_match_status": member.external_match_status,
+        },
+        "central": None,
+        "central_error": None,
+    }
+    if not member.external_member_id:
+        out["central_error"] = "Member is not linked to the central database (run Member Sync)."
+        return out
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        out["central_error"] = "Central API integration disabled or unconfigured."
+        return out
+    r = _rfm.get_member(member.external_member_id, db=db)
+    if not r.ok:
+        out["central_error"] = r.error
+    else:
+        out["central"] = r.data
+    return out
+
+
 @router.get("/portal/giving/banking")
 def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
     """Public banking details for the church, plus an optional online-giving
