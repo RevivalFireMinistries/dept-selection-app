@@ -26,7 +26,7 @@ from models import Member, PaymentTransaction, Settings
 router = APIRouter()
 
 
-VALID_CATEGORIES = {"TITHE", "OFFERING", "BUILDING_FUND", "MISSIONS", "OTHER"}
+VALID_CATEGORIES = {"TITHE", "OFFERING", "RENT_PARTNERSHIP", "TOUCH_OF_FIRE", "OTHER"}
 
 
 def _setting(db: Session, key: str) -> str:
