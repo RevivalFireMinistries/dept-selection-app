@@ -354,6 +354,57 @@ def names_match_home_church(local_name: str, api_name: str) -> bool:
     return names_match_dept(local_name, api_name)
 
 
+# ---- Contributions (financial giving) ----
+#
+# The contribution domain lives in the central API. The portal proxies a
+# member's *own* records — the central API's role-based view rules don't
+# include MEMBER, so we can't hand member credentials to the central API.
+# Instead the portal calls these helpers using its scoped service key after
+# verifying the caller is the same member.
+
+def member_contribution_summary(
+    member_id: str,
+    *,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    db=None,
+) -> ApiResult:
+    """Per-category rollup for a single member. Returns rows of
+    {category, total_amount, count}."""
+    return _request(
+        "GET",
+        f"/api/v1/contributions/member/{member_id}/summary",
+        db=db,
+        params={"from_date": from_date, "to_date": to_date},
+    )
+
+
+def list_member_contributions(
+    member_id: str,
+    *,
+    assembly_id: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    page: int = 1,
+    size: int = 50,
+    db=None,
+) -> ApiResult:
+    """Paginated list of a member's contributions, newest first per the API."""
+    return _request(
+        "GET",
+        "/api/v1/contributions",
+        db=db,
+        params={
+            "member_id": member_id,
+            "assembly_id": assembly_id,
+            "from_date": from_date,
+            "to_date": to_date,
+            "page": page,
+            "size": size,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Matching helpers
 # ---------------------------------------------------------------------------

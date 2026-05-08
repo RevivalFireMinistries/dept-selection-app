@@ -605,3 +605,31 @@ class SurveyAnswer(Base):
 
     response = relationship("SurveyResponse", back_populates="answers")
     question = relationship("SurveyQuestion")
+
+
+# ============ MEMBER CHANGE REQUESTS ============
+
+class MemberChangeRequest(Base):
+    """A member-initiated request to update their own profile, department,
+    ministry, or home-church assignment. Goes to admin/pastor for approval —
+    nothing is updated until an admin acts on it."""
+    __tablename__ = "member_change_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False)
+    # Category: profile | department | ministry | home_church | other
+    change_type = Column(String(30), nullable=False)
+    # Free-form description from the member
+    summary = Column(String(300), nullable=False)
+    details = Column(Text, nullable=True)
+    # Optional structured payload for later automation (e.g. {"new_phone": "..."})
+    payload = Column(Text, nullable=True)  # JSON
+    # Workflow
+    status = Column(String(20), nullable=False, server_default="pending")  # pending | approved | rejected | applied
+    admin_response = Column(Text, nullable=True)
+    reviewed_by_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    member = relationship("Member", foreign_keys=[member_id])
+    reviewed_by = relationship("Member", foreign_keys=[reviewed_by_id])

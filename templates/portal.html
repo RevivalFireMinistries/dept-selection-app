@@ -1,2163 +1,529 @@
 {% extends "base.html" %}
-
-{% block title %}My Portal - RFM Portal{% endblock %}
-
-{% block head %}
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<style>
-    /* Native mobile feel */
-    * { -webkit-tap-highlight-color: transparent; }
-    body { overscroll-behavior: none; }
-
-    /* Smooth transitions */
-    .slide-up { transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1); }
-    .slide-right { transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
-    .fade-in { animation: fadeIn 0.2s ease; }
-
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-    /* Bottom sheet */
-    .bottom-sheet-overlay {
-        transition: opacity 0.3s ease;
-        opacity: 0;
-        pointer-events: none;
-    }
-    .bottom-sheet-overlay.open { opacity: 1; pointer-events: auto; }
-    .bottom-sheet-panel {
-        transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-        transform: translateY(100%);
-    }
-    .bottom-sheet-overlay.open .bottom-sheet-panel { transform: translateY(0); }
-
-    /* Profile drawer */
-    .drawer-overlay {
-        transition: opacity 0.25s ease;
-        opacity: 0;
-        pointer-events: none;
-    }
-    .drawer-overlay.open { opacity: 1; pointer-events: auto; }
-    .drawer-panel {
-        transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-        transform: translateX(100%);
-    }
-    .drawer-overlay.open .drawer-panel { transform: translateX(0); }
-
-    /* Press feedback */
-    .pressable { transition: transform 0.1s ease, box-shadow 0.1s ease; }
-    .pressable:active { transform: scale(0.97); }
-
-    /* Scroll snapping for horizontal items */
-    .snap-x { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
-    .snap-start { scroll-snap-align: start; }
-
-    /* Hide scrollbar */
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-    /* Safe area padding for mobile */
-    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
-
-    /* Bottom tab bar */
-    .tab-bar {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        z-index: 40;
-        background: white;
-        border-top: 1px solid #f3f4f6;
-        padding-bottom: env(safe-area-inset-bottom, 0px);
-        box-shadow: 0 -1px 6px rgba(0,0,0,0.04);
-    }
-    .tab-item {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 6px 0 4px;
-        gap: 2px;
-        color: #9ca3af;
-        transition: color 0.15s ease;
-        position: relative;
-        -webkit-tap-highlight-color: transparent;
-    }
-    .tab-item.active { color: #6366f1; }
-    .tab-item .tab-dot {
-        display: none;
-        position: absolute;
-        top: 4px;
-        right: calc(50% - 16px);
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: #ef4444;
-    }
-    .tab-item .tab-dot.show { display: block; }
-
-    /* Tab content panels */
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-
-    /* Content padding for tab bar */
-    .has-tab-bar { padding-bottom: 70px; }
-
-    /* Avatar pulse indicator */
-    @keyframes avatarPulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
-        50% { box-shadow: 0 0 0 4px rgba(99, 102, 241, 0); }
-    }
-    .avatar-ring {
-        animation: avatarPulse 2.5s ease-in-out 3;
-    }
-
-    /* Tab label */
-    .tab-label {
-        font-size: 10px;
-        font-weight: 500;
-        line-height: 1;
-    }
-</style>
-{% endblock %}
+{% block title %}My portal · RFM{% endblock %}
 
 {% block content %}
-<div class="min-h-screen bg-gray-50" id="app">
+<div x-data="memberPortal()" x-init="init()" x-cloak class="min-h-screen bg-gray-50 pb-24">
+
     <!-- Loading -->
-    <div id="loading" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
+    <div x-show="loading" class="min-h-screen flex items-center justify-center">
         <div class="text-center">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-3"></div>
-            <p class="text-sm text-gray-500">Loading your portal...</p>
+            <div class="w-12 h-12 mx-auto rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold animate-pulse">RFM</div>
+            <p class="mt-3 text-sm text-gray-500">Loading your portal…</p>
         </div>
     </div>
 
-    <!-- Error State -->
-    <div id="errorState" class="hidden min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 px-6">
-        <div class="bg-white rounded-2xl shadow-lg p-6 text-center max-w-sm w-full">
-            <div class="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                </svg>
-            </div>
-            <h3 class="text-lg font-semibold text-gray-900" id="errorTitle">Error</h3>
-            <p class="text-gray-500 mt-2 text-sm" id="errorMessage"></p>
-            <a href="/" class="inline-block mt-4 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium">Back to Home</a>
+    <!-- Auth error -->
+    <div x-show="!loading && !data" class="min-h-screen flex items-center justify-center px-6">
+        <div class="max-w-sm text-center">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-2xl">🔒</div>
+            <h1 class="mt-3 text-lg font-bold text-gray-900">Please log in</h1>
+            <p class="mt-1 text-sm text-gray-600">Your session has expired or you aren't signed in yet.</p>
+            <a href="/" class="mt-4 inline-block px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg">Sign in</a>
         </div>
     </div>
 
-    <!-- Family Profile Selector -->
-    <div id="profileSelector" class="hidden min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 px-6 py-12">
-        <div class="max-w-sm mx-auto">
-            <div class="text-center mb-8">
-                <h2 class="text-2xl font-bold text-gray-900">Who's here?</h2>
-                <p class="text-sm text-gray-500 mt-1">Select your profile to continue</p>
-            </div>
-            <div id="profileList" class="space-y-3"></div>
-        </div>
-    </div>
+    <div x-show="!loading && data">
 
-    <!-- ==================== MAIN PORTAL ==================== -->
-    <div id="portalContent" class="hidden min-h-screen bg-gray-50 has-tab-bar">
-
-        <!-- Sticky Header -->
-        <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-lg border-b border-gray-100">
-            <div class="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-                <div class="min-w-0">
-                    <p class="text-[11px] text-gray-400 uppercase tracking-wider font-medium">RFM Stellenbosch</p>
-                    <h1 class="text-base font-bold text-gray-900 truncate" id="memberName"></h1>
+        <!-- Header -->
+        <header class="bg-gradient-to-br from-indigo-600 to-violet-700 text-white px-5 pt-8 pb-16">
+            <div class="max-w-3xl mx-auto">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="text-xs uppercase tracking-widest text-indigo-100/80">RFM Portal</div>
+                    <div class="flex items-center gap-2">
+                        <button @click="changeOpen = true" class="text-xs px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full">Request a change</button>
+                        <a href="/logout" class="text-xs px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-full">Log out</a>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
-                    <!-- Notification bell (future use) -->
-                    <button id="switchProfileBtn" onclick="showProfileSelector()" class="hidden w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center pressable" title="Switch Profile">
-                        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
-                        </svg>
-                    </button>
-                    <!-- Profile avatar -->
-                    <button onclick="openDrawer()" class="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold pressable avatar-ring relative" id="avatarBtn">
-                        <span class="absolute -top-0.5 -right-0.5 w-3 h-3 bg-indigo-400 border-2 border-white rounded-full" id="avatarDot"></span>
-                    </button>
+                <div class="flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-full bg-white/15 flex items-center justify-center text-xl font-bold" x-text="initials(data.member.full_name)"></div>
+                    <div class="min-w-0">
+                        <h1 class="text-2xl font-bold truncate" x-text="data.member.full_name"></h1>
+                        <p class="text-sm text-indigo-100 truncate" x-text="data.member.phone || ''"></p>
+                    </div>
                 </div>
             </div>
         </header>
 
-        <!-- ===== TAB: HOME ===== -->
-        <div id="tabHome" class="tab-panel active">
-        <main class="max-w-lg mx-auto px-4 py-4 pb-8 space-y-4">
+        <!-- Body -->
+        <main class="max-w-3xl mx-auto px-5 -mt-10 space-y-4">
 
-            <!-- ===== ADMIN-ADDED BANNER (interrupts — shown first if any) ===== -->
-            <div id="adminAddedBanner" class="hidden">
-                <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="text-sm font-semibold text-blue-900">New assignments from admin</p>
-                            <p class="text-xs text-blue-600">Please accept or appeal these</p>
-                        </div>
+            <!-- About you -->
+            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">About you</h2>
+                    <button @click="openChangeForm('profile', 'Update my profile details')" class="text-xs text-indigo-600 hover:underline">Request edit</button>
+                </div>
+                <dl class="space-y-3 text-sm">
+                    <div class="flex items-start gap-3">
+                        <dt class="w-20 shrink-0 text-xs uppercase tracking-wider text-gray-400 mt-0.5">Phone</dt>
+                        <dd class="flex-1 text-gray-900" x-text="data.member.phone"></dd>
                     </div>
-                    <div id="adminAddedList" class="space-y-2"></div>
-                </div>
-            </div>
-
-            <!-- ===== PRE-PUBLISH: Selection Status (prominent — shown first) ===== -->
-            <div id="prePublishSection" class="hidden">
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center">
-                    <div class="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <svg class="w-7 h-7 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
+                    <div class="flex items-start gap-3">
+                        <dt class="w-20 shrink-0 text-xs uppercase tracking-wider text-gray-400 mt-0.5">Email</dt>
+                        <dd class="flex-1 text-gray-900" x-text="data.member.email || '—'"></dd>
                     </div>
-                    <h2 class="text-lg font-bold text-gray-900 mb-1">Under Review</h2>
-                    <p class="text-sm text-gray-500 mb-4">Your selections are being reviewed. You'll be notified when results are published.</p>
-
-                    <div class="bg-gray-50 rounded-xl p-3 text-left space-y-2">
-                        <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider">Your Selections</p>
-                        <div id="prePublishSelections" class="space-y-2"></div>
+                    <div class="flex items-start gap-3">
+                        <dt class="w-20 shrink-0 text-xs uppercase tracking-wider text-gray-400 mt-0.5">Address</dt>
+                        <dd class="flex-1 text-gray-900" x-text="data.member.address || '—'"></dd>
                     </div>
+                </dl>
+                <div x-show="!data.central_synced" class="mt-3 text-[11px] text-amber-700">⚠ Some details (ministries, home church) aren't yet linked to the central database. Ask an admin to run Member Sync.</div>
+            </section>
 
-                    <a href="#" id="editSelectionBtnPre" class="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl pressable">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                        </svg>
-                        Edit Selection
-                    </a>
+            <!-- Departments -->
+            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">My departments</h2>
+                    <button @click="openChangeForm('department', 'Change department assignment')" class="text-xs text-indigo-600 hover:underline">Request change</button>
                 </div>
-            </div>
-
-            <!-- ===== QUICK ACTIONS GRID (always at top post-publish) ===== -->
-            <div id="actionsSection">
-                <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1" id="actionsLabel">Quick Actions</h3>
-                <div id="actionsGrid" class="grid grid-cols-2 gap-3"></div>
-            </div>
-
-            <!-- ===== THIS WEEK (meetings for the current week) ===== -->
-            <div id="thisWeekSection" class="hidden">
-                <div class="flex items-center justify-between mb-2 px-1">
-                    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">This Week</h3>
-                    <button onclick="switchTab('tabMeetings')" class="text-xs text-indigo-600 font-medium">See all</button>
-                </div>
-                <div id="thisWeekList" class="space-y-2"></div>
-            </div>
-
-            <!-- ===== MY PROGRAMS (programs where member is a participant) ===== -->
-            <div id="myProgramsSection" class="hidden">
-                <div class="flex items-center justify-between mb-2 px-1">
-                    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">My Programs</h3>
-                </div>
-                <div id="myProgramsList" class="space-y-2"></div>
-            </div>
-
-            <!-- ===== HOME CHURCH (shown if the member leads a home church OR is assigned as preacher) ===== -->
-            <div id="homeChurchSection" class="hidden">
-                <div class="flex items-center justify-between mb-2 px-1">
-                    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Home Church</h3>
-                </div>
-                <div id="homeChurchPrimary" class="mb-2"></div>
-                <div id="homeChurchUpcoming" class="space-y-1.5"></div>
-            </div>
-
-            <!-- ===== POST-PUBLISH: Departments row (compact — opens bottom sheet) ===== -->
-            <div id="postPublishSection" class="hidden">
-                <button onclick="openMyDeptsSheet()" class="w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-4 pressable text-left">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                            </div>
+                <div x-show="!data.departments.approved.length && !data.departments.pending.length" class="text-sm text-gray-500 italic">You aren't in any departments yet.</div>
+                <div class="space-y-2">
+                    <template x-for="d in data.departments.approved" :key="d.id">
+                        <div class="flex items-center justify-between gap-2 p-3 bg-emerald-50/50 border border-emerald-200 rounded-xl">
                             <div class="min-w-0">
-                                <p class="text-sm font-medium text-gray-900">My Departments</p>
-                                <p class="text-xs text-gray-400" id="deptsSummaryText">View your assignments</p>
+                                <div class="font-medium text-gray-900 truncate" x-text="d.department_name"></div>
+                                <div class="text-[11px] text-gray-500" x-text="d.category_name || ''"></div>
                             </div>
+                            <span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 font-semibold rounded-full uppercase tracking-wider">Approved</span>
                         </div>
-                        <div class="flex items-center gap-2 flex-shrink-0">
-                            <span class="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium" id="deptsCountBadge"></span>
-                            <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                            </svg>
+                    </template>
+                    <template x-for="d in data.departments.pending" :key="d.id">
+                        <div class="flex items-center justify-between gap-2 p-3 bg-amber-50/50 border border-amber-200 rounded-xl">
+                            <div class="min-w-0">
+                                <div class="font-medium text-gray-900 truncate" x-text="d.department_name"></div>
+                                <div class="text-[11px] text-gray-500" x-text="d.category_name || ''"></div>
+                            </div>
+                            <span class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 font-semibold rounded-full uppercase tracking-wider">Pending</span>
                         </div>
+                    </template>
+                </div>
+            </section>
+
+            <!-- Ministries -->
+            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">My ministries</h2>
+                    <button @click="openChangeForm('ministry', 'Change ministry assignment')" class="text-xs text-indigo-600 hover:underline">Request change</button>
+                </div>
+                <div x-show="!data.ministries.length" class="text-sm text-gray-500 italic">No ministries recorded.</div>
+                <div class="flex flex-wrap gap-2">
+                    <template x-for="m in data.ministries" :key="m.name + (m.id || '')">
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 text-violet-800 text-sm rounded-full">
+                            <span>📖</span><span x-text="m.name"></span>
+                        </span>
+                    </template>
+                </div>
+            </section>
+
+            <!-- Home church -->
+            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">My home church</h2>
+                    <button @click="openChangeForm('home_church', 'Change my home church')" class="text-xs text-indigo-600 hover:underline">Request change</button>
+                </div>
+                <div x-show="!data.home_church" class="text-sm text-gray-500 italic">You aren't assigned to a home church yet.</div>
+                <div x-show="data.home_church" class="p-3 bg-violet-50/40 border border-violet-100 rounded-xl">
+                    <div class="font-semibold text-gray-900" x-text="data.home_church?.name"></div>
+                    <div class="text-xs text-gray-600 mt-1" x-show="data.home_church?.suburb || data.home_church?.address">
+                        <span x-text="[data.home_church?.address, data.home_church?.suburb].filter(Boolean).join(', ')"></span>
                     </div>
+                    <div class="text-xs text-gray-500 mt-1" x-show="data.home_church?.meeting_day !== null && data.home_church?.meeting_time">
+                        <span x-text="dayName(data.home_church?.meeting_day) + 's · ' + data.home_church?.meeting_time"></span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- My change requests -->
+            <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5" x-show="changeRequests.length">
+                <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">My change requests</h2>
+                <div class="space-y-2">
+                    <template x-for="cr in changeRequests" :key="cr.id">
+                        <div class="p-3 border border-gray-200 rounded-xl">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="text-[10px] uppercase tracking-wider text-gray-400" x-text="cr.change_type.replace('_', ' ')"></div>
+                                    <div class="text-sm font-medium text-gray-900" x-text="cr.summary"></div>
+                                    <div class="text-xs text-gray-500 mt-0.5" x-text="formatDate(cr.created_at)"></div>
+                                </div>
+                                <span class="text-[10px] px-2 py-0.5 font-semibold rounded-full uppercase tracking-wider whitespace-nowrap"
+                                      :class="statusClass(cr.status)" x-text="cr.status"></span>
+                            </div>
+                            <div x-show="cr.admin_response" class="mt-2 text-xs text-gray-600 bg-gray-50 rounded p-2" x-text="cr.admin_response"></div>
+                        </div>
+                    </template>
+                </div>
+            </section>
+
+            <!-- Coming soon -->
+            <section class="bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-dashed border-gray-200 p-5">
+                <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Coming soon</h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
+                        <div class="text-2xl">📅</div>
+                        <div class="text-xs font-semibold text-gray-700 mt-1">Service attendance</div>
+                        <div class="text-[10px] text-gray-400">Coming soon</div>
+                    </div>
+                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
+                        <div class="text-2xl">📲</div>
+                        <div class="text-xs font-semibold text-gray-700 mt-1">Online tithes & offerings</div>
+                        <div class="text-[10px] text-gray-400">Coming soon</div>
+                    </div>
+                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
+                        <div class="text-2xl">🏦</div>
+                        <div class="text-xs font-semibold text-gray-700 mt-1">Church banking details</div>
+                        <div class="text-[10px] text-gray-400">Coming soon</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Footer links: discreet entry points to less-frequent things -->
+            <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2 text-xs">
+                <button @click="openGiving()" :disabled="!data.member.external_synced"
+                    class="text-gray-500 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                    View my giving
                 </button>
             </div>
 
-            <!-- ===== HOD CARD (only for HODs) ===== -->
-            <div id="hodCard" class="hidden">
-                <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-4 pressable" onclick="openHodSheet()">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                </svg>
-                            </div>
-                            <div>
-                                <p class="text-sm font-semibold text-white" id="hodTitle"></p>
-                                <p class="text-xs text-white/70" id="hodSubtitle"></p>
-                            </div>
-                        </div>
-                        <svg class="w-5 h-5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </div>
+            <!-- Leadership tools (only when applicable) -->
+            <section x-show="hasLeadership()" class="mt-6">
+                <div class="flex items-center gap-2 mb-3 px-2">
+                    <span class="text-[10px] uppercase tracking-widest text-gray-400 font-bold">Leadership tools</span>
+                    <div class="flex-1 h-px bg-gray-200"></div>
                 </div>
-            </div>
-
-            <!-- ===== HOME CHURCH COMMITTEE CARD (only for committee members) ===== -->
-            <div id="homeChurchCommitteeBanner" class="hidden">
-                <a id="homeChurchCommitteeLink" href="/admin/home-churches" class="block bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-4 pressable">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg">🏠</div>
-                            <div>
-                                <p class="text-sm font-semibold text-white">Home Church Roster</p>
-                                <p class="text-xs text-white/70" id="homeChurchCommitteeSubtitle">Manage programme & preachers</p>
-                            </div>
+                <div class="grid gap-2">
+                    <a x-show="data.leadership.is_hc_committee || data.leadership.is_hc_leader"
+                       :href="`/admin/home-churches?phone=${encodeURIComponent(data.member.phone)}`"
+                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-violet-300">
+                        <div class="w-10 h-10 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-lg">🏠</div>
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-gray-900">Home church roster</div>
+                            <div class="text-xs text-gray-500" x-text="data.leadership.is_hc_committee ? 'Programme, preachers & members' : 'Manage your home church members'"></div>
                         </div>
-                        <svg class="w-5 h-5 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </div>
-                </a>
-            </div>
-
-            <!-- ===== DESIGN TEAM BANNER (only for design team members) ===== -->
-            <div id="designTeamBanner" class="hidden">
-                <div class="bg-purple-50 border border-purple-200 rounded-2xl p-4 pressable" onclick="openPosterSheet()">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-                                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                                </svg>
-                            </div>
-                            <div>
-                                <p class="text-sm font-semibold text-purple-900">Design Team Requests</p>
-                                <p class="text-xs text-purple-600" id="designTeamCount"></p>
-                            </div>
+                        <span class="text-gray-300">›</span>
+                    </a>
+                    <a x-show="data.leadership.is_hod"
+                       :href="`/portal/classic?phone=${encodeURIComponent(data.member.phone)}`"
+                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-violet-300">
+                        <div class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg">👥</div>
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-gray-900">My department(s)</div>
+                            <div class="text-xs text-gray-500" x-text="(data.leadership.hod_departments || []).map(d => d.name).join(', ') || 'Head of department tools'"></div>
                         </div>
-                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </div>
+                        <span class="text-gray-300">›</span>
+                    </a>
+                    <a x-show="data.leadership.can_create_surveys" href="/surveys"
+                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-violet-300">
+                        <div class="w-10 h-10 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center text-lg">📋</div>
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-gray-900">Surveys</div>
+                            <div class="text-xs text-gray-500">Build and share surveys</div>
+                        </div>
+                        <span class="text-gray-300">›</span>
+                    </a>
+                    <a :href="`/portal/classic?phone=${encodeURIComponent(data.member.phone)}`"
+                       class="flex items-center gap-3 p-4 bg-white border border-gray-100 rounded-xl hover:border-gray-300">
+                        <div class="w-10 h-10 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-lg">⚙</div>
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm text-gray-900">Classic portal</div>
+                            <div class="text-xs text-gray-500">Department selection, programs, design requests</div>
+                        </div>
+                        <span class="text-gray-300">›</span>
+                    </a>
                 </div>
-            </div>
+            </section>
 
         </main>
-        </div><!-- /tabHome -->
-
-        <!-- ===== TAB: MEETINGS ===== -->
-        <div id="tabMeetings" class="tab-panel">
-            <div class="max-w-lg mx-auto px-4 py-4 pb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-bold text-gray-900">Meetings</h2>
-                    <div class="flex items-center gap-3">
-                        <span class="text-sm text-gray-400" id="meetingsTabMonth"></span>
-                        <a id="meetingsTabNewBtn" href="#" class="hidden inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg pressable">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                            New
-                        </a>
-                    </div>
-                </div>
-                <div id="meetingsTabContent" class="space-y-3"></div>
-                <div id="noMeetingsTabMsg" class="hidden text-center py-12">
-                    <svg class="w-16 h-16 text-gray-200 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                    </svg>
-                    <p class="text-sm text-gray-400">No upcoming meetings</p>
-                    <p class="text-xs text-gray-300 mt-1">Check back later</p>
-                </div>
-            </div>
-        </div><!-- /tabMeetings -->
-
-        <!-- ===== TAB: ME ===== -->
-        <div id="tabMe" class="tab-panel">
-            <div class="max-w-lg mx-auto px-4 py-4 pb-8">
-                <!-- Profile header card -->
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4">
-                    <div class="flex items-center gap-4">
-                        <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xl font-bold" id="meAvatar"></div>
-                        <div class="flex-1 min-w-0">
-                            <h2 class="text-lg font-bold text-gray-900 truncate" id="meName"></h2>
-                            <p class="text-sm text-gray-500" id="mePhone"></p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Family switcher (if family) -->
-                <div id="meFamilySwitcher" class="hidden mb-4">
-                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2 px-1">Family Profiles</p>
-                    <div id="meFamilyList" class="space-y-2"></div>
-                </div>
-
-                <!-- My Departments (post-publish) -->
-                <div id="meDeptsSection" class="hidden mb-4">
-                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2 px-1">My Departments</p>
-                    <div id="meDeptsContent" class="space-y-2"></div>
-                </div>
-
-                <!-- Menu items -->
-                <div class="space-y-2 mb-4">
-                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2 px-1">Services</p>
-
-                    <a id="meProjLink" href="/display/submit" class="w-full bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 flex items-center gap-3 pressable">
-                        <div class="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">Submit to Projector</p>
-                            <p class="text-xs text-gray-400">Send content for display</p>
-                        </div>
-                        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                    </a>
-
-                    <a id="mePosterLink" href="#" class="w-full bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 flex items-center gap-3 pressable">
-                        <div class="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">My Poster Requests</p>
-                            <p class="text-xs text-gray-400">Request designs</p>
-                        </div>
-                        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                    </a>
-
-                    <a id="meEditLink" href="#" class="w-full bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 flex items-center gap-3 pressable">
-                        <div class="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">Edit Department Selection</p>
-                            <p class="text-xs text-gray-400">Change your choices</p>
-                        </div>
-                        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                    </a>
-
-                    <button id="meAppealLink" onclick="openAppealModal()" class="hidden w-full bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 flex items-center gap-3 pressable text-left">
-                        <div class="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
-                        </div>
-                        <div class="flex-1">
-                            <p class="text-sm font-medium text-gray-900">Submit an Appeal</p>
-                            <p class="text-xs text-gray-400">Request changes to assignments</p>
-                        </div>
-                        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                    </button>
-                </div>
-
-                <!-- Logout -->
-                <div class="pt-4 border-t border-gray-100">
-                    <button onclick="logout()" class="w-full flex items-center justify-center gap-2 p-3 rounded-xl text-red-600 hover:bg-red-50 active:bg-red-100 transition-colors text-sm font-medium">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                        Log Out
-                    </button>
-                </div>
-            </div>
-        </div><!-- /tabMe -->
-
-        <!-- ===== BOTTOM TAB BAR ===== -->
-        <nav class="tab-bar">
-            <div class="flex max-w-lg mx-auto">
-                <button class="tab-item active" onclick="switchTab('tabHome')" id="tabBtnHome">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-                    <span class="tab-label">Home</span>
-                </button>
-                <button class="tab-item" onclick="switchTab('tabMeetings')" id="tabBtnMeetings">
-                    <span class="tab-dot" id="meetingsTabDot"></span>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                    <span class="tab-label">Meetings</span>
-                </button>
-                <button class="tab-item" onclick="switchTab('tabMe')" id="tabBtnMe">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-                    <span class="tab-label">Me</span>
-                </button>
-            </div>
-        </nav>
-
     </div>
-</div>
 
-<!-- ==================== PROFILE DRAWER ==================== -->
-<div id="drawerOverlay" class="drawer-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closeDrawer()"></div>
-    <div class="drawer-panel absolute top-0 right-0 bottom-0 w-[85%] max-w-[340px] bg-white shadow-2xl safe-bottom">
-        <div class="h-full overflow-y-auto">
+    <!-- Giving sheet -->
+    <div x-show="givingOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="givingOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="min-w-0">
+                    <div class="text-xs text-gray-500 uppercase tracking-wider">My giving</div>
+                    <div class="font-semibold text-gray-900 truncate" x-text="data?.member?.full_name || ''"></div>
+                </div>
+                <button @click="givingOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+
             <div class="p-5 space-y-5">
-                <!-- Profile header -->
-                <div class="flex items-center gap-3 pb-4 border-b border-gray-100">
-                    <div class="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-lg font-bold" id="drawerAvatar"></div>
-                    <div class="min-w-0">
-                        <h2 class="text-lg font-bold text-gray-900 truncate" id="drawerName"></h2>
-                        <p class="text-sm text-gray-500" id="drawerPhone"></p>
+
+                <div x-show="givingLoading" class="text-sm text-gray-500 text-center py-6">Loading…</div>
+                <div x-show="givingError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="givingError"></div>
+
+                <div x-show="!givingLoading && !givingError">
+
+                    <!-- Tabs -->
+                    <div class="flex items-center gap-1 mb-4">
+                        <button @click="givingTab = 'summary'"
+                            :class="givingTab === 'summary' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg">Summary</button>
+                        <button @click="givingTab = 'recent'"
+                            :class="givingTab === 'recent' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg">Recent contributions</button>
                     </div>
-                    <button onclick="closeDrawer()" class="ml-auto p-2 text-gray-400 hover:text-gray-600">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
-                </div>
 
-                <!-- Family switcher -->
-                <div id="familySwitcher" class="hidden">
-                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2">Family Profiles</p>
-                    <div id="familyList" class="space-y-2"></div>
-                </div>
-
-                <!-- My Departments in drawer (post-publish) -->
-                <div id="drawerDeptsSection" class="hidden">
-                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2">My Departments</p>
-                    <button onclick="closeDrawer(); openMyDeptsSheet();" class="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors text-left">
-                        <div class="w-9 h-9 bg-green-50 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
+                    <!-- Summary -->
+                    <div x-show="givingTab === 'summary'">
+                        <div class="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5 mb-4">
+                            <div class="text-xs uppercase tracking-wider opacity-80">Total giving</div>
+                            <div class="text-3xl font-bold mt-1" x-text="formatMoney(givingSummary?.total_amount || 0, givingSummary?.currency)"></div>
+                            <div class="text-[11px] opacity-75 mt-1" x-text="(givingSummary?.from_date || givingSummary?.to_date) ? `${givingSummary?.from_date || 'all time'} — ${givingSummary?.to_date || 'today'}` : 'All time'"></div>
                         </div>
-                        <div class="flex-1 flex items-center justify-between">
-                            <span class="text-sm text-gray-700">View Assignments</span>
-                            <span id="drawerDeptsBadge" class="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full"></span>
-                        </div>
-                    </button>
-                </div>
 
-                <!-- Menu items -->
-                <div class="space-y-1">
-                    <p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mb-2">Services</p>
+                        <div x-show="!(givingSummary?.rows || []).length" class="text-sm text-gray-500 italic text-center py-6">No contributions on record yet.</div>
 
-                    <a id="drawerProjLink" href="/display/submit" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                        <div class="w-9 h-9 bg-orange-50 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                            </svg>
-                        </div>
-                        <span class="text-sm text-gray-700">Submit to Projector</span>
-                    </a>
-
-                    <a id="drawerPosterLink" href="#" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                        <div class="w-9 h-9 bg-purple-50 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                            </svg>
-                        </div>
-                        <div class="flex-1 flex items-center justify-between">
-                            <span class="text-sm text-gray-700">My Poster Requests</span>
-                            <span id="drawerPosterBadge" class="hidden text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full"></span>
-                        </div>
-                    </a>
-
-                    <a id="drawerEditLink" href="#" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                        <div class="w-9 h-9 bg-indigo-50 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                            </svg>
-                        </div>
-                        <span class="text-sm text-gray-700">Edit Department Selection</span>
-                    </a>
-
-                    <button id="drawerAppealLink" onclick="closeDrawer(); openAppealModal();" class="hidden w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors text-left">
-                        <div class="w-9 h-9 bg-amber-50 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                            </svg>
-                        </div>
-                        <span class="text-sm text-gray-700">Submit an Appeal</span>
-                    </button>
-                </div>
-
-                <!-- Logout -->
-                <div class="pt-4 border-t border-gray-100">
-                    <button onclick="logout()" class="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-red-50 active:bg-red-100 transition-colors text-left">
-                        <div class="w-9 h-9 bg-red-50 rounded-lg flex items-center justify-center">
-                            <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
-                            </svg>
-                        </div>
-                        <span class="text-sm text-red-600">Log Out</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== MEETINGS BOTTOM SHEET ==================== -->
-<div id="meetingsSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closeMeetingsSheet()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 85vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-2 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-gray-900">Meetings</h2>
-            <span class="text-sm text-gray-400" id="meetingsMonthLabel"></span>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(85vh - 80px);">
-            <div id="meetingsSheetList" class="space-y-3 pb-4"></div>
-            <div id="noMeetingsMsg" class="hidden text-center py-8">
-                <svg class="w-12 h-12 text-gray-200 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                </svg>
-                <p class="text-sm text-gray-400">No meetings this month</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== MY DEPARTMENTS BOTTOM SHEET (post-publish) ==================== -->
-<div id="myDeptsSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closeMyDeptsSheet()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 85vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-2 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-gray-900">My Departments</h2>
-            <span class="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium">Published</span>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(85vh - 80px);">
-            <div id="myDeptsSheetContent" class="space-y-3 pb-4"></div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== HOD BOTTOM SHEET ==================== -->
-<div id="hodSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closeHodSheet()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 90vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-2 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-gray-900">HOD Dashboard</h2>
-            <div class="flex items-center gap-3">
-                <a href="#" id="hodCreateMeetingLink" class="hidden text-sm text-green-600 font-medium flex items-center gap-1">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                    </svg>
-                    Meeting
-                </a>
-                <a href="#" id="hodMeetingsLink" class="hidden text-sm text-indigo-600 font-medium">Manage</a>
-            </div>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(90vh - 80px);">
-            <div id="hodSheetContent" class="space-y-4 pb-4"></div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== POSTER REQUESTS BOTTOM SHEET ==================== -->
-<div id="posterSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closePosterSheet()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 90vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-2 flex items-center justify-between">
-            <h2 class="text-lg font-bold text-gray-900">Poster Requests</h2>
-            <a href="#" id="newPosterLink" class="text-sm text-purple-600 font-medium">+ New</a>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(90vh - 80px);">
-            <div id="posterSheetContent" class="space-y-4 pb-4"></div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== DEPARTMENT DETAIL BOTTOM SHEET ==================== -->
-<div id="deptSheet" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closeDeptSheet()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 70vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(70vh - 40px);">
-            <div id="deptSheetContent" class="space-y-4 pb-4"></div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== APPEAL MODAL ==================== -->
-<div id="appealModal" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closeAppealModal()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 85vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(85vh - 40px);">
-            <h3 class="text-lg font-bold text-gray-900 mb-4" id="appealTitle">Submit Appeal</h3>
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Department you want to appeal</label>
-                    <select id="appealDept" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-gray-50 text-sm"></select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Department you want instead <span class="text-gray-400">(optional)</span></label>
-                    <select id="wantedDept" class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-gray-50 text-sm"></select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Reason <span class="text-gray-400">(optional)</span></label>
-                    <textarea id="appealReason" rows="3" placeholder="Why are you appealing..."
-                        class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-gray-50 text-sm resize-none"></textarea>
-                </div>
-                <div id="appealError" class="hidden text-sm text-red-600 bg-red-50 rounded-lg p-2"></div>
-            </div>
-            <div class="flex gap-3 mt-6">
-                <button onclick="closeAppealModal()" class="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl active:bg-gray-50">Cancel</button>
-                <button onclick="submitAppeal()" id="submitAppealBtn" class="flex-1 py-3 bg-amber-600 text-white font-medium rounded-xl active:bg-amber-700">Submit Appeal</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== POSTER DETAIL MODAL ==================== -->
-<div id="posterDetailModal" class="bottom-sheet-overlay fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/40" onclick="closePosterDetailModal()"></div>
-    <div class="bottom-sheet-panel absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl safe-bottom" style="max-height: 90vh;">
-        <div class="flex justify-center pt-3 pb-1">
-            <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
-        </div>
-        <div class="px-5 pb-6 overflow-y-auto" style="max-height: calc(90vh - 40px);">
-            <h3 class="text-lg font-bold text-gray-900 mb-4">Poster Request Details</h3>
-            <div id="posterDetailContent" class="space-y-4"></div>
-            <div id="posterDetailActions" class="flex gap-3 mt-6"></div>
-        </div>
-    </div>
-</div>
-
-{% endblock %}
-
-{% block scripts %}
-<script>
-// ==================== STATE ====================
-let phone = '';
-let allData = null;
-let hodData = null;
-let meetingsData = null;
-let posterData = null;
-let currentMember = null;
-let allDepartments = [];
-const STORAGE_KEY = 'rfm_member_phone';
-
-// ==================== INIT ====================
-document.addEventListener('DOMContentLoaded', init);
-
-async function init() {
-    // Check if logged-in user needs to set up a password
-    try {
-        const meRes = await fetch('/api/auth/me');
-        const me = await meRes.json();
-        if (me.logged_in && me.needs_password_setup) {
-            // Generate a setup token and redirect
-            const tokenRes = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: me.phone, password: me.phone })
-            });
-            const tokenData = await tokenRes.json();
-            if (tokenData.needs_password) {
-                const params = new URLSearchParams({ token: tokenData.token, setup: '1' });
-                if (!tokenData.has_email) params.set('need_email', '1');
-                if (tokenData.full_name) params.set('name', tokenData.full_name);
-                window.location.href = `/reset-password?${params.toString()}`;
-                return;
-            }
-        }
-    } catch (e) { /* continue to portal */ }
-
-    const params = new URLSearchParams(window.location.search);
-    phone = params.get('phone');
-    if (!phone) {
-        phone = localStorage.getItem(STORAGE_KEY);
-        if (phone) window.history.replaceState({}, '', `/portal?phone=${encodeURIComponent(phone)}`);
-    }
-    if (!phone) { showError('Missing Information', 'Please access this page from the home page.'); return; }
-
-    try {
-        const [resultsRes, deptsRes, hodRes, meetingsRes, posterRes] = await Promise.all([
-            fetch(`/api/results?phone=${encodeURIComponent(phone)}`).then(r => r.json()),
-            fetch('/api/departments').then(r => r.json()),
-            fetch(`/api/hod/departments?phone=${encodeURIComponent(phone)}`).then(r => r.ok ? r.json() : null).catch(() => null),
-            fetch(`/api/meetings?phone=${encodeURIComponent(phone)}`).then(r => r.ok ? r.json() : { meetings: [] }).catch(() => ({ meetings: [] })),
-            fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => r.ok ? r.json() : { requests: [], is_design_team: false }).catch(() => ({ requests: [], is_design_team: false }))
-        ]);
-
-        allData = resultsRes;
-        hodData = hodRes;
-        meetingsData = meetingsRes;
-        posterData = posterRes;
-
-        allDepartments = [];
-        (deptsRes.categories || []).forEach(cat => cat.departments.forEach(d => allDepartments.push({ ...d, categoryName: cat.name })));
-        (deptsRes.uncategorized || []).forEach(d => allDepartments.push({ ...d, categoryName: null }));
-
-        if (!allData.members || allData.members.length === 0) {
-            localStorage.removeItem(STORAGE_KEY);
-            showError('Not Found', 'No registration found for this phone number.');
-            return;
-        }
-
-        localStorage.setItem(STORAGE_KEY, phone);
-        document.getElementById('loading').classList.add('hidden');
-
-        if (allData.is_family && allData.members.length > 1) {
-            showProfileSelector();
-        } else {
-            selectMember(allData.members[0]);
-        }
-    } catch (error) {
-        console.error('Init error:', error);
-        showError('Error', 'Failed to load data. Please try again.');
-    }
-}
-
-// ==================== ERROR / PROFILE SELECTOR ====================
-function showError(title, message) {
-    document.getElementById('loading').classList.add('hidden');
-    document.getElementById('errorState').classList.remove('hidden');
-    document.getElementById('errorTitle').textContent = title;
-    document.getElementById('errorMessage').textContent = message;
-}
-
-function showProfileSelector() {
-    document.getElementById('profileSelector').classList.remove('hidden');
-    document.getElementById('portalContent').classList.add('hidden');
-    const list = document.getElementById('profileList');
-    list.innerHTML = allData.members.map(m => `
-        <button onclick='selectMember(${JSON.stringify(m).replace(/'/g, "&#39;")})'
-            class="w-full p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-indigo-300 transition-all text-left pressable flex items-center gap-4">
-            <div class="w-12 h-12 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                ${getInitials(m.full_name)}
-            </div>
-            <div>
-                <p class="font-semibold text-gray-900">${m.full_name}</p>
-                <p class="text-xs text-gray-500 mt-0.5">${m.approved_departments.length} department(s) approved</p>
-            </div>
-        </button>
-    `).join('');
-}
-
-function getInitials(name) {
-    return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-}
-
-// ==================== SELECT MEMBER & RENDER ====================
-function selectMember(member) {
-    currentMember = member;
-    document.getElementById('profileSelector').classList.add('hidden');
-    document.getElementById('portalContent').classList.remove('hidden');
-
-    const initials = getInitials(member.full_name);
-
-    // Header
-    document.getElementById('memberName').textContent = member.full_name;
-    // Set initials but preserve the dot indicator
-    const avatarBtn = document.getElementById('avatarBtn');
-    const dotEl = document.getElementById('avatarDot');
-    avatarBtn.textContent = initials;
-    if (dotEl) avatarBtn.appendChild(dotEl);
-    else {
-        const dot = document.createElement('span');
-        dot.id = 'avatarDot';
-        dot.className = 'absolute -top-0.5 -right-0.5 w-3 h-3 bg-indigo-400 border-2 border-white rounded-full';
-        avatarBtn.appendChild(dot);
-    }
-
-    // Drawer
-    document.getElementById('drawerAvatar').textContent = initials;
-    document.getElementById('drawerName').textContent = member.full_name;
-    document.getElementById('drawerPhone').textContent = phone;
-
-    // Family switcher
-    if (allData.is_family && allData.members.length > 1) {
-        document.getElementById('switchProfileBtn').classList.remove('hidden');
-        document.getElementById('familySwitcher').classList.remove('hidden');
-        document.getElementById('familyList').innerHTML = allData.members.map(m => {
-            const isActive = m.id === member.id;
-            return `
-                <button onclick='closeDrawer(); selectMember(${JSON.stringify(m).replace(/'/g, "&#39;")})' class="w-full flex items-center gap-3 p-3 rounded-xl border-2 ${isActive ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-100 hover:bg-gray-100'} transition-colors">
-                    <div class="w-8 h-8 ${isActive ? 'bg-indigo-200 text-indigo-700' : 'bg-gray-200 text-gray-500'} rounded-full flex items-center justify-center text-xs font-bold">${getInitials(m.full_name)}</div>
-                    <span class="text-sm ${isActive ? 'font-medium text-indigo-900' : 'text-gray-700'}">${m.full_name}</span>
-                    ${isActive ? '<svg class="w-4 h-4 text-indigo-500 ml-auto" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>' : ''}
-                </button>
-            `;
-        }).join('');
-    }
-
-    // Drawer links
-    document.getElementById('drawerPosterLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
-    document.getElementById('drawerEditLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
-    document.getElementById('newPosterLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
-
-    // Poster badge
-    if (posterData && posterData.requests) {
-        const myCount = posterData.requests.filter(r => r.requester_id === member.id).length;
-        const badge = document.getElementById('drawerPosterBadge');
-        if (myCount > 0) { badge.textContent = myCount; badge.classList.remove('hidden'); }
-        else badge.classList.add('hidden');
-    }
-
-    // Hide edit selection in drawer when published
-    if (allData.published) {
-        document.getElementById('drawerEditLink').classList.add('hidden');
-        // Show departments section in drawer
-        document.getElementById('drawerDeptsSection').classList.remove('hidden');
-        const deptCount = member.approved_departments.length;
-        document.getElementById('drawerDeptsBadge').textContent = deptCount + ' dept' + (deptCount !== 1 ? 's' : '');
-    } else {
-        document.getElementById('drawerEditLink').classList.remove('hidden');
-        document.getElementById('drawerDeptsSection').classList.add('hidden');
-    }
-
-    // Show appeal in drawer when window open
-    if (allData.appeal_window_open) {
-        document.getElementById('drawerAppealLink').classList.remove('hidden');
-    } else {
-        document.getElementById('drawerAppealLink').classList.add('hidden');
-    }
-
-    // Me tab links
-    document.getElementById('mePosterLink').href = `/poster-request?phone=${encodeURIComponent(phone)}`;
-    document.getElementById('meEditLink').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${member.id}`;
-
-    // Me tab: hide edit when published, show appeal when window open
-    if (allData.published) {
-        document.getElementById('meEditLink').classList.add('hidden');
-        document.getElementById('meDeptsSection').classList.remove('hidden');
-    } else {
-        document.getElementById('meEditLink').classList.remove('hidden');
-        document.getElementById('meDeptsSection').classList.add('hidden');
-    }
-    if (allData.appeal_window_open) {
-        document.getElementById('meAppealLink').classList.remove('hidden');
-    } else {
-        document.getElementById('meAppealLink').classList.add('hidden');
-    }
-
-    // Render sections
-    renderMainContent();
-    renderThisWeek();
-    renderMyPrograms();
-    renderHomeChurch();
-    renderHomeChurchCommitteeCard();
-    renderActions();
-    renderHodCard();
-    renderDesignTeamBanner();
-    renderMeetingsTab();
-    renderMeTab();
-}
-
-function renderMainContent() {
-    const preSection = document.getElementById('prePublishSection');
-    const postSection = document.getElementById('postPublishSection');
-    const actionsSection = document.getElementById('actionsSection');
-
-    if (allData.published) {
-        preSection.classList.add('hidden');
-        postSection.classList.remove('hidden');
-        // Post-publish: actions at top, departments as compact row below
-        const deptCount = currentMember.approved_departments.length;
-        document.getElementById('deptsCountBadge').textContent = deptCount + ' dept' + (deptCount !== 1 ? 's' : '');
-        const names = currentMember.approved_departments.map(d => d.department_name).join(', ');
-        document.getElementById('deptsSummaryText').textContent = names || 'View your assignments';
-    } else {
-        preSection.classList.remove('hidden');
-        postSection.classList.add('hidden');
-        renderPrePublishSelections();
-    }
-
-    renderAdminAdded();
-}
-
-function renderPrePublishSelections() {
-    const container = document.getElementById('prePublishSelections');
-    document.getElementById('editSelectionBtnPre').href = `/update?phone=${encodeURIComponent(phone)}&member_id=${currentMember.id}`;
-
-    const all = currentMember.all_selections || [];
-    if (all.length === 0) {
-        container.innerHTML = '<p class="text-sm text-gray-400">No selections yet.</p>';
-        return;
-    }
-    container.innerHTML = all.filter(s => s.source === 'member').map(d => {
-        const statusCls = { pending: 'bg-amber-400', approved: 'bg-green-400', rejected: 'bg-red-400' };
-        const statusLabel = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
-        return `
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 rounded-full ${statusCls[d.status] || 'bg-gray-300'}"></div>
-                <span class="text-sm text-gray-700 flex-1">${d.department_name}</span>
-                <span class="text-[11px] ${d.status === 'pending' ? 'text-amber-600 bg-amber-50' : d.status === 'approved' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'} px-2 py-0.5 rounded-full">${statusLabel[d.status] || d.status}</span>
-            </div>
-        `;
-    }).join('');
-}
-
-function renderAdminAdded() {
-    const banner = document.getElementById('adminAddedBanner');
-    const list = document.getElementById('adminAddedList');
-    const canAppeal = allData.appeal_window_open;
-    const adminAdded = currentMember.all_selections.filter(s => s.source === 'admin' && s.status !== 'approved');
-
-    if (adminAdded.length > 0) {
-        banner.classList.remove('hidden');
-        list.innerHTML = adminAdded.map(d => `
-            <div class="flex items-center justify-between p-3 bg-white rounded-xl">
-                <span class="text-sm font-medium text-gray-900">${d.department_name}</span>
-                <div class="flex gap-2">
-                    <button onclick="acceptAssignment(${d.id})" class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg pressable">Accept</button>
-                    ${canAppeal ? `<button onclick="openAppealForDept(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', true)" class="px-3 py-1.5 bg-amber-500 text-white text-xs font-medium rounded-lg pressable">Appeal</button>` : ''}
-                </div>
-            </div>
-        `).join('');
-    } else {
-        banner.classList.add('hidden');
-    }
-}
-
-// ==================== THIS WEEK SECTION ====================
-function renderThisWeek() {
-    const section = document.getElementById('thisWeekSection');
-    const list = document.getElementById('thisWeekList');
-
-    // Calculate end of this week (Sunday)
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon...
-    const endOfWeek = new Date(now);
-    endOfWeek.setDate(now.getDate() + (7 - dayOfWeek));
-    endOfWeek.setHours(23, 59, 59, 999);
-
-    const weekMeetings = [];
-    if (meetingsData && meetingsData.meetings) {
-        meetingsData.meetings.forEach(m => {
-            const d = new Date(m.meeting_date);
-            if (d <= endOfWeek) weekMeetings.push(m);
-        });
-    }
-
-    if (weekMeetings.length > 0) {
-        section.classList.remove('hidden');
-        list.innerHTML = weekMeetings.map(m => {
-            const d = new Date(m.meeting_date);
-            const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-            const day = d.getDate();
-            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-
-            const rsvpBadge = !m.my_rsvp
-                ? `<div class="flex gap-1.5 flex-shrink-0">
-                       <button onclick="event.stopPropagation(); submitRsvp(${m.id}, 'attending')" class="px-2.5 py-1 text-[11px] bg-green-600 text-white rounded-lg font-medium pressable">Going</button>
-                       <button onclick="event.stopPropagation(); submitRsvp(${m.id}, 'not_attending')" class="px-2 py-1 text-[11px] bg-gray-100 text-gray-500 rounded-lg font-medium pressable">No</button>
-                   </div>`
-                : m.my_rsvp === 'attending'
-                    ? '<span class="text-[11px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium whitespace-nowrap flex-shrink-0">Going</span>'
-                    : '<span class="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium whitespace-nowrap flex-shrink-0">Not going</span>';
-
-            return `
-                <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 pressable" onclick="switchTab('tabMeetings')">
-                    <div class="flex items-center gap-3">
-                        <div class="w-11 h-12 bg-blue-50 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                            <span class="text-[9px] text-blue-500 font-medium leading-none">${monthShort}</span>
-                            <span class="text-base text-blue-700 font-bold leading-tight">${day}</span>
-                            <span class="text-[9px] text-blue-400 leading-none">${dayName}</span>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-gray-900 truncate">${m.title}</p>
-                            <p class="text-xs text-gray-400">${m.start_time}${m.location ? ' — ' + m.location : ''}</p>
-                        </div>
-                        ${rsvpBadge}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    } else {
-        section.classList.add('hidden');
-    }
-
-    // Update meetings tab dot
-    const dot = document.getElementById('meetingsTabDot');
-    if (meetingsData && meetingsData.meetings && meetingsData.meetings.some(m => !m.my_rsvp)) {
-        dot.classList.add('show');
-    } else {
-        dot.classList.remove('show');
-    }
-}
-
-// ==================== MY PROGRAMS SECTION ====================
-async function renderMyPrograms() {
-    const section = document.getElementById('myProgramsSection');
-    const list = document.getElementById('myProgramsList');
-
-    if (!phone) return;
-
-    try {
-        const res = await fetch(`/api/programs/mine?phone=${encodeURIComponent(phone)}`);
-        if (!res.ok) return;
-        const programs = await res.json();
-
-        if (programs.length > 0) {
-            section.classList.remove('hidden');
-            list.innerHTML = programs.map(p => {
-                const d = new Date(p.service_date + 'T00:00:00');
-                const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-                const day = d.getDate();
-                const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-                const isToday = p.service_date === new Date().toISOString().split('T')[0];
-
-                // Find this member's role(s)
-                const memberNames = (allData && allData.members || []).map(m => (m.full_name || m.fullName || '').toLowerCase());
-                const myRoles = (p.participants || [])
-                    .filter(pt => memberNames.includes(pt.name.toLowerCase()))
-                    .map(pt => pt.role);
-                const roleText = myRoles.length > 0 ? myRoles.join(', ') : 'Participant';
-
-                return `
-                    <a href="/program/${p.id}?phone=${encodeURIComponent(phone)}" class="block bg-white rounded-xl border border-gray-100 shadow-sm p-3 pressable">
-                        <div class="flex items-center gap-3">
-                            <div class="w-11 h-12 ${isToday ? 'bg-green-50' : 'bg-teal-50'} rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                                <span class="text-[9px] ${isToday ? 'text-green-500' : 'text-teal-500'} font-medium leading-none">${monthShort}</span>
-                                <span class="text-base ${isToday ? 'text-green-700' : 'text-teal-700'} font-bold leading-tight">${day}</span>
-                                <span class="text-[9px] ${isToday ? 'text-green-400' : 'text-teal-400'} leading-none">${dayName}</span>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2">
-                                    <p class="text-sm font-medium text-gray-900 truncate">${escapeHtml(p.title)}</p>
-                                    ${isToday ? '<span class="px-1.5 py-0.5 bg-green-100 text-green-700 text-[10px] font-semibold rounded-full flex-shrink-0">TODAY</span>' : ''}
+                        <div class="space-y-2">
+                            <template x-for="row in (givingSummary?.rows || [])" :key="row.category">
+                                <div>
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="font-medium text-gray-900" x-text="row.category"></span>
+                                        <span class="text-gray-700">
+                                            <span x-text="formatMoney(row.total_amount, givingSummary?.currency)"></span>
+                                            <span class="text-[10px] text-gray-400 ml-1">×<span x-text="row.count"></span></span>
+                                        </span>
+                                    </div>
+                                    <div class="h-2 bg-gray-100 rounded mt-1 overflow-hidden">
+                                        <div class="h-full bg-emerald-500" :style="`width:${givingPct(row.total_amount)}%`"></div>
+                                    </div>
                                 </div>
-                                <p class="text-xs text-gray-400">${escapeHtml(roleText)}${p.created_by_name ? ' \u00b7 by ' + escapeHtml(p.created_by_name) : ''}</p>
-                            </div>
-                            <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </template>
                         </div>
-                    </a>
-                `;
-            }).join('');
-        } else {
-            section.classList.add('hidden');
-        }
-    } catch (e) {
-        console.error('Failed to load my programs:', e);
-    }
-}
-
-// ==================== HOME CHURCH SECTION ====================
-async function renderHomeChurch() {
-    const section = document.getElementById('homeChurchSection');
-    const primary = document.getElementById('homeChurchPrimary');
-    const upcoming = document.getElementById('homeChurchUpcoming');
-    if (!section || !phone) return;
-
-    try {
-        const res = await fetch(`/api/home-church/my-upcoming?phone=${encodeURIComponent(phone)}&weeks=8`);
-        if (!res.ok) { section.classList.add('hidden'); return; }
-        const data = await res.json();
-        const asLeader = data.as_leader || [];
-        const asPreacher = data.as_preacher || [];
-
-        if (asLeader.length === 0 && asPreacher.length === 0) {
-            section.classList.add('hidden');
-            return;
-        }
-        section.classList.remove('hidden');
-
-        // Build a combined upcoming list sorted by date, with a role tag per entry
-        const all = [];
-        for (const e of asLeader) all.push({ ...e, _role: 'leader' });
-        for (const e of asPreacher) all.push({ ...e, _role: 'preacher' });
-        all.sort((a, b) => a.roster_date.localeCompare(b.roster_date));
-
-        const headline = all[0];
-        const rest = all.slice(1);
-
-        // Primary (headline) card
-        primary.innerHTML = renderHCHeadlineCard(headline);
-
-        // Upcoming mini-list
-        if (rest.length > 0) {
-            upcoming.innerHTML = rest.map(renderHCMiniRow).join('');
-        } else {
-            upcoming.innerHTML = '';
-        }
-    } catch (e) {
-        console.error('Failed to load home church roster:', e);
-        section.classList.add('hidden');
-    }
-}
-
-function _hcColorFor(color) {
-    const map = {
-        blue: ['bg-blue-50', 'text-blue-700', 'border-blue-200'],
-        purple: ['bg-purple-50', 'text-purple-700', 'border-purple-200'],
-        emerald: ['bg-emerald-50', 'text-emerald-700', 'border-emerald-200'],
-        amber: ['bg-amber-50', 'text-amber-700', 'border-amber-200'],
-        rose: ['bg-rose-50', 'text-rose-700', 'border-rose-200'],
-        cyan: ['bg-cyan-50', 'text-cyan-700', 'border-cyan-200'],
-        indigo: ['bg-indigo-50', 'text-indigo-700', 'border-indigo-200'],
-        gray: ['bg-gray-50', 'text-gray-700', 'border-gray-200'],
-    };
-    return map[color] || map.gray;
-}
-
-function renderHCHeadlineCard(e) {
-    const d = new Date(e.roster_date + 'T00:00:00');
-    const dayName = d.toLocaleDateString('en-ZA', { weekday: 'long' });
-    const dateShort = d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
-    const pt = e.program_type;
-    const [bg, txt] = _hcColorFor(pt ? pt.color : 'gray');
-    const icon = pt ? pt.icon : '📌';
-    const typeName = pt ? pt.name : 'No programme set';
-    const isLeader = e._role === 'leader';
-    const hc = e.home_church;
-    const hcName = hc ? hc.name : '';
-    const meetingTime = hc ? (hc.meeting_time || '19:00') : '19:00';
-
-    let subLine = '';
-    if (isLeader) {
-        if (pt && pt.requires_preacher && e.preacher) {
-            subLine = `
-                <div class="mt-2 flex items-center gap-2 text-sm">
-                    <span class="text-gray-500">Preacher:</span>
-                    <span class="font-medium text-gray-900">${escapeHtml(e.preacher.full_name)}</span>
-                    ${e.preacher.phone ? `<a href="tel:${e.preacher.phone}" class="text-indigo-600 font-medium">📞</a>
-                                          <a href="https://wa.me/${e.preacher.phone.replace(/\D/g,'')}" class="text-emerald-600 font-medium">💬</a>` : ''}
-                </div>
-            `;
-        } else if (pt && !pt.requires_preacher) {
-            subLine = `<div class="mt-2 text-sm text-gray-500">No preacher — it's your programme to lead.</div>`;
-        } else if (pt && pt.requires_preacher && !e.preacher) {
-            subLine = `<div class="mt-2 text-sm text-amber-600">Preacher not yet assigned.</div>`;
-        }
-    } else {
-        // as preacher
-        const leader = hc && hc.leader ? hc.leader : null;
-        subLine = `
-            <div class="mt-2 space-y-1 text-sm">
-                <div><span class="text-gray-500">Host leader:</span>
-                    <span class="font-medium text-gray-900">${leader ? escapeHtml(leader.full_name) : '—'}</span>
-                    ${leader && leader.phone ? `<a href="tel:${leader.phone}" class="ml-2 text-indigo-600 font-medium">📞</a>
-                                                 <a href="https://wa.me/${leader.phone.replace(/\D/g,'')}" class="ml-1 text-emerald-600 font-medium">💬</a>` : ''}
-                </div>
-                ${hc && hc.address ? `<div><span class="text-gray-500">Address:</span>
-                    <a href="https://maps.google.com/?q=${encodeURIComponent(hc.address)}" target="_blank" class="text-indigo-600">${escapeHtml(hc.address)}</a></div>` : ''}
-            </div>
-        `;
-    }
-
-    const roleTag = isLeader
-        ? `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">You host</span>`
-        : `<span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">You preach</span>`;
-
-    return `
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-            <div class="flex items-start gap-3">
-                <div class="w-12 h-12 flex-shrink-0 rounded-xl ${bg} ${txt} flex flex-col items-center justify-center">
-                    <span class="text-[10px] font-semibold uppercase tracking-wider leading-none">${dayName.substring(0,3)}</span>
-                    <span class="text-base font-bold leading-none mt-0.5">${d.getDate()}</span>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-xs text-gray-500">${dateShort} · ${meetingTime}</span>
-                        ${roleTag}
                     </div>
-                    <div class="mt-1 font-semibold text-gray-900 truncate">${escapeHtml(hcName)}</div>
-                    <div class="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${bg} ${txt}">
-                        <span>${icon}</span><span>${escapeHtml(typeName)}</span>
+
+                    <!-- Recent contributions -->
+                    <div x-show="givingTab === 'recent'">
+                        <div x-show="!(givingRecent?.items || []).length" class="text-sm text-gray-500 italic text-center py-6">No recent contributions.</div>
+                        <div class="space-y-2">
+                            <template x-for="c in (givingRecent?.items || [])" :key="c.id">
+                                <div class="p-3 border border-gray-200 rounded-xl">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
+                                                <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
+                                            </div>
+                                            <div class="mt-1 text-sm text-gray-600" x-text="formatLongDate(c.contribution_date)"></div>
+                                            <div x-show="c.payment_method || c.reference" class="text-[11px] text-gray-400 mt-0.5">
+                                                <span x-show="c.payment_method" x-text="c.payment_method"></span>
+                                                <span x-show="c.payment_method && c.reference"> · </span>
+                                                <span x-show="c.reference" x-text="`Ref ${c.reference}`"></span>
+                                            </div>
+                                            <div x-show="c.notes" class="text-[11px] text-gray-500 mt-1 italic" x-text="c.notes"></div>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <div class="font-bold text-gray-900" x-text="formatMoney(c.amount, c.currency)"></div>
+                                            <div x-show="c.receipt_sent" class="text-[10px] text-emerald-600 mt-0.5">✓ Receipted</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
-                    ${subLine}
                 </div>
+
+                <p class="text-[11px] text-gray-400 text-center mt-4">Records sourced from RFM central database.</p>
             </div>
         </div>
-    `;
-}
+    </div>
 
-function renderHCMiniRow(e) {
-    const d = new Date(e.roster_date + 'T00:00:00');
-    const dateShort = d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
-    const pt = e.program_type;
-    const [bg, txt] = _hcColorFor(pt ? pt.color : 'gray');
-    const icon = pt ? pt.icon : '📌';
-    const typeName = pt ? pt.name : 'No type';
-    const hcName = e.home_church ? e.home_church.name : '';
-    const isLeader = e._role === 'leader';
-    const subText = isLeader
-        ? (e.preacher ? e.preacher.full_name : (pt && !pt.requires_preacher ? 'Leader-led' : '—'))
-        : hcName;
-    const titleText = isLeader ? hcName : (pt ? pt.name : 'Preaching');
-
-    return `
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-3 flex items-center gap-3">
-            <div class="w-9 h-9 flex-shrink-0 rounded-lg ${bg} ${txt} flex items-center justify-center text-base">${icon}</div>
-            <div class="flex-1 min-w-0">
-                <div class="text-[11px] text-gray-400 uppercase tracking-wider">${dateShort}</div>
-                <div class="text-sm font-medium text-gray-900 truncate">${escapeHtml(titleText)}</div>
-                <div class="text-xs text-gray-500 truncate">${escapeHtml(subText)}</div>
+    <!-- Change request modal -->
+    <div x-show="changeOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="changeOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="font-semibold text-gray-900">Request a change</div>
+                <button @click="changeOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
             </div>
-            ${isLeader ? '<span class="text-[10px] text-violet-600 font-semibold">HOST</span>' : '<span class="text-[10px] text-blue-600 font-semibold">PREACH</span>'}
-        </div>
-    `;
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// ==================== QUICK ACTIONS ====================
-function renderActions() {
-    const grid = document.getElementById('actionsGrid');
-    const actions = [];
-
-    // Always show: Projector
-    actions.push({
-        href: '/display/submit',
-        icon: `<svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>`,
-        bg: 'bg-orange-50',
-        label: 'Projector',
-        sub: 'Submit content'
-    });
-
-    // Always show: Poster request
-    actions.push({
-        href: `/poster-request?phone=${encodeURIComponent(phone)}`,
-        icon: `<svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>`,
-        bg: 'bg-purple-50',
-        label: 'Poster',
-        sub: 'Request a design'
-    });
-
-    // HOD or leadership: show New Meeting in quick actions
-    const isHod = hodData && hodData.departments && hodData.departments.length > 0;
-    const leadershipRoles = currentMember.leadership_roles ? (typeof currentMember.leadership_roles === 'string' ? JSON.parse(currentMember.leadership_roles) : currentMember.leadership_roles) : [];
-    const isLeader = Array.isArray(leadershipRoles) && leadershipRoles.length > 0;
-
-    if (isHod || isLeader) {
-        actions.push({
-            href: `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`,
-            icon: `<svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>`,
-            bg: 'bg-green-50',
-            label: 'Book a Meeting',
-            sub: 'Schedule a meeting'
-        });
-    }
-
-    // Service managers: Create Program
-    const isServiceManager = Array.isArray(leadershipRoles) && leadershipRoles.includes('service_manager');
-    if (isServiceManager) {
-        actions.push({
-            href: `/programs?phone=${encodeURIComponent(phone)}`,
-            icon: `<svg class="w-5 h-5 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>`,
-            bg: 'bg-teal-50',
-            label: 'Create Program',
-            sub: 'Service order & roster'
-        });
-    }
-
-    // Pre-publish: show Edit Selection prominently
-    if (!allData.published) {
-        actions.push({
-            href: `/update?phone=${encodeURIComponent(phone)}&member_id=${currentMember.id}`,
-            icon: `<svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>`,
-            bg: 'bg-indigo-50',
-            label: 'Edit Selection',
-            sub: 'Change departments'
-        });
-    }
-
-    // Post-publish with appeal window: show Appeal
-    if (allData.published && allData.appeal_window_open) {
-        actions.push({
-            onclick: 'openAppealModal()',
-            icon: `<svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>`,
-            bg: 'bg-amber-50',
-            label: 'Appeal',
-            sub: 'Request changes'
-        });
-    }
-
-    grid.innerHTML = actions.map(a => {
-        const tag = a.href ? 'a' : 'button';
-        const attr = a.href ? `href="${a.href}"` : `onclick="${a.onclick}"`;
-        return `
-            <${tag} ${attr} class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-left pressable">
-                <div class="w-10 h-10 ${a.bg} rounded-lg flex items-center justify-center mb-2.5">${a.icon}</div>
-                <p class="text-sm font-medium text-gray-900">${a.label}</p>
-                <p class="text-xs text-gray-400 mt-0.5">${a.sub}</p>
-            </${tag}>
-        `;
-    }).join('');
-}
-
-// ==================== HOD CARD ====================
-function renderHodCard() {
-    const card = document.getElementById('hodCard');
-    const isHod = hodData && hodData.departments && hodData.departments.length > 0;
-    const leadershipRoles = currentMember.leadership_roles ? (typeof currentMember.leadership_roles === 'string' ? JSON.parse(currentMember.leadership_roles) : currentMember.leadership_roles) : [];
-    const isLeader = Array.isArray(leadershipRoles) && leadershipRoles.length > 0;
-    const meetingsNewBtn = document.getElementById('meetingsTabNewBtn');
-
-    // Show "New Meeting" button on Meetings tab for HODs and leaders
-    if (isHod || isLeader) {
-        meetingsNewBtn.classList.remove('hidden');
-        meetingsNewBtn.href = `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`;
-    } else {
-        meetingsNewBtn.classList.add('hidden');
-    }
-
-    if (!isHod) {
-        card.classList.add('hidden');
-        return;
-    }
-    card.classList.remove('hidden');
-    const totalMembers = hodData.departments.reduce((sum, d) => sum + d.total_members, 0);
-    const pendingCount = hodData.departments.reduce((sum, d) => sum + d.pending_count, 0);
-    const deptNames = hodData.departments.map(d => d.name).join(', ');
-
-    document.getElementById('hodTitle').textContent = `HOD: ${deptNames}`;
-    document.getElementById('hodSubtitle').textContent = `${totalMembers} members${pendingCount > 0 ? ` — ${pendingCount} pending` : ''}`;
-
-    // HOD meetings links in HOD sheet
-    const link = document.getElementById('hodMeetingsLink');
-    link.classList.remove('hidden');
-    link.href = `/hod/meetings?phone=${encodeURIComponent(phone)}`;
-
-    const createLink = document.getElementById('hodCreateMeetingLink');
-    createLink.classList.remove('hidden');
-    createLink.href = `/hod/meetings?phone=${encodeURIComponent(phone)}&action=new`;
-}
-
-function renderHomeChurchCommitteeCard() {
-    const banner = document.getElementById('homeChurchCommitteeBanner');
-    if (!banner || !currentMember) return;
-    // Tolerant match: "Home Church Committee", "Home Church committee", etc.
-    const depts = (currentMember.approved_departments || []).map(d => (d.department_name || '').toLowerCase());
-    const isCommittee = depts.some(n => n.includes('home church') && n.includes('committee'));
-    const isHcLeader = !!currentMember.is_hc_leader;
-    if (isCommittee || isHcLeader) {
-        banner.classList.remove('hidden');
-        const link = document.getElementById('homeChurchCommitteeLink');
-        if (link && phone) link.href = `/admin/home-churches?phone=${encodeURIComponent(phone)}`;
-        const subtitle = document.getElementById('homeChurchCommitteeSubtitle');
-        if (subtitle) {
-            subtitle.textContent = isCommittee
-                ? 'Manage programme, preachers & members'
-                : 'Manage your home church members';
-        }
-    } else {
-        banner.classList.add('hidden');
-    }
-}
-
-function renderDesignTeamBanner() {
-    const banner = document.getElementById('designTeamBanner');
-    if (!posterData || !posterData.is_design_team) {
-        banner.classList.add('hidden');
-        return;
-    }
-    const pending = posterData.requests.filter(r => r.status === 'pending').length;
-    if (pending > 0) {
-        banner.classList.remove('hidden');
-        document.getElementById('designTeamCount').textContent = `${pending} pending request${pending > 1 ? 's' : ''}`;
-    } else {
-        banner.classList.add('hidden');
-    }
-}
-
-// ==================== MY DEPARTMENTS SHEET (post-publish) ====================
-function openMyDeptsSheet() {
-    const content = document.getElementById('myDeptsSheetContent');
-    const canAppeal = allData.appeal_window_open;
-    let html = '';
-
-    // Approved departments
-    if (currentMember.approved_departments.length > 0) {
-        html += `<p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider">Approved</p>`;
-        html += currentMember.approved_departments.map(d => {
-            const isAdmin = d.source === 'admin';
-            return `
-                <button onclick="closeMyDeptsSheet(); setTimeout(() => openDeptDetail(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', 'approved', ${isAdmin}), 100)"
-                    class="w-full bg-gray-50 rounded-xl p-3 flex items-center justify-between pressable text-left">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 ${isAdmin ? 'bg-blue-50' : 'bg-green-50'} rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg class="w-5 h-5 ${isAdmin ? 'text-blue-500' : 'text-green-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="text-sm font-medium text-gray-900">${d.department_name}</p>
-                            <p class="text-xs text-gray-400">${isAdmin ? 'Assigned by admin' : 'Your selection'}</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        ${canAppeal ? '<span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Appeal</span>' : ''}
-                        <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                    </div>
-                </button>
-            `;
-        }).join('');
-    } else {
-        html += '<p class="text-sm text-gray-400 text-center py-4">No departments assigned yet.</p>';
-    }
-
-    // Pending
-    if (currentMember.pending_departments.length > 0) {
-        html += `<p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mt-2">Pending Review</p>`;
-        html += currentMember.pending_departments.map(d => `
-            <div class="bg-amber-50 rounded-xl p-3 flex items-center gap-3">
-                <div class="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                    </svg>
+            <div class="p-5 space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">What would you like to change?</label>
+                    <select x-model="changeForm.change_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <option value="profile">My profile (name, phone, email, address)</option>
+                        <option value="department">My departments</option>
+                        <option value="ministry">My ministries</option>
+                        <option value="home_church">My home church</option>
+                        <option value="other">Something else</option>
+                    </select>
                 </div>
                 <div>
-                    <p class="text-sm font-medium text-gray-900">${d.department_name}</p>
-                    <p class="text-xs text-amber-600">Awaiting approval</p>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // Rejected
-    if (currentMember.rejected_departments.length > 0) {
-        html += `<p class="text-[11px] text-gray-400 uppercase font-semibold tracking-wider mt-2">Not Approved</p>`;
-        html += currentMember.rejected_departments.map(d => `
-            <div class="bg-red-50 rounded-xl p-3 flex items-center gap-3">
-                <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Brief summary <span class="text-red-500">*</span></label>
+                    <input type="text" x-model="changeForm.summary" maxlength="300" placeholder="e.g. Update my phone number to 071 234 5678" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
                 <div>
-                    <p class="text-sm font-medium text-gray-900">${d.department_name}</p>
-                    <p class="text-xs text-red-500">${d.admin_note || 'Not approved'}</p>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Details (optional)</label>
+                    <textarea x-model="changeForm.details" rows="4" placeholder="Add any context that helps the admin process your request." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
                 </div>
-            </div>
-        `).join('');
-    }
-
-    // Appeal hint at bottom
-    if (canAppeal) {
-        html += `
-            <div class="mt-2 pt-3 border-t border-gray-100">
-                <button onclick="closeMyDeptsSheet(); setTimeout(() => openAppealModal(), 100)"
-                    class="w-full py-3 border-2 border-amber-200 text-amber-700 font-medium rounded-xl bg-amber-50 pressable text-sm">
-                    Submit an Appeal
+                <div x-show="changeFormError" class="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="changeFormError"></div>
+                <button @click="submitChange()" :disabled="changeFormSaving" class="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+                    <span x-text="changeFormSaving ? 'Submitting…' : 'Submit for approval'"></span>
                 </button>
-            </div>
-        `;
-    }
-
-    content.innerHTML = html;
-    document.getElementById('myDeptsSheet').classList.add('open');
-}
-function closeMyDeptsSheet() { document.getElementById('myDeptsSheet').classList.remove('open'); }
-
-// ==================== DEPARTMENT DETAIL SHEET ====================
-function openDeptDetail(deptId, deptName, status, isAdminAdded) {
-    const content = document.getElementById('deptSheetContent');
-    const canAppeal = allData.appeal_window_open;
-
-    // Find meeting for this department
-    let meetingHtml = '';
-    if (meetingsData && meetingsData.meetings) {
-        const deptMeeting = meetingsData.meetings.find(m => {
-            // Match by department name in title (rough match)
-            return m.department_name && m.department_name.toLowerCase().includes(deptName.toLowerCase().split(' ')[0]);
-        });
-        if (deptMeeting) {
-            const d = new Date(deptMeeting.meeting_date);
-            meetingHtml = `
-                <div class="bg-blue-50 rounded-xl p-3 flex items-center gap-3">
-                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                        <span class="text-[9px] text-blue-500 font-medium">${d.toLocaleDateString('en-US', {month:'short'}).toUpperCase()}</span>
-                        <span class="text-sm text-blue-700 font-bold">${d.getDate()}</span>
-                    </div>
-                    <div>
-                        <p class="text-sm font-medium text-blue-900">Next: ${deptMeeting.title}</p>
-                        <p class="text-xs text-blue-600">${deptMeeting.start_time}${deptMeeting.location ? ' — ' + deptMeeting.location : ''}</p>
-                    </div>
-                </div>
-            `;
-        }
-    }
-
-    // Find category
-    const dept = allDepartments.find(d => d.id === deptId);
-    const category = dept ? dept.categoryName : null;
-
-    content.innerHTML = `
-        <div class="flex items-center gap-3">
-            <div class="w-12 h-12 ${isAdminAdded ? 'bg-blue-100' : 'bg-indigo-100'} rounded-xl flex items-center justify-center">
-                <svg class="w-6 h-6 ${isAdminAdded ? 'text-blue-600' : 'text-indigo-600'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                </svg>
-            </div>
-            <div>
-                <h2 class="text-lg font-bold text-gray-900">${deptName}</h2>
-                <span class="text-xs ${status === 'approved' ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'} px-2 py-0.5 rounded-full font-medium">${status === 'approved' ? 'Approved' : 'Pending'}</span>
+                <p class="text-[11px] text-gray-400 text-center">An admin or pastor will review and update your record.</p>
             </div>
         </div>
+    </div>
+</div>
 
-        <div class="bg-gray-50 rounded-xl p-3 space-y-2">
-            <div class="flex justify-between text-sm">
-                <span class="text-gray-500">Status</span>
-                <span class="font-medium ${status === 'approved' ? 'text-green-600' : 'text-amber-600'}">${status === 'approved' ? 'Approved' : 'Pending'}</span>
-            </div>
-            <div class="flex justify-between text-sm">
-                <span class="text-gray-500">Added by</span>
-                <span class="text-gray-700">${isAdminAdded ? 'Church Admin' : 'You'}</span>
-            </div>
-            ${category ? `<div class="flex justify-between text-sm"><span class="text-gray-500">Category</span><span class="text-gray-700">${category}</span></div>` : ''}
-        </div>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function memberPortal() {
+    return {
+        loading: true,
+        data: null,
+        changeRequests: [],
+        changeOpen: false,
+        changeForm: { change_type: 'profile', summary: '', details: '' },
+        changeFormSaving: false,
+        changeFormError: '',
 
-        ${meetingHtml}
+        givingOpen: false,
+        givingTab: 'summary',
+        givingLoading: false,
+        givingError: '',
+        givingSummary: null,
+        givingRecent: null,
 
-        ${canAppeal ? `
-            <button onclick="closeDeptSheet(); openAppealForDept(${deptId}, '${deptName.replace(/'/g, "\\'")}', ${isAdminAdded})"
-                class="w-full py-3 border-2 border-amber-200 text-amber-700 font-medium rounded-xl bg-amber-50 pressable">
-                Appeal This Assignment
-            </button>
-        ` : ''}
-    `;
+        async init() {
+            try {
+                const [meRes, crRes] = await Promise.all([
+                    fetch('/api/portal/me'),
+                    fetch('/api/portal/change-requests'),
+                ]);
+                if (meRes.status === 401) {
+                    // Try ?phone= fallback for first arrivals from email link
+                    const params = new URLSearchParams(location.search);
+                    const phone = params.get('phone');
+                    if (phone) {
+                        // Old-style entry: bounce to login flow
+                        location.href = `/?phone=${encodeURIComponent(phone)}`;
+                        return;
+                    }
+                    this.loading = false;
+                    return;
+                }
+                if (!meRes.ok) { this.loading = false; return; }
+                this.data = await meRes.json();
+                if (crRes.ok) this.changeRequests = await crRes.json();
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
 
-    document.getElementById('deptSheet').classList.add('open');
-}
-function closeDeptSheet() { document.getElementById('deptSheet').classList.remove('open'); }
+        initials(name) {
+            return (name || '').split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase();
+        },
 
-// ==================== MEETINGS SHEET ====================
-function openMeetingsSheet() {
-    const list = document.getElementById('meetingsSheetList');
-    const noMsg = document.getElementById('noMeetingsMsg');
-    const monthLabel = document.getElementById('meetingsMonthLabel');
+        dayName(d) {
+            const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            return (d === null || d === undefined) ? '' : (names[d] || '');
+        },
 
-    monthLabel.textContent = meetingsData?.month || new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        formatDate(iso) {
+            if (!iso) return '';
+            return new Date(iso).toLocaleDateString();
+        },
 
-    if (!meetingsData || !meetingsData.meetings || meetingsData.meetings.length === 0) {
-        list.classList.add('hidden');
-        noMsg.classList.remove('hidden');
-    } else {
-        list.classList.remove('hidden');
-        noMsg.classList.add('hidden');
-        list.innerHTML = meetingsData.meetings.map(m => {
-            const d = new Date(m.meeting_date);
-            const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-            const day = d.getDate();
-            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+        statusClass(s) {
+            return ({
+                pending: 'bg-amber-100 text-amber-700',
+                approved: 'bg-emerald-100 text-emerald-700',
+                applied: 'bg-emerald-100 text-emerald-700',
+                rejected: 'bg-red-100 text-red-700',
+            })[s] || 'bg-gray-100 text-gray-700';
+        },
 
-            const rsvpHtml = m.my_rsvp
-                ? `<div class="flex items-center gap-2">
-                       <span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'} px-2 py-0.5 rounded-full font-medium">${m.my_rsvp === 'attending' ? 'Going' : 'Not going'}</span>
-                       <button onclick="changeRsvp(${m.id})" class="text-xs text-indigo-600">Change</button>
-                   </div>`
-                : `<div class="flex gap-2">
-                       <button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-medium pressable">Going</button>
-                       <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg font-medium pressable">Can't go</button>
-                   </div>`;
+        hasLeadership() {
+            const l = this.data?.leadership || {};
+            return l.is_hc_leader || l.is_hc_committee || l.is_hod || l.can_create_surveys;
+        },
 
-            return `
-                <div class="bg-gray-50 rounded-xl p-4">
-                    <div class="flex gap-3">
-                        <div class="w-12 h-14 bg-white rounded-lg flex flex-col items-center justify-center flex-shrink-0 shadow-sm">
-                            <span class="text-[9px] text-blue-500 font-medium leading-none">${dayName}</span>
-                            <span class="text-lg text-gray-900 font-bold leading-tight">${day}</span>
-                            <span class="text-[9px] text-gray-400 leading-none">${monthShort}</span>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <h4 class="text-sm font-semibold text-gray-900">${m.title}</h4>
-                            <p class="text-xs text-indigo-600">${m.department_name || ''}</p>
-                            <p class="text-xs text-gray-400 mt-0.5">${m.start_time} - ${m.end_time}${m.location ? ' — ' + m.location : ''}</p>
-                            ${m.meeting_link ? `<a href="${m.meeting_link}" target="_blank" class="text-xs text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
-                        </div>
-                    </div>
-                    <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-200/50">
-                        <span class="text-xs text-gray-400">${m.attending_count} attending</span>
-                        ${rsvpHtml}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-    document.getElementById('meetingsSheet').classList.add('open');
-}
-function closeMeetingsSheet() { document.getElementById('meetingsSheet').classList.remove('open'); }
+        openChangeForm(type, hint) {
+            this.changeForm = { change_type: type, summary: '', details: '' };
+            if (hint) this.changeForm.summary = '';
+            this.changeFormError = '';
+            this.changeOpen = true;
+        },
 
-// ==================== HOD SHEET ====================
-function openHodSheet() {
-    const content = document.getElementById('hodSheetContent');
-    if (!hodData || !hodData.departments) return;
+        async openGiving() {
+            if (!this.data?.member?.external_synced) return;
+            this.givingOpen = true;
+            this.givingTab = 'summary';
+            this.givingError = '';
+            if (this.givingSummary && this.givingRecent) return; // cached for the session
+            this.givingLoading = true;
+            try {
+                const [s, r] = await Promise.all([
+                    fetch('/api/portal/giving/summary'),
+                    fetch('/api/portal/giving/recent?limit=20'),
+                ]);
+                if (s.ok) {
+                    this.givingSummary = await s.json();
+                } else {
+                    const err = await s.json().catch(() => ({}));
+                    this.givingError = err.detail || 'Could not load giving summary.';
+                }
+                if (r.ok) {
+                    this.givingRecent = await r.json();
+                } else if (!this.givingError) {
+                    const err = await r.json().catch(() => ({}));
+                    this.givingError = err.detail || 'Could not load recent contributions.';
+                }
+            } catch (e) { this.givingError = String(e); }
+            this.givingLoading = false;
+        },
 
-    const statusColors = {
-        approved: { bg: 'bg-green-50', text: 'text-green-600', label: 'Approved' },
-        pending: { bg: 'bg-amber-50', text: 'text-amber-600', label: 'Pending' },
-        rejected: { bg: 'bg-red-50', text: 'text-red-600', label: 'Rejected' }
+        givingPct(amount) {
+            const total = this.givingSummary?.total_amount || 0;
+            return total > 0 ? Math.round((amount / total) * 100) : 0;
+        },
+
+        formatMoney(value, currency) {
+            const n = Number(value || 0);
+            const code = currency || 'ZAR';
+            try {
+                return new Intl.NumberFormat('en-ZA', {
+                    style: 'currency', currency: code, minimumFractionDigits: 2,
+                }).format(n);
+            } catch (e) {
+                return `${code} ${n.toFixed(2)}`;
+            }
+        },
+
+        formatLongDate(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleDateString(undefined, {
+                    year: 'numeric', month: 'short', day: 'numeric',
+                });
+            } catch (e) { return iso; }
+        },
+
+        async submitChange() {
+            this.changeFormError = '';
+            const summary = (this.changeForm.summary || '').trim();
+            if (!summary) { this.changeFormError = 'Please add a short summary.'; return; }
+            this.changeFormSaving = true;
+            try {
+                const res = await fetch('/api/portal/change-requests', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        change_type: this.changeForm.change_type,
+                        summary, details: this.changeForm.details || null,
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    this.changeFormError = err.detail || 'Submission failed';
+                    this.changeFormSaving = false;
+                    return;
+                }
+                const cr = await res.json();
+                this.changeRequests = [cr, ...this.changeRequests];
+                this.changeOpen = false;
+            } catch (e) { this.changeFormError = String(e); }
+            this.changeFormSaving = false;
+        },
     };
-
-    content.innerHTML = hodData.departments.map(dept => {
-        const membersHtml = dept.members.length > 0
-            ? dept.members.map(m => {
-                const sc = statusColors[m.status] || statusColors.pending;
-                return `
-                    <div class="flex items-center justify-between py-2.5 px-3 ${m.status === 'pending' ? 'bg-amber-50/50' : ''}">
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-gray-900 truncate">${m.full_name}</p>
-                            <p class="text-xs text-gray-400">${m.phone}</p>
-                        </div>
-                        <div class="flex items-center gap-1.5 ml-2">
-                            ${m.source === 'admin' ? '<span class="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Admin</span>' : ''}
-                            <span class="text-[10px] ${sc.bg} ${sc.text} px-2 py-0.5 rounded-full font-medium">${sc.label}</span>
-                        </div>
-                    </div>
-                `;
-            }).join('')
-            : '<p class="text-sm text-gray-400 text-center py-4">No members yet</p>';
-
-        return `
-            <div class="bg-gray-50 rounded-xl overflow-hidden">
-                <button onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')" class="w-full p-4 flex items-center justify-between text-left">
-                    <div>
-                        <h4 class="font-semibold text-gray-900">${dept.name}</h4>
-                        <div class="flex gap-3 mt-1 text-xs">
-                            <span class="text-gray-500">${dept.total_members} total</span>
-                            <span class="text-green-600">${dept.approved_count} approved</span>
-                            ${dept.pending_count > 0 ? `<span class="text-amber-600">${dept.pending_count} pending</span>` : ''}
-                        </div>
-                    </div>
-                    <svg class="w-5 h-5 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                    </svg>
-                </button>
-                <div class="divide-y divide-gray-100 bg-white">${membersHtml}</div>
-            </div>
-        `;
-    }).join('');
-
-    document.getElementById('hodSheet').classList.add('open');
 }
-function closeHodSheet() { document.getElementById('hodSheet').classList.remove('open'); }
-
-// ==================== POSTER REQUESTS SHEET ====================
-function openPosterSheet() {
-    renderPosterSheetContent();
-    document.getElementById('posterSheet').classList.add('open');
-}
-function closePosterSheet() { document.getElementById('posterSheet').classList.remove('open'); }
-
-function renderPosterSheetContent() {
-    const content = document.getElementById('posterSheetContent');
-    if (!posterData) { content.innerHTML = '<p class="text-gray-400 text-sm text-center py-4">No poster requests.</p>'; return; }
-
-    const statusColors = { pending: 'bg-amber-50 text-amber-600', acknowledged: 'bg-blue-50 text-blue-600', completed: 'bg-green-50 text-green-600' };
-    const statusLabels = { pending: 'Pending', acknowledged: 'Processing', completed: 'Done' };
-    let html = '';
-
-    // Design team: pending requests
-    if (posterData.is_design_team) {
-        const pending = posterData.requests.filter(r => r.status === 'pending');
-        const acknowledged = posterData.requests.filter(r => r.status === 'acknowledged');
-
-        if (pending.length > 0) {
-            html += `<p class="text-xs text-purple-700 font-semibold uppercase tracking-wider">Pending Acknowledgement</p>`;
-            html += pending.map(r => `
-                <div class="bg-purple-50 border border-purple-100 rounded-xl p-3">
-                    <div class="flex items-start justify-between gap-2">
-                        <div class="flex-1 min-w-0">
-                            <h4 class="font-medium text-gray-900 text-sm">${r.event_name}</h4>
-                            <p class="text-xs text-gray-500">${r.ministry_department || ''} — ${new Date(r.event_date).toLocaleDateString()}</p>
-                            <p class="text-xs text-gray-400">From: ${r.requester_name}</p>
-                        </div>
-                        <div class="flex gap-2 flex-shrink-0">
-                            <button onclick="viewPosterDetail(${r.id})" class="px-2.5 py-1 bg-white text-gray-600 text-xs rounded-lg pressable border border-gray-200">View</button>
-                            <button onclick="acknowledgePosterRequest(${r.id})" class="px-2.5 py-1 bg-purple-600 text-white text-xs rounded-lg pressable">Ack</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        if (acknowledged.length > 0) {
-            html += `<p class="text-xs text-blue-700 font-semibold uppercase tracking-wider mt-2">In Progress</p>`;
-            html += acknowledged.map(r => `
-                <div class="bg-blue-50 border border-blue-100 rounded-xl p-3">
-                    <div class="flex items-start justify-between gap-2">
-                        <div class="flex-1 min-w-0">
-                            <h4 class="font-medium text-gray-900 text-sm">${r.event_name}</h4>
-                            <p class="text-xs text-gray-500">${r.ministry_department || ''} — ${new Date(r.event_date).toLocaleDateString()}</p>
-                        </div>
-                        <div class="flex gap-2 flex-shrink-0">
-                            <button onclick="viewPosterDetail(${r.id})" class="px-2.5 py-1 bg-white text-gray-600 text-xs rounded-lg pressable border border-gray-200">View</button>
-                            <button onclick="markPosterDone(${r.id})" class="px-2.5 py-1 bg-green-600 text-white text-xs rounded-lg pressable">Done</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-    }
-
-    // My requests
-    const myRequests = posterData.is_design_team
-        ? posterData.requests.filter(r => r.requester_id === currentMember.id)
-        : posterData.requests;
-
-    if (myRequests.length > 0) {
-        html += `<p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mt-2">My Requests</p>`;
-        html += myRequests.map(r => `
-            <div class="bg-gray-50 rounded-xl p-3 pressable" onclick="viewPosterDetail(${r.id})">
-                <div class="flex items-start justify-between">
-                    <div class="min-w-0">
-                        <h4 class="font-medium text-gray-900 text-sm">${r.event_name}</h4>
-                        <p class="text-xs text-gray-500">${r.ministry_department || ''} — ${new Date(r.event_date).toLocaleDateString()}</p>
-                    </div>
-                    <span class="text-[10px] font-medium px-2 py-0.5 rounded-full ${statusColors[r.status]}">${statusLabels[r.status]}</span>
-                </div>
-                ${r.acknowledged_by_name ? `<p class="text-xs text-gray-400 mt-1">By ${r.acknowledged_by_name}</p>` : ''}
-            </div>
-        `).join('');
-    } else if (!posterData.is_design_team || html === '') {
-        html += '<p class="text-gray-400 text-sm text-center py-4">No poster requests yet.</p>';
-    }
-
-    content.innerHTML = html;
-}
-
-// ==================== POSTER DETAIL ====================
-function viewPosterDetail(requestId) {
-    const request = posterData.requests.find(r => r.id === requestId);
-    if (!request) return;
-
-    const formatLabels = { projector: 'Projector', social_media: 'Social Media', print: 'Print' };
-
-    let speakersHtml = '<span class="text-gray-400 text-sm">Not specified</span>';
-    if (request.speakers && request.speakers.length > 0) {
-        speakersHtml = request.speakers.map(s => `
-            <span class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg text-sm mr-1 mb-1">
-                ${s.name} <span class="text-[10px] px-1 py-0.5 rounded ${s.role === 'host' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}">${s.role}</span>
-            </span>
-        `).join('');
-    }
-
-    let outputHtml = '<span class="text-gray-400 text-sm">Not specified</span>';
-    if (request.output_formats && request.output_formats.length > 0) {
-        outputHtml = request.output_formats.map(f => `<span class="inline-block px-2 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm mr-1">${formatLabels[f] || f}</span>`).join('');
-    }
-
-    document.getElementById('posterDetailContent').innerHTML = `
-        <div class="bg-purple-50 rounded-xl p-4">
-            <h4 class="font-semibold text-gray-900">${request.event_name}</h4>
-            <p class="text-sm text-purple-700 mt-1">${request.purpose}</p>
-        </div>
-        <div class="grid grid-cols-2 gap-3 text-sm">
-            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Date</p><p class="font-medium text-gray-900">${new Date(request.event_date).toLocaleDateString()}</p></div>
-            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Time</p><p class="font-medium text-gray-900">${request.event_time}</p></div>
-            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Ministry</p><p class="font-medium text-gray-900">${request.ministry_department || '—'}</p></div>
-            <div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Venue</p><p class="font-medium text-gray-900">${request.venue_platform}</p></div>
-        </div>
-        <div><p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Speakers</p><div>${speakersHtml}</div></div>
-        <div><p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Output Formats</p><div>${outputHtml}</div></div>
-        ${request.theme_tagline ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Theme</p><p class="text-sm font-medium text-gray-900">${request.theme_tagline}</p></div>` : ''}
-        ${request.scripture ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Scripture</p><p class="text-sm font-medium text-gray-900">${request.scripture}</p></div>` : ''}
-        ${request.target_audience ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Audience</p><p class="text-sm font-medium text-gray-900">${request.target_audience}</p></div>` : ''}
-        ${request.additional_notes ? `<div><p class="text-[10px] text-gray-400 uppercase tracking-wider">Notes</p><p class="text-sm text-gray-700 bg-gray-50 rounded-lg p-3">${request.additional_notes}</p></div>` : ''}
-        <div class="pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
-            <div><p class="text-[10px] text-gray-400 uppercase">Requested by</p><p class="font-medium text-gray-900">${request.requester_name}</p></div>
-            <div class="text-right"><p class="text-[10px] text-gray-400 uppercase">Submitted</p><p class="font-medium text-gray-900">${new Date(request.created_at).toLocaleDateString()}</p></div>
-        </div>
-        ${request.acknowledged_by_name ? `
-            <div class="pt-3 border-t border-gray-100 flex items-center justify-between text-sm">
-                <div><p class="text-[10px] text-gray-400 uppercase">Acknowledged by</p><p class="font-medium text-blue-700">${request.acknowledged_by_name}</p></div>
-                <div class="text-right"><p class="font-medium text-gray-900 text-xs">${new Date(request.acknowledged_at).toLocaleString()}</p></div>
-            </div>
-        ` : ''}
-    `;
-
-    const actions = document.getElementById('posterDetailActions');
-    if (request.status === 'pending' && posterData.is_design_team) {
-        actions.innerHTML = `
-            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl pressable">Close</button>
-            <button onclick="acknowledgePosterRequest(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl pressable">Acknowledge</button>
-        `;
-    } else if (request.status === 'acknowledged' && posterData.is_design_team) {
-        actions.innerHTML = `
-            <button onclick="closePosterDetailModal()" class="flex-1 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl pressable">Close</button>
-            <button onclick="markPosterDone(${request.id}); closePosterDetailModal();" class="flex-1 py-3 bg-green-600 text-white font-medium rounded-xl pressable">Mark Done</button>
-        `;
-    } else {
-        actions.innerHTML = `<button onclick="closePosterDetailModal()" class="w-full py-3 bg-gray-100 text-gray-700 font-medium rounded-xl pressable">Close</button>`;
-    }
-
-    document.getElementById('posterDetailModal').classList.add('open');
-}
-function closePosterDetailModal() { document.getElementById('posterDetailModal').classList.remove('open'); }
-
-// ==================== DRAWER ====================
-function openDrawer() { document.getElementById('drawerOverlay').classList.add('open'); }
-function closeDrawer() { document.getElementById('drawerOverlay').classList.remove('open'); }
-
-// ==================== APPEAL ====================
-function openAppealForDept(deptId, deptName, isAdminAdded) {
-    openAppealModal(deptId);
-    document.getElementById('appealTitle').textContent = isAdminAdded ? 'Appeal Admin Assignment' : 'Submit Appeal';
-}
-
-function openAppealModal(preselectedDeptId = null) {
-    const appealDept = document.getElementById('appealDept');
-    const wantedDept = document.getElementById('wantedDept');
-
-    appealDept.innerHTML = '<option value="">-- Select department --</option>';
-    wantedDept.innerHTML = '<option value="">-- Select department --</option>';
-
-    const appealableDepts = [
-        ...currentMember.approved_departments,
-        ...currentMember.all_selections.filter(s => s.source === 'admin' && s.status !== 'approved')
-    ];
-
-    appealableDepts.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d.department_id;
-        opt.textContent = d.department_name + (d.category_name ? ` (${d.category_name})` : '') + (d.source === 'admin' ? ' [Admin Added]' : '');
-        appealDept.appendChild(opt);
-    });
-
-    if (preselectedDeptId) appealDept.value = preselectedDeptId;
-
-    const assignedIds = new Set(currentMember.all_selections.map(d => d.department_id));
-    allDepartments.filter(d => !assignedIds.has(d.id)).forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d.id;
-        opt.textContent = d.name + (d.categoryName ? ` (${d.categoryName})` : '');
-        wantedDept.appendChild(opt);
-    });
-
-    document.getElementById('appealModal').classList.add('open');
-}
-
-function closeAppealModal() {
-    document.getElementById('appealModal').classList.remove('open');
-    document.getElementById('appealError').classList.add('hidden');
-}
-
-async function submitAppeal() {
-    const unwantedId = document.getElementById('appealDept').value;
-    const wantedId = document.getElementById('wantedDept').value;
-    const reason = document.getElementById('appealReason').value.trim();
-    const errorDiv = document.getElementById('appealError');
-
-    if (!unwantedId && !wantedId && !reason) {
-        errorDiv.textContent = 'Please specify what you want to change or provide a reason.';
-        errorDiv.classList.remove('hidden');
-        return;
-    }
-
-    const btn = document.getElementById('submitAppealBtn');
-    btn.disabled = true;
-    btn.textContent = 'Submitting...';
-
-    try {
-        const response = await fetch('/api/appeals', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                phone, member_id: currentMember.id,
-                unwanted_department_id: unwantedId ? parseInt(unwantedId) : null,
-                wanted_department_id: wantedId ? parseInt(wantedId) : null,
-                reason: reason || null
-            })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Failed to submit appeal');
-        closeAppealModal();
-        alert('Your appeal has been submitted successfully.');
-    } catch (error) {
-        errorDiv.textContent = error.message || 'Failed to submit appeal.';
-        errorDiv.classList.remove('hidden');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Submit Appeal';
-    }
-}
-
-// ==================== TAB NAVIGATION ====================
-let activeTab = 'tabHome';
-
-function switchTab(tabId) {
-    if (activeTab === tabId) return;
-    activeTab = tabId;
-
-    // Toggle panels
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById(tabId).classList.add('active');
-
-    // Toggle tab buttons
-    document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
-    const btnMap = { tabHome: 'tabBtnHome', tabMeetings: 'tabBtnMeetings', tabMe: 'tabBtnMe' };
-    document.getElementById(btnMap[tabId]).classList.add('active');
-
-    // Scroll to top
-    window.scrollTo(0, 0);
-}
-
-// ==================== MEETINGS TAB ====================
-function renderMeetingsTab() {
-    const content = document.getElementById('meetingsTabContent');
-    const noMsg = document.getElementById('noMeetingsTabMsg');
-    const monthLabel = document.getElementById('meetingsTabMonth');
-
-    monthLabel.textContent = meetingsData?.month || new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-    if (!meetingsData || !meetingsData.meetings || meetingsData.meetings.length === 0) {
-        content.innerHTML = '';
-        noMsg.classList.remove('hidden');
-        return;
-    }
-
-    noMsg.classList.add('hidden');
-    content.innerHTML = meetingsData.meetings.map(m => {
-        const d = new Date(m.meeting_date);
-        const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
-        const day = d.getDate();
-        const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-
-        const rsvpHtml = m.my_rsvp
-            ? `<div class="flex items-center gap-2">
-                   <span class="text-xs ${m.my_rsvp === 'attending' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'} px-2 py-0.5 rounded-full font-medium">${m.my_rsvp === 'attending' ? 'Going' : 'Not going'}</span>
-                   <button onclick="changeRsvp(${m.id})" class="text-xs text-indigo-600">Change</button>
-               </div>`
-            : `<div class="flex gap-2">
-                   <button onclick="submitRsvp(${m.id}, 'attending')" class="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg font-medium pressable">Going</button>
-                   <button onclick="submitRsvp(${m.id}, 'not_attending')" class="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg font-medium pressable">Can't go</button>
-               </div>`;
-
-        return `
-            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-                <div class="flex gap-3">
-                    <div class="w-12 h-14 bg-blue-50 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                        <span class="text-[9px] text-blue-500 font-medium leading-none">${dayName}</span>
-                        <span class="text-lg text-blue-700 font-bold leading-tight">${day}</span>
-                        <span class="text-[9px] text-gray-400 leading-none">${monthShort}</span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <h4 class="text-sm font-semibold text-gray-900">${m.title}</h4>
-                        <p class="text-xs text-indigo-600">${m.department_name || ''}</p>
-                        <p class="text-xs text-gray-400 mt-0.5">${m.start_time} - ${m.end_time}${m.location ? ' — ' + m.location : ''}</p>
-                        ${m.meeting_link ? `<a href="${m.meeting_link}" target="_blank" class="text-xs text-indigo-600 hover:underline mt-1 inline-block">Join Online</a>` : ''}
-                    </div>
-                </div>
-                <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                    <span class="text-xs text-gray-400">${m.attending_count} attending</span>
-                    ${rsvpHtml}
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// ==================== ME TAB ====================
-function renderMeTab() {
-    if (!currentMember) return;
-
-    const initials = getInitials(currentMember.full_name);
-    document.getElementById('meAvatar').textContent = initials;
-    document.getElementById('meName').textContent = currentMember.full_name;
-    document.getElementById('mePhone').textContent = phone;
-
-    // Family switcher
-    if (allData.is_family && allData.members.length > 1) {
-        document.getElementById('meFamilySwitcher').classList.remove('hidden');
-        document.getElementById('meFamilyList').innerHTML = allData.members.map(m => {
-            const isActive = m.id === currentMember.id;
-            return `
-                <button onclick='selectMember(${JSON.stringify(m).replace(/'/g, "&#39;")})' class="w-full flex items-center gap-3 p-3 rounded-xl border-2 ${isActive ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100 hover:bg-gray-50'} transition-colors">
-                    <div class="w-8 h-8 ${isActive ? 'bg-indigo-200 text-indigo-700' : 'bg-gray-200 text-gray-500'} rounded-full flex items-center justify-center text-xs font-bold">${getInitials(m.full_name)}</div>
-                    <span class="text-sm ${isActive ? 'font-medium text-indigo-900' : 'text-gray-700'}">${m.full_name}</span>
-                    ${isActive ? '<svg class="w-4 h-4 text-indigo-500 ml-auto" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>' : ''}
-                </button>
-            `;
-        }).join('');
-    } else {
-        document.getElementById('meFamilySwitcher').classList.add('hidden');
-    }
-
-    // My Departments on Me tab (post-publish)
-    if (allData.published) {
-        const deptsContent = document.getElementById('meDeptsContent');
-        if (currentMember.approved_departments.length > 0) {
-            deptsContent.innerHTML = currentMember.approved_departments.map(d => `
-                <button onclick="openDeptDetail(${d.department_id}, '${d.department_name.replace(/'/g, "\\'")}', 'approved', ${d.source === 'admin'})"
-                    class="w-full bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center justify-between pressable text-left">
-                    <div class="flex items-center gap-3">
-                        <div class="w-9 h-9 ${d.source === 'admin' ? 'bg-blue-50' : 'bg-green-50'} rounded-lg flex items-center justify-center flex-shrink-0">
-                            <svg class="w-4 h-4 ${d.source === 'admin' ? 'text-blue-500' : 'text-green-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="text-sm font-medium text-gray-900">${d.department_name}</p>
-                            <p class="text-xs text-gray-400">${d.source === 'admin' ? 'Assigned by admin' : 'Your selection'}</p>
-                        </div>
-                    </div>
-                    <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                </button>
-            `).join('');
-        } else {
-            deptsContent.innerHTML = '<p class="text-sm text-gray-400 text-center py-3">No departments assigned yet.</p>';
-        }
-    }
-}
-
-// ==================== RSVP ====================
-async function submitRsvp(meetingId, response) {
-    try {
-        const res = await fetch(`/api/meetings/${meetingId}/rsvp?phone=${encodeURIComponent(phone)}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ response })
-        });
-        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
-
-        const meeting = meetingsData.meetings.find(m => m.id === meetingId);
-        if (meeting) {
-            if (!meeting.my_rsvp && response === 'attending') meeting.attending_count++;
-            else if (meeting.my_rsvp === 'attending' && response === 'not_attending') meeting.attending_count--;
-            else if (meeting.my_rsvp === 'not_attending' && response === 'attending') meeting.attending_count++;
-            meeting.my_rsvp = response;
-        }
-        renderThisWeek();
-        renderMeetingsTab();
-        // Re-render meetings sheet if open
-        if (document.getElementById('meetingsSheet').classList.contains('open')) openMeetingsSheet();
-    } catch (err) { alert('Error: ' + err.message); }
-}
-
-function changeRsvp(meetingId) {
-    const meeting = meetingsData.meetings.find(m => m.id === meetingId);
-    if (meeting) submitRsvp(meetingId, meeting.my_rsvp === 'attending' ? 'not_attending' : 'attending');
-}
-
-// ==================== ACCEPT ASSIGNMENT ====================
-async function acceptAssignment(memberDeptId) {
-    try {
-        const res = await fetch(`/api/results/accept/${memberDeptId}?phone=${encodeURIComponent(phone)}`, { method: 'POST' });
-        if (!res.ok) { const d = await res.json(); alert(d.detail || 'Failed'); return; }
-        location.reload();
-    } catch (e) { alert('Failed to accept assignment.'); }
-}
-
-// ==================== POSTER ACTIONS ====================
-async function acknowledgePosterRequest(requestId) {
-    try {
-        const res = await fetch(`/api/poster-requests/${requestId}/acknowledge?phone=${encodeURIComponent(phone)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
-        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
-        posterData = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => r.json());
-        renderDesignTeamBanner();
-        if (document.getElementById('posterSheet').classList.contains('open')) renderPosterSheetContent();
-    } catch (err) { alert(err.message || 'Failed to acknowledge'); }
-}
-
-async function markPosterDone(requestId) {
-    try {
-        const res = await fetch(`/api/poster-requests/${requestId}/complete?phone=${encodeURIComponent(phone)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' } });
-        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || 'Failed'); }
-        posterData = await fetch(`/api/poster-requests?phone=${encodeURIComponent(phone)}`).then(r => r.json());
-        renderDesignTeamBanner();
-        if (document.getElementById('posterSheet').classList.contains('open')) renderPosterSheetContent();
-    } catch (err) { alert(err.message || 'Failed to mark done'); }
-}
-
-// ==================== LOGOUT ====================
-function logout() { localStorage.removeItem(STORAGE_KEY); window.location.href = '/logout'; }
 </script>
 {% endblock %}

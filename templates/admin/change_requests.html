@@ -1,0 +1,125 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Change requests · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-4xl mx-auto px-4 py-6" x-data="changeRequestsAdmin()" x-init="load()">
+
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Change requests</h1>
+            <p class="text-sm text-gray-500">Member-submitted updates that need admin/pastor approval.</p>
+        </div>
+        <div class="flex items-center gap-1">
+            <template x-for="opt in filters" :key="opt.value">
+                <button @click="filter = opt.value; load()"
+                    :class="filter === opt.value ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg" x-text="opt.label"></button>
+            </template>
+        </div>
+    </div>
+
+    <div x-show="loading" class="p-8 text-center text-sm text-gray-500">Loading…</div>
+    <div x-show="!loading && !rows.length" class="p-8 text-center text-sm text-gray-500 bg-white rounded-xl border border-gray-100">No change requests.</div>
+
+    <div class="space-y-3">
+        <template x-for="cr in rows" :key="cr.id">
+            <div class="bg-white border border-gray-200 rounded-xl p-4">
+                <div class="flex items-start justify-between gap-3 mb-2">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-semibold" x-text="cr.change_type.replace('_', ' ')"></span>
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 font-semibold rounded"
+                                :class="statusClass(cr.status)" x-text="cr.status"></span>
+                        </div>
+                        <div class="font-semibold text-gray-900 mt-1" x-text="cr.summary"></div>
+                        <div class="text-xs text-gray-500 mt-0.5">
+                            <span x-text="cr.member_name"></span> · <span x-text="cr.member_phone"></span> · <span x-text="formatDate(cr.created_at)"></span>
+                        </div>
+                        <div x-show="cr.details" class="mt-2 text-sm text-gray-700 bg-gray-50 rounded p-2" x-text="cr.details"></div>
+                        <div x-show="cr.admin_response" class="mt-2 text-sm text-indigo-700 bg-indigo-50 rounded p-2">
+                            <span class="font-semibold">Admin response:</span> <span x-text="cr.admin_response"></span>
+                            <div class="text-[10px] text-indigo-500 mt-0.5" x-show="cr.reviewed_by_name">
+                                — <span x-text="cr.reviewed_by_name"></span>, <span x-text="formatDate(cr.reviewed_at)"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div x-show="cr.status === 'pending'" class="mt-3 flex flex-wrap items-center gap-2">
+                    <input type="text" x-model="responses[cr.id]" placeholder="Response (optional)" class="flex-1 min-w-[200px] px-3 py-1.5 border border-gray-200 rounded-lg text-xs" />
+                    <button @click="resolve(cr, 'approved')" class="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium">Approve</button>
+                    <button @click="resolve(cr, 'rejected')" class="px-3 py-1.5 text-xs bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 rounded-lg font-medium">Reject</button>
+                </div>
+                <div x-show="cr.status === 'approved'" class="mt-3">
+                    <button @click="resolve(cr, 'applied')" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium">Mark as applied</button>
+                    <span class="text-[11px] text-gray-500 ml-2">Apply the change manually, then mark as applied to close it out.</span>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function changeRequestsAdmin() {
+    return {
+        loading: true,
+        rows: [],
+        filter: 'pending',
+        filters: [
+            {value: 'pending', label: 'Pending'},
+            {value: 'approved', label: 'Approved'},
+            {value: 'applied', label: 'Applied'},
+            {value: 'rejected', label: 'Rejected'},
+            {value: '', label: 'All'},
+        ],
+        responses: {},
+
+        async load() {
+            this.loading = true;
+            try {
+                const url = this.filter ? `/api/admin/change-requests?status=${this.filter}` : '/api/admin/change-requests';
+                const res = await fetch(url);
+                if (!res.ok) { this.rows = []; this.loading = false; return; }
+                this.rows = await res.json();
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            return new Date(iso).toLocaleString();
+        },
+
+        statusClass(s) {
+            return ({
+                pending: 'bg-amber-100 text-amber-700',
+                approved: 'bg-emerald-100 text-emerald-700',
+                applied: 'bg-emerald-100 text-emerald-700',
+                rejected: 'bg-red-100 text-red-700',
+            })[s] || 'bg-gray-100 text-gray-700';
+        },
+
+        async resolve(cr, status) {
+            const admin_response = (this.responses[cr.id] || '').trim();
+            try {
+                const res = await fetch(`/api/admin/change-requests/${cr.id}`, {
+                    method: 'PUT', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({status, admin_response}),
+                });
+                const data = await res.json();
+                if (!res.ok) { alert(data.detail || 'Update failed'); return; }
+                // Either remove from current view (if filter no longer matches) or update inline
+                if (this.filter && this.filter !== status) {
+                    this.rows = this.rows.filter(r => r.id !== cr.id);
+                } else {
+                    const idx = this.rows.findIndex(r => r.id === cr.id);
+                    if (idx >= 0) this.rows[idx] = data;
+                }
+                delete this.responses[cr.id];
+            } catch (e) { alert(String(e)); }
+        },
+    };
+}
+</script>
+{% endblock %}
