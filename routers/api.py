@@ -9459,3 +9459,107 @@ def admin_resolve_change_request(
     db.commit()
     db.refresh(cr)
     return _serialize_change_request(cr)
+
+
+# ============ MEMBER GIVING (portal proxy to central contributions API) ============
+#
+# The central API's CONTRIBUTION_VIEW_ROLES doesn't include regular members,
+# so we cannot hand member credentials directly to it. Instead the portal
+# calls the central API using its scoped service key after verifying the
+# logged-in member matches the requested member_id. Members only ever see
+# their OWN giving here.
+
+def _require_member_with_central_link(request: Request, db: Session) -> Member:
+    member = _require_logged_in_member(request, db)
+    if not member.external_member_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Your member record isn't linked to the central database yet. Ask an admin to run Member Sync.",
+        )
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        raise HTTPException(
+            status_code=503,
+            detail="Giving information isn't available right now (central database integration is disabled).",
+        )
+    return member
+
+
+def _serialize_contribution(c: dict) -> dict:
+    """Trim a central contribution record for the portal."""
+    if not isinstance(c, dict):
+        return {}
+    return {
+        "id": c.get("id"),
+        "category": c.get("category") or "",
+        "custom_label": c.get("custom_label") or None,
+        "amount": c.get("amount"),
+        "currency": c.get("currency") or "ZAR",
+        "contribution_date": c.get("contribution_date"),
+        "payment_method": c.get("payment_method") or None,
+        "reference": c.get("reference") or None,
+        "notes": c.get("notes") or None,
+        "receipt_sent": bool(c.get("receipt_sent")),
+        "receipt_sent_at": c.get("receipt_sent_at"),
+    }
+
+
+@router.get("/portal/giving/summary")
+def portal_giving_summary(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Per-category rollup for the logged-in member."""
+    member = _require_member_with_central_link(request, db)
+    r = _rfm.member_contribution_summary(
+        member.external_member_id, from_date=from_date, to_date=to_date, db=db
+    )
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    rows = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+    total = 0.0
+    out_rows = []
+    for row in rows:
+        try:
+            amt = float(row.get("total_amount") or 0)
+        except (TypeError, ValueError):
+            amt = 0.0
+        total += amt
+        out_rows.append({
+            "category": row.get("category") or "",
+            "total_amount": amt,
+            "count": int(row.get("count") or 0),
+        })
+    out_rows.sort(key=lambda x: x["total_amount"], reverse=True)
+    return {
+        "from_date": from_date,
+        "to_date": to_date,
+        "rows": out_rows,
+        "total_amount": total,
+        "currency": "ZAR",
+    }
+
+
+@router.get("/portal/giving/recent")
+def portal_giving_recent(
+    limit: int = Query(20, ge=1, le=100),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Recent contributions for the logged-in member."""
+    member = _require_member_with_central_link(request, db)
+    r = _rfm.list_member_contributions(
+        member.external_member_id, page=1, size=limit, db=db,
+    )
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    items = []
+    if isinstance(r.data, list):
+        items = r.data
+    elif isinstance(r.data, dict):
+        items = r.data.get("data") or []
+    return {
+        "items": [_serialize_contribution(c) for c in items],
+        "count": len(items),
+    }

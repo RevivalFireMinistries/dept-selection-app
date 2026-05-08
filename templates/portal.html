@@ -68,6 +68,21 @@
                     </div>
                 </dl>
                 <div x-show="!data.central_synced" class="mt-3 text-[11px] text-amber-700">⚠ Some details (ministries, home church) aren't yet linked to the central database. Ask an admin to run Member Sync.</div>
+
+                <!-- Quick actions -->
+                <div class="mt-4 pt-3 border-t border-gray-100 grid grid-cols-1 gap-2">
+                    <button @click="openGiving()" :disabled="!data.member.external_synced"
+                        class="flex items-center justify-between gap-2 p-3 rounded-xl border border-gray-200 hover:border-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed text-left">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-base">💝</div>
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold text-gray-900">My giving</div>
+                                <div class="text-[11px] text-gray-500" x-text="data.member.external_synced ? 'See your contribution summary &amp; recent giving' : 'Available once your record is linked to the central database'"></div>
+                            </div>
+                        </div>
+                        <span class="text-gray-300">›</span>
+                    </button>
+                </div>
             </section>
 
             <!-- Departments -->
@@ -164,11 +179,6 @@
                         <div class="text-[10px] text-gray-400">Coming soon</div>
                     </div>
                     <div class="p-3 bg-white border border-gray-100 rounded-xl">
-                        <div class="text-2xl">💝</div>
-                        <div class="text-xs font-semibold text-gray-700 mt-1">My giving history</div>
-                        <div class="text-[10px] text-gray-400">Coming soon</div>
-                    </div>
-                    <div class="p-3 bg-white border border-gray-100 rounded-xl">
                         <div class="text-2xl">📲</div>
                         <div class="text-xs font-semibold text-gray-700 mt-1">Online tithes & offerings</div>
                         <div class="text-[10px] text-gray-400">Coming soon</div>
@@ -232,6 +242,99 @@
         </main>
     </div>
 
+    <!-- Giving sheet -->
+    <div x-show="givingOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="givingOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div class="min-w-0">
+                    <div class="text-xs text-gray-500 uppercase tracking-wider">My giving</div>
+                    <div class="font-semibold text-gray-900 truncate" x-text="data?.member?.full_name || ''"></div>
+                </div>
+                <button @click="givingOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+
+            <div class="p-5 space-y-5">
+
+                <div x-show="givingLoading" class="text-sm text-gray-500 text-center py-6">Loading…</div>
+                <div x-show="givingError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="givingError"></div>
+
+                <div x-show="!givingLoading && !givingError">
+
+                    <!-- Tabs -->
+                    <div class="flex items-center gap-1 mb-4">
+                        <button @click="givingTab = 'summary'"
+                            :class="givingTab === 'summary' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg">Summary</button>
+                        <button @click="givingTab = 'recent'"
+                            :class="givingTab === 'recent' ? 'bg-emerald-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg">Recent contributions</button>
+                    </div>
+
+                    <!-- Summary -->
+                    <div x-show="givingTab === 'summary'">
+                        <div class="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white rounded-2xl p-5 mb-4">
+                            <div class="text-xs uppercase tracking-wider opacity-80">Total giving</div>
+                            <div class="text-3xl font-bold mt-1" x-text="formatMoney(givingSummary?.total_amount || 0, givingSummary?.currency)"></div>
+                            <div class="text-[11px] opacity-75 mt-1" x-text="(givingSummary?.from_date || givingSummary?.to_date) ? `${givingSummary?.from_date || 'all time'} — ${givingSummary?.to_date || 'today'}` : 'All time'"></div>
+                        </div>
+
+                        <div x-show="!(givingSummary?.rows || []).length" class="text-sm text-gray-500 italic text-center py-6">No contributions on record yet.</div>
+
+                        <div class="space-y-2">
+                            <template x-for="row in (givingSummary?.rows || [])" :key="row.category">
+                                <div>
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="font-medium text-gray-900" x-text="row.category"></span>
+                                        <span class="text-gray-700">
+                                            <span x-text="formatMoney(row.total_amount, givingSummary?.currency)"></span>
+                                            <span class="text-[10px] text-gray-400 ml-1">×<span x-text="row.count"></span></span>
+                                        </span>
+                                    </div>
+                                    <div class="h-2 bg-gray-100 rounded mt-1 overflow-hidden">
+                                        <div class="h-full bg-emerald-500" :style="`width:${givingPct(row.total_amount)}%`"></div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Recent contributions -->
+                    <div x-show="givingTab === 'recent'">
+                        <div x-show="!(givingRecent?.items || []).length" class="text-sm text-gray-500 italic text-center py-6">No recent contributions.</div>
+                        <div class="space-y-2">
+                            <template x-for="c in (givingRecent?.items || [])" :key="c.id">
+                                <div class="p-3 border border-gray-200 rounded-xl">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
+                                                <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
+                                            </div>
+                                            <div class="mt-1 text-sm text-gray-600" x-text="formatLongDate(c.contribution_date)"></div>
+                                            <div x-show="c.payment_method || c.reference" class="text-[11px] text-gray-400 mt-0.5">
+                                                <span x-show="c.payment_method" x-text="c.payment_method"></span>
+                                                <span x-show="c.payment_method && c.reference"> · </span>
+                                                <span x-show="c.reference" x-text="`Ref ${c.reference}`"></span>
+                                            </div>
+                                            <div x-show="c.notes" class="text-[11px] text-gray-500 mt-1 italic" x-text="c.notes"></div>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <div class="font-bold text-gray-900" x-text="formatMoney(c.amount, c.currency)"></div>
+                                            <div x-show="c.receipt_sent" class="text-[10px] text-emerald-600 mt-0.5">✓ Receipted</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-[11px] text-gray-400 text-center mt-4">Records sourced from RFM central database.</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Change request modal -->
     <div x-show="changeOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="changeOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -280,6 +383,13 @@ function memberPortal() {
         changeForm: { change_type: 'profile', summary: '', details: '' },
         changeFormSaving: false,
         changeFormError: '',
+
+        givingOpen: false,
+        givingTab: 'summary',
+        givingLoading: false,
+        givingError: '',
+        givingSummary: null,
+        givingRecent: null,
 
         async init() {
             try {
@@ -339,6 +449,60 @@ function memberPortal() {
             if (hint) this.changeForm.summary = '';
             this.changeFormError = '';
             this.changeOpen = true;
+        },
+
+        async openGiving() {
+            if (!this.data?.member?.external_synced) return;
+            this.givingOpen = true;
+            this.givingTab = 'summary';
+            this.givingError = '';
+            if (this.givingSummary && this.givingRecent) return; // cached for the session
+            this.givingLoading = true;
+            try {
+                const [s, r] = await Promise.all([
+                    fetch('/api/portal/giving/summary'),
+                    fetch('/api/portal/giving/recent?limit=20'),
+                ]);
+                if (s.ok) {
+                    this.givingSummary = await s.json();
+                } else {
+                    const err = await s.json().catch(() => ({}));
+                    this.givingError = err.detail || 'Could not load giving summary.';
+                }
+                if (r.ok) {
+                    this.givingRecent = await r.json();
+                } else if (!this.givingError) {
+                    const err = await r.json().catch(() => ({}));
+                    this.givingError = err.detail || 'Could not load recent contributions.';
+                }
+            } catch (e) { this.givingError = String(e); }
+            this.givingLoading = false;
+        },
+
+        givingPct(amount) {
+            const total = this.givingSummary?.total_amount || 0;
+            return total > 0 ? Math.round((amount / total) * 100) : 0;
+        },
+
+        formatMoney(value, currency) {
+            const n = Number(value || 0);
+            const code = currency || 'ZAR';
+            try {
+                return new Intl.NumberFormat('en-ZA', {
+                    style: 'currency', currency: code, minimumFractionDigits: 2,
+                }).format(n);
+            } catch (e) {
+                return `${code} ${n.toFixed(2)}`;
+            }
+        },
+
+        formatLongDate(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleDateString(undefined, {
+                    year: 'numeric', month: 'short', day: 'numeric',
+                });
+            } catch (e) { return iso; }
         },
 
         async submitChange() {
