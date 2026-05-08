@@ -325,8 +325,8 @@
                 <span class="text-gray-300">›</span>
             </a>
 
-            <!-- More links -->
-            <div class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">More</div>
+            <!-- Services -->
+            <div class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Services</div>
             <a :href="`/programs?phone=${encodeURIComponent(data?.member?.phone || '')}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm">🗓</div>
@@ -336,12 +336,38 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
-            <a :href="`/portal/classic?phone=${encodeURIComponent(data?.member?.phone || '')}`"
-               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
-                <div class="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center text-sm">⚙</div>
+            <a href="/display/submit" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center text-sm">📺</div>
                 <div class="flex-1">
-                    <div class="text-sm font-medium text-gray-900">Classic portal</div>
-                    <div class="text-[11px] text-gray-500">Department selection, design requests, family selector</div>
+                    <div class="text-sm font-medium text-gray-900">Submit to projector</div>
+                    <div class="text-[11px] text-gray-500">Send content to display during service</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <a :href="`/poster-request?phone=${encodeURIComponent(data?.member?.phone || '')}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-sm">🎨</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">Request a poster</div>
+                    <div class="text-[11px] text-gray-500">Ask the design team for artwork</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <a :href="`/update?phone=${encodeURIComponent(data?.member?.phone || '')}&member_id=${data?.member?.id || ''}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm">✏️</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">Edit department selection</div>
+                    <div class="text-[11px] text-gray-500">Change which departments you serve in</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <a x-show="data?.leadership?.is_hod" :href="`/hod/meetings?phone=${encodeURIComponent(data?.member?.phone || '')}`"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
+                <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center text-sm">📅</div>
+                <div class="flex-1">
+                    <div class="text-sm font-medium text-gray-900">My department meetings</div>
+                    <div class="text-[11px] text-gray-500">Schedule & manage meetings</div>
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
