@@ -9207,9 +9207,9 @@ def _require_logged_in_member(request: Request, db: Session) -> Member:
 
 
 def _portal_central_lookup(member: Member, db: Session) -> dict:
-    """Best-effort fetch of ministries + home church from the central API.
-    Returns {} on any failure — never raises so the portal always loads."""
-    out: dict = {"ministries": [], "home_church": None, "central_synced": False}
+    """Best-effort fetch of ministries + home church + assembly from the central
+    API. Returns {} on any failure — never raises so the portal always loads."""
+    out: dict = {"ministries": [], "home_church": None, "central_synced": False, "assembly_name": None}
     if not member.external_member_id:
         return out
     if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
@@ -9220,6 +9220,17 @@ def _portal_central_lookup(member: Member, db: Session) -> dict:
             return out
         api_member = r.data
         out["central_synced"] = True
+        out["assembly_name"] = api_member.get("assembly_name") or api_member.get("assembly", {}).get("name") if isinstance(api_member.get("assembly"), dict) else api_member.get("assembly_name")
+        # Fall back: ask the API which assembly the scoped key serves
+        if not out["assembly_name"]:
+            try:
+                ar = _rfm.list_assemblies(db=db)
+                if ar.ok:
+                    items = ar.data if isinstance(ar.data, list) else (ar.data or {}).get("data") or []
+                    if items:
+                        out["assembly_name"] = items[0].get("name") or None
+            except Exception:
+                pass
         ministries_raw = api_member.get("ministries") or []
         ministries: List[dict] = []
         for m in ministries_raw:
@@ -9325,6 +9336,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
         "ministries": central.get("ministries", []),
         "home_church": central.get("home_church"),
         "central_synced": central.get("central_synced", False),
+        "assembly_name": central.get("assembly_name") or "",
         "leadership": {
             "is_hc_leader": is_hc_leader,
             "led_home_churches": led_home_churches,
@@ -9562,4 +9574,27 @@ def portal_giving_recent(
     return {
         "items": [_serialize_contribution(c) for c in items],
         "count": len(items),
+    }
+
+
+@router.get("/portal/giving/banking")
+def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
+    """Public banking details for the church, plus an optional online-giving
+    URL. Read from Settings — admins can configure these via /admin/settings.
+    Any value not configured is omitted from the response."""
+    _require_logged_in_member(request, db)
+
+    def _s(key: str) -> str:
+        row = db.query(Settings).filter(Settings.key == key).first()
+        return (row.value or "").strip() if row else ""
+
+    return {
+        "bank_name": _s("bank_name"),
+        "account_holder": _s("bank_account_holder"),
+        "account_number": _s("bank_account_number"),
+        "branch_code": _s("bank_branch_code"),
+        "account_type": _s("bank_account_type"),
+        "swift": _s("bank_swift"),
+        "reference_hint": _s("bank_reference_hint") or "Use your full name as reference",
+        "online_giving_url": _s("online_giving_url"),
     }

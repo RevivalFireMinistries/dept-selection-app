@@ -30,7 +30,7 @@
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center text-sm font-bold" x-text="initials(data.member.full_name)"></div>
                     <div class="min-w-0">
-                        <div class="text-[10px] uppercase tracking-widest text-indigo-100/80">RFM Portal</div>
+                        <div class="text-[10px] uppercase tracking-widest text-indigo-100/80 truncate" x-text="data.assembly_name || 'RFM Portal'"></div>
                         <div class="text-base font-semibold truncate" x-text="data.member.full_name"></div>
                     </div>
                 </div>
@@ -88,24 +88,6 @@
                     </div>
                 </section>
 
-                <!-- Coming soon -->
-                <section class="bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-dashed border-gray-200 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Coming soon</h2>
-                    <div class="grid grid-cols-3 gap-2">
-                        <div class="p-3 bg-white border border-gray-100 rounded-xl text-center">
-                            <div class="text-2xl">📲</div>
-                            <div class="text-[11px] font-semibold text-gray-700 mt-1">Online tithes</div>
-                        </div>
-                        <div class="p-3 bg-white border border-gray-100 rounded-xl text-center">
-                            <div class="text-2xl">🏦</div>
-                            <div class="text-[11px] font-semibold text-gray-700 mt-1">Banking details</div>
-                        </div>
-                        <div class="p-3 bg-white border border-gray-100 rounded-xl text-center">
-                            <div class="text-2xl">📖</div>
-                            <div class="text-[11px] font-semibold text-gray-700 mt-1">Devotionals</div>
-                        </div>
-                    </div>
-                </section>
             </div>
 
             <!-- ==================== MY DEPARTMENTS ==================== -->
@@ -182,6 +164,54 @@
                     </div>
                 </section>
 
+                <!-- Online giving -->
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Give online</h2>
+                    <a x-show="banking?.online_giving_url" :href="banking?.online_giving_url" target="_blank" rel="noopener"
+                       class="block w-full p-4 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white text-center hover:from-emerald-600 hover:to-emerald-800">
+                        <div class="text-2xl mb-1">📲</div>
+                        <div class="font-semibold">Give online now</div>
+                        <div class="text-[11px] opacity-80 mt-0.5">Secure payment via the church's online portal</div>
+                    </a>
+                    <div x-show="!banking?.online_giving_url" class="p-4 rounded-xl bg-gray-50 border border-dashed border-gray-200 text-center">
+                        <div class="text-2xl">📲</div>
+                        <div class="text-sm font-semibold text-gray-700 mt-1">Online giving — coming soon</div>
+                        <div class="text-[11px] text-gray-500 mt-0.5">Use the bank details below for now.</div>
+                    </div>
+                </section>
+
+                <!-- Banking details -->
+                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Banking details</h2>
+                        <button @click="copyBanking()" class="text-xs text-indigo-600 hover:underline" x-show="hasBanking()">
+                            <span x-text="bankingCopied ? '✓ Copied' : 'Copy'"></span>
+                        </button>
+                    </div>
+                    <div x-show="!hasBanking()" class="text-sm text-gray-500 italic">Bank details haven't been configured yet. Please contact the church office.</div>
+                    <dl x-show="hasBanking()" class="space-y-2 text-sm">
+                        <div x-show="banking?.bank_name" class="flex justify-between gap-3">
+                            <dt class="text-gray-500">Bank</dt><dd class="font-medium text-gray-900 text-right" x-text="banking?.bank_name"></dd>
+                        </div>
+                        <div x-show="banking?.account_holder" class="flex justify-between gap-3">
+                            <dt class="text-gray-500">Account holder</dt><dd class="font-medium text-gray-900 text-right" x-text="banking?.account_holder"></dd>
+                        </div>
+                        <div x-show="banking?.account_number" class="flex justify-between gap-3">
+                            <dt class="text-gray-500">Account number</dt><dd class="font-mono font-semibold text-gray-900 text-right" x-text="banking?.account_number"></dd>
+                        </div>
+                        <div x-show="banking?.account_type" class="flex justify-between gap-3">
+                            <dt class="text-gray-500">Account type</dt><dd class="font-medium text-gray-900 text-right" x-text="banking?.account_type"></dd>
+                        </div>
+                        <div x-show="banking?.branch_code" class="flex justify-between gap-3">
+                            <dt class="text-gray-500">Branch code</dt><dd class="font-mono font-semibold text-gray-900 text-right" x-text="banking?.branch_code"></dd>
+                        </div>
+                        <div x-show="banking?.swift" class="flex justify-between gap-3">
+                            <dt class="text-gray-500">SWIFT / BIC</dt><dd class="font-mono font-semibold text-gray-900 text-right" x-text="banking?.swift"></dd>
+                        </div>
+                        <div x-show="banking?.reference_hint" class="pt-2 mt-2 border-t border-gray-100 text-[11px] text-gray-500" x-text="banking?.reference_hint"></div>
+                    </dl>
+                </section>
+
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Recent</h2>
                     <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
@@ -213,20 +243,20 @@
                 </section>
             </div>
 
-            <!-- ==================== HOME CHURCH ==================== -->
-            <div x-show="tab === 'home_church'" class="space-y-4">
+            <!-- ==================== MY ATTENDANCE ==================== -->
+            <div x-show="tab === 'attendance'" class="space-y-4">
+                <section class="bg-gradient-to-br from-indigo-500 to-violet-700 text-white rounded-2xl p-5">
+                    <div class="text-xs uppercase tracking-wider opacity-80">Attendance</div>
+                    <div class="text-3xl font-bold mt-1">Coming soon</div>
+                    <div class="text-[11px] opacity-75 mt-1">Your service attendance will appear here once we start tracking it.</div>
+                </section>
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">My home church</h2>
-                    <div x-show="!data.home_church" class="text-sm text-gray-500 italic">You aren't assigned to a home church yet. Use the menu to request one.</div>
-                    <div x-show="data.home_church" class="p-4 bg-violet-50/40 border border-violet-100 rounded-xl">
-                        <div class="font-semibold text-gray-900 text-base" x-text="data.home_church?.name"></div>
-                        <div class="text-xs text-gray-600 mt-1" x-show="data.home_church?.suburb || data.home_church?.address">
-                            📍 <span x-text="[data.home_church?.address, data.home_church?.suburb].filter(Boolean).join(', ')"></span>
-                        </div>
-                        <div class="text-xs text-gray-500 mt-1" x-show="data.home_church?.meeting_day !== null && data.home_church?.meeting_time">
-                            📅 <span x-text="dayName(data.home_church?.meeting_day) + 's · ' + data.home_church?.meeting_time"></span>
-                        </div>
-                    </div>
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-2">What you'll see here</h2>
+                    <ul class="text-sm text-gray-700 space-y-2">
+                        <li class="flex items-start gap-2"><span>📅</span><span>Sunday services attended this month/year</span></li>
+                        <li class="flex items-start gap-2"><span>🏘</span><span>Home church attendance</span></li>
+                        <li class="flex items-start gap-2"><span>🏆</span><span>Streaks and personal trends</span></li>
+                    </ul>
                 </section>
             </div>
 
@@ -269,6 +299,17 @@
                 <div class="text-xs text-gray-500 truncate" x-text="data?.member?.email || ''"></div>
                 <div class="text-xs text-gray-500" x-text="data?.member?.address || ''"></div>
             </div>
+
+            <!-- My home church (read-only quick view) -->
+            <a href="#" @click.prevent="hcInfoOpen = true; menuOpen = false"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center text-sm">🏘</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">My home church</div>
+                    <div class="text-[11px] text-gray-500 truncate" x-text="data?.home_church?.name || 'Not assigned'"></div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
 
             <!-- One change request entry -->
             <a href="#" @click.prevent="changeOpen = true; menuOpen = false"
@@ -381,6 +422,29 @@
         </aside>
     </div>
 
+    <!-- ==================== HOME CHURCH INFO MODAL ==================== -->
+    <div x-show="hcInfoOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="hcInfoOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div class="font-semibold text-gray-900">My home church</div>
+                <button @click="hcInfoOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5">
+                <div x-show="!data?.home_church" class="text-sm text-gray-500 italic">You aren't assigned to a home church yet. Use "Request a change" to ask to be added to one.</div>
+                <div x-show="data?.home_church" class="p-4 bg-violet-50/40 border border-violet-100 rounded-xl">
+                    <div class="font-semibold text-gray-900 text-base" x-text="data?.home_church?.name"></div>
+                    <div class="text-xs text-gray-600 mt-1" x-show="data?.home_church?.suburb || data?.home_church?.address">
+                        📍 <span x-text="[data?.home_church?.address, data?.home_church?.suburb].filter(Boolean).join(', ')"></span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1" x-show="data?.home_church?.meeting_day !== null && data?.home_church?.meeting_time">
+                        📅 <span x-text="dayName(data?.home_church?.meeting_day) + 's · ' + data?.home_church?.meeting_time"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== CHANGE REQUEST MODAL (single entry) ==================== -->
     <div x-show="changeOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="changeOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -467,11 +531,12 @@ function memberPortal() {
         data: null,
         tab: 'home',
         menuOpen: false,
+        hcInfoOpen: false,
         tabs: [
             { id: 'home', icon: '🏠', label: 'Home' },
             { id: 'departments', icon: '🛠', label: 'Departments' },
-            { id: 'contributions', icon: '💝', label: 'Giving' },
-            { id: 'home_church', icon: '🏘', label: 'Home Church' },
+            { id: 'contributions', icon: '💝', label: 'Contributions' },
+            { id: 'attendance', icon: '📅', label: 'Attendance' },
         ],
 
         // Change requests
@@ -488,12 +553,14 @@ function memberPortal() {
             { value: 'other',        icon: '💬', label: 'Other',       hint: 'Anything else' },
         ],
 
-        // Giving
+        // Contributions
         givingLoading: false,
         givingError: '',
         givingSummary: null,
         givingRecent: null,
         _givingLoaded: false,
+        banking: null,
+        bankingCopied: false,
 
         // Meetings (home tab)
         meetingsLoading: false,
@@ -530,7 +597,40 @@ function memberPortal() {
 
         onTabEnter(id) {
             if (id === 'home') this.loadUpcomingMeetings();
-            if (id === 'contributions' && this.data?.member?.external_synced) this.loadGiving();
+            if (id === 'contributions') {
+                this.loadBanking();
+                if (this.data?.member?.external_synced) this.loadGiving();
+            }
+        },
+
+        async loadBanking() {
+            if (this.banking) return;
+            try {
+                const r = await fetch('/api/portal/giving/banking');
+                if (r.ok) this.banking = await r.json();
+            } catch (e) { console.error(e); }
+        },
+
+        hasBanking() {
+            const b = this.banking || {};
+            return !!(b.bank_name || b.account_holder || b.account_number || b.branch_code);
+        },
+
+        copyBanking() {
+            const b = this.banking || {};
+            const lines = [
+                b.bank_name && `Bank: ${b.bank_name}`,
+                b.account_holder && `Account holder: ${b.account_holder}`,
+                b.account_number && `Account number: ${b.account_number}`,
+                b.account_type && `Account type: ${b.account_type}`,
+                b.branch_code && `Branch code: ${b.branch_code}`,
+                b.swift && `SWIFT: ${b.swift}`,
+                b.reference_hint && `Reference: ${b.reference_hint}`,
+            ].filter(Boolean).join('\n');
+            navigator.clipboard.writeText(lines).then(() => {
+                this.bankingCopied = true;
+                setTimeout(() => { this.bankingCopied = false; }, 2000);
+            });
         },
 
         async loadUpcomingMeetings() {
