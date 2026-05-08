@@ -9220,17 +9220,33 @@ def _portal_central_lookup(member: Member, db: Session) -> dict:
             return out
         api_member = r.data
         out["central_synced"] = True
-        out["assembly_name"] = api_member.get("assembly_name") or api_member.get("assembly", {}).get("name") if isinstance(api_member.get("assembly"), dict) else api_member.get("assembly_name")
-        # Fall back: ask the API which assembly the scoped key serves
-        if not out["assembly_name"]:
+        # Resolve assembly name. The central member API carries assembly_id
+        # (a UUID) but no assembly_name, so we look it up against list_assemblies.
+        # We match by the member's OWN assembly_id rather than just taking the
+        # first assembly in the list — that was the previous bug when an admin
+        # key returned multiple assemblies.
+        assembly_id = api_member.get("assembly_id") or member.external_assembly_id
+        if assembly_id:
             try:
                 ar = _rfm.list_assemblies(db=db)
                 if ar.ok:
                     items = ar.data if isinstance(ar.data, list) else (ar.data or {}).get("data") or []
-                    if items:
+                    target = str(assembly_id)
+                    match = next((a for a in items if str(a.get("id") or "") == target), None)
+                    if match:
+                        out["assembly_name"] = match.get("name") or None
+                    elif items:
+                        # Last-ditch fallback (single-assembly scoped keys)
                         out["assembly_name"] = items[0].get("name") or None
             except Exception:
                 pass
+        # Persist the assembly_id locally if we just learnt it (helps next time)
+        if assembly_id and member.external_assembly_id != str(assembly_id):
+            try:
+                member.external_assembly_id = str(assembly_id)
+                db.commit()
+            except Exception:
+                db.rollback()
         ministries_raw = api_member.get("ministries") or []
         ministries: List[dict] = []
         for m in ministries_raw:
