@@ -68,21 +68,6 @@
                     </div>
                 </dl>
                 <div x-show="!data.central_synced" class="mt-3 text-[11px] text-amber-700">⚠ Some details (ministries, home church) aren't yet linked to the central database. Ask an admin to run Member Sync.</div>
-
-                <!-- Quick actions -->
-                <div class="mt-4 pt-3 border-t border-gray-100 grid grid-cols-1 gap-2">
-                    <button @click="openGiving()" :disabled="!data.member.external_synced"
-                        class="flex items-center justify-between gap-2 p-3 rounded-xl border border-gray-200 hover:border-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed text-left">
-                        <div class="flex items-center gap-3 min-w-0">
-                            <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-base">💝</div>
-                            <div class="min-w-0">
-                                <div class="text-sm font-semibold text-gray-900">My giving</div>
-                                <div class="text-[11px] text-gray-500" x-text="data.member.external_synced ? 'See your contribution summary &amp; recent giving' : 'Available once your record is linked to the central database'"></div>
-                            </div>
-                        </div>
-                        <span class="text-gray-300">›</span>
-                    </button>
-                </div>
             </section>
 
             <!-- Departments -->
@@ -190,6 +175,14 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Footer links: discreet entry points to less-frequent things -->
+            <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-2 text-xs">
+                <button @click="openGiving()" :disabled="!data.member.external_synced"
+                    class="text-gray-500 hover:text-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                    View my giving
+                </button>
+            </div>
 
             <!-- Leadership tools (only when applicable) -->
             <section x-show="hasLeadership()" class="mt-6">
