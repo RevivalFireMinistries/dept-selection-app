@@ -71,8 +71,19 @@ class RfmNotifyChannel(NotificationChannel):
             event_code = f"{prefix}{event_code}"
 
         recipient_block: dict = {"email": recipient}
-        if kwargs.get("recipient_id"):
-            recipient_block["member_id"] = str(kwargs["recipient_id"])
+        # Only forward recipient_id if it parses as a UUID. The portal's
+        # member.id is a SERIAL integer that has no meaning in rfm-notify's
+        # universe; rfm-notify's RecipientSpec requires UUID, so passing
+        # the int would 422 the whole request. Drop silently when it's
+        # not a UUID — email is enough for matching downstream.
+        rid_raw = kwargs.get("recipient_id")
+        if rid_raw is not None:
+            import uuid as _uuid
+            try:
+                _uuid.UUID(str(rid_raw))
+                recipient_block["member_id"] = str(rid_raw)
+            except (ValueError, TypeError):
+                pass  # not a UUID — fine, just don't include it
         if kwargs.get("recipient_name"):
             recipient_block["full_name"] = kwargs["recipient_name"]
 
