@@ -127,6 +127,137 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
     }
 
 
+@router.post("/give/checkout")
+def public_give_checkout(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Public Yoco checkout. Same as /payments/checkout but works for guests
+    too — captures guest_name + guest_phone (+ optional email) and tries to
+    fuzzy-match the phone to an existing local member so the contribution
+    can be tied to their record. If no match, the txn is recorded with
+    member_id = null and stamped with the guest details in notes/metadata.
+    """
+    import re as _re
+    secret_key = _setting(db, "yoco_secret_key")
+    if not secret_key:
+        raise HTTPException(status_code=503, detail="Online giving isn't configured yet.")
+
+    # Resolve actor: logged-in member > phone-matched member > guest
+    from routers.pages import get_current_member
+    member = get_current_member(request, db)
+
+    guest_name = (payload.get("guest_name") or "").strip()
+    guest_phone = (payload.get("guest_phone") or "").strip()
+    guest_email = (payload.get("guest_email") or "").strip()
+
+    if not member:
+        if not guest_name:
+            raise HTTPException(status_code=400, detail="Please enter your name to give as a guest.")
+        if not guest_phone:
+            raise HTTPException(status_code=400, detail="Please enter your phone so we can attribute the gift.")
+        target = _re.sub(r"\D", "", guest_phone)[-9:]
+        if target and len(target) >= 9:
+            for m in db.query(Member).all():
+                if _re.sub(r"\D", "", m.phone or "")[-9:] == target:
+                    member = m
+                    break
+
+    # Standard validation (same shape as /payments/checkout)
+    category = (payload.get("category") or "").strip().upper()
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Pick a category: {', '.join(sorted(VALID_CATEGORIES))}")
+    custom_label = (payload.get("custom_label") or "").strip() or None
+    notes = (payload.get("notes") or "").strip() or None
+
+    try:
+        amount_rand = float(payload.get("amount") or 0)
+    except (TypeError, ValueError):
+        amount_rand = 0
+    amount_cents = int(round(amount_rand * 100))
+    if amount_cents < 100:
+        raise HTTPException(status_code=400, detail="Amount must be at least R1.00")
+    if amount_cents > 1_000_000 * 100:
+        raise HTTPException(status_code=400, detail="Amount is too large; please contact the church office.")
+
+    base = _absolute_base(request, db)
+    success_url = f"{base}/give/success"
+    cancel_url = f"{base}/give/cancel"
+    failure_url = f"{base}/give/failure"
+
+    metadata = {"category": category}
+    if member:
+        metadata["memberId"] = str(member.id)
+        if member.external_member_id:
+            metadata["externalMemberId"] = str(member.external_member_id)
+    if not member or guest_name or guest_phone:
+        if guest_name: metadata["guestName"] = guest_name[:80]
+        if guest_phone: metadata["guestPhone"] = guest_phone[:30]
+        if guest_email: metadata["guestEmail"] = guest_email[:120]
+
+    try:
+        result = yoco.create_checkout(
+            secret_key=secret_key,
+            amount_cents=amount_cents,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            failure_url=failure_url,
+            metadata=metadata,
+        )
+    except yoco.YocoError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    # Stamp guest details on the local notes so admins can reconcile later
+    final_notes = notes or ""
+    if not member and (guest_name or guest_phone):
+        ident = " · ".join(filter(None, [guest_name, guest_phone, guest_email]))
+        final_notes = f"{final_notes}\nGuest: {ident}".strip()
+
+    txn = PaymentTransaction(
+        member_id=member.id if member else None,
+        external_reference=result.checkout_id,
+        provider="yoco",
+        status="pending",
+        amount_cents=amount_cents,
+        currency="ZAR",
+        category=category,
+        custom_label=custom_label,
+        notes=final_notes or None,
+    )
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+
+    return {
+        "checkout_id": result.checkout_id,
+        "redirect_url": result.redirect_url,
+        "status": result.status,
+        "transaction_id": txn.id,
+        "external_reference": txn.external_reference,
+        "matched_member": bool(member),
+    }
+
+
+@router.get("/give/status/{external_reference}")
+def public_give_status(external_reference: str, db: Session = Depends(get_db)):
+    """Public status check by Yoco checkout ID. Returns minimal info so the
+    success page can poll for the webhook landing without requiring login.
+    Lookup is by the unguessable Yoco checkout ID, so guests who hold the
+    reference (it's stashed in their sessionStorage) can read their own txn,
+    no one else's."""
+    txn = db.query(PaymentTransaction).filter(
+        PaymentTransaction.external_reference == external_reference
+    ).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    return {
+        "status": txn.status,
+        "amount_cents": txn.amount_cents,
+        "currency": txn.currency,
+        "category": txn.category,
+        "custom_label": txn.custom_label,
+        "central_pushed_at": txn.central_pushed_at.isoformat() if txn.central_pushed_at else None,
+        "updated_at": txn.updated_at.isoformat() if txn.updated_at else None,
+    }
+
+
 @router.get("/payments/transactions/{txn_id}")
 def get_transaction_status(txn_id: int, request: Request, db: Session = Depends(get_db)):
     """Member-authed status check used by the success page to poll for the

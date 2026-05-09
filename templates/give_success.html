@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Gift received — Revival Fire{% endblock %}
+
+{% block content %}
+<div x-data="giveSuccess()" x-init="init()" class="min-h-screen flex items-center justify-center px-6 bg-gradient-to-br from-emerald-50 to-white">
+    <div class="max-w-md w-full text-center">
+        <div class="w-20 h-20 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-4xl">✓</div>
+        <h1 class="mt-4 text-2xl font-bold text-gray-900">Thank you for your gift</h1>
+        <p class="mt-2 text-sm text-gray-600" x-show="status === 'captured'">
+            Your contribution has been recorded. May the Lord multiply it.
+        </p>
+        <p class="mt-2 text-sm text-gray-600" x-show="status === 'pending'">
+            Confirming with the bank — this usually takes a few seconds…
+        </p>
+        <p class="mt-2 text-sm text-amber-700" x-show="status === 'unknown'">
+            We couldn't confirm right away. If your card was charged it will reflect shortly.
+        </p>
+
+        <div x-show="txn" class="mt-6 inline-block bg-white border border-gray-200 rounded-xl p-4 text-left text-sm">
+            <div class="flex justify-between gap-6"><span class="text-gray-500">Amount</span><span class="font-semibold" x-text="formatMoney(txn?.amount_cents || 0, txn?.currency)"></span></div>
+            <div class="flex justify-between gap-6"><span class="text-gray-500">Category</span><span class="font-medium" x-text="txn?.custom_label || txn?.category || ''"></span></div>
+            <div class="flex justify-between gap-6"><span class="text-gray-500">Status</span><span class="font-medium" x-text="(txn?.status || 'pending').toUpperCase()"></span></div>
+        </div>
+
+        <div class="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
+            <a href="/give" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg">Give again</a>
+            <a href="/" class="px-5 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg">Home</a>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function giveSuccess() {
+    return {
+        txn: null,
+        status: 'pending',
+        async init() {
+            const ref = sessionStorage.getItem('rfm_pending_txn_ref');
+            if (!ref) { this.status = 'unknown'; return; }
+            for (let i = 0; i < 6; i++) {
+                try {
+                    const r = await fetch(`/api/give/status/${encodeURIComponent(ref)}`);
+                    if (r.ok) {
+                        this.txn = await r.json();
+                        this.status = this.txn.status;
+                        if (this.status === 'captured' || this.status === 'failed') break;
+                    }
+                } catch (e) { /* keep polling */ }
+                await new Promise(res => setTimeout(res, 2000));
+            }
+            if (this.status !== 'captured' && this.status !== 'failed') this.status = 'unknown';
+            sessionStorage.removeItem('rfm_pending_txn_ref');
+            sessionStorage.removeItem('rfm_pending_txn_was_guest');
+        },
+        formatMoney(cents, currency) {
+            const n = (cents || 0) / 100;
+            try { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: currency || 'ZAR' }).format(n); }
+            catch (e) { return `R ${n.toFixed(2)}`; }
+        },
+    };
+}
+</script>
+{% endblock %}

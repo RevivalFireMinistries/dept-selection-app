@@ -370,6 +370,28 @@ async def admin_members(request: Request):
     return templates.TemplateResponse("admin/members.html", {"request": request})
 
 
+@router.get("/give")
+async def public_give_page(request: Request):
+    """Public Yoco giving page. No login required — guests can give and
+    optionally sign in for a smoother experience."""
+    return templates.TemplateResponse("give.html", {"request": request})
+
+
+@router.get("/give/success")
+async def public_give_success_page(request: Request):
+    return templates.TemplateResponse("give_success.html", {"request": request})
+
+
+@router.get("/give/cancel")
+async def public_give_cancel_page(request: Request):
+    return templates.TemplateResponse("payment_cancel.html", {"request": request})
+
+
+@router.get("/give/failure")
+async def public_give_failure_page(request: Request):
+    return templates.TemplateResponse("payment_failure.html", {"request": request})
+
+
 @router.get("/connect")
 async def public_connect_form(request: Request):
     """Public visitor connect card. No login required."""
