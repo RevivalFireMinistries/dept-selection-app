@@ -9652,15 +9652,24 @@ def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
     central: dict = {}
     central_source = None
 
-    # Try central if the member is linked
+    # Try central if the member is linked. Banking lives at:
+    #   assembly.metadata.banking_details (the canonical location)
+    # We also tolerate top-level keys on metadata for backward compatibility.
     if member.external_assembly_id and _rfm.is_enabled(db) and _rfm.is_configured(db):
         try:
             r = _rfm.get_assembly(member.external_assembly_id, db=db)
             if r.ok and isinstance(r.data, dict):
                 meta = r.data.get("metadata") or r.data.get("extra_metadata") or {}
                 if isinstance(meta, dict):
-                    # Lower-case keys to be tolerant of different conventions
-                    norm = {str(k).lower(): str(v).strip() for k, v in meta.items() if v}
+                    bank_block = meta.get("banking_details")
+                    # Fallback: if no nested block, read from top-level metadata
+                    if not isinstance(bank_block, dict):
+                        bank_block = meta
+                    norm = {
+                        str(k).lower(): str(v).strip()
+                        for k, v in bank_block.items()
+                        if v not in (None, "")
+                    }
                     central = norm
                     if any(norm.get(k) for k in ("bank_name", "account_number", "online_giving_url")):
                         central_source = "central"
