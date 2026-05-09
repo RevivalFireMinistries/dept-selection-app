@@ -344,6 +344,18 @@
                     <div class="text-[11px] opacity-80 mt-1" x-text="monthSubtitle()"></div>
                 </section>
 
+                <!-- Compliment / pastoral nudge -->
+                <section x-show="!attendanceLoading && attendance && complimentLine()"
+                         class="rounded-2xl p-4 border" :class="complimentClass()">
+                    <div class="flex items-start gap-3">
+                        <div class="text-2xl flex-shrink-0" x-text="complimentEmoji()"></div>
+                        <div class="min-w-0">
+                            <div class="font-semibold text-sm" x-text="complimentLine()"></div>
+                            <div x-show="complimentSubline()" class="text-xs opacity-80 mt-0.5" x-text="complimentSubline()"></div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Recent in selected month -->
                 <section x-show="!attendanceLoading && attendance && monthRecent().length"
                          class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -373,7 +385,10 @@
                         <template x-for="row in attendanceMonthly()" :key="row.label">
                             <button @click="jumpToMonth(row.month)"
                                     class="w-full flex items-center gap-2 hover:bg-gray-50 rounded p-1 -m-1 text-left">
-                                <div class="w-12 text-[10px] font-medium" :class="row.month === selectedMonth ? 'text-indigo-700' : 'text-gray-500'" x-text="row.label"></div>
+                                <div class="w-14 text-[10px] font-medium flex items-center gap-0.5" :class="row.month === selectedMonth ? 'text-indigo-700' : 'text-gray-500'">
+                                    <span x-text="row.label"></span>
+                                    <span x-show="row.month === bestMonth()" title="Best month so far">🏆</span>
+                                </div>
                                 <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
                                     <div class="h-full" :class="row.month === selectedMonth ? 'bg-indigo-700' : 'bg-indigo-400'" :style="`width:${row.pct}%`"></div>
                                 </div>
@@ -1096,6 +1111,137 @@ function memberPortal() {
         },
         yearTotal() {
             return this.attendanceMonthly().reduce((sum, r) => sum + (r.total || 0), 0);
+        },
+
+        bestMonth() {
+            const rows = this.attendanceMonthly().filter(r => r.attended > 0);
+            if (!rows.length) return null;
+            // Best = highest attended; tiebreak by best pct
+            rows.sort((a, b) => (b.attended - a.attended) || (b.pct - a.pct));
+            return rows[0].month;
+        },
+
+        // ---- Encouragement / pastoral nudges ----
+        // Returns nice copy that adapts to the member's behaviour. Tone: warm,
+        // friendly, never guilt-trippy. Empty string = render nothing.
+        _firstName() {
+            return (this.data?.member?.full_name || '').split(' ')[0] || '';
+        },
+        _complimentBlock() {
+            // Compute once; the template calls a few accessors that all read this
+            if (this._complimentCache && this._complimentCacheKey === `${this.selectedYear}-${this.selectedMonth}-${this._attendanceLoadedYear}`) {
+                return this._complimentCache;
+            }
+            const d = this._attData();
+            const row = this._selectedMonthRow();
+            const attended = this.monthAttended();
+            const total = row?.total || 0;
+            const pct = (row && total > 0) ? row.pct : null;
+            const streak = Number(d.streak ?? d.current_streak ?? 0);
+            const isCurrent = this.isCurrentMonth();
+            const name = this._firstName();
+            const yearAtt = this.yearAttended();
+            const best = this.bestMonth();
+            const isBest = row && best && row.month === best && row.attended >= 2;
+
+            let line = '';
+            let sub = '';
+            let emoji = '✨';
+            let tone = 'good';  // good | great | gentle
+
+            // ----- Strong streak (only meaningful for the current month) -----
+            if (isCurrent && streak >= 12) {
+                emoji = '👑';
+                line = name ? `${name}, you're a legend — ${streak} services in a row.` : `Legend — ${streak} services in a row.`;
+                sub = "Pillars are made of this kind of consistency.";
+                tone = 'great';
+            } else if (isCurrent && streak >= 6) {
+                emoji = '🔥';
+                line = name ? `${name}, you're on fire — ${streak} in a row!` : `On fire — ${streak} in a row!`;
+                sub = "Keep showing up — the church family loves seeing you.";
+                tone = 'great';
+            } else if (isCurrent && streak >= 3) {
+                emoji = '🔥';
+                line = `Three's a streak — and you're at ${streak}.`;
+                sub = "The Lord honours the faithful.";
+                tone = 'great';
+            }
+
+            // ----- Perfect month -----
+            else if (pct != null && pct === 100 && attended >= 2) {
+                emoji = '⭐';
+                line = `Perfect attendance for ${this.monthLabel().split(' ')[0]}.`;
+                sub = name
+                    ? `Well done, ${name}. Every Sunday, present and accounted for.`
+                    : "Every Sunday, present and accounted for.";
+                tone = 'great';
+            }
+
+            // ----- Best month so far this year -----
+            else if (isBest && yearAtt >= 4) {
+                emoji = '🏆';
+                line = `Your strongest month this year.`;
+                sub = `${attended} services — that's leadership by example.`;
+                tone = 'great';
+            }
+
+            // ----- Solid (≥75%) -----
+            else if (pct != null && pct >= 75) {
+                emoji = '💪';
+                line = "Strong showing.";
+                sub = name ? `Faithful presence noted, ${name}.` : "Faithful presence noted.";
+                tone = 'good';
+            }
+
+            // ----- Decent (≥50%) -----
+            else if (pct != null && pct >= 50) {
+                emoji = '🙌';
+                line = "Glad to see you.";
+                sub = "Every service you join lifts the room.";
+                tone = 'good';
+            }
+
+            // ----- Showed up at least once -----
+            else if (attended >= 1) {
+                emoji = '🤝';
+                line = "Thanks for joining us.";
+                sub = isCurrent ? "There's still time this month — see you Sunday?" : "Every service counts.";
+                tone = 'good';
+            }
+
+            // ----- No attendance recorded -----
+            else if (attended === 0) {
+                if (isCurrent) {
+                    emoji = '💛';
+                    line = name ? `We've missed you, ${name}.` : "We've missed you.";
+                    sub = "We saved you a seat. See you on Sunday?";
+                    tone = 'gentle';
+                } else if (yearAtt > 0) {
+                    // Past month with no attendance — don't guilt-trip about ancient history
+                    return null;
+                } else {
+                    emoji = '💛';
+                    line = "We'd love to see you.";
+                    sub = "Whenever you're ready, the door is open.";
+                    tone = 'gentle';
+                }
+            }
+
+            const block = { line, sub, emoji, tone };
+            this._complimentCache = block;
+            this._complimentCacheKey = `${this.selectedYear}-${this.selectedMonth}-${this._attendanceLoadedYear}`;
+            return block;
+        },
+        complimentLine()    { return this._complimentBlock()?.line  || ''; },
+        complimentSubline() { return this._complimentBlock()?.sub   || ''; },
+        complimentEmoji()   { return this._complimentBlock()?.emoji || ''; },
+        complimentClass()   {
+            const tone = this._complimentBlock()?.tone || 'good';
+            return ({
+                great:  'bg-amber-50 border-amber-200 text-amber-900',
+                good:   'bg-emerald-50 border-emerald-200 text-emerald-900',
+                gentle: 'bg-rose-50 border-rose-200 text-rose-900',
+            })[tone] || 'bg-emerald-50 border-emerald-200 text-emerald-900';
         },
 
         // ---- Push notifications ----
