@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}Connect — Revival Fire Stellenbosch{% endblock %}
+
+{% block content %}
+<div x-data="connectWizard()" class="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-violet-50 px-4 py-8">
+    <div class="max-w-xl mx-auto">
+
+        <!-- Header -->
+        <header class="text-center mb-6">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-md">RFM</div>
+            <h1 class="mt-3 text-2xl font-bold text-gray-900">RFM Stellenbosch — Connect</h1>
+            <p class="mt-1 text-sm text-gray-600">We would love to connect with you! Please share your details so we can welcome you into the family.</p>
+        </header>
+
+        <!-- Submitted state -->
+        <div x-show="submitted" class="bg-white rounded-2xl shadow border border-emerald-200 p-8 text-center">
+            <div class="w-16 h-16 mx-auto rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl">✓</div>
+            <h2 class="mt-4 text-xl font-bold text-gray-900">Thank you, <span x-text="form.full_name.split(' ')[0]"></span></h2>
+            <p class="mt-2 text-sm text-gray-600">A leader will reach out soon. We're so glad you're here.</p>
+            <button @click="reset()" class="mt-6 text-xs text-indigo-600 hover:underline">Submit another response</button>
+        </div>
+
+        <!-- Wizard -->
+        <div x-show="!submitted" class="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden">
+
+            <!-- Progress -->
+            <div class="bg-gradient-to-r from-indigo-600 to-violet-700 px-6 pt-5 pb-4 text-white">
+                <div class="flex items-center justify-between mb-2 text-xs uppercase tracking-widest opacity-80">
+                    <span x-text="`Step ${step} of ${totalSteps}`"></span>
+                    <span x-text="stepTitle()"></span>
+                </div>
+                <div class="h-1.5 bg-white/20 rounded-full overflow-hidden">
+                    <div class="h-full bg-white transition-all" :style="`width: ${(step / totalSteps) * 100}%`"></div>
+                </div>
+            </div>
+
+            <div class="p-5 sm:p-6">
+
+                <!-- Step 1: About you -->
+                <div x-show="step === 1" class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-900">About you</h2>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Full name <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="form.full_name" placeholder="Please enter your full name as you would like it to appear on our records."
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Phone number <span class="text-red-500">*</span></label>
+                        <input type="tel" inputmode="tel" x-model="form.phone" placeholder="Include your area code if applicable"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email address</label>
+                        <input type="email" inputmode="email" x-model="form.email" placeholder="We'll use this for updates and ministry communications"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date of visit</label>
+                        <input type="date" x-model="form.date_of_visit"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                        <p class="text-[11px] text-gray-500 mt-1">Select the date when you visited Revival Fire Ministries.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Gender <span class="text-red-500">*</span></label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <template x-for="opt in ['Male', 'Female']" :key="opt">
+                                <button type="button" @click="form.gender = opt"
+                                    :class="form.gender === opt ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700'"
+                                    class="px-4 py-3 rounded-lg border font-medium" x-text="opt"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: First impressions -->
+                <div x-show="step === 2" class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Your first impressions</h2>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">First time visiting?</label>
+                        <p class="text-[11px] text-gray-500 mb-2">Tell us if this is your first visit to our ministry.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <template x-for="opt in ['Yes', 'No']" :key="opt">
+                                <button type="button" @click="form.first_time_visiting = opt"
+                                    :class="form.first_time_visiting === opt ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700'"
+                                    class="px-4 py-3 rounded-lg border font-medium" x-text="opt"></button>
+                            </template>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">How did you hear about us? <span class="text-red-500">*</span></label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <template x-for="opt in ['Friend/Family', 'Social Media', 'Walk-in', 'Other']" :key="opt">
+                                <button type="button" @click="form.heard_about_us = opt"
+                                    :class="form.heard_about_us === opt ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700'"
+                                    class="px-4 py-3 rounded-lg border font-medium text-sm" x-text="opt"></button>
+                            </template>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Ministry group <span class="text-red-500">*</span></label>
+                        <p class="text-[11px] text-gray-500 mb-2">Choose the ministry group that best represents you.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <template x-for="opt in ['Singles & Widowed', 'Young Unmarried Adults', 'Teens', 'Ladies', 'Men', 'Couples']" :key="opt">
+                                <button type="button" @click="form.ministry_group = opt"
+                                    :class="form.ministry_group === opt ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700'"
+                                    class="px-3 py-3 rounded-lg border font-medium text-xs" x-text="opt"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Next steps -->
+                <div x-show="step === 3" class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Your next steps</h2>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Select all that apply <span class="text-red-500">*</span></label>
+                        <p class="text-[11px] text-gray-500 mb-3">What's the next step in your spiritual journey?</p>
+                        <div class="space-y-2">
+                            <template x-for="opt in nextStepOptions" :key="opt">
+                                <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50"
+                                    :class="form.next_steps.includes(opt) ? 'border-indigo-500 bg-indigo-50' : ''">
+                                    <input type="checkbox" :value="opt" :checked="form.next_steps.includes(opt)"
+                                        @change="toggleNextStep(opt)"
+                                        class="mt-0.5 w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500" />
+                                    <span class="text-sm text-gray-900" x-text="opt"></span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Prayer requests</label>
+                        <textarea x-model="form.prayer_requests" rows="3"
+                            placeholder="Share any prayer requests or areas where you'd like support."
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
+                    </div>
+                </div>
+
+                <!-- Step 4: Feedback -->
+                <div x-show="step === 4" class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Your feedback</h2>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Rate your visit (1–10)</label>
+                        <div class="flex flex-wrap gap-1.5">
+                            <template x-for="n in [1,2,3,4,5,6,7,8,9,10]" :key="n">
+                                <button type="button" @click="form.experience_rating = n"
+                                    :class="form.experience_rating === n ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300'"
+                                    class="w-10 h-10 rounded-lg border font-semibold" x-text="n"></button>
+                            </template>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Preferred contact time <span class="text-red-500">*</span></label>
+                        <input type="time" x-model="form.preferred_contact_time"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Would you like updates about events?</label>
+                        <p class="text-[11px] text-gray-500 mb-2">This helps us know if you'd like to stay informed.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <template x-for="opt in ['Yes', 'No']" :key="opt">
+                                <button type="button" @click="form.wants_updates = opt"
+                                    :class="form.wants_updates === opt ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-gray-300 bg-white text-gray-700'"
+                                    class="px-4 py-3 rounded-lg border font-medium" x-text="opt"></button>
+                            </template>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Testimony or message</label>
+                        <textarea x-model="form.testimony" rows="3"
+                            placeholder="We would love to hear from you!"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"></textarea>
+                    </div>
+                </div>
+
+                <!-- Step 5: Consent + summary -->
+                <div x-show="step === 5" class="space-y-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Almost there</h2>
+                    <div class="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 space-y-1">
+                        <div><strong>Name:</strong> <span x-text="form.full_name || '—'"></span></div>
+                        <div><strong>Phone:</strong> <span x-text="form.phone || '—'"></span></div>
+                        <div x-show="form.email"><strong>Email:</strong> <span x-text="form.email"></span></div>
+                        <div x-show="form.ministry_group"><strong>Ministry group:</strong> <span x-text="form.ministry_group"></span></div>
+                        <div x-show="form.next_steps.length"><strong>Next steps:</strong> <span x-text="form.next_steps.join(', ')"></span></div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Contact consent <span class="text-red-500">*</span></label>
+                        <p class="text-[11px] text-gray-500 mb-2">Please confirm your consent before submitting the form.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <template x-for="opt in ['I agree', 'I do not agree']" :key="opt">
+                                <button type="button" @click="form.contact_consent = opt"
+                                    :class="form.contact_consent === opt ? (opt === 'I agree' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-amber-500 bg-amber-50 text-amber-700') : 'border-gray-300 bg-white text-gray-700'"
+                                    class="px-3 py-3 rounded-lg border font-medium text-sm" x-text="opt"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Errors -->
+                <div x-show="errorMsg" class="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="errorMsg"></div>
+
+                <!-- Nav buttons -->
+                <div class="mt-6 flex items-center justify-between gap-2">
+                    <button @click="back()" :disabled="step === 1 || submitting"
+                        class="px-4 py-2.5 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed">← Back</button>
+                    <button x-show="step < totalSteps" @click="next()"
+                        class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg">
+                        Continue →
+                    </button>
+                    <button x-show="step === totalSteps" @click="submit()" :disabled="submitting"
+                        class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
+                        <span x-text="submitting ? 'Submitting…' : 'Submit'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <p class="mt-6 text-center text-[11px] text-gray-400">RFM Stellenbosch · Networking nations through Christ Jesus</p>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function connectWizard() {
+    return {
+        step: 1,
+        totalSteps: 5,
+        submitting: false,
+        submitted: false,
+        errorMsg: '',
+        nextStepOptions: [
+            'Give my life to Christ',
+            'Learn more about the church',
+            'Be allocated into a home-church',
+            'Learn more about Christ',
+            'Speak to a leader',
+        ],
+        form: {
+            full_name: '',
+            phone: '',
+            email: '',
+            date_of_visit: '',
+            gender: '',
+            first_time_visiting: '',
+            heard_about_us: '',
+            ministry_group: '',
+            next_steps: [],
+            prayer_requests: '',
+            experience_rating: null,
+            preferred_contact_time: '',
+            wants_updates: '',
+            contact_consent: '',
+            testimony: '',
+        },
+
+        stepTitle() {
+            return ({1:'About you', 2:'First impressions', 3:'Next steps', 4:'Feedback', 5:'Consent'})[this.step] || '';
+        },
+
+        toggleNextStep(opt) {
+            const i = this.form.next_steps.indexOf(opt);
+            if (i >= 0) this.form.next_steps.splice(i, 1);
+            else this.form.next_steps.push(opt);
+        },
+
+        validateStep() {
+            this.errorMsg = '';
+            const f = this.form;
+            if (this.step === 1) {
+                if (!f.full_name.trim()) return 'Please enter your full name.';
+                if (!f.phone.trim()) return 'Please enter your phone number.';
+                if (!f.gender) return 'Please select your gender.';
+            }
+            if (this.step === 2) {
+                if (!f.heard_about_us) return 'Please tell us how you heard about us.';
+                if (!f.ministry_group) return 'Please select a ministry group.';
+            }
+            if (this.step === 3) {
+                if (!f.next_steps.length) return 'Please select at least one next step.';
+            }
+            if (this.step === 4) {
+                if (!f.preferred_contact_time) return 'Please pick a preferred contact time.';
+            }
+            if (this.step === 5) {
+                if (!f.contact_consent) return 'Please confirm your consent.';
+                if (f.contact_consent !== 'I agree') return "We can only process your form if you agree to be contacted.";
+            }
+            return '';
+        },
+
+        next() {
+            const err = this.validateStep();
+            if (err) { this.errorMsg = err; return; }
+            this.errorMsg = '';
+            if (this.step < this.totalSteps) {
+                this.step++;
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        },
+
+        back() {
+            if (this.step > 1) this.step--;
+            this.errorMsg = '';
+        },
+
+        async submit() {
+            const err = this.validateStep();
+            if (err) { this.errorMsg = err; return; }
+            this.submitting = true;
+            this.errorMsg = '';
+            try {
+                const res = await fetch('/api/connect/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    this.errorMsg = data.detail || 'Submission failed';
+                    this.submitting = false;
+                    return;
+                }
+                this.submitted = true;
+            } catch (e) { this.errorMsg = String(e); }
+            this.submitting = false;
+        },
+
+        reset() {
+            this.submitted = false;
+            this.step = 1;
+            this.errorMsg = '';
+            this.form = {
+                full_name: '', phone: '', email: '', date_of_visit: '',
+                gender: '', first_time_visiting: '', heard_about_us: '',
+                ministry_group: '', next_steps: [], prayer_requests: '',
+                experience_rating: null, preferred_contact_time: '',
+                wants_updates: '', contact_consent: '', testimony: '',
+            };
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
+    };
+}
+</script>
+{% endblock %}

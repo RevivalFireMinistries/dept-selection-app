@@ -1,0 +1,168 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Connect submissions · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-5xl mx-auto px-4 py-6" x-data="connectAdmin()" x-init="load()">
+
+    <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">🤝 Connect submissions</h1>
+            <p class="text-sm text-gray-500">Visitors who've filled in the public Connect form at <code class="text-[11px] bg-gray-100 px-1 rounded">/connect</code>.</p>
+        </div>
+        <div class="flex items-center gap-1">
+            <template x-for="opt in filters" :key="opt.value">
+                <button @click="filter = opt.value; load()"
+                    :class="filter === opt.value ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg" x-text="opt.label"></button>
+            </template>
+        </div>
+    </div>
+
+    <div x-show="loading" class="p-8 text-center text-sm text-gray-500">Loading…</div>
+    <div x-show="!loading && !rows.length" class="p-8 text-center text-sm text-gray-500 bg-white rounded-xl border border-gray-100">No submissions yet.</div>
+
+    <div class="space-y-3">
+        <template x-for="r in rows" :key="r.id">
+            <div class="bg-white border border-gray-200 rounded-xl p-4">
+                <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold text-gray-900" x-text="r.full_name"></span>
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 font-semibold rounded" :class="statusClass(r.status)" x-text="r.status.replace('_', ' ')"></span>
+                            <span x-show="r.first_time_visiting === 'Yes'" class="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-violet-100 text-violet-700 rounded font-semibold">First visit</span>
+                        </div>
+                        <div class="text-xs text-gray-600 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                            <a :href="`tel:${r.phone}`" class="text-indigo-600 hover:underline">📞 <span x-text="r.phone"></span></a>
+                            <a x-show="r.email" :href="`mailto:${r.email}`" class="text-indigo-600 hover:underline">✉️ <span x-text="r.email"></span></a>
+                            <span class="text-gray-400" x-text="formatDate(r.created_at)"></span>
+                        </div>
+                        <div class="text-[11px] text-gray-500 mt-1 flex flex-wrap gap-x-2">
+                            <span x-show="r.gender" x-text="r.gender"></span>
+                            <span x-show="r.ministry_group">· <span x-text="r.ministry_group"></span></span>
+                            <span x-show="r.heard_about_us">· heard via <span x-text="r.heard_about_us"></span></span>
+                            <span x-show="r.preferred_contact_time">· prefers <span x-text="r.preferred_contact_time"></span></span>
+                            <span x-show="r.experience_rating">· rated <span x-text="r.experience_rating"></span>/10</span>
+                        </div>
+
+                        <div x-show="r.next_steps?.length" class="mt-2 flex flex-wrap gap-1">
+                            <template x-for="s in r.next_steps" :key="s">
+                                <span class="text-[10px] px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 rounded" x-text="s"></span>
+                            </template>
+                        </div>
+
+                        <div x-show="r.prayer_requests" class="mt-2 text-xs text-gray-700 bg-amber-50/50 border border-amber-100 rounded p-2">
+                            <span class="font-semibold text-amber-900">🙏 Prayer:</span> <span x-text="r.prayer_requests"></span>
+                        </div>
+                        <div x-show="r.testimony" class="mt-2 text-xs text-gray-700 bg-emerald-50/50 border border-emerald-100 rounded p-2">
+                            <span class="font-semibold text-emerald-900">💬 Message:</span> <span x-text="r.testimony"></span>
+                        </div>
+                        <div x-show="r.contact_consent === 'I do not agree'" class="mt-2 text-[11px] text-amber-700">⚠️ Did not consent to contact</div>
+
+                        <div x-show="r.follow_up_note" class="mt-2 text-xs text-indigo-700 bg-indigo-50 rounded p-2">
+                            <span class="font-semibold">Follow-up:</span> <span x-text="r.follow_up_note"></span>
+                            <span x-show="r.followed_up_by_name" class="text-[10px] opacity-70 ml-1">— <span x-text="r.followed_up_by_name"></span></span>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                        <button x-show="r.status === 'new'" @click="markFollowedUp(r)" class="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded font-medium">Mark followed up</button>
+                        <button x-show="r.status !== 'archived'" @click="archive(r)" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Archive</button>
+                        <button x-show="r.status === 'archived'" @click="reopen(r)" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Reopen</button>
+                        <button @click="addNote(r)" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Note</button>
+                        <button @click="del(r)" class="px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function connectAdmin() {
+    return {
+        loading: true,
+        rows: [],
+        filter: 'new',
+        filters: [
+            {value: 'new',          label: 'New'},
+            {value: 'followed_up',  label: 'Followed up'},
+            {value: 'archived',     label: 'Archived'},
+            {value: '',             label: 'All'},
+        ],
+
+        async load() {
+            this.loading = true;
+            try {
+                const url = this.filter ? `/api/admin/connect-submissions?status=${this.filter}` : '/api/admin/connect-submissions';
+                const res = await fetch(url);
+                if (!res.ok) { this.rows = []; this.loading = false; return; }
+                this.rows = await res.json();
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            return new Date(iso).toLocaleString();
+        },
+
+        statusClass(s) {
+            return ({
+                new: 'bg-violet-100 text-violet-700',
+                followed_up: 'bg-emerald-100 text-emerald-700',
+                archived: 'bg-gray-100 text-gray-600',
+            })[s] || 'bg-gray-100 text-gray-700';
+        },
+
+        async _patch(r, body) {
+            const res = await fetch(`/api/admin/connect-submissions/${r.id}`, {
+                method: 'PUT', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.detail || 'Update failed'); return null; }
+            return data;
+        },
+
+        async markFollowedUp(r) {
+            const updated = await this._patch(r, { status: 'followed_up' });
+            if (updated) this._replaceOrRemove(updated);
+        },
+        async archive(r) {
+            const updated = await this._patch(r, { status: 'archived' });
+            if (updated) this._replaceOrRemove(updated);
+        },
+        async reopen(r) {
+            const updated = await this._patch(r, { status: 'new' });
+            if (updated) this._replaceOrRemove(updated);
+        },
+        async addNote(r) {
+            const note = prompt('Add a follow-up note:', r.follow_up_note || '');
+            if (note === null) return;
+            const updated = await this._patch(r, { follow_up_note: note });
+            if (updated) {
+                const idx = this.rows.findIndex(x => x.id === r.id);
+                if (idx >= 0) this.rows[idx] = updated;
+            }
+        },
+        async del(r) {
+            if (!confirm(`Delete "${r.full_name}"'s submission? This cannot be undone.`)) return;
+            const res = await fetch(`/api/admin/connect-submissions/${r.id}`, { method: 'DELETE' });
+            if (res.ok) this.rows = this.rows.filter(x => x.id !== r.id);
+        },
+
+        _replaceOrRemove(updated) {
+            // If the filter no longer matches the new status, drop from view
+            if (this.filter && this.filter !== updated.status) {
+                this.rows = this.rows.filter(x => x.id !== updated.id);
+            } else {
+                const idx = this.rows.findIndex(x => x.id === updated.id);
+                if (idx >= 0) this.rows[idx] = updated;
+            }
+        },
+    };
+}
+</script>
+{% endblock %}

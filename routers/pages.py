@@ -370,6 +370,19 @@ async def admin_members(request: Request):
     return templates.TemplateResponse("admin/members.html", {"request": request})
 
 
+@router.get("/connect")
+async def public_connect_form(request: Request):
+    """Public visitor connect card. No login required."""
+    return templates.TemplateResponse("connect.html", {"request": request})
+
+
+@router.get("/admin/connect-submissions")
+async def admin_connect_submissions_page(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/connect_submissions.html", {"request": request})
+
+
 @router.get("/admin/announcements")
 async def admin_announcements_page(request: Request):
     if not is_authenticated(request):

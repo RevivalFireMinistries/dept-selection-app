@@ -839,3 +839,41 @@ class ExternalApiKey(Base):
     use_count = Column(Integer, nullable=False, server_default="0")
 
     created_by = relationship("Member", foreign_keys=[created_by_member_id])
+
+
+# ============ CONNECT FORM (public visitor connect form) ============
+
+class ConnectFormSubmission(Base):
+    """A 'Connect' card submitted by a visitor (or returning member) via the
+    public /connect wizard. No login required — anyone with the link can
+    submit. All admins get a push notification on every submission."""
+    __tablename__ = "connect_form_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String(200), nullable=False)
+    phone = Column(String(50), nullable=False)
+    email = Column(String(200), nullable=True)
+    date_of_visit = Column(Date, nullable=True)
+    gender = Column(String(20), nullable=True)  # Male / Female
+    first_time_visiting = Column(String(10), nullable=True)  # Yes / No
+    heard_about_us = Column(String(60), nullable=True)  # Friend/Family / Social Media / Walk-in / Other
+    ministry_group = Column(String(60), nullable=True)
+    # JSON array of selected next-step strings
+    next_steps = Column(Text, nullable=True)
+    prayer_requests = Column(Text, nullable=True)
+    experience_rating = Column(Integer, nullable=True)  # 1..10
+    preferred_contact_time = Column(String(20), nullable=True)  # HH:MM
+    wants_updates = Column(String(10), nullable=True)  # Yes / No
+    contact_consent = Column(String(20), nullable=True)  # I agree / I do not agree
+    testimony = Column(Text, nullable=True)
+    # Workflow
+    status = Column(String(20), nullable=False, server_default="new")  # new | followed_up | archived
+    follow_up_note = Column(Text, nullable=True)
+    followed_up_by_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    followed_up_at = Column(DateTime(timezone=True), nullable=True)
+    # Metadata
+    ip_address = Column(String(60), nullable=True)
+    user_agent = Column(String(400), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    followed_up_by = relationship("Member", foreign_keys=[followed_up_by_id])
