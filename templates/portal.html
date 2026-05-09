@@ -361,11 +361,11 @@
                          class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Services</h2>
                     <div class="divide-y divide-gray-100">
-                        <template x-for="row in monthRecent()" :key="row.id || row.service_date || row.label">
+                        <template x-for="row in monthRecent()" :key="row.id || (row.service_date || '') + ((row.service_name || row.title || ''))">
                             <div class="flex items-center justify-between gap-2 py-2 text-sm">
                                 <div class="min-w-0">
-                                    <div class="font-medium text-gray-900 truncate" x-text="row.label || row.service_name || row.title || 'Service'"></div>
-                                    <div class="text-[11px] text-gray-500" x-text="formatLongDate(row.service_date || row.date)"></div>
+                                    <div class="font-medium text-gray-900 truncate" x-text="serviceLabel(row)"></div>
+                                    <div class="text-[11px] text-gray-500" x-text="serviceSubtitle(row)"></div>
                                 </div>
                                 <span x-show="row.attended === false" class="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-gray-100 text-gray-600 rounded">Missed</span>
                                 <span x-show="row.attended !== false" class="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded">Attended</span>
@@ -1085,6 +1085,39 @@ function memberPortal() {
             const streak = d.streak ?? d.current_streak;
             if (this.isCurrentMonth() && streak) parts.push(`🔥 ${streak} in a row`);
             return parts.join(' · ');
+        },
+
+        // Pick whichever field the central API uses to label the service
+        serviceLabel(row) {
+            if (!row) return 'Service';
+            const candidates = [
+                row.service_name, row.service_title, row.service_label,
+                row.service_type, row.service, row.event_name, row.name,
+                row.title, row.label, row.description,
+            ];
+            for (const c of candidates) {
+                if (c && String(c).trim()) return String(c).trim();
+            }
+            // Fallback: derive from the day of week + a hint, e.g. "Sunday service"
+            const date = row.service_date || row.date;
+            if (date) {
+                try {
+                    const d = new Date(date);
+                    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                    return `${days[d.getDay()]} service`;
+                } catch (e) {}
+            }
+            return 'Service';
+        },
+        serviceSubtitle(row) {
+            if (!row) return '';
+            const date = this.formatLongDate(row.service_date || row.date);
+            // If the label is the date, don't repeat; otherwise prepend extra context
+            const extras = [];
+            if (row.service_time || row.time) extras.push(row.service_time || row.time);
+            if (row.location) extras.push(row.location);
+            if (row.notes && String(row.notes).length < 80) extras.push(row.notes);
+            return [date, ...extras].filter(Boolean).join(' · ');
         },
 
         monthRecent() {
