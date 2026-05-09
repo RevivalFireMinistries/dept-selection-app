@@ -311,18 +311,77 @@
 
             <!-- ==================== MY ATTENDANCE ==================== -->
             <div x-show="tab === 'attendance'" class="space-y-4">
-                <section class="bg-gradient-to-br from-indigo-500 to-violet-700 text-white rounded-2xl p-5">
-                    <div class="text-xs uppercase tracking-wider opacity-80">Attendance</div>
-                    <div class="text-3xl font-bold mt-1">Coming soon</div>
-                    <div class="text-[11px] opacity-75 mt-1">Your service attendance will appear here once we start tracking it.</div>
+                <!-- Not synced -->
+                <section x-show="!data.member.external_synced" class="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+                    <div class="text-sm text-amber-900">Your record isn't linked to the central database yet, so we can't show your attendance. Please ask an admin to run Member Sync.</div>
                 </section>
-                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-2">What you'll see here</h2>
-                    <ul class="text-sm text-gray-700 space-y-2">
-                        <li class="flex items-start gap-2"><span>📅</span><span>Sunday services attended this month/year</span></li>
-                        <li class="flex items-start gap-2"><span>🏘</span><span>Home church attendance</span></li>
-                        <li class="flex items-start gap-2"><span>🏆</span><span>Streaks and personal trends</span></li>
-                    </ul>
+
+                <!-- Loading -->
+                <section x-show="data.member.external_synced && attendanceLoading" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center text-sm text-gray-500">Loading…</section>
+
+                <!-- Error -->
+                <section x-show="attendanceError" class="bg-red-50 border border-red-200 rounded-2xl p-5 text-sm text-red-700" x-text="attendanceError"></section>
+
+                <!-- Hero card -->
+                <section x-show="!attendanceLoading && attendance"
+                         class="bg-gradient-to-br from-indigo-500 to-violet-700 text-white rounded-2xl p-5">
+                    <div class="text-xs uppercase tracking-wider opacity-80" x-text="`Attendance · ${attendance?.year || ''}`"></div>
+                    <div class="flex items-end gap-2 mt-1">
+                        <div class="text-3xl font-bold" x-text="`${attendanceTotal()}`"></div>
+                        <div class="text-sm opacity-90 mb-1" x-text="attendanceTotalLabel()"></div>
+                    </div>
+                    <div class="text-[11px] opacity-80 mt-1" x-text="attendanceSubtitle()"></div>
+                </section>
+
+                <!-- KPI cards -->
+                <section x-show="!attendanceLoading && (attendanceCards()?.length)" class="grid grid-cols-2 gap-3">
+                    <template x-for="card in attendanceCards()" :key="card.label">
+                        <div class="bg-white rounded-xl border border-gray-100 p-4">
+                            <div class="text-2xl font-bold text-indigo-700" x-text="card.value"></div>
+                            <div class="text-[10px] text-gray-500 uppercase tracking-wider mt-1" x-text="card.label"></div>
+                        </div>
+                    </template>
+                </section>
+
+                <!-- Monthly bar chart -->
+                <section x-show="!attendanceLoading && attendanceMonthly()?.length"
+                         class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">By month</h2>
+                    <div class="space-y-1.5">
+                        <template x-for="row in attendanceMonthly()" :key="row.label">
+                            <div class="flex items-center gap-2">
+                                <div class="w-12 text-[10px] text-gray-500 font-medium" x-text="row.label"></div>
+                                <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                                    <div class="h-full bg-indigo-500" :style="`width:${row.pct}%`"></div>
+                                </div>
+                                <div class="w-16 text-right text-xs text-gray-600" x-text="row.display"></div>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
+                <!-- Recent services -->
+                <section x-show="!attendanceLoading && attendanceRecent()?.length"
+                         class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Recent</h2>
+                    <div class="divide-y divide-gray-100">
+                        <template x-for="row in attendanceRecent()" :key="row.id || row.service_date || row.label">
+                            <div class="flex items-center justify-between gap-2 py-2 text-sm">
+                                <div class="min-w-0">
+                                    <div class="font-medium text-gray-900 truncate" x-text="row.label || row.service_name || row.title || 'Service'"></div>
+                                    <div class="text-[11px] text-gray-500" x-text="formatLongDate(row.service_date || row.date)"></div>
+                                </div>
+                                <span x-show="row.attended === false" class="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-gray-100 text-gray-600 rounded">Missed</span>
+                                <span x-show="row.attended !== false" class="text-[10px] uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded">Attended</span>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
+                <!-- No data fallback -->
+                <section x-show="!attendanceLoading && attendance && !attendanceMonthly()?.length && !attendanceRecent()?.length && attendanceCards().length === 0"
+                         class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 text-center text-sm text-gray-500">
+                    No attendance recorded yet for <span x-text="attendance?.year || ''"></span>.
                 </section>
             </div>
 
@@ -785,6 +844,12 @@ function memberPortal() {
         announcements: [],
         _announcementsLoaded: false,
 
+        // Attendance (My Attendance tab)
+        attendanceLoading: false,
+        attendanceError: '',
+        attendance: null,
+        _attendanceLoaded: false,
+
         // Push notifications
         pushOpen: false,
         pushState: 'loading',  // unsupported | ios-need-install | server-not-configured | denied | ready | subscribed | loading
@@ -861,6 +926,86 @@ function memberPortal() {
                 this.loadBanking();
                 if (this.data?.member?.external_synced) this.loadGiving();
             }
+            if (id === 'attendance' && this.data?.member?.external_synced) this.loadAttendance();
+        },
+
+        async loadAttendance() {
+            if (this._attendanceLoaded || this.attendanceLoading) return;
+            this.attendanceLoading = true;
+            this.attendanceError = '';
+            try {
+                const r = await fetch('/api/portal/attendance');
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    this.attendanceError = err.detail || 'Could not load attendance.';
+                } else {
+                    this.attendance = await r.json();
+                    this._attendanceLoaded = true;
+                }
+            } catch (e) { this.attendanceError = String(e.message || e); }
+            this.attendanceLoading = false;
+        },
+
+        // ---- Attendance display helpers — tolerant of varying API shapes ----
+        _attData() {
+            return this.attendance?.data || {};
+        },
+        attendanceTotal() {
+            const d = this._attData();
+            return d.attended ?? d.services_attended ?? d.total_attended ?? d.attended_count ?? d.count ?? 0;
+        },
+        attendanceTotalLabel() {
+            const d = this._attData();
+            const total = d.total ?? d.total_services ?? d.total_services_in_year ?? d.services ?? null;
+            return total != null ? `services attended of ${total}` : 'services attended';
+        },
+        attendanceSubtitle() {
+            const d = this._attData();
+            const pct = d.attendance_pct ?? d.percent ?? d.percentage;
+            const streak = d.streak ?? d.current_streak;
+            const parts = [];
+            if (pct != null) parts.push(`${Math.round(Number(pct))}% turnout`);
+            if (streak) parts.push(`🔥 ${streak} in a row`);
+            return parts.join(' · ');
+        },
+        attendanceCards() {
+            const d = this._attData();
+            const out = [];
+            if (d.streak != null && !this.attendanceSubtitle().includes('🔥')) out.push({ label: 'Streak', value: d.streak });
+            if (d.this_month != null) out.push({ label: 'This month', value: d.this_month });
+            if (d.last_month != null) out.push({ label: 'Last month', value: d.last_month });
+            if (d.home_church_attended != null) out.push({ label: 'Home church', value: d.home_church_attended });
+            if (d.most_attended_service) out.push({ label: 'Most attended', value: d.most_attended_service });
+            return out;
+        },
+        attendanceMonthly() {
+            const d = this._attData();
+            const monthly = d.monthly || d.by_month || d.months;
+            if (!Array.isArray(monthly)) return [];
+            // normalise to [{label, attended, total, pct, display}]
+            const out = [];
+            for (const row of monthly) {
+                if (!row) continue;
+                const monthNum = row.month ?? row.month_number ?? null;
+                const monthName = row.name ?? row.month_name ?? this._monthName(monthNum);
+                const attended = Number(row.attended ?? row.count ?? 0);
+                const total = Number(row.total ?? row.services ?? row.scheduled ?? 0);
+                const pct = total > 0 ? Math.round((attended / total) * 100) : 0;
+                const display = total > 0 ? `${attended}/${total}` : `${attended}`;
+                out.push({ label: monthName || '—', attended, total, pct, display });
+            }
+            return out;
+        },
+        _monthName(n) {
+            if (!n) return '';
+            const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return names[(Number(n) - 1) % 12] || '';
+        },
+        attendanceRecent() {
+            const d = this._attData();
+            const recent = d.recent || d.recent_services || d.services || d.history;
+            if (!Array.isArray(recent)) return [];
+            return recent.slice(0, 10);
         },
 
         // ---- Push notifications ----

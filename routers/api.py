@@ -9630,6 +9630,23 @@ def admin_debug_central_member(member_id: int, request: Request, db: Session = D
     return out
 
 
+@router.get("/portal/attendance")
+def portal_attendance(year: Optional[int] = Query(None), request: Request = None, db: Session = Depends(get_db)):
+    """Attendance dashboard for the logged-in member, sourced from the
+    central rfm-database. Returns the API's payload as-is so the portal
+    UI is tolerant of fields we add later."""
+    member = _require_member_with_central_link(request, db)
+    if not year:
+        year = datetime.utcnow().year
+    r = _rfm.member_attendance_dashboard(member.external_member_id, year=year, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    return {
+        "year": year,
+        "data": r.data,
+    }
+
+
 @router.get("/portal/giving/banking")
 def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
     """Banking details for the church.

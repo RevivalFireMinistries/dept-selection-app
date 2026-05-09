@@ -384,6 +384,24 @@ def member_contribution_summary(
     )
 
 
+def member_attendance_dashboard(
+    member_id: str,
+    *,
+    year: Optional[int] = None,
+    db=None,
+) -> ApiResult:
+    """Yearly attendance dashboard for a single member."""
+    params = {}
+    if year:
+        params["year"] = year
+    return _request(
+        "GET",
+        f"/api/v1/attendance/member/{member_id}/dashboard",
+        db=db,
+        params=params,
+    )
+
+
 def create_contribution(payload: dict, *, db=None) -> ApiResult:
     """Push a captured contribution into the central database. The portal uses
     this after a successful Yoco payment to keep the central ledger in sync."""
