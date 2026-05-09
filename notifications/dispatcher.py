@@ -585,6 +585,21 @@ def dispatch_event(
         settings.get('smtp_enabled') == 'true'
     )
 
+    # ---- Web Push fan-out (parallel to email; best-effort, non-blocking) ----
+    # Fired once for every dispatch_event regardless of email channel state,
+    # because push is independent. Failures don't propagate.
+    try:
+        import push_service
+        if push_service.is_configured(db):
+            # Inject app_url into the data so push handlers can use it for URLs
+            push_data = {**data, "app_url": app_url}
+            push_service.send_event_push(db, event_type, push_data, list(recipients))
+    except Exception as _push_err:
+        try:
+            print(f"Push fan-out failed for {event_type.value}: {_push_err}")
+        except Exception:
+            pass
+
     if not is_resend and not is_smtp:
         return  # No email channel enabled
 

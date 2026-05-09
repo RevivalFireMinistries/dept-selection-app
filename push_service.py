@@ -171,6 +171,148 @@ def send_to_member(
     return _dispatch(db, subs, title=title, body=body, url=url, tag=tag, icon=icon)
 
 
+def build_event_push(event_type, data: dict) -> Tuple[str, str, str]:
+    """Map a notification EventType + data to (title, body, url) for push.
+    Returns reasonable defaults for any unrecognised event so callers can
+    just dispatch_event(...) without thinking about it."""
+    et = getattr(event_type, "value", str(event_type))
+
+    def _get(key, default=""):
+        v = data.get(key)
+        return str(v) if v not in (None, "") else default
+
+    member = _get("recipient_name") or _get("member_name") or "you"
+    title_body_url = {
+        "member_approved": (
+            "Selection approved",
+            f"Your selection for {_get('department_name')} has been approved.",
+            "/portal",
+        ),
+        "member_rejected": (
+            "Selection update",
+            f"Your selection for {_get('department_name')} wasn't approved. Tap to see details.",
+            "/portal",
+        ),
+        "department_assigned": (
+            "Assigned to a department",
+            f"You've been added to {_get('department_name')}.",
+            "/portal",
+        ),
+        "results_published": (
+            "Results published",
+            "Department selection results are now available.",
+            "/portal",
+        ),
+        "appeal_submitted": (
+            "New appeal",
+            f"{_get('member_name', 'A member')} has submitted an appeal.",
+            "/admin/appeals",
+        ),
+        "appeal_resolved": (
+            "Appeal resolved",
+            f"Your appeal has been {_get('status', 'reviewed')}.",
+            "/portal",
+        ),
+        "meeting_created": (
+            f"New meeting: {_get('title', 'check details')}",
+            f"{_get('meeting_date')} · {_get('start_time')} · {_get('location') or 'see details'}",
+            "/portal",
+        ),
+        "meeting_reminder": (
+            f"Today: {_get('title', 'meeting')}",
+            f"{_get('start_time')} · {_get('location') or 'see details'}",
+            "/portal",
+        ),
+        "meeting_updated": (
+            f"Updated: {_get('title', 'meeting')}",
+            "Details have changed. Tap to see what's new.",
+            "/portal",
+        ),
+        "meeting_cancelled": (
+            f"Cancelled: {_get('title', 'meeting')}",
+            "This meeting has been cancelled.",
+            "/portal",
+        ),
+        "poster_request_submitted": (
+            "New poster request",
+            f"{_get('event_name', 'A new design')} needs your eyes.",
+            "/admin/poster-requests",
+        ),
+        "poster_request_acknowledged": (
+            "Poster in progress",
+            f"The design team has picked up your request: {_get('event_name', '')}.",
+            "/portal",
+        ),
+        "poster_request_completed": (
+            "Poster ready",
+            f"Your design for {_get('event_name', 'the event')} is ready.",
+            "/portal",
+        ),
+        "program_participant_added": (
+            f"You're on the program: {_get('title', 'service')}",
+            f"{_get('service_date')} — tap for details.",
+            "/portal",
+        ),
+        "home_church_roster_published": (
+            "Home church roster",
+            f"{_get('home_church_name')} on {_get('roster_date')} — see who's preaching.",
+            "/portal",
+        ),
+        "home_church_preacher_assigned": (
+            "You're preaching",
+            f"{_get('home_church_name')} on {_get('roster_date')}.",
+            "/portal",
+        ),
+        "home_church_reminder_leader": (
+            "Home church tomorrow",
+            "Quick reminder — your home church meets tomorrow.",
+            "/portal",
+        ),
+        "home_church_reminder_preacher": (
+            "Preaching tomorrow",
+            f"You're preaching at {_get('home_church_name')} tomorrow.",
+            "/portal",
+        ),
+        "home_church_attendance_reminder": (
+            "Attendance reports pending",
+            f"{_get('pending_count', '?')} home church reports still to capture.",
+            "/admin/home-churches",
+        ),
+    }
+    if et in title_body_url:
+        return title_body_url[et]
+    # Sensible default for any future event type we forget
+    return ("Update", str(data.get("title") or "You have a new update."), "/portal")
+
+
+def send_event_push(db: Session, event_type, data: dict, recipients: List[dict]) -> PushResult:
+    """Push the same event we're emailing to every recipient with member_id."""
+    result = PushResult()
+    if not recipients:
+        return result
+    title, body, url = build_event_push(event_type, data)
+    aggregated_subs: List[PushSubscription] = []
+    seen_member_ids = set()
+    for r in recipients:
+        mid = r.get("id") or r.get("member_id")
+        if not mid or mid in seen_member_ids:
+            continue
+        seen_member_ids.add(mid)
+        subs = db.query(PushSubscription).filter(
+            PushSubscription.member_id == int(mid),
+            PushSubscription.is_enabled == True,
+        ).all()
+        aggregated_subs.extend(subs)
+    if not aggregated_subs:
+        return result
+    return _dispatch(
+        db, aggregated_subs,
+        title=title, body=body, url=url,
+        tag=f"event-{getattr(event_type, 'value', event_type)}",
+        icon=None,
+    )
+
+
 def send_to_all(
     db: Session,
     *,

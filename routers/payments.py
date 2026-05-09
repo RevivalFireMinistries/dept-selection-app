@@ -402,6 +402,21 @@ async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
     if event_type == "payment.succeeded" and txn.status == "pending":
         txn.status = "captured"
         _push_to_central(txn, db)
+        # Notify the giver (best-effort)
+        try:
+            import push_service
+            if txn.member_id and push_service.is_configured(db):
+                amount_zar = (txn.amount_cents or 0) / 100.0
+                cat_label = (txn.custom_label or txn.category or "your gift").strip()
+                push_service.send_to_member(
+                    db, int(txn.member_id),
+                    title="Thank you — gift received",
+                    body=f"R {amount_zar:,.2f} towards {cat_label}. May the Lord multiply it.",
+                    url="/portal",
+                    tag=f"payment-{txn.id}",
+                )
+        except Exception:
+            pass
     elif event_type == "payment.failed" and txn.status == "pending":
         txn.status = "failed"
     # Refunds, duplicates, unknown event types — fall through and 200

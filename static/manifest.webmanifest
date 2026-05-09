@@ -1,7 +1,7 @@
 {
-  "name": "RFM Portal",
-  "short_name": "RFM Portal",
-  "description": "Networking nations through Christ Jesus.",
+  "name": "Revival Fire",
+  "short_name": "Revival Fire",
+  "description": "Revival Fire Ministries portal — networking nations through Christ Jesus.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
