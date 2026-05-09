@@ -144,6 +144,54 @@ def admin_generate_vapid(payload: dict = Body(default={}), request: Request = No
     }
 
 
+@router.get("/admin/push/diagnostics")
+def admin_push_diagnostics(request: Request, db: Session = Depends(get_db)):
+    """Inspect the stored VAPID material and verify it loads cleanly.
+    Returns shape info + a load test result so we can pinpoint why
+    pywebpush is rejecting the key."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    raw_priv = push_service._get(db, "vapid_private_key")
+    raw_pub = push_service._get(db, "vapid_public_key")
+    subject = push_service._get(db, "vapid_subject")
+
+    out = {
+        "configured": push_service.is_configured(db),
+        "subject": subject,
+        "public_key_b64url_length": len(raw_pub or ""),
+        "public_key_first": (raw_pub or "")[:12],
+        "public_key_last": (raw_pub or "")[-12:],
+        "private_key_length": len(raw_priv or ""),
+        "private_key_starts_with_begin": (raw_priv or "").lstrip().startswith("-----BEGIN"),
+        "private_key_first_line": (raw_priv or "").splitlines()[0] if raw_priv else "",
+        "private_key_last_line": (raw_priv or "").splitlines()[-1] if raw_priv else "",
+        "private_key_line_count": len((raw_priv or "").splitlines()),
+        "load_test": None,
+        "load_test_error": None,
+    }
+
+    # Try loading the PEM the same way pywebpush will
+    try:
+        from cryptography.hazmat.backends import default_backend as _be
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        pem = push_service._vapid_private_pem(db)
+        if not pem:
+            out["load_test"] = "no-pem"
+        else:
+            key = load_pem_private_key(pem.encode("ascii"), password=None, backend=_be())
+            curve = getattr(getattr(key, "curve", None), "name", "?")
+            out["load_test"] = "ok"
+            out["load_test_curve"] = curve
+            out["load_test_pem_first_line"] = pem.splitlines()[0]
+    except Exception as e:
+        out["load_test"] = "failed"
+        out["load_test_error"] = f"{type(e).__name__}: {e}"
+
+    return out
+
+
 @router.get("/admin/push/subscriptions")
 def admin_list_subs(request: Request, db: Session = Depends(get_db)):
     """Admin diagnostic: list every subscription, masked endpoint, last error."""
