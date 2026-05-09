@@ -273,9 +273,10 @@ async function loadPushStatus() {
 function showPushMessage(text, isError) {
     const el = document.getElementById('pushMessage');
     el.textContent = text;
+    el.style.whiteSpace = 'pre-wrap';
     el.className = `mb-3 px-3 py-2 rounded-lg text-sm ${isError ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`;
     el.classList.remove('hidden');
-    setTimeout(() => el.classList.add('hidden'), 5000);
+    setTimeout(() => el.classList.add('hidden'), 12000);
 }
 
 async function generateVapid(force) {
@@ -302,8 +303,16 @@ async function sendTestPush() {
         const data = await res.json();
         if (!res.ok) { showPushMessage(data.detail || 'Test failed', true); return; }
         const summary = `Sent ${data.sent} · Failed ${data.failed} · Removed ${data.removed} dead`;
-        showPushMessage(data.sent ? `✓ ${summary}` : `${summary} — make sure you've enabled notifications on this device first`,
-                        data.sent === 0);
+        if (data.sent) {
+            showPushMessage(`✓ ${summary}`, false);
+        } else if (data.failed && data.errors && data.errors.length) {
+            // Surface the real failure so we can debug
+            const errs = data.errors.join('\n');
+            showPushMessage(`${summary}\n${errs}`, true);
+            console.error('Push errors:', data.errors);
+        } else {
+            showPushMessage(`${summary} — make sure you've enabled notifications on this device first`, true);
+        }
     } catch (e) { showPushMessage(String(e), true); }
 }
 

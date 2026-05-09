@@ -144,6 +144,39 @@ def admin_generate_vapid(payload: dict = Body(default={}), request: Request = No
     }
 
 
+@router.get("/admin/push/subscriptions")
+def admin_list_subs(request: Request, db: Session = Depends(get_db)):
+    """Admin diagnostic: list every subscription, masked endpoint, last error."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    rows = db.query(PushSubscription).all()
+    out = []
+    for s in rows:
+        endpoint = s.endpoint or ""
+        # Pull just the host + last 6 chars of the path so we can identify
+        # which push service this is for without leaking the full token
+        try:
+            from urllib.parse import urlparse
+            u = urlparse(endpoint)
+            tail = endpoint[-12:] if len(endpoint) > 12 else endpoint
+            label = f"{u.netloc} …{tail}"
+        except Exception:
+            label = endpoint[:60]
+        out.append({
+            "id": s.id,
+            "member_id": s.member_id,
+            "endpoint_label": label,
+            "user_agent": s.user_agent,
+            "is_enabled": bool(s.is_enabled),
+            "last_seen_at": s.last_seen_at.isoformat() if s.last_seen_at else None,
+            "last_failed_at": s.last_failed_at.isoformat() if s.last_failed_at else None,
+            "last_error": s.last_error,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+    return out
+
+
 @router.post("/admin/push/test")
 def admin_test_push(payload: dict = Body(default={}), request: Request = None, db: Session = Depends(get_db)):
     """Send a test push to the admin's own subscriptions (or to a member
