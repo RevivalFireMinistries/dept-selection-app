@@ -58,6 +58,25 @@
                     </div>
                 </section>
 
+                <!-- Push prompt — only when notifications aren't enabled yet -->
+                <section x-show="shouldShowPushPrompt()"
+                         class="bg-gradient-to-br from-rose-50 to-rose-100/60 border border-rose-200 rounded-2xl p-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-xl shadow-sm">🔔</div>
+                        <div class="flex-1 min-w-0">
+                            <p class="font-semibold text-gray-900 text-sm">Stay in the loop</p>
+                            <p class="text-xs text-gray-700 mt-0.5">Get notified about new announcements, meeting reminders, contribution receipts and more.</p>
+                            <div class="mt-3 flex flex-wrap items-center gap-2">
+                                <button @click="openPush(); pushPromptSeen()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg">
+                                    Enable notifications
+                                </button>
+                                <button @click="snoozePushPrompt()" class="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900">Maybe later</button>
+                                <button @click="neverPushPrompt()" class="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600">Don't show again</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Announcements (only when there are some) -->
                 <section x-show="announcements.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
@@ -772,6 +791,7 @@ function memberPortal() {
         pushBusy: false,
         pushError: '',
         pushPublicKey: null,
+        _pushPromptTick: 0,  // bumped to force re-render of shouldShowPushPrompt()
 
         async init() {
             try {
@@ -792,8 +812,37 @@ function memberPortal() {
                 try { this.tab = localStorage.getItem('rfm-portal-tab') || 'home'; } catch (e) {}
                 if (!this.tabs.some(t => t.id === this.tab)) this.tab = 'home';
                 this.onTabEnter(this.tab);
+                // Quietly determine push state so the soft-prompt can render
+                this.refreshPushState().catch(() => {});
             } catch (e) { console.error(e); }
             this.loading = false;
+        },
+
+        // ---- Push prompt soft-banner ----
+        shouldShowPushPrompt() {
+            // Force reactivity on dismiss
+            void this._pushPromptTick;
+            // Only show when push could actually work and user isn't already in
+            if (!['ready', 'ios-need-install'].includes(this.pushState)) return false;
+            try {
+                if (localStorage.getItem('push-prompt-never') === '1') return false;
+                const t = localStorage.getItem('push-prompt-snoozed-at');
+                if (t && (Date.now() - Number(t)) < 14 * 24 * 60 * 60 * 1000) return false;
+            } catch (e) { /* ignore */ }
+            return true;
+        },
+        pushPromptSeen() {
+            // Mark as seen so we don't double-prompt this session
+            try { localStorage.setItem('push-prompt-snoozed-at', String(Date.now())); } catch (e) {}
+            this._pushPromptTick++;
+        },
+        snoozePushPrompt() {
+            try { localStorage.setItem('push-prompt-snoozed-at', String(Date.now())); } catch (e) {}
+            this._pushPromptTick++;
+        },
+        neverPushPrompt() {
+            try { localStorage.setItem('push-prompt-never', '1'); } catch (e) {}
+            this._pushPromptTick++;
         },
 
         setTab(id) {
