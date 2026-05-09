@@ -105,6 +105,12 @@ class RfmNotifyChannel(NotificationChannel):
             "Content-Type": "application/json",
         }
 
+        log.info(
+            "[rfm_notify] -> POST %s app=%s event=%s to=%s idem=%s",
+            url, self.app_code, event_code, recipient,
+            kwargs.get("idempotency_key"),
+        )
+
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=15)
         except requests.RequestException as exc:
@@ -117,6 +123,11 @@ class RfmNotifyChannel(NotificationChannel):
                 self.app_code, event_code, response.status_code, response.text[:300],
             )
             return False, f"rfm-notify {response.status_code}: {response.text[:200]}"
+
+        log.info(
+            "[rfm_notify] <- %s in %.0fms",
+            response.status_code, response.elapsed.total_seconds() * 1000 if response.elapsed else 0,
+        )
 
         # Inspect the dispatched array to confirm the email channel sent.
         # Anything other than `sent` / `already-sent` we treat as a failure
