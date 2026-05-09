@@ -1,23 +1,32 @@
-"""Web push endpoints.
+"""Web push endpoints — bridge into rfm-notify.
 
-  GET    /api/push/public-key      -> VAPID public key (browser needs it to subscribe)
-  POST   /api/push/subscribe       -> save the browser's PushSubscription JSON
-  DELETE /api/push/unsubscribe     -> remove the subscription for the current device
-  GET    /api/push/me              -> status: configured? subscribed on this device?
-  POST   /api/admin/push/test      -> send a test push to the admin's own subscriptions
-  POST   /api/admin/push/vapid     -> generate / replace the VAPID keypair
+Post v1.x cutover: the portal no longer stores push subscriptions or
+VAPID keys locally. These routes are thin proxies onto rfm-notify so
+the PWA's service-worker bootstrap doesn't need to change. Every request
+authenticates the member here (same login as before) and then forwards
+to https://${RFM_NOTIFY_URL}/api/v1/push-subscriptions/...
+
+  GET    /api/push/public-key      -> rfm-notify's VAPID public key
+  POST   /api/push/subscribe       -> enrol via rfm-notify (recipient resolved by email)
+  DELETE /api/push/unsubscribe     -> remove the subscription for a given endpoint
+  GET    /api/push/me              -> "is push configured?" + a hint we can't see local enrolment
+  POST   /api/admin/push/test      -> proxy onto rfm-notify's channel test
+  POST   /api/admin/push/vapid     -> proxy onto rfm-notify's generate-vapid
+
+The legacy local push_service / PushSubscription model is now dead
+weight; remove after the backfill script (see scripts/migrate_push_to_notify.py)
+has run and rfm-notify has at least one row per active enrolment.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Member, PushSubscription
-import push_service
+from models import Member
+from notifications import rfm_notify_push as bridge
 
 
 router = APIRouter()
@@ -36,34 +45,44 @@ def _current_member(request: Request, db: Session) -> Optional[Member]:
 
 @router.get("/push/public-key")
 def public_key(request: Request, db: Session = Depends(get_db)):
-    """Public key for the browser's pushManager.subscribe call. Returns
-    {key: null} if the server hasn't been configured yet."""
+    """VAPID public key for `pushManager.subscribe`. The PWA gets a
+    `{configured: false, key: null}` shape if rfm-notify hasn't generated
+    its keypair yet — the existing JS treats that as "feature disabled".
+    """
+    info = bridge.get_public_key()
     return {
-        "key": push_service.get_public_key(db) or None,
-        "configured": push_service.is_configured(db),
+        "key": info.get("public_key"),
+        "configured": bool(info.get("configured")),
     }
 
 
 @router.get("/push/me")
 def my_push_status(request: Request, db: Session = Depends(get_db)):
+    """Quick PWA status check. Since enrolment now lives in rfm-notify,
+    we don't keep a per-device row here — the PWA can call this just
+    to know whether push is available at all.
+    """
     member = _current_member(request, db)
     if not member:
         raise HTTPException(status_code=401, detail="Please log in")
-    sub_count = db.query(PushSubscription).filter(
-        PushSubscription.member_id == member.id,
-        PushSubscription.is_enabled == True,
-    ).count()
+    info = bridge.get_public_key()
     return {
-        "configured": push_service.is_configured(db),
-        "subscription_count": sub_count,
+        "configured": bool(info.get("configured")),
+        # subscription_count is no longer authoritative on this side; the
+        # PWA tracks its own pushManager state. Kept for shape compat.
+        "subscription_count": None,
     }
 
 
 @router.post("/push/subscribe")
 def subscribe(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
-    """Save (or refresh) a browser-issued PushSubscription. The body shape
-    matches what pushManager.subscribe(...) returns:
+    """Save (or refresh) a browser-issued PushSubscription.
+
+    The body shape matches what `pushManager.subscribe(...)` returns:
       { endpoint: '...', keys: { p256dh: '...', auth: '...' } }
+
+    rfm-notify resolves the recipient from the member's email, so make
+    sure profiles have an email on file before flipping push on.
     """
     member = _current_member(request, db)
     if not member:
@@ -76,174 +95,111 @@ def subscribe(payload: dict = Body(...), request: Request = None, db: Session = 
     if not endpoint or not p256dh or not auth:
         raise HTTPException(status_code=400, detail="endpoint, keys.p256dh, and keys.auth are required")
 
+    if not member.email:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Push enrolment requires an email on your profile so the "
+                "notification service can match you. Add one in your settings, "
+                "then try again."
+            ),
+        )
+
     user_agent = (request.headers.get("user-agent") or "")[:400] if request else ""
-
-    existing = db.query(PushSubscription).filter(PushSubscription.endpoint == endpoint).first()
-    if existing:
-        # Re-bind to current member (in case device is shared) and re-enable
-        existing.member_id = member.id
-        existing.p256dh_key = p256dh
-        existing.auth_key = auth
-        existing.user_agent = user_agent or existing.user_agent
-        existing.is_enabled = True
-        existing.last_seen_at = datetime.utcnow()
-        existing.last_error = None
-        existing.last_failed_at = None
-        db.commit()
-        return {"id": existing.id, "created": False}
-
-    sub = PushSubscription(
-        member_id=member.id,
+    success, info = bridge.enroll_subscription(
+        member_email=member.email,
+        member_full_name=member.full_name,
+        member_phone=member.phone,
         endpoint=endpoint,
-        p256dh_key=p256dh,
-        auth_key=auth,
+        p256dh=p256dh,
+        auth=auth,
         user_agent=user_agent,
-        is_enabled=True,
-        last_seen_at=datetime.utcnow(),
     )
-    db.add(sub)
-    db.commit()
-    db.refresh(sub)
-    return {"id": sub.id, "created": True}
+    if not success:
+        raise HTTPException(status_code=502, detail=f"rfm-notify enrolment failed: {info}")
+    return {
+        "id": (info or {}).get("id") if isinstance(info, dict) else None,
+        "created": True,
+        "via": "rfm-notify",
+    }
 
 
 @router.delete("/push/unsubscribe")
 def unsubscribe(payload: dict = Body(default={}), request: Request = None, db: Session = Depends(get_db)):
-    """Remove the subscription for the given endpoint. Body: { endpoint: '...' }.
-    Members can only delete their own subscriptions."""
+    """Remove the subscription for the given endpoint.
+    Body: { endpoint: '...' }. Idempotent — unknown endpoint -> 200 with removed=0."""
     member = _current_member(request, db)
     if not member:
         raise HTTPException(status_code=401, detail="Please log in")
     endpoint = (payload.get("endpoint") or "").strip() if payload else ""
-    q = db.query(PushSubscription).filter(PushSubscription.member_id == member.id)
-    if endpoint:
-        q = q.filter(PushSubscription.endpoint == endpoint)
-    rows = q.all()
-    for r in rows:
-        db.delete(r)
-    db.commit()
-    return {"removed": len(rows)}
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="endpoint is required")
+    ok, err = bridge.deactivate_endpoint(endpoint)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"rfm-notify unsubscribe failed: {err}")
+    return {"removed": 1}
 
 
 # ---- Admin ----
 
 @router.post("/admin/push/vapid")
 def admin_generate_vapid(payload: dict = Body(default={}), request: Request = None, db: Session = Depends(get_db)):
-    """Generate (or replace) the VAPID keypair. Force=true wipes the existing
-    pair and invalidates every subscription, so use sparingly."""
+    """VAPID keys live in rfm-notify now — admins should manage them in the
+    rfm-notify console (Channels → Push → ⚙ VAPID). This endpoint stays
+    around for muscle-memory and points admins at the new home.
+    """
     from routers.pages import is_authenticated
     if not is_authenticated(request):
         raise HTTPException(status_code=403, detail="Admin only")
-    subject = (payload.get("subject") or "").strip() or "mailto:admin@rfm.org.za"
-    force = bool(payload.get("force", False))
-    public_key, _ = push_service.generate_vapid_keys(db, subject=subject, force=force)
     return {
-        "public_key": public_key,
-        "subject": subject,
-        "configured": True,
+        "moved": True,
+        "message": (
+            "VAPID keys are now managed in rfm-notify. Open the rfm-notify "
+            "admin console → Channels → Push → click ⚙ VAPID to generate "
+            "or rotate."
+        ),
     }
 
 
 @router.get("/admin/push/diagnostics")
 def admin_push_diagnostics(request: Request, db: Session = Depends(get_db)):
-    """Inspect the stored VAPID material and verify it loads cleanly.
-    Returns shape info + a load test result so we can pinpoint why
-    pywebpush is rejecting the key."""
+    """Lightweight diagnostic that confirms the bridge to rfm-notify is up.
+    For full subscription/key inspection, use the rfm-notify admin console."""
     from routers.pages import is_authenticated
     if not is_authenticated(request):
         raise HTTPException(status_code=403, detail="Admin only")
-
-    raw_priv = push_service._get(db, "vapid_private_key")
-    raw_pub = push_service._get(db, "vapid_public_key")
-    subject = push_service._get(db, "vapid_subject")
-
-    out = {
-        "configured": push_service.is_configured(db),
-        "subject": subject,
-        "public_key_b64url_length": len(raw_pub or ""),
-        "public_key_first": (raw_pub or "")[:12],
-        "public_key_last": (raw_pub or "")[-12:],
-        "private_key_length": len(raw_priv or ""),
-        "private_key_starts_with_begin": (raw_priv or "").lstrip().startswith("-----BEGIN"),
-        "private_key_first_line": (raw_priv or "").splitlines()[0] if raw_priv else "",
-        "private_key_last_line": (raw_priv or "").splitlines()[-1] if raw_priv else "",
-        "private_key_line_count": len((raw_priv or "").splitlines()),
-        "load_test": None,
-        "load_test_error": None,
+    info = bridge.get_public_key()
+    return {
+        "configured": bool(info.get("configured")),
+        "public_key_length": len((info.get("public_key") or "")),
+        "bridge_ok": bridge.is_configured(),
+        "note": "Subscription and VAPID details now live in the rfm-notify admin console.",
     }
-
-    # Try loading the PEM the same way pywebpush will
-    try:
-        from cryptography.hazmat.backends import default_backend as _be
-        from cryptography.hazmat.primitives.serialization import load_pem_private_key
-        pem = push_service._vapid_private_pem(db)
-        if not pem:
-            out["load_test"] = "no-pem"
-        else:
-            key = load_pem_private_key(pem.encode("ascii"), password=None, backend=_be())
-            curve = getattr(getattr(key, "curve", None), "name", "?")
-            out["load_test"] = "ok"
-            out["load_test_curve"] = curve
-            out["load_test_pem_first_line"] = pem.splitlines()[0]
-    except Exception as e:
-        out["load_test"] = "failed"
-        out["load_test_error"] = f"{type(e).__name__}: {e}"
-
-    # Validate every subscription's p256dh key
-    sub_results = []
-    rows = db.query(PushSubscription).all()
-    for s in rows:
-        item = {"id": s.id, "member_id": s.member_id, "p256dh_length": len(s.p256dh_key or "")}
-        try:
-            push_service._validate_p256dh(s.p256dh_key)
-            item["p256dh_valid"] = True
-        except Exception as e:
-            item["p256dh_valid"] = False
-            item["p256dh_error"] = f"{type(e).__name__}: {e}"
-        item["auth_length"] = len(s.auth_key or "")
-        sub_results.append(item)
-    out["subscriptions"] = sub_results
-
-    return out
 
 
 @router.get("/admin/push/subscriptions")
 def admin_list_subs(request: Request, db: Session = Depends(get_db)):
-    """Admin diagnostic: list every subscription, masked endpoint, last error."""
+    """Subscriptions are kept in rfm-notify; redirect admins to its console."""
     from routers.pages import is_authenticated
     if not is_authenticated(request):
         raise HTTPException(status_code=403, detail="Admin only")
-    rows = db.query(PushSubscription).all()
-    out = []
-    for s in rows:
-        endpoint = s.endpoint or ""
-        # Pull just the host + last 6 chars of the path so we can identify
-        # which push service this is for without leaking the full token
-        try:
-            from urllib.parse import urlparse
-            u = urlparse(endpoint)
-            tail = endpoint[-12:] if len(endpoint) > 12 else endpoint
-            label = f"{u.netloc} …{tail}"
-        except Exception:
-            label = endpoint[:60]
-        out.append({
-            "id": s.id,
-            "member_id": s.member_id,
-            "endpoint_label": label,
-            "user_agent": s.user_agent,
-            "is_enabled": bool(s.is_enabled),
-            "last_seen_at": s.last_seen_at.isoformat() if s.last_seen_at else None,
-            "last_failed_at": s.last_failed_at.isoformat() if s.last_failed_at else None,
-            "last_error": s.last_error,
-            "created_at": s.created_at.isoformat() if s.created_at else None,
-        })
-    return out
+    return {
+        "moved": True,
+        "message": (
+            "Push subscriptions live in rfm-notify now. Open Channels → Push → "
+            "Subscriptions in the rfm-notify admin console for the live list."
+        ),
+    }
 
 
 @router.post("/admin/push/test")
 def admin_test_push(payload: dict = Body(default={}), request: Request = None, db: Session = Depends(get_db)):
-    """Send a test push to the admin's own subscriptions (or to a member
-    they specify)."""
+    """Send a test push to the admin's own subscriptions via rfm-notify.
+
+    We dispatch as event_code=`portal.admin_test` with channels=["push"]
+    so it doesn't require a route or template — body_override carries
+    the JSON payload the service worker renders.
+    """
     from routers.pages import is_authenticated, get_admin_identity
     if not is_authenticated(request):
         raise HTTPException(status_code=403, detail="Admin only")
@@ -255,15 +211,29 @@ def admin_test_push(payload: dict = Body(default={}), request: Request = None, d
     if not target_member_id:
         raise HTTPException(status_code=400, detail="No target member; provide member_id or sign in with an identity")
 
+    member = db.query(Member).filter(Member.id == int(target_member_id)).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    if not member.email:
+        raise HTTPException(
+            status_code=400,
+            detail="Test target has no email on file — cannot resolve recipient in rfm-notify.",
+        )
+
     title = (payload.get("title") or "RFM Portal — test push").strip()
     body = (payload.get("body") or "If you can read this, push notifications are working 🎉").strip()
     url = (payload.get("url") or "/portal").strip()
 
-    result = push_service.send_to_member(db, int(target_member_id), title=title, body=body, url=url, tag="rfm-test")
-    return {
-        "target_member_id": int(target_member_id),
-        "sent": result.sent,
-        "failed": result.failed,
-        "removed": result.removed,
-        "errors": result.errors[:5],
-    }
+    ok, info = bridge.send_event_push(
+        event_code="portal.admin_test",
+        recipient_email=member.email,
+        recipient_full_name=member.full_name,
+        title=title,
+        body=body,
+        url=url,
+        tag="rfm-test",
+        idempotency_key=None,  # test sends shouldn't dedupe — they want to land every time
+    )
+    if not ok:
+        return {"target_member_id": int(target_member_id), "sent": 0, "failed": 1, "removed": 0, "errors": [str(info)]}
+    return {"target_member_id": int(target_member_id), "sent": 1, "failed": 0, "removed": 0, "errors": []}

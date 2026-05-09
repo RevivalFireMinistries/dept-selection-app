@@ -575,15 +575,37 @@ def dispatch_event(
     if not app_url:
         app_url = os.getenv('APP_URL', '')
 
-    # ---- Web Push fan-out (parallel to email; best-effort, non-blocking) ----
-    # Fired once for every dispatch_event regardless of email channel state,
-    # because push is independent. Failures don't propagate.
+    # ---- Web Push via rfm-notify (best-effort, non-blocking) ----
+    # Push lives in rfm-notify now: VAPID keys, browser subscriptions, and
+    # the actual webpush call. We loop the same recipient list and fire
+    # one /notify call per recipient with channels=["push"] and a JSON
+    # body_override carrying the title/body/url the SW will render.
+    # Failures here don't propagate — push is best-effort, email above
+    # is the authoritative delivery path.
     try:
-        import push_service
-        if push_service.is_configured(db):
-            # Inject app_url into the data so push handlers can use it for URLs
-            push_data = {**data, "app_url": app_url}
-            push_service.send_event_push(db, event_type, push_data, list(recipients))
+        from notifications import rfm_notify_push as _push_bridge
+        from notifications.push_payload import build_push_payload
+
+        if _push_bridge.is_configured():
+            push_title, push_body, push_url = build_push_payload(
+                event_type, {**data, "app_url": app_url}
+            )
+            for _r in recipients:
+                _email = _r.get("email")
+                if not _email:
+                    continue  # rfm-notify needs email to resolve the recipient
+                _push_idem = f"portal-push:{event_type.value}:{_r.get('id') or _email}"
+                _push_bridge.send_event_push(
+                    event_code=event_type.value,
+                    recipient_email=_email,
+                    recipient_member_id=_r.get("id"),
+                    recipient_full_name=_r.get("name"),
+                    title=push_title,
+                    body=push_body,
+                    url=push_url,
+                    tag=f"event-{event_type.value}",
+                    idempotency_key=_push_idem,
+                )
     except Exception as _push_err:
         try:
             print(f"Push fan-out failed for {event_type.value}: {_push_err}")
