@@ -64,6 +64,12 @@ def _b64url(raw: bytes) -> str:
 def generate_vapid_keys(db: Session, *, subject: str, force: bool = False) -> Tuple[str, str]:
     """Generate (or replace) the VAPID keypair stored in Settings.
     Returns (public_key_b64url, applicationServerKey_for_browser).
+
+    Storage shape (post-fix):
+      vapid_public_key   — 65-byte uncompressed point as base64url (browser uses this)
+      vapid_private_key  — SEC1 PEM ('-----BEGIN EC PRIVATE KEY-----...') so we
+                            hand it straight to pywebpush without reconstruction.
+                            py_vapid is fussy about reconstructed PKCS8 PEMs.
     """
     if not subject:
         raise ValueError("subject is required (e.g. mailto:russel@rfm.org.za)")
@@ -80,21 +86,22 @@ def generate_vapid_keys(db: Session, *, subject: str, force: bool = False) -> Tu
     # Generate a P-256 ECDSA keypair (Web Push spec)
     private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
 
-    # Private key: raw 32 bytes
-    private_numbers = private_key.private_numbers()
-    private_raw = private_numbers.private_value.to_bytes(32, "big")
-
-    # Public key: 65 bytes uncompressed (0x04 || X || Y)
+    # Public key: 65 bytes uncompressed (0x04 || X || Y) → base64url for the browser
     public_bytes = private_key.public_key().public_bytes(
         encoding=serialization.Encoding.X962,
         format=serialization.PublicFormat.UncompressedPoint,
     )
-
     public_b64 = _b64url(public_bytes)
-    private_b64 = _b64url(private_raw)
+
+    # Private key: SEC1 PEM (the format py_vapid loads cleanly).
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("ascii")
 
     _set(db, "vapid_public_key", public_b64)
-    _set(db, "vapid_private_key", private_b64)
+    _set(db, "vapid_private_key", private_pem)
     _set(db, "vapid_subject", subject)
     db.commit()
 
@@ -118,20 +125,26 @@ class PushResult:
 
 
 def _vapid_private_pem(db: Session) -> Optional[str]:
-    """pywebpush wants the private key as a PEM string. Reconstruct from the
-    raw 32-byte value we stored in Settings."""
+    """pywebpush wants the private key as a PEM string. New deployments store
+    the SEC1 PEM directly. Legacy deployments (pre-2026-05-09) stored the raw
+    32-byte private value as base64url; we still reconstruct that to a SEC1
+    PEM so old keypairs keep working without forcing a regenerate."""
     raw = _get(db, "vapid_private_key")
     if not raw:
         return None
+    raw = raw.strip()
+    # New shape: PEM stored directly
+    if raw.startswith("-----BEGIN"):
+        return raw
+    # Legacy shape: base64url of raw 32 bytes — reconstruct as SEC1
     try:
-        # base64url-decode (pad to multiple of 4)
         pad = "=" * (-len(raw) % 4)
         priv_bytes = base64.urlsafe_b64decode((raw + pad).encode("ascii"))
         priv_int = int.from_bytes(priv_bytes, "big")
         private_key = ec.derive_private_key(priv_int, ec.SECP256R1(), default_backend())
         pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.NoEncryption(),
         ).decode("ascii")
         return pem
