@@ -814,3 +814,28 @@ class PushSubscription(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     member = relationship("Member", foreign_keys=[member_id])
+
+
+# ============ EXTERNAL API KEYS ============
+
+class ExternalApiKey(Base):
+    """API key issued to an external system (info desk, finance, etc.) so it
+    can call /api/external/* endpoints — currently push notifications only.
+    Each integration gets its own key so we can revoke / audit independently."""
+    __tablename__ = "external_api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(120), nullable=False)  # e.g. "Info Desk", "Finance team"
+    key = Column(String(120), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    # JSON list of action names the key can perform, e.g. ["push.notify"]
+    allowed_actions = Column(Text, nullable=False, server_default='["push.notify"]')
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_action = Column(String(60), nullable=True)
+    last_used_ip = Column(String(60), nullable=True)
+    use_count = Column(Integer, nullable=False, server_default="0")
+
+    created_by = relationship("Member", foreign_keys=[created_by_member_id])

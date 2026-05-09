@@ -60,6 +60,39 @@
         </p>
     </div>
 
+    <!-- External API keys -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-lg font-semibold text-gray-900">🔑 External API keys</h3>
+        </div>
+        <p class="text-sm text-gray-600 mb-4">
+            For other church systems (info desk, finance, check-in tools) to request push notifications.
+            Each integration gets its own key. Endpoint: <code class="text-[11px] bg-gray-100 px-1 rounded">POST /api/external/push/notify</code>
+            with header <code class="text-[11px] bg-gray-100 px-1 rounded">X-API-Key: rfm_…</code>.
+        </p>
+
+        <div id="externalKeyMessage" class="hidden mb-3 px-3 py-2 rounded-lg text-sm"></div>
+
+        <div class="flex flex-wrap gap-2 mb-4">
+            <input type="text" id="newKeyName" placeholder="e.g. Info Desk"
+                class="flex-1 min-w-[180px] px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            <button onclick="createExternalKey()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg">
+                Issue new key
+            </button>
+        </div>
+
+        <div id="newKeyDisplay" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+            <div class="font-semibold text-amber-900 mb-1">⚠️ Copy this token now — it will not be shown again</div>
+            <div id="newKeyValue" class="font-mono text-[12px] text-amber-900 break-all bg-white border border-amber-200 rounded p-2 my-2"></div>
+            <div class="flex gap-2">
+                <button onclick="copyNewKey()" class="text-xs text-emerald-700 hover:underline">Copy to clipboard</button>
+                <button onclick="document.getElementById('newKeyDisplay').classList.add('hidden')" class="text-xs text-gray-500 hover:underline">I've saved it</button>
+            </div>
+        </div>
+
+        <div id="externalKeysList" class="space-y-2"></div>
+    </div>
+
     <!-- Push notifications -->
     <div class="bg-white rounded-xl shadow p-6" id="pushCard">
         <div class="flex items-center justify-between mb-2">
@@ -248,6 +281,113 @@ async function savePassword(key) {
         console.error('Failed to save password:', error);
         showMessage('Failed to save password', true);
     }
+}
+
+// ==================== EXTERNAL API KEYS ====================
+
+let __lastIssuedKey = null;
+
+async function loadExternalKeys() {
+    const list = document.getElementById('externalKeysList');
+    try {
+        const r = await fetch('/api/admin/external-keys');
+        if (!r.ok) { list.innerHTML = ''; return; }
+        const rows = await r.json();
+        if (!rows.length) {
+            list.innerHTML = '<div class="text-sm text-gray-500 italic text-center py-4">No keys issued yet.</div>';
+            return;
+        }
+        list.innerHTML = rows.map(k => `
+            <div class="border border-gray-200 rounded-lg p-3">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold text-gray-900">${escapeHtml(k.name)}</span>
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded font-semibold ${k.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}">${k.is_active ? 'Active' : 'Disabled'}</span>
+                            ${(k.scopes || []).map(s => `<span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-mono">${escapeHtml(s)}</span>`).join('')}
+                        </div>
+                        <div class="text-[11px] text-gray-500 mt-1 font-mono">${escapeHtml(k.key_preview)}</div>
+                        ${k.description ? `<div class="text-xs text-gray-600 mt-1">${escapeHtml(k.description)}</div>` : ''}
+                        <div class="text-[11px] text-gray-400 mt-1">
+                            Used ${k.use_count || 0} time${k.use_count === 1 ? '' : 's'}${k.last_used_at ? ' · last ' + new Date(k.last_used_at).toLocaleString() : ''}${k.last_used_ip ? ' · ' + escapeHtml(k.last_used_ip) : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <button onclick="rotateExternalKey(${k.id}, '${escapeAttr(k.name)}')" class="px-2.5 py-1 text-xs border border-gray-300 text-gray-700 rounded">Rotate</button>
+                        <button onclick="toggleExternalKey(${k.id}, ${!k.is_active})" class="px-2.5 py-1 text-xs border border-gray-300 text-gray-700 rounded">${k.is_active ? 'Disable' : 'Enable'}</button>
+                        <button onclick="deleteExternalKey(${k.id}, '${escapeAttr(k.name)}')" class="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) { console.error(e); }
+}
+
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return String(s || '').replace(/'/g, '\\\''); }
+
+function showExternalKeyMessage(text, isError) {
+    const el = document.getElementById('externalKeyMessage');
+    el.textContent = text;
+    el.className = `mb-3 px-3 py-2 rounded-lg text-sm ${isError ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+async function createExternalKey() {
+    const name = document.getElementById('newKeyName').value.trim();
+    if (!name) { showExternalKeyMessage('Give the key a name first', true); return; }
+    try {
+        const r = await fetch('/api/admin/external-keys', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ name, scopes: ['push.notify'] }),
+        });
+        const data = await r.json();
+        if (!r.ok) { showExternalKeyMessage(data.detail || 'Failed', true); return; }
+        __lastIssuedKey = data.key;
+        document.getElementById('newKeyValue').textContent = data.key;
+        document.getElementById('newKeyDisplay').classList.remove('hidden');
+        document.getElementById('newKeyName').value = '';
+        await loadExternalKeys();
+    } catch (e) { showExternalKeyMessage(String(e), true); }
+}
+
+function copyNewKey() {
+    if (!__lastIssuedKey) return;
+    navigator.clipboard.writeText(__lastIssuedKey).then(() => showExternalKeyMessage('Copied to clipboard', false));
+}
+
+async function rotateExternalKey(id, name) {
+    if (!confirm(`Rotate the key for "${name}"? The old token stops working immediately.`)) return;
+    try {
+        const r = await fetch(`/api/admin/external-keys/${id}/rotate`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok) { showExternalKeyMessage(data.detail || 'Failed', true); return; }
+        __lastIssuedKey = data.key;
+        document.getElementById('newKeyValue').textContent = data.key;
+        document.getElementById('newKeyDisplay').classList.remove('hidden');
+        await loadExternalKeys();
+    } catch (e) { showExternalKeyMessage(String(e), true); }
+}
+
+async function toggleExternalKey(id, makeActive) {
+    try {
+        const r = await fetch(`/api/admin/external-keys/${id}`, {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ is_active: makeActive }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); showExternalKeyMessage(d.detail || 'Failed', true); return; }
+        await loadExternalKeys();
+    } catch (e) { showExternalKeyMessage(String(e), true); }
+}
+
+async function deleteExternalKey(id, name) {
+    if (!confirm(`Delete the key for "${name}"? This cannot be undone.`)) return;
+    try {
+        const r = await fetch(`/api/admin/external-keys/${id}`, { method: 'DELETE' });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); showExternalKeyMessage(d.detail || 'Failed', true); return; }
+        await loadExternalKeys();
+    } catch (e) { showExternalKeyMessage(String(e), true); }
 }
 
 // ==================== PUSH NOTIFICATIONS ====================
@@ -491,5 +631,6 @@ loadSettings();
 loadSongStats();
 loadYocoConfig();
 loadPushStatus();
+loadExternalKeys();
 </script>
 {% endblock %}
