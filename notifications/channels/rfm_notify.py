@@ -124,10 +124,7 @@ class RfmNotifyChannel(NotificationChannel):
             )
             return False, f"rfm-notify {response.status_code}: {response.text[:200]}"
 
-        log.info(
-            "[rfm_notify] <- %s in %.0fms",
-            response.status_code, response.elapsed.total_seconds() * 1000 if response.elapsed else 0,
-        )
+        elapsed_ms = response.elapsed.total_seconds() * 1000 if response.elapsed else 0
 
         # Inspect the dispatched array to confirm the email channel sent.
         # Anything other than `sent` / `already-sent` we treat as a failure
@@ -135,17 +132,37 @@ class RfmNotifyChannel(NotificationChannel):
         try:
             data = response.json()
         except ValueError:
+            log.info("[rfm_notify] <- %s in %.0fms (empty body, treating as success)",
+                     response.status_code, elapsed_ms)
             return True, None  # 2xx without body — treat as success
 
         dispatched = (data or {}).get("dispatched") or []
         email_results = [d for d in dispatched if d.get("channel") == "email"]
         if not email_results:
             # No email branch fired — likely route config didn't include email
-            return False, "rfm-notify dispatched no email channel for this event"
+            log.warning(
+                "[rfm_notify] <- 200 but no email dispatched for %s/%s. "
+                "Likely missing event_route. Full response: %s",
+                self.app_code, event_code, dispatched,
+            )
+            return False, (
+                f"rfm-notify dispatched no email channel — check Event Routes "
+                f"in /admin for ({self.app_code}, {event_code})."
+            )
         first = email_results[0]
         status = first.get("status")
         if status in ("sent", "already-sent"):
+            log.info(
+                "[rfm_notify] <- %s in %.0fms; email %s (msg_id=%s)",
+                response.status_code, elapsed_ms, status, first.get("message_id"),
+            )
             return True, None
+
+        # status == "failed" or "skipped" — surface the reason
+        log.warning(
+            "[rfm_notify] <- 200 but email %s for %s/%s: %s",
+            status, self.app_code, event_code, first.get("error"),
+        )
         return False, first.get("error") or f"rfm-notify status: {status}"
 
     def test_connection(self) -> Tuple[bool, Optional[str]]:
