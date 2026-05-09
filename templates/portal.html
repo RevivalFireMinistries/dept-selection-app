@@ -192,31 +192,55 @@
 
                 <!-- Banking details -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center justify-between mb-3 gap-2">
                         <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Banking details</h2>
-                        <button @click="copyBanking()" class="text-xs text-indigo-600 hover:underline" x-show="hasBanking()">
-                            <span x-text="bankingCopied ? '✓ Copied' : 'Copy'"></span>
-                        </button>
+                        <div x-show="hasBanking()" class="flex items-center gap-2">
+                            <button @click="copyBanking()" class="text-xs text-indigo-600 hover:underline">
+                                <span x-text="bankingCopied ? '✓ Copied' : 'Copy all'"></span>
+                            </button>
+                            <button x-show="canShare" @click="shareBanking()" class="text-xs text-indigo-600 hover:underline">Share</button>
+                        </div>
                     </div>
                     <div x-show="!hasBanking()" class="text-sm text-gray-500 italic">Bank details haven't been configured yet. Please contact the church office.</div>
                     <dl x-show="hasBanking()" class="space-y-2 text-sm">
-                        <div x-show="banking?.bank_name" class="flex justify-between gap-3">
-                            <dt class="text-gray-500">Bank</dt><dd class="font-medium text-gray-900 text-right" x-text="banking?.bank_name"></dd>
+                        <div x-show="banking?.bank_name" class="flex justify-between items-center gap-3">
+                            <dt class="text-gray-500">Bank</dt>
+                            <dd class="font-medium text-gray-900 text-right" x-text="banking?.bank_name"></dd>
                         </div>
-                        <div x-show="banking?.account_holder" class="flex justify-between gap-3">
-                            <dt class="text-gray-500">Account holder</dt><dd class="font-medium text-gray-900 text-right" x-text="banking?.account_holder"></dd>
+                        <div x-show="banking?.account_holder" class="flex justify-between items-center gap-3">
+                            <dt class="text-gray-500">Account holder</dt>
+                            <dd class="font-medium text-gray-900 text-right" x-text="banking?.account_holder"></dd>
                         </div>
-                        <div x-show="banking?.account_number" class="flex justify-between gap-3">
-                            <dt class="text-gray-500">Account number</dt><dd class="font-mono font-semibold text-gray-900 text-right" x-text="banking?.account_number"></dd>
+                        <div x-show="banking?.account_number" class="flex justify-between items-center gap-3">
+                            <dt class="text-gray-500">Account number</dt>
+                            <dd class="flex items-center gap-2">
+                                <span class="font-mono font-semibold text-gray-900" x-text="banking?.account_number"></span>
+                                <button @click="copyField('account_number', banking?.account_number)" class="text-[10px] uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 px-1.5 py-0.5 rounded">
+                                    <span x-text="copiedField === 'account_number' ? '✓' : 'Copy'"></span>
+                                </button>
+                            </dd>
                         </div>
-                        <div x-show="banking?.account_type" class="flex justify-between gap-3">
-                            <dt class="text-gray-500">Account type</dt><dd class="font-medium text-gray-900 text-right" x-text="banking?.account_type"></dd>
+                        <div x-show="banking?.account_type" class="flex justify-between items-center gap-3">
+                            <dt class="text-gray-500">Account type</dt>
+                            <dd class="font-medium text-gray-900 text-right" x-text="banking?.account_type"></dd>
                         </div>
-                        <div x-show="banking?.branch_code" class="flex justify-between gap-3">
-                            <dt class="text-gray-500">Branch code</dt><dd class="font-mono font-semibold text-gray-900 text-right" x-text="banking?.branch_code"></dd>
+                        <div x-show="banking?.branch_code" class="flex justify-between items-center gap-3">
+                            <dt class="text-gray-500">Branch code</dt>
+                            <dd class="flex items-center gap-2">
+                                <span class="font-mono font-semibold text-gray-900" x-text="banking?.branch_code"></span>
+                                <button @click="copyField('branch_code', banking?.branch_code)" class="text-[10px] uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 px-1.5 py-0.5 rounded">
+                                    <span x-text="copiedField === 'branch_code' ? '✓' : 'Copy'"></span>
+                                </button>
+                            </dd>
                         </div>
-                        <div x-show="banking?.swift" class="flex justify-between gap-3">
-                            <dt class="text-gray-500">SWIFT / BIC</dt><dd class="font-mono font-semibold text-gray-900 text-right" x-text="banking?.swift"></dd>
+                        <div x-show="banking?.swift" class="flex justify-between items-center gap-3">
+                            <dt class="text-gray-500">SWIFT / BIC</dt>
+                            <dd class="flex items-center gap-2">
+                                <span class="font-mono font-semibold text-gray-900" x-text="banking?.swift"></span>
+                                <button @click="copyField('swift', banking?.swift)" class="text-[10px] uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 px-1.5 py-0.5 rounded">
+                                    <span x-text="copiedField === 'swift' ? '✓' : 'Copy'"></span>
+                                </button>
+                            </dd>
                         </div>
                         <div x-show="banking?.reference_hint" class="pt-2 mt-2 border-t border-gray-100 text-[11px] text-gray-500" x-text="banking?.reference_hint"></div>
                     </dl>
@@ -632,6 +656,8 @@ function memberPortal() {
         _givingLoaded: false,
         banking: null,
         bankingCopied: false,
+        copiedField: null,
+        canShare: typeof navigator !== 'undefined' && !!navigator.share,
         // Online payment (Yoco)
         payOpen: false,
         payError: '',
@@ -763,9 +789,9 @@ function memberPortal() {
             }
         },
 
-        copyBanking() {
+        _bankingLines() {
             const b = this.banking || {};
-            const lines = [
+            return [
                 b.bank_name && `Bank: ${b.bank_name}`,
                 b.account_holder && `Account holder: ${b.account_holder}`,
                 b.account_number && `Account number: ${b.account_number}`,
@@ -774,10 +800,37 @@ function memberPortal() {
                 b.swift && `SWIFT: ${b.swift}`,
                 b.reference_hint && `Reference: ${b.reference_hint}`,
             ].filter(Boolean).join('\n');
-            navigator.clipboard.writeText(lines).then(() => {
+        },
+
+        copyBanking() {
+            const text = this._bankingLines();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
                 this.bankingCopied = true;
                 setTimeout(() => { this.bankingCopied = false; }, 2000);
             });
+        },
+
+        copyField(name, value) {
+            if (!value) return;
+            navigator.clipboard.writeText(String(value)).then(() => {
+                this.copiedField = name;
+                setTimeout(() => { if (this.copiedField === name) this.copiedField = null; }, 1500);
+            });
+        },
+
+        async shareBanking() {
+            const text = this._bankingLines();
+            if (!text) return;
+            const title = `${this.data?.assembly_name || 'Church'} — banking details`;
+            try {
+                if (navigator.share) {
+                    await navigator.share({ title, text });
+                    return;
+                }
+            } catch (e) { /* user dismissed or share unsupported — fall through */ }
+            // Fallback: copy to clipboard
+            this.copyBanking();
         },
 
         async loadUpcomingMeetings() {

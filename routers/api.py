@@ -9632,22 +9632,64 @@ def admin_debug_central_member(member_id: int, request: Request, db: Session = D
 
 @router.get("/portal/giving/banking")
 def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
-    """Public banking details for the church, plus an optional online-giving
-    URL. Read from Settings — admins can configure these via /admin/settings.
-    Any value not configured is omitted from the response."""
-    _require_logged_in_member(request, db)
+    """Banking details for the church.
+
+    Source-of-truth order (each field falls back independently):
+      1. Assembly.metadata in the central rfm-database — keyed by the
+         member's external_assembly_id. Recognised keys: bank_name,
+         account_holder, account_number, branch_code, account_type,
+         swift, reference_hint, online_giving_url.
+      2. Local Settings table (the previous behaviour) so existing
+         deployments keep working until the central record is filled in.
+    """
+    member = _require_logged_in_member(request, db)
 
     def _s(key: str) -> str:
         row = db.query(Settings).filter(Settings.key == key).first()
         return (row.value or "").strip() if row else ""
 
-    return {
-        "bank_name": _s("bank_name"),
-        "account_holder": _s("bank_account_holder"),
-        "account_number": _s("bank_account_number"),
-        "branch_code": _s("bank_branch_code"),
-        "account_type": _s("bank_account_type"),
-        "swift": _s("bank_swift"),
-        "reference_hint": _s("bank_reference_hint") or "Use your full name as reference",
-        "online_giving_url": _s("online_giving_url"),
+    # Local fallbacks
+    central: dict = {}
+    central_source = None
+
+    # Try central if the member is linked
+    if member.external_assembly_id and _rfm.is_enabled(db) and _rfm.is_configured(db):
+        try:
+            r = _rfm.get_assembly(member.external_assembly_id, db=db)
+            if r.ok and isinstance(r.data, dict):
+                meta = r.data.get("metadata") or r.data.get("extra_metadata") or {}
+                if isinstance(meta, dict):
+                    # Lower-case keys to be tolerant of different conventions
+                    norm = {str(k).lower(): str(v).strip() for k, v in meta.items() if v}
+                    central = norm
+                    if any(norm.get(k) for k in ("bank_name", "account_number", "online_giving_url")):
+                        central_source = "central"
+        except Exception:
+            pass
+
+    def pick(*keys, fallback_setting=None):
+        # Try central first (any matching key), then a local Settings key
+        for k in keys:
+            v = central.get(k)
+            if v:
+                return v
+        if fallback_setting:
+            return _s(fallback_setting)
+        return ""
+
+    # Map central -> response, with local Settings as a fallback per-field
+    response = {
+        "bank_name":         pick("bank_name", "bank",                 fallback_setting="bank_name"),
+        "account_holder":    pick("account_holder", "account_name",    fallback_setting="bank_account_holder"),
+        "account_number":    pick("account_number",                    fallback_setting="bank_account_number"),
+        "branch_code":       pick("branch_code", "branch",             fallback_setting="bank_branch_code"),
+        "account_type":      pick("account_type",                      fallback_setting="bank_account_type"),
+        "swift":             pick("swift", "swift_code", "bic",        fallback_setting="bank_swift"),
+        "reference_hint":    pick("reference_hint", "reference",       fallback_setting="bank_reference_hint")
+                             or "Use your full name as reference",
+        "online_giving_url": pick("online_giving_url", "give_url",     fallback_setting="online_giving_url"),
+        "source": central_source or ("local" if any([
+            _s("bank_name"), _s("bank_account_number"), _s("online_giving_url")
+        ]) else None),
     }
+    return response

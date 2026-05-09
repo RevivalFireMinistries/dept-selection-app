@@ -281,6 +281,11 @@ def count_members_with_home_church(*, assembly_id: Optional[str] = None, db=None
     )
 
 
+def get_assembly(assembly_id: str, *, db=None) -> ApiResult:
+    """Fetch a single assembly's full record (incl. metadata)."""
+    return _request("GET", f"/api/v1/assemblies/{assembly_id}", db=db)
+
+
 def list_assemblies(*, db=None) -> ApiResult:
     """List assemblies the API key has access to. With a scoped service key,
     only one is returned — that's the calling portal's assembly."""
