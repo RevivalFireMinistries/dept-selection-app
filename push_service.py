@@ -222,12 +222,21 @@ def _dispatch(
 
     payload_json = json.dumps(payload)
 
+    import traceback as _tb
     for sub in list(subs):
         sub_info = {
             "endpoint": sub.endpoint,
             "keys": {"p256dh": sub.p256dh_key, "auth": sub.auth_key},
         }
         try:
+            # Pre-flight: validate the subscriber's p256dh key. If it's malformed,
+            # cryptography raises the same generic 'Could not deserialize key data'
+            # later inside pywebpush — surfacing it here gives a clearer trail.
+            try:
+                _validate_p256dh(sub.p256dh_key)
+            except Exception as ve:
+                raise RuntimeError(f"subscription p256dh invalid: {ve}") from ve
+
             webpush(
                 subscription_info=sub_info,
                 data=payload_json,
@@ -243,7 +252,6 @@ def _dispatch(
             status = getattr(getattr(e, "response", None), "status_code", None)
             err_msg = f"HTTP {status}: {str(e)[:200]}" if status else str(e)[:200]
             if status in (404, 410):
-                # Endpoint dead — remove the subscription
                 db.delete(sub)
                 result.removed += 1
             else:
@@ -252,9 +260,33 @@ def _dispatch(
                 result.failed += 1
                 result.errors.append(err_msg)
         except Exception as e:
+            # Capture chain + last frame so we know which step blew up
+            cause = repr(e)
+            tb = _tb.format_exc().splitlines()
+            last_frame = next(
+                (l for l in reversed(tb) if "site-packages" in l or "push_service" in l),
+                tb[-2] if len(tb) > 1 else "",
+            )
+            err_msg = f"{type(e).__name__}: {str(e)[:160]} | at {last_frame.strip()[:160]}"
             sub.last_failed_at = datetime.utcnow()
-            sub.last_error = str(e)[:400]
+            sub.last_error = err_msg[:400]
             result.failed += 1
-            result.errors.append(str(e)[:200])
+            result.errors.append(err_msg)
+            log.exception("Push send failed: %s", cause)
     db.commit()
     return result
+
+
+def _validate_p256dh(p256dh: str) -> None:
+    """Decode the subscriber's p256dh key and confirm cryptography accepts it
+    as a P-256 uncompressed point (65 bytes starting with 0x04)."""
+    if not p256dh:
+        raise ValueError("missing p256dh")
+    pad = "=" * (-len(p256dh) % 4)
+    raw = base64.urlsafe_b64decode((p256dh + pad).encode("ascii"))
+    if len(raw) != 65:
+        raise ValueError(f"unexpected length {len(raw)} (expected 65 for uncompressed P-256)")
+    if raw[0] != 0x04:
+        raise ValueError(f"unexpected leading byte 0x{raw[0]:02x} (expected 0x04)")
+    # Will raise if cryptography can't load it
+    ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), raw)

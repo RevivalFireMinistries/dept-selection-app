@@ -189,6 +189,21 @@ def admin_push_diagnostics(request: Request, db: Session = Depends(get_db)):
         out["load_test"] = "failed"
         out["load_test_error"] = f"{type(e).__name__}: {e}"
 
+    # Validate every subscription's p256dh key
+    sub_results = []
+    rows = db.query(PushSubscription).all()
+    for s in rows:
+        item = {"id": s.id, "member_id": s.member_id, "p256dh_length": len(s.p256dh_key or "")}
+        try:
+            push_service._validate_p256dh(s.p256dh_key)
+            item["p256dh_valid"] = True
+        except Exception as e:
+            item["p256dh_valid"] = False
+            item["p256dh_error"] = f"{type(e).__name__}: {e}"
+        item["auth_length"] = len(s.auth_key or "")
+        sub_results.append(item)
+    out["subscriptions"] = sub_results
+
     return out
 
 
