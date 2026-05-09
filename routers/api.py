@@ -74,36 +74,11 @@ def _mask_email(email: str) -> str:
 def _send_password_setup_email(db, member, token: str):
     """Send a password setup email to a member who doesn't have a password yet."""
     try:
-        from notifications.dispatcher import get_email_settings
+        from notifications.channels.rfm_notify import RfmNotifyChannel
 
-        settings_dict = {}
-        for s in db.query(Settings).all():
-            settings_dict[s.key] = s.value
-
-        email_settings = get_email_settings(settings_dict)
-
-        channel = None
-        if email_settings.get("resend_enabled"):
-            from notifications.channels.resend import ResendChannel
-            channel = ResendChannel(
-                api_key=email_settings["resend_api_key"],
-                from_name=email_settings.get("resend_from_name", "RFM Stellenbosch"),
-                from_email=email_settings["resend_from_email"]
-            )
-        elif email_settings.get("smtp_enabled"):
-            from notifications.channels.email import EmailChannel
-            channel = EmailChannel(
-                host=email_settings["smtp_host"],
-                port=int(email_settings.get("smtp_port", 587)),
-                username=email_settings.get("smtp_username"),
-                password=email_settings.get("smtp_password"),
-                from_name=email_settings.get("smtp_from_name", "RFM Stellenbosch"),
-                from_email=email_settings["smtp_from_email"],
-                use_tls=True
-            )
-
-        if not channel:
-            print("No email channel configured for password setup")
+        channel = RfmNotifyChannel()
+        if not channel.is_configured():
+            print("rfm-notify not configured — cannot send password setup email")
             return
 
         base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
@@ -137,7 +112,16 @@ def _send_password_setup_email(db, member, token: str):
         </div>
         """
 
-        success, error = channel.send(member.email, "Set Up Your Password - RFM Stellenbosch Portal", html)
+        success, error = channel.send(
+            member.email,
+            "Set Up Your Password - RFM Stellenbosch Portal",
+            html,
+            event_code="member.password_setup",
+            recipient_id=getattr(member, "id", None),
+            recipient_name=getattr(member, "full_name", None),
+            idempotency_key=f"password_setup:{getattr(member, 'id', member.email)}:{token}",
+            priority="high",  # transactional, not marketing
+        )
         if not success:
             print(f"Failed to send password setup email: {error}")
         else:
@@ -316,26 +300,10 @@ def forgot_password(
 
         email_settings = get_email_settings(settings_dict)
 
-        if email_settings.get("resend_enabled"):
-            from notifications.channels.resend import ResendChannel
-            channel = ResendChannel(
-                api_key=email_settings["resend_api_key"],
-                from_name=email_settings.get("resend_from_name", "RFM Stellenbosch"),
-                from_email=email_settings["resend_from_email"]
-            )
-        elif email_settings.get("smtp_enabled"):
-            from notifications.channels.email import EmailChannel
-            channel = EmailChannel(
-                host=email_settings["smtp_host"],
-                port=int(email_settings.get("smtp_port", 587)),
-                username=email_settings.get("smtp_username"),
-                password=email_settings.get("smtp_password"),
-                from_name=email_settings.get("smtp_from_name", "RFM Stellenbosch"),
-                from_email=email_settings["smtp_from_email"],
-                use_tls=True
-            )
-        else:
-            print("No email channel configured for password reset")
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        channel = RfmNotifyChannel()
+        if not channel.is_configured():
+            print("rfm-notify not configured for password reset")
             return {"success": True, "message": "If an account exists with this phone number, a reset link has been sent to the registered email."}
 
         # Build reset URL
@@ -367,7 +335,16 @@ def forgot_password(
         </div>
         """
 
-        success, error = channel.send(member.email, "Reset Your Password - RFM Stellenbosch Portal", html)
+        success, error = channel.send(
+            member.email,
+            "Reset Your Password - RFM Stellenbosch Portal",
+            html,
+            event_code="member.password_reset",
+            recipient_id=getattr(member, "id", None),
+            recipient_name=getattr(member, "full_name", None),
+            idempotency_key=f"password_reset:{getattr(member, 'id', member.email)}:{token}",
+            priority="high",
+        )
         if not success:
             print(f"Failed to send reset email: {error}")
 
@@ -618,27 +595,10 @@ def approve_member(member_id: int, request: Request = None, db: Session = Depend
             settings_dict[s.key] = s.value
         email_settings = get_email_settings(settings_dict)
 
-        channel = None
-        if email_settings.get("resend_enabled"):
-            from notifications.channels.resend import ResendChannel
-            channel = ResendChannel(
-                api_key=email_settings["resend_api_key"],
-                from_name=email_settings.get("resend_from_name", "RFM Stellenbosch"),
-                from_email=email_settings["resend_from_email"]
-            )
-        elif email_settings.get("smtp_enabled"):
-            from notifications.channels.email import EmailChannel
-            channel = EmailChannel(
-                host=email_settings["smtp_host"],
-                port=int(email_settings.get("smtp_port", 587)),
-                username=email_settings.get("smtp_username"),
-                password=email_settings.get("smtp_password"),
-                from_name=email_settings.get("smtp_from_name", "RFM Stellenbosch"),
-                from_email=email_settings["smtp_from_email"],
-                use_tls=True
-            )
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        channel = RfmNotifyChannel()
 
-        if channel and member.email:
+        if channel.is_configured() and member.email:
             base_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
             if base_url and not base_url.startswith("http"):
                 base_url = f"https://{base_url}"
@@ -662,7 +622,15 @@ def approve_member(member_id: int, request: Request = None, db: Session = Depend
                 </div>
             </div>
             """
-            channel.send(member.email, "Account Approved - RFM Stellenbosch Portal", html)
+            channel.send(
+                member.email,
+                "Account Approved - RFM Stellenbosch Portal",
+                html,
+                event_code="member.account_approved",
+                recipient_id=getattr(member, "id", None),
+                recipient_name=getattr(member, "full_name", None),
+                idempotency_key=f"account_approved:{getattr(member, 'id', member.email)}",
+            )
     except Exception as e:
         print(f"Error sending approval email: {e}")
 
@@ -4799,33 +4767,38 @@ def update_smtp_settings(data: SMTPSettingsUpdate, db: Session = Depends(get_db)
 
 @router.post("/admin/notifications/test-email")
 def send_test_email(data: TestEmailRequest, db: Session = Depends(get_db)):
-    """Send a test email using the active channel (Resend or SMTP)"""
-    from notifications.dispatcher import get_email_settings, get_email_channel
+    """Send a test email through rfm-notify."""
+    from notifications.channels.rfm_notify import RfmNotifyChannel
 
-    # Get all email settings
-    settings = get_email_settings(db)
-
-    # Get the active channel
-    channel, channel_name = get_email_channel(settings)
-
-    if not channel:
+    channel = RfmNotifyChannel()
+    if not channel.is_configured():
         raise HTTPException(
             status_code=400,
-            detail="No email channel configured. Enable either Resend or SMTP."
+            detail="rfm-notify not configured. Set RFM_NOTIFY_URL and RFM_NOTIFY_API_KEY env vars.",
         )
 
-    # First test connection
+    # Reachability check (hits /health, no auth)
     conn_success, conn_error = channel.test_connection()
     if not conn_success:
         raise HTTPException(status_code=400, detail=f"Connection failed: {conn_error}")
 
-    # Send test email
-    success, error = channel.send_test_email(data.to_email)
-
+    html = (
+        "<div style='font-family:system-ui,sans-serif;padding:24px'>"
+        "<h2 style='color:#5b21b6'>Test email from RFM Stellenbosch Portal</h2>"
+        "<p>If you received this, the portal is correctly routing email through rfm-notify.</p>"
+        "</div>"
+    )
+    success, error = channel.send(
+        data.to_email,
+        "Test email from RFM Stellenbosch Portal",
+        html,
+        event_code="portal.test_email",
+        idempotency_key=f"test_email:{data.to_email}:{int(__import__('time').time())}",
+    )
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to send: {error}")
 
-    return {"success": True, "message": f"Test email sent via {channel_name} to {data.to_email}"}
+    return {"success": True, "message": f"Test email sent via rfm-notify to {data.to_email}"}
 
 
 @router.get("/admin/notifications/config")
@@ -5727,31 +5700,23 @@ def _send_published_copy_to_manager(db: Session, program: ServiceProgram):
 
     subject = f"Program Published: {program.title} — {date_str}"
 
-    # Send via configured channel
+    # Send via rfm-notify
     try:
-        from notifications.dispatcher import get_email_settings
-        settings = get_email_settings(db)
-        is_resend = (os.getenv('RESEND_ENABLED', '').lower() == 'true') or settings.get('resend_enabled', 'false').lower() == 'true'
-        is_smtp = (os.getenv('SMTP_ENABLED', '').lower() == 'true') or settings.get('smtp_enabled', 'false').lower() == 'true'
-
-        if is_resend:
-            from notifications.channels.resend import ResendChannel
-            channel = ResendChannel(settings)
-            if channel.is_configured():
-                success, error = channel.send(manager_email, subject, html)
-                if success:
-                    print(f"Sent published program copy to service manager {manager_name} ({manager_email})")
-                else:
-                    print(f"Failed to send published copy to {manager_email}: {error}")
-        elif is_smtp:
-            from notifications.channels.email import EmailChannel
-            channel = EmailChannel(settings)
-            if channel.is_configured():
-                success, error = channel.send(manager_email, subject, html)
-                if success:
-                    print(f"Sent published program copy to service manager {manager_name} ({manager_email})")
-                else:
-                    print(f"Failed to send published copy to {manager_email}: {error}")
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        channel = RfmNotifyChannel()
+        if channel.is_configured():
+            success, error = channel.send(
+                manager_email, subject, html,
+                event_code="program.published_manager_copy",
+                recipient_name=manager_name,
+                idempotency_key=f"program_published:{program.id}:{manager_email}",
+            )
+            if success:
+                print(f"Sent published program copy to service manager {manager_name} ({manager_email})")
+            else:
+                print(f"Failed to send published copy to {manager_email}: {error}")
+        else:
+            print("rfm-notify not configured — skipping program-published manager copy")
     except Exception as e:
         print(f"Failed to email program copy to service manager: {e}")
 

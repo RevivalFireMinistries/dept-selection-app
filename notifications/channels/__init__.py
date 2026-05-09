@@ -1,9 +1,10 @@
-"""
-Notification channels package.
-Channels are responsible for actually sending notifications via different mediums.
-"""
+"""Notification channel implementations.
 
-from .email import EmailChannel
-from .resend import ResendChannel
+Email goes through rfm-notify since v1.2 — see RfmNotifyChannel below.
+The Resend / SMTP direct-send channels were retired at the same time
+(provider config now lives in the rfm-notify admin console).
+"""
+from .base import NotificationChannel
+from .rfm_notify import RfmNotifyChannel
 
-__all__ = ['EmailChannel', 'ResendChannel']
+__all__ = ['NotificationChannel', 'RfmNotifyChannel']

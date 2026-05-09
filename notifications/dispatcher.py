@@ -575,16 +575,6 @@ def dispatch_event(
     if not app_url:
         app_url = os.getenv('APP_URL', '')
 
-    # Determine active email channel
-    is_resend = (
-        os.getenv('RESEND_ENABLED', '').lower() == 'true' or
-        settings.get('resend_enabled') == 'true'
-    )
-    is_smtp = (
-        os.getenv('SMTP_ENABLED', '').lower() == 'true' or
-        settings.get('smtp_enabled') == 'true'
-    )
-
     # ---- Web Push fan-out (parallel to email; best-effort, non-blocking) ----
     # Fired once for every dispatch_event regardless of email channel state,
     # because push is independent. Failures don't propagate.
@@ -600,17 +590,28 @@ def dispatch_event(
         except Exception:
             pass
 
-    if not is_resend and not is_smtp:
-        return  # No email channel enabled
+    # ---- Email via rfm-notify (post v1.2 migration) ----
+    # We render the HTML locally as before (preserves all the existing
+    # event-specific layouts) but ship it through rfm-notify instead of
+    # calling Resend/SMTP directly. Benefits: centralised logging, the
+    # opt-out + quiet-hours pipeline, and an auto-injected unsubscribe
+    # footer on every email.
+    from notifications.channels.rfm_notify import RfmNotifyChannel
 
-    for i, recipient in enumerate(recipients):
+    notify_channel = RfmNotifyChannel()
+    if not notify_channel.is_configured():
+        # Fail loudly but don't crash the request — caller (e.g. an admin
+        # action) can still complete; emails just won't go out.
+        print(
+            "[dispatch_event] rfm-notify not configured "
+            "(set RFM_NOTIFY_URL and RFM_NOTIFY_API_KEY). Skipping email send."
+        )
+        return
+
+    for recipient in recipients:
         recipient_email = recipient.get('email')
         if not recipient_email:
             continue
-
-        # Apply rate limiting for Resend (after first email)
-        if is_resend and i > 0:
-            time.sleep(0.5)  # 500ms delay = max 2 requests per second
 
         # Merge recipient data into template data for personalized emails
         recipient_data = {**data}
@@ -623,41 +624,41 @@ def dispatch_event(
         if recipient.get('phone') and app_url:
             recipient_data['rsvp_link'] = f"{app_url}/portal?phone={recipient.get('phone')}"
 
-        # Render email template per-recipient for personalized content
+        # Render the portal's per-event HTML + subject.
         html_content = render_email_template(event_type, recipient_data)
         subject = get_email_subject(event_type, recipient_data)
 
-        try:
-            if is_resend:
-                from notifications.channels.resend import ResendChannel
-                channel = ResendChannel(settings)
-                if channel.is_configured():
-                    success, error = channel.send(recipient_email, subject, html_content)
-                    if success:
-                        log_notification(db, event_type, 'resend',
-                                       recipient_id=recipient.get('id'),
-                                       recipient_email=recipient_email)
-                    else:
-                        raise Exception(error or "Resend send failed")
-            elif is_smtp:
-                from notifications.channels.email import EmailChannel
-                channel = EmailChannel(settings)
-                if channel.is_configured():
-                    success, error = channel.send(recipient_email, subject, html_content)
-                    if success:
-                        log_notification(db, event_type, 'smtp',
-                                       recipient_id=recipient.get('id'),
-                                       recipient_email=recipient_email)
-                    else:
-                        raise Exception(error or "SMTP send failed")
+        # Stable idempotency key per (event, recipient) so retries from a
+        # failed scheduler tick don't double-send.
+        idem_id = recipient.get('id') or recipient_email
+        idempotency_key = f"portal:{event_type.value}:{idem_id}"
 
+        try:
+            success, error = notify_channel.send(
+                recipient_email,
+                subject,
+                html_content,
+                event_code=event_type.value,
+                recipient_id=recipient.get('id'),
+                recipient_name=recipient.get('name'),
+                idempotency_key=idempotency_key,
+            )
+            log_notification(
+                db, event_type, 'rfm-notify',
+                recipient_id=recipient.get('id'),
+                recipient_email=recipient_email,
+                status='sent' if success else 'failed',
+                error_message=None if success else (error or "rfm-notify failed"),
+            )
         except Exception as e:
             print(f"Failed to send {event_type.value} to {recipient_email}: {e}")
-            log_notification(db, event_type, 'resend' if is_resend else 'smtp',
-                           recipient_id=recipient.get('id'),
-                           recipient_email=recipient_email,
-                           status='failed',
-                           error_message=str(e))
+            log_notification(
+                db, event_type, 'rfm-notify',
+                recipient_id=recipient.get('id'),
+                recipient_email=recipient_email,
+                status='failed',
+                error_message=str(e),
+            )
 
 
 def dispatch_admin_event(db: Session, event_type: EventType, data: Dict[str, Any]):

@@ -426,24 +426,17 @@ def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manage
 </td></tr></table>
 </body></html>'''
 
-    settings = get_email_settings(db)
-    is_resend = (os.getenv('RESEND_ENABLED', '').lower() == 'true') or settings.get('resend_enabled', 'false').lower() == 'true'
-    is_smtp = (os.getenv('SMTP_ENABLED', '').lower() == 'true') or settings.get('smtp_enabled', 'false').lower() == 'true'
-
-    if is_resend:
-        from notifications.channels.resend import ResendChannel
-        channel = ResendChannel(settings)
-        if channel.is_configured():
-            success, error = channel.send(manager.email, subject, html)
-            if not success:
-                raise Exception(error)
-    elif is_smtp:
-        from notifications.channels.email import EmailChannel
-        channel = EmailChannel(settings)
-        if channel.is_configured():
-            success, error = channel.send(manager.email, subject, html)
-            if not success:
-                raise Exception(error)
+    from notifications.channels.rfm_notify import RfmNotifyChannel
+    channel = RfmNotifyChannel()
+    if channel.is_configured():
+        success, error = channel.send(
+            manager.email, subject, html,
+            event_code="program.manager_reminder",
+            recipient_name=getattr(manager, "full_name", None),
+            idempotency_key=f"program_manager_reminder:{getattr(meeting, 'id', '')}:{manager.email}",
+        )
+        if not success:
+            raise Exception(error)
 
 
 def get_meeting_recipients(db: Session, meeting: Meeting) -> List[Dict[str, Any]]:
