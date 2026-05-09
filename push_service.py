@@ -206,10 +206,25 @@ def _dispatch(
         result.errors.append("pywebpush not installed")
         return result
 
+    # pywebpush 2.x's webpush() interprets a string as base64url-encoded raw
+    # private bytes (calls Vapid02.from_raw on it). Passing PEM blows up.
+    # Build the Vapid02 instance from our PEM ourselves and hand it over —
+    # webpush() detects the type and uses it directly.
     private_pem = _vapid_private_pem(db)
     if not private_pem:
         result.errors.append("VAPID private key could not be derived")
         return result
+    try:
+        from py_vapid import Vapid02
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        loaded = load_pem_private_key(private_pem.encode("ascii"), password=None, backend=default_backend())
+        vapid = Vapid02()
+        vapid._private_key = loaded
+        vapid._public_key = loaded.public_key()
+    except Exception as e:
+        result.errors.append(f"Could not load VAPID key: {type(e).__name__}: {e}")
+        return result
+
     subject = _get(db, "vapid_subject") or "mailto:admin@rfm.org.za"
 
     payload = {
@@ -240,7 +255,7 @@ def _dispatch(
             webpush(
                 subscription_info=sub_info,
                 data=payload_json,
-                vapid_private_key=private_pem,
+                vapid_private_key=vapid,
                 vapid_claims={"sub": subject},
                 ttl=24 * 3600,
             )
