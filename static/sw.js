@@ -1,5 +1,5 @@
 /* RFM Stellenbosch Portal — Service Worker */
-const VERSION = 'rfm-portal-v1';
+const VERSION = 'rfm-portal-v2';
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -94,4 +94,41 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// ============ PUSH NOTIFICATIONS ============
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; }
+  catch (e) { try { data = { title: 'RFM Portal', body: event.data ? event.data.text() : '' }; } catch (_) {} }
+  const title = data.title || 'RFM Portal';
+  const options = {
+    body: data.body || '',
+    icon: data.icon || '/static/icons/icon-192.png',
+    badge: '/static/icons/icon-192.png',
+    tag: data.tag || undefined,
+    renotify: !!data.tag,
+    data: { url: data.url || '/portal' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/portal';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      // Focus an existing tab if one is open at the target URL (or any portal page)
+      for (const w of wins) {
+        try {
+          const u = new URL(w.url);
+          if (u.pathname === targetUrl || u.pathname.startsWith('/portal')) {
+            return w.focus().then(() => w.navigate ? w.navigate(targetUrl) : null);
+          }
+        } catch (e) { /* ignore */ }
+      }
+      return clients.openWindow(targetUrl);
+    })
+  );
 });

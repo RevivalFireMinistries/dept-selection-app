@@ -347,6 +347,17 @@
                 <div class="text-xs text-gray-500" x-text="data?.member?.address || ''"></div>
             </div>
 
+            <!-- Notifications -->
+            <a href="#" @click.prevent="openPush(); menuOpen = false"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-sm">🔔</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Notifications</div>
+                    <div class="text-[11px] text-gray-500" x-text="pushStatusLabel()"></div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+
             <!-- Reading plans -->
             <a href="/reading-plans" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">📖</div>
@@ -530,6 +541,66 @@
         </div>
     </div>
 
+    <!-- ==================== NOTIFICATIONS SHEET ==================== -->
+    <div x-show="pushOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="pushOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div>
+                    <div class="font-semibold text-gray-900">🔔 Notifications</div>
+                    <div class="text-[11px] text-gray-500">Get pinged for important updates</div>
+                </div>
+                <button @click="pushOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
+            </div>
+            <div class="p-5 space-y-4">
+
+                <!-- Not supported state -->
+                <div x-show="pushState === 'unsupported'" class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                    Your browser doesn't support push notifications. Try Chrome, Edge, Firefox, or install the PWA on iOS/Android.
+                </div>
+
+                <!-- iOS not-installed state -->
+                <div x-show="pushState === 'ios-need-install'" class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900 space-y-2">
+                    <div class="font-semibold">Almost there — install first</div>
+                    <p>Apple only allows notifications for installed apps. Tap the Share button → <strong>Add to Home Screen</strong>, then open the portal from your home screen and try again.</p>
+                </div>
+
+                <!-- Permission denied -->
+                <div x-show="pushState === 'denied'" class="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-800 space-y-2">
+                    <div class="font-semibold">Notifications blocked</div>
+                    <p>You previously declined notifications. To re-enable, open your device's app settings (or browser site permissions) and allow notifications, then come back.</p>
+                </div>
+
+                <!-- Server not configured -->
+                <div x-show="pushState === 'server-not-configured'" class="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-700">
+                    Notifications haven't been switched on by an admin yet. Please ask an admin to configure VAPID in the settings.
+                </div>
+
+                <!-- Available, not subscribed -->
+                <div x-show="pushState === 'ready'">
+                    <p class="text-sm text-gray-600 mb-3">Get a tap on the shoulder when there's a new pinned announcement, payment receipt, or other important update.</p>
+                    <button @click="enablePush()" :disabled="pushBusy"
+                        class="w-full px-4 py-3 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg disabled:opacity-50">
+                        <span x-text="pushBusy ? 'Setting up…' : 'Enable notifications'"></span>
+                    </button>
+                </div>
+
+                <!-- Subscribed -->
+                <div x-show="pushState === 'subscribed'">
+                    <div class="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800 mb-3">
+                        ✓ Notifications are on for this device.
+                    </div>
+                    <button @click="disablePush()" :disabled="pushBusy"
+                        class="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                        <span x-text="pushBusy ? 'Turning off…' : 'Turn off on this device'"></span>
+                    </button>
+                </div>
+
+                <div x-show="pushError" class="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="pushError"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== HOME CHURCH INFO MODAL ==================== -->
     <div x-show="hcInfoOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="hcInfoOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -695,6 +766,13 @@ function memberPortal() {
         announcements: [],
         _announcementsLoaded: false,
 
+        // Push notifications
+        pushOpen: false,
+        pushState: 'loading',  // unsupported | ios-need-install | server-not-configured | denied | ready | subscribed | loading
+        pushBusy: false,
+        pushError: '',
+        pushPublicKey: null,
+
         async init() {
             try {
                 const [meRes, crRes] = await Promise.all([
@@ -734,6 +812,139 @@ function memberPortal() {
                 this.loadBanking();
                 if (this.data?.member?.external_synced) this.loadGiving();
             }
+        },
+
+        // ---- Push notifications ----
+        async openPush() {
+            this.pushOpen = true;
+            this.pushError = '';
+            await this.refreshPushState();
+        },
+
+        pushStatusLabel() {
+            return ({
+                loading: 'Checking…',
+                unsupported: 'Not available on this browser',
+                'ios-need-install': 'Install to home screen first',
+                'server-not-configured': 'Not yet configured',
+                denied: 'Blocked — open settings to allow',
+                ready: 'Off — tap to enable',
+                subscribed: 'On for this device',
+            })[this.pushState] || '';
+        },
+
+        _isStandaloneIos() {
+            const ua = (navigator.userAgent || '').toLowerCase();
+            const isIos = /iphone|ipod|ipad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                                 || window.navigator.standalone === true;
+            return { isIos, isStandalone };
+        },
+
+        async refreshPushState() {
+            this.pushState = 'loading';
+            // 1. Browser support?
+            if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+                this.pushState = 'unsupported';
+                return;
+            }
+            // 2. iOS needs to be in standalone mode
+            const { isIos, isStandalone } = this._isStandaloneIos();
+            if (isIos && !isStandalone) { this.pushState = 'ios-need-install'; return; }
+            // 3. Server VAPID configured?
+            try {
+                const r = await fetch('/api/push/public-key');
+                const data = await r.json();
+                this.pushPublicKey = data.key || null;
+                if (!data.configured || !data.key) { this.pushState = 'server-not-configured'; return; }
+            } catch (e) {
+                this.pushState = 'server-not-configured'; return;
+            }
+            // 4. Permission state
+            if (Notification.permission === 'denied') { this.pushState = 'denied'; return; }
+            // 5. Already subscribed on this device?
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                this.pushState = sub ? 'subscribed' : 'ready';
+            } catch (e) {
+                this.pushState = 'ready';
+            }
+        },
+
+        _urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const raw = atob(b64);
+            const out = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
+            return out;
+        },
+
+        async enablePush() {
+            if (this.pushBusy) return;
+            this.pushBusy = true;
+            this.pushError = '';
+            try {
+                if (Notification.permission === 'default') {
+                    const result = await Notification.requestPermission();
+                    if (result !== 'granted') {
+                        this.pushState = result === 'denied' ? 'denied' : 'ready';
+                        this.pushBusy = false;
+                        return;
+                    }
+                }
+                if (!this.pushPublicKey) {
+                    const r = await fetch('/api/push/public-key');
+                    const data = await r.json();
+                    this.pushPublicKey = data.key || null;
+                    if (!this.pushPublicKey) { this.pushError = 'Server is not configured for push.'; this.pushBusy = false; return; }
+                }
+                const reg = await navigator.serviceWorker.ready;
+                let sub = await reg.pushManager.getSubscription();
+                if (!sub) {
+                    sub = await reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: this._urlBase64ToUint8Array(this.pushPublicKey),
+                    });
+                }
+                // POST the subscription up
+                const res = await fetch('/api/push/subscribe', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(sub.toJSON()),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    this.pushError = err.detail || 'Could not save subscription';
+                    this.pushBusy = false;
+                    return;
+                }
+                this.pushState = 'subscribed';
+            } catch (e) {
+                this.pushError = String(e.message || e);
+            }
+            this.pushBusy = false;
+        },
+
+        async disablePush() {
+            if (this.pushBusy) return;
+            this.pushBusy = true;
+            this.pushError = '';
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                if (sub) {
+                    await fetch('/api/push/unsubscribe', {
+                        method: 'DELETE', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ endpoint: sub.endpoint }),
+                    }).catch(() => {});
+                    try { await sub.unsubscribe(); } catch (e) { /* ignore */ }
+                }
+                this.pushState = 'ready';
+            } catch (e) {
+                this.pushError = String(e.message || e);
+            }
+            this.pushBusy = false;
         },
 
         async loadAnnouncements() {

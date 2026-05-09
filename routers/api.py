@@ -9816,6 +9816,22 @@ def admin_create_announcement(payload: dict = Body(...), request: Request = None
     db.refresh(a)
     _log_admin_action(request, db, "announcement_create", "announcement", a.id, title[:120])
     db.commit()
+
+    # Best-effort push for pinned + currently-visible announcements
+    if a.pinned and _is_visible_now(a, datetime.utcnow()):
+        try:
+            import push_service
+            if push_service.is_configured(db):
+                push_service.send_to_all(
+                    db,
+                    title=a.title,
+                    body=(a.body or "")[:200],
+                    url=a.link_url or "/portal",
+                    tag=f"announce-{a.id}",
+                )
+        except Exception:
+            pass
+
     return _serialize_announcement(a)
 
 

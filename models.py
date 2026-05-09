@@ -790,3 +790,27 @@ class Announcement(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     created_by = relationship("Member", foreign_keys=[created_by_member_id])
+
+
+# ============ WEB PUSH ============
+
+class PushSubscription(Base):
+    """Browser-issued push subscription for a member. One row per device/browser
+    — the same member with the portal installed on iPhone Safari + desktop
+    Chrome will have two rows. Cleaned up automatically when a push endpoint
+    returns 410 Gone."""
+    __tablename__ = "push_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint = Column(Text, unique=True, nullable=False)
+    p256dh_key = Column(Text, nullable=False)
+    auth_key = Column(Text, nullable=False)
+    user_agent = Column(String(400), nullable=True)
+    is_enabled = Column(Boolean, nullable=False, server_default="true")
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    last_failed_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(String(400), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    member = relationship("Member", foreign_keys=[member_id])
