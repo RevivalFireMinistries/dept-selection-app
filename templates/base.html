@@ -37,7 +37,7 @@
     {% block content %}{% endblock %}
     {% block scripts %}{% endblock %}
 
-    <!-- PWA install prompt -->
+    <!-- PWA install prompt (Chrome/Edge/Android) -->
     <div id="pwa-install-banner" class="hidden fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:max-w-sm bg-white border border-indigo-200 shadow-lg rounded-xl p-4 z-50">
         <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold flex-shrink-0">RFM</div>
@@ -52,6 +52,34 @@
         </div>
     </div>
 
+    <!-- iOS-specific install instructions (Safari has no programmatic prompt) -->
+    <div id="pwa-ios-banner" class="hidden fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:max-w-sm bg-white border border-indigo-200 shadow-lg rounded-2xl p-4 z-50">
+        <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold flex-shrink-0">RFM</div>
+            <div class="flex-1 min-w-0">
+                <p class="font-semibold text-gray-900">Add to Home Screen</p>
+                <p class="text-xs text-gray-600 mt-0.5">For the best experience and to receive notifications.</p>
+                <ol class="mt-2 text-xs text-gray-700 space-y-1.5">
+                    <li class="flex items-center gap-2">
+                        <span class="text-gray-400">1.</span>
+                        Tap the
+                        <!-- Apple Share icon -->
+                        <svg class="w-4 h-4 text-indigo-600 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 16V4M12 4l-4 4M12 4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" />
+                        </svg>
+                        <span>Share button</span>
+                    </li>
+                    <li class="flex items-center gap-2"><span class="text-gray-400">2.</span> Scroll and tap <strong>Add to Home Screen</strong></li>
+                    <li class="flex items-center gap-2"><span class="text-gray-400">3.</span> Tap <strong>Add</strong></li>
+                </ol>
+                <div class="mt-3 flex gap-2">
+                    <button id="pwa-ios-dismiss" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">Not now</button>
+                    <button id="pwa-ios-never" class="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600">Don't show again</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Register the service worker
         if ('serviceWorker' in navigator) {
@@ -61,27 +89,61 @@
             });
         }
 
-        // Custom install prompt
+        // Install prompt — handles three cases:
+        //   1) Chrome/Edge/Android: native beforeinstallprompt event
+        //   2) iOS Safari: no event ever fires; we show manual instructions
+        //   3) Already installed (standalone display mode): nothing
         (function () {
-            let deferredPrompt = null;
-            const banner = document.getElementById('pwa-install-banner');
-            const accept = document.getElementById('pwa-install-accept');
-            const dismiss = document.getElementById('pwa-install-dismiss');
             const DISMISS_KEY = 'pwa-install-dismissed-at';
+            const NEVER_KEY   = 'pwa-install-never-show';
+
+            // Detect environment
+            const ua = (navigator.userAgent || '').toLowerCase();
+            const isIos = /iphone|ipod|ipad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            // Safari (not Chrome/Firefox/Edge on iOS, which all run on WebKit but identify themselves)
+            const isIosSafari = isIos && !/crios|fxios|edgios|opios/.test(ua);
+            const isStandalone =
+                (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                window.navigator.standalone === true;
 
             function shouldShow() {
                 try {
+                    if (localStorage.getItem(NEVER_KEY) === '1') return false;
                     const t = localStorage.getItem(DISMISS_KEY);
                     if (!t) return true;
-                    // Re-show after 14 days
                     return (Date.now() - Number(t)) > 14 * 24 * 60 * 60 * 1000;
                 } catch (e) { return true; }
             }
 
+            // === iOS Safari path ===
+            if (isIosSafari && !isStandalone) {
+                const ios = document.getElementById('pwa-ios-banner');
+                if (ios && shouldShow()) {
+                    // Small delay so the banner doesn't compete with first paint
+                    setTimeout(() => ios.classList.remove('hidden'), 1500);
+                }
+                const iosDismiss = document.getElementById('pwa-ios-dismiss');
+                const iosNever   = document.getElementById('pwa-ios-never');
+                if (iosDismiss) iosDismiss.addEventListener('click', () => {
+                    try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch (e) {}
+                    ios.classList.add('hidden');
+                });
+                if (iosNever) iosNever.addEventListener('click', () => {
+                    try { localStorage.setItem(NEVER_KEY, '1'); } catch (e) {}
+                    ios.classList.add('hidden');
+                });
+            }
+
+            // === Chrome/Edge/Android path ===
+            let deferredPrompt = null;
+            const banner = document.getElementById('pwa-install-banner');
+            const accept = document.getElementById('pwa-install-accept');
+            const dismiss = document.getElementById('pwa-install-dismiss');
+
             window.addEventListener('beforeinstallprompt', (e) => {
                 e.preventDefault();
                 deferredPrompt = e;
-                if (banner && shouldShow()) banner.classList.remove('hidden');
+                if (banner && shouldShow() && !isStandalone) banner.classList.remove('hidden');
             });
 
             if (accept) accept.addEventListener('click', async () => {
@@ -99,6 +161,8 @@
 
             window.addEventListener('appinstalled', () => {
                 if (banner) banner.classList.add('hidden');
+                const ios = document.getElementById('pwa-ios-banner');
+                if (ios) ios.classList.add('hidden');
             });
         })();
     </script>
