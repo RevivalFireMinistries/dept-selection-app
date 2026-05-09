@@ -766,3 +766,27 @@ class DayCompletion(Base):
     __table_args__ = (
         UniqueConstraint("follower_id", "day_number", name="uq_follower_day"),
     )
+
+
+# ============ ANNOUNCEMENTS ============
+
+class Announcement(Base):
+    """A short message shown on the member portal Home tab. Admins create
+    these from /admin/announcements; they're visible while is_active and
+    within the optional starts_at/ends_at window."""
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    body = Column(Text, nullable=True)
+    pinned = Column(Boolean, nullable=False, server_default="false")
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    starts_at = Column(DateTime(timezone=True), nullable=True)  # null = visible immediately
+    ends_at = Column(DateTime(timezone=True), nullable=True)    # null = no expiry
+    link_url = Column(String(500), nullable=True)
+    link_label = Column(String(80), nullable=True)
+    created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    created_by = relationship("Member", foreign_keys=[created_by_member_id])

@@ -370,6 +370,13 @@ async def admin_members(request: Request):
     return templates.TemplateResponse("admin/members.html", {"request": request})
 
 
+@router.get("/admin/announcements")
+async def admin_announcements_page(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/announcements.html", {"request": request})
+
+
 @router.get("/admin/change-requests")
 async def admin_change_requests_page(request: Request):
     if not is_authenticated(request):

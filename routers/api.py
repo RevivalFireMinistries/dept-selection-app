@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer, MemberChangeRequest
+from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer, MemberChangeRequest, Announcement
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -9702,3 +9702,175 @@ def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
         ]) else None),
     }
     return response
+
+
+# ============ ANNOUNCEMENTS ============
+
+def _serialize_announcement(a: Announcement) -> dict:
+    return {
+        "id": a.id,
+        "title": a.title,
+        "body": a.body or "",
+        "pinned": bool(a.pinned),
+        "is_active": bool(a.is_active),
+        "starts_at": a.starts_at.isoformat() if a.starts_at else None,
+        "ends_at": a.ends_at.isoformat() if a.ends_at else None,
+        "link_url": a.link_url or None,
+        "link_label": a.link_label or None,
+        "created_by": (
+            {"id": a.created_by.id, "full_name": a.created_by.full_name}
+            if a.created_by else None
+        ),
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+    }
+
+
+def _is_visible_now(a: Announcement, now: datetime) -> bool:
+    if not a.is_active:
+        return False
+    if a.starts_at and a.starts_at > now:
+        return False
+    if a.ends_at and a.ends_at < now:
+        return False
+    return True
+
+
+@router.get("/portal/announcements")
+def portal_announcements(request: Request, db: Session = Depends(get_db)):
+    """Active, in-window announcements for the logged-in member, pinned first."""
+    _require_logged_in_member(request, db)
+    now = datetime.utcnow()
+    rows = (
+        db.query(Announcement)
+        .order_by(Announcement.pinned.desc(), Announcement.starts_at.desc().nullsfirst(),
+                  Announcement.created_at.desc())
+        .all()
+    )
+    visible = [a for a in rows if _is_visible_now(a, now)]
+    return [_serialize_announcement(a) for a in visible]
+
+
+# ---- Admin CRUD ----
+
+def _parse_dt(value) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    # Accept ISO with or without seconds; allow "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM"
+    try:
+        if len(s) == 10:
+            return datetime.fromisoformat(s + "T00:00:00")
+        if len(s) == 16:
+            return datetime.fromisoformat(s + ":00")
+        # Strip trailing Z
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+@router.get("/admin/announcements")
+def admin_list_announcements(request: Request, db: Session = Depends(get_db)):
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    rows = (
+        db.query(Announcement)
+        .options(joinedload(Announcement.created_by))
+        .order_by(Announcement.pinned.desc(), Announcement.created_at.desc())
+        .all()
+    )
+    return [_serialize_announcement(a) for a in rows]
+
+
+@router.post("/admin/announcements")
+def admin_create_announcement(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    from routers.pages import is_authenticated, get_admin_identity
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    identity = get_admin_identity(request) or {}
+
+    a = Announcement(
+        title=title[:200],
+        body=(payload.get("body") or "").strip() or None,
+        pinned=bool(payload.get("pinned", False)),
+        is_active=bool(payload.get("is_active", True)),
+        starts_at=_parse_dt(payload.get("starts_at")),
+        ends_at=_parse_dt(payload.get("ends_at")),
+        link_url=(payload.get("link_url") or "").strip() or None,
+        link_label=(payload.get("link_label") or "").strip()[:80] or None,
+        created_by_member_id=identity.get("member_id"),
+    )
+    db.add(a)
+    db.commit()
+    db.refresh(a)
+    _log_admin_action(request, db, "announcement_create", "announcement", a.id, title[:120])
+    db.commit()
+    return _serialize_announcement(a)
+
+
+@router.put("/admin/announcements/{announcement_id}")
+def admin_update_announcement(
+    announcement_id: int,
+    payload: dict = Body(...),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    a = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    if "title" in payload:
+        title = (payload.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Title cannot be empty")
+        a.title = title[:200]
+    if "body" in payload:
+        a.body = (payload.get("body") or "").strip() or None
+    if "pinned" in payload:
+        a.pinned = bool(payload["pinned"])
+    if "is_active" in payload:
+        a.is_active = bool(payload["is_active"])
+    if "starts_at" in payload:
+        a.starts_at = _parse_dt(payload.get("starts_at"))
+    if "ends_at" in payload:
+        a.ends_at = _parse_dt(payload.get("ends_at"))
+    if "link_url" in payload:
+        a.link_url = (payload.get("link_url") or "").strip() or None
+    if "link_label" in payload:
+        a.link_label = (payload.get("link_label") or "").strip()[:80] or None
+
+    db.commit()
+    db.refresh(a)
+    _log_admin_action(request, db, "announcement_update", "announcement", a.id, a.title[:120])
+    db.commit()
+    return _serialize_announcement(a)
+
+
+@router.delete("/admin/announcements/{announcement_id}")
+def admin_delete_announcement(announcement_id: int, request: Request, db: Session = Depends(get_db)):
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    a = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    title = a.title
+    db.delete(a)
+    db.commit()
+    _log_admin_action(request, db, "announcement_delete", "announcement", announcement_id, title[:120])
+    db.commit()
+    return {"success": True}
