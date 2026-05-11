@@ -9777,10 +9777,18 @@ def portal_giving_summary(
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-    """Per-category rollup for the logged-in member."""
+    """Per-category rollup for the logged-in member.
+
+    Includes the spouse's contributions when the member is part of a
+    HEAD↔SPOUSE family pair — so married couples see one shared giving
+    total. Children/siblings are never auto-merged.
+    """
     member = _require_member_with_central_link(request, db)
     r = _rfm.member_contribution_summary(
-        member.external_member_id, from_date=from_date, to_date=to_date, db=db
+        member.external_member_id,
+        from_date=from_date, to_date=to_date,
+        include_spouse=True,
+        db=db,
     )
     if not r.ok:
         raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
@@ -9814,10 +9822,18 @@ def portal_giving_recent(
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-    """Recent contributions for the logged-in member."""
+    """Recent contributions for the logged-in member.
+
+    Includes the spouse's contributions when the member is part of a
+    HEAD↔SPOUSE family pair — so when Mrs X logs in she sees the same
+    family ledger as Mr X. Each contribution row appears exactly once;
+    no double counting.
+    """
     member = _require_member_with_central_link(request, db)
     r = _rfm.list_member_contributions(
-        member.external_member_id, page=1, size=limit, db=db,
+        member.external_member_id, page=1, size=limit,
+        include_spouse=True,
+        db=db,
     )
     if not r.ok:
         raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")

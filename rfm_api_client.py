@@ -372,15 +372,25 @@ def member_contribution_summary(
     *,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    include_spouse: bool = False,
     db=None,
 ) -> ApiResult:
     """Per-category rollup for a single member. Returns rows of
-    {category, total_amount, count}."""
+    {category, total_amount, count}.
+
+    `include_spouse=True` makes the central API fold in the spouse's
+    contributions for HEAD↔SPOUSE pairs — the portal's "your giving"
+    tab uses this so both spouses see the family total. Children and
+    non-spouse family members are never merged.
+    """
+    params: dict = {"from_date": from_date, "to_date": to_date}
+    if include_spouse:
+        params["include_spouse"] = "true"
     return _request(
         "GET",
         f"/api/v1/contributions/member/{member_id}/summary",
         db=db,
-        params={"from_date": from_date, "to_date": to_date},
+        params=params,
     )
 
 
@@ -416,21 +426,31 @@ def list_member_contributions(
     to_date: Optional[str] = None,
     page: int = 1,
     size: int = 50,
+    include_spouse: bool = False,
     db=None,
 ) -> ApiResult:
-    """Paginated list of a member's contributions, newest first per the API."""
+    """Paginated list of a member's contributions, newest first per the API.
+
+    `include_spouse=True` folds in the HEAD↔SPOUSE partner's rows too —
+    so when Mrs X logs in, she sees the family ledger (her giving +
+    Mr X's giving) without duplicate rows. Children's contributions are
+    never auto-merged.
+    """
+    params: dict = {
+        "member_id": member_id,
+        "assembly_id": assembly_id,
+        "from_date": from_date,
+        "to_date": to_date,
+        "page": page,
+        "size": size,
+    }
+    if include_spouse:
+        params["include_spouse"] = "true"
     return _request(
         "GET",
         "/api/v1/contributions",
         db=db,
-        params={
-            "member_id": member_id,
-            "assembly_id": assembly_id,
-            "from_date": from_date,
-            "to_date": to_date,
-            "page": page,
-            "size": size,
-        },
+        params=params,
     )
 
 
