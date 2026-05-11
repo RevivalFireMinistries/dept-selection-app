@@ -9737,6 +9737,68 @@ def _is_visible_now(a: Announcement, now: datetime) -> bool:
     return True
 
 
+# ============ VERSE OF THE DAY ============
+# Curated rotation, day-of-year indexed so every member sees the same verse
+# on the same day and the rotation feels intentional rather than random.
+
+_VERSE_OF_DAY: List[dict] = [
+    {"text": "Be still, and know that I am God.", "ref": "Psalm 46:10"},
+    {"text": "The Lord is my shepherd, I shall not want.", "ref": "Psalm 23:1"},
+    {"text": "I can do all things through Christ who strengthens me.", "ref": "Philippians 4:13"},
+    {"text": "For God so loved the world that he gave his one and only Son.", "ref": "John 3:16"},
+    {"text": "Trust in the Lord with all your heart, and lean not on your own understanding.", "ref": "Proverbs 3:5"},
+    {"text": "The Lord is close to the brokenhearted and saves those who are crushed in spirit.", "ref": "Psalm 34:18"},
+    {"text": "Cast all your anxiety on him because he cares for you.", "ref": "1 Peter 5:7"},
+    {"text": "But those who hope in the Lord will renew their strength.", "ref": "Isaiah 40:31"},
+    {"text": "And we know that in all things God works for the good of those who love him.", "ref": "Romans 8:28"},
+    {"text": "Greater love has no one than this: to lay down one's life for one's friends.", "ref": "John 15:13"},
+    {"text": "The thief comes only to steal and kill and destroy; I have come that they may have life, and have it to the full.", "ref": "John 10:10"},
+    {"text": "Therefore, if anyone is in Christ, the new creation has come: The old has gone, the new is here!", "ref": "2 Corinthians 5:17"},
+    {"text": "Come to me, all you who are weary and burdened, and I will give you rest.", "ref": "Matthew 11:28"},
+    {"text": "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God.", "ref": "Philippians 4:6"},
+    {"text": "The Lord your God is with you, the Mighty Warrior who saves.", "ref": "Zephaniah 3:17"},
+    {"text": "Now faith is confidence in what we hope for and assurance about what we do not see.", "ref": "Hebrews 11:1"},
+    {"text": "Above all else, guard your heart, for everything you do flows from it.", "ref": "Proverbs 4:23"},
+    {"text": "If we confess our sins, he is faithful and just and will forgive us our sins.", "ref": "1 John 1:9"},
+    {"text": "Be strong and courageous. Do not be afraid; do not be discouraged, for the Lord your God will be with you wherever you go.", "ref": "Joshua 1:9"},
+    {"text": "Delight yourself in the Lord, and he will give you the desires of your heart.", "ref": "Psalm 37:4"},
+    {"text": "Therefore go and make disciples of all nations.", "ref": "Matthew 28:19"},
+    {"text": "Whoever dwells in the shelter of the Most High will rest in the shadow of the Almighty.", "ref": "Psalm 91:1"},
+    {"text": "Love is patient, love is kind.", "ref": "1 Corinthians 13:4"},
+    {"text": "Rejoice in the Lord always. I will say it again: Rejoice!", "ref": "Philippians 4:4"},
+    {"text": "The Lord is my light and my salvation — whom shall I fear?", "ref": "Psalm 27:1"},
+    {"text": "Weeping may stay for the night, but rejoicing comes in the morning.", "ref": "Psalm 30:5"},
+    {"text": "Your word is a lamp for my feet, a light on my path.", "ref": "Psalm 119:105"},
+    {"text": "Have I not commanded you? Be strong and courageous.", "ref": "Joshua 1:9"},
+    {"text": "I have learned to be content whatever the circumstances.", "ref": "Philippians 4:11"},
+    {"text": "Taste and see that the Lord is good; blessed is the one who takes refuge in him.", "ref": "Psalm 34:8"},
+    {"text": "The name of the Lord is a fortified tower; the righteous run to it and are safe.", "ref": "Proverbs 18:10"},
+    {"text": "Let your light shine before others, that they may see your good deeds and glorify your Father in heaven.", "ref": "Matthew 5:16"},
+    {"text": "The fear of the Lord is the beginning of wisdom.", "ref": "Proverbs 9:10"},
+    {"text": "Seek first his kingdom and his righteousness, and all these things will be given to you as well.", "ref": "Matthew 6:33"},
+    {"text": "Be kind and compassionate to one another, forgiving each other, just as in Christ God forgave you.", "ref": "Ephesians 4:32"},
+    {"text": "He gives strength to the weary and increases the power of the weak.", "ref": "Isaiah 40:29"},
+    {"text": "Let us hold unswervingly to the hope we profess, for he who promised is faithful.", "ref": "Hebrews 10:23"},
+    {"text": "Do not be overcome by evil, but overcome evil with good.", "ref": "Romans 12:21"},
+    {"text": "For where two or three gather in my name, there am I with them.", "ref": "Matthew 18:20"},
+    {"text": "And without faith it is impossible to please God.", "ref": "Hebrews 11:6"},
+]
+
+
+@router.get("/portal/verse-of-the-day")
+def portal_verse_of_the_day():
+    """Today's verse. Day-of-year indexed so the rotation is stable and
+    every member sees the same verse on the same day."""
+    today = date.today()
+    idx = (today.toordinal()) % len(_VERSE_OF_DAY)
+    v = _VERSE_OF_DAY[idx]
+    return {
+        "date": today.isoformat(),
+        "text": v["text"],
+        "reference": v["ref"],
+    }
+
+
 @router.get("/portal/announcements")
 def portal_announcements(request: Request, db: Session = Depends(get_db)):
     """Active, in-window announcements for the logged-in member, pinned first."""

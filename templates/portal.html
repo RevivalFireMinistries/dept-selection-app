@@ -58,6 +58,29 @@
                     </div>
                 </section>
 
+                <!-- Verse of the day -->
+                <section x-show="verse" class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border: 1px solid var(--color-border);">
+                    <div class="p-5">
+                        <div class="text-[10px] uppercase tracking-[0.2em]" style="color: var(--color-ember);">Verse of the day</div>
+                        <p class="mt-3 font-scripture text-lg leading-relaxed" style="color: var(--color-ink);" x-text="`“${verse?.text}”`"></p>
+                        <p class="mt-3 text-xs" style="color: var(--color-mute);" x-text="`— ${verse?.reference || ''}`"></p>
+                    </div>
+                    <div class="px-5 py-2.5 flex items-center gap-3 text-xs" style="background-color: var(--color-paper); border-top: 1px solid var(--color-border);">
+                        <button @click="copyVerse()" class="flex items-center gap-1.5 hover:text-ember transition" style="color: var(--color-mute);">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
+                            </svg>
+                            <span x-text="verseCopied ? 'Copied' : 'Copy'"></span>
+                        </button>
+                        <button x-show="canShareVerse" @click="shareVerse()" class="flex items-center gap-1.5 hover:text-ember transition" style="color: var(--color-mute);">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m9.032 4.026a3 3 0 10-2.684 2.684m2.684-2.684a3 3 0 10-2.684-2.684"/>
+                            </svg>
+                            Share
+                        </button>
+                    </div>
+                </section>
+
                 <!-- Push prompt — only when notifications aren't enabled yet -->
                 <section x-show="shouldShowPushPrompt()"
                          class="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4">
@@ -82,7 +105,7 @@
                 <!-- Announcements (only when there are some) -->
                 <section x-show="announcements.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">📣 Announcements</h2>
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Announcements</h2>
                     </div>
                     <div class="space-y-3">
                         <template x-for="a in announcements" :key="a.id">
@@ -103,7 +126,7 @@
                 <!-- Today's reading -->
                 <section x-show="readingPlans.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">📖 Today's reading</h2>
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Today's reading</h2>
                         <a href="/reading-plans" class="text-xs text-amber-700 hover:underline">All plans</a>
                     </div>
                     <div class="space-y-3">
@@ -132,7 +155,7 @@
                 <!-- Upcoming meetings -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">📅 Upcoming meetings</h2>
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Upcoming meetings</h2>
                     </div>
                     <div x-show="meetingsLoading" class="text-xs text-gray-400 italic">Loading…</div>
                     <div x-show="!meetingsLoading && !upcomingMeetings.length" class="text-sm text-gray-500 italic">Nothing scheduled.</div>
@@ -156,7 +179,7 @@
             <!-- ==================== MY DEPARTMENTS ==================== -->
             <div x-show="tab === 'departments'" class="space-y-4">
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">My departments</h2>
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">My departments</h2>
                     <div x-show="!data.departments.approved.length && !data.departments.pending.length" class="text-sm text-gray-500 italic">You aren't in any departments yet.</div>
                     <div class="space-y-2">
                         <template x-for="d in data.departments.approved" :key="d.id">
@@ -182,7 +205,7 @@
 
                 <!-- Ministries — sit alongside departments since both come from central -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5" x-show="data.ministries.length">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Ministries</h2>
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Ministries</h2>
                     <div class="flex flex-wrap gap-2">
                         <template x-for="m in data.ministries" :key="m.name + (m.id || '')">
                             <span class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 text-violet-800 text-sm rounded-full">
@@ -201,7 +224,7 @@
 
                 <!-- Online giving -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Give online</h2>
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Give online</h2>
                     <button @click="openPay()" :disabled="!data.member.external_synced"
                         class="block w-full p-4 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white text-center hover:from-emerald-600 hover:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed">
                         <div class="font-semibold">Pay tithes & offerings</div>
@@ -227,7 +250,7 @@
                 <!-- Banking details -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3 gap-2">
-                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider">Banking details</h2>
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">Banking details</h2>
                         <div x-show="hasBanking()" class="flex items-center gap-2">
                             <button @click="copyBanking()" class="text-xs text-indigo-600 hover:underline">
                                 <span x-text="bankingCopied ? '✓ Copied' : 'Copy all'"></span>
@@ -281,7 +304,7 @@
                 </section>
 
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Recent</h2>
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Recent</h2>
                     <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
                     <div x-show="!givingLoading && !(givingRecent?.items || []).length" class="text-sm text-gray-500 italic">No recent contributions.</div>
                     <div class="space-y-2">
@@ -362,7 +385,7 @@
                 <!-- Recent in selected month -->
                 <section x-show="!attendanceLoading && attendance && monthRecent().length"
                          class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">Services</h2>
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Services</h2>
                     <div class="divide-y divide-gray-100">
                         <template x-for="row in monthRecent()" :key="row.id || (row.service_date || '') + ((row.service_name || row.title || ''))">
                             <div class="flex items-center justify-between gap-2 py-2 text-sm">
@@ -381,7 +404,7 @@
                 <section x-show="!attendanceLoading && attendanceMonthly()?.length"
                          class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-bold text-gray-900 uppercase tracking-wider" x-text="`${attendance?.year || ''} at a glance`"></h2>
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute" x-text="`${attendance?.year || ''} at a glance`"></h2>
                         <div class="text-[11px] text-gray-500" x-text="`${yearAttended()} / ${yearTotal() || '—'} services`"></div>
                     </div>
                     <div class="space-y-1.5">
@@ -874,6 +897,11 @@ function memberPortal() {
         announcements: [],
         _announcementsLoaded: false,
 
+        // Verse of the day
+        verse: null,
+        verseCopied: false,
+        canShareVerse: typeof navigator !== 'undefined' && !!navigator.share,
+
         // Attendance (My Attendance tab)
         attendanceLoading: false,
         attendanceError: '',
@@ -953,6 +981,7 @@ function memberPortal() {
                 this.loadUpcomingMeetings();
                 this.loadReadingPlans();
                 this.loadAnnouncements();
+                this.loadVerse();
             }
             if (id === 'contributions') {
                 this.loadBanking();
@@ -1411,6 +1440,30 @@ function memberPortal() {
                 this.pushError = String(e.message || e);
             }
             this.pushBusy = false;
+        },
+
+        async loadVerse() {
+            if (this.verse) return;
+            try {
+                const r = await fetch('/api/portal/verse-of-the-day');
+                if (r.ok) this.verse = await r.json();
+            } catch (e) { /* non-fatal */ }
+        },
+
+        copyVerse() {
+            if (!this.verse) return;
+            const text = `“${this.verse.text}” — ${this.verse.reference}`;
+            navigator.clipboard.writeText(text).then(() => {
+                this.verseCopied = true;
+                setTimeout(() => { this.verseCopied = false; }, 2000);
+            });
+        },
+
+        async shareVerse() {
+            if (!this.verse || !navigator.share) return;
+            const text = `“${this.verse.text}” — ${this.verse.reference}`;
+            try { await navigator.share({ title: 'Verse of the day', text }); }
+            catch (e) { /* user dismissed */ }
         },
 
         async loadAnnouncements() {
