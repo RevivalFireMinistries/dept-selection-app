@@ -198,6 +198,50 @@ def login_member(
             member = m
             break
 
+    # Fallback: maybe this member only exists in the central rfm-database
+    # (e.g. recently added there but never backfilled to the portal). Try a
+    # central lookup by phone and auto-provision a local mirror so they can
+    # log in straight away.
+    if not member and _rfm.is_enabled(db) and _rfm.is_configured(db):
+        try:
+            r = _rfm.search_members(phone=normalized, db=db)
+            if r.ok:
+                items = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+                target_last9 = normalized[-9:] if len(normalized) >= 9 else normalized
+                match = None
+                for c in items:
+                    c_phone_raw = (c.get("phone") or "").strip()
+                    c_phone_digits = re.sub(r"\D", "", c_phone_raw)
+                    if c_phone_digits and c_phone_digits[-9:] == target_last9:
+                        match = c
+                        break
+                if match:
+                    canonical_phone = _rfm.to_sa_canonical_mobile(match.get("phone")) or normalized
+                    full_name = " ".join(
+                        filter(None, [match.get("first_name"), match.get("last_name")])
+                    ).strip() or "Member"
+                    address_parts = [match.get("physical_address"), match.get("suburb")]
+                    address = ", ".join(p for p in (s and s.strip() for s in address_parts) if p) or ""
+                    new_member = Member(
+                        full_name=full_name[:200],
+                        phone=canonical_phone,
+                        email=(match.get("email") or "").strip(),
+                        address=address,
+                        external_member_id=str(match.get("id")) if match.get("id") else None,
+                        external_assembly_id=str(match.get("assembly_id")) if match.get("assembly_id") else None,
+                        external_match_status="matched",
+                        external_synced_at=datetime.utcnow(),
+                        is_active=True,
+                        password_hash=None,  # falls into first-time-sign-in path below
+                    )
+                    db.add(new_member)
+                    db.commit()
+                    db.refresh(new_member)
+                    member = new_member
+        except Exception:
+            # Central lookup failed — fall through to the original 401 below
+            pass
+
     if not member:
         raise HTTPException(status_code=401, detail="No account found with this phone number")
 
