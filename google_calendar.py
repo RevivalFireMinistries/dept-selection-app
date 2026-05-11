@@ -128,3 +128,92 @@ def upcoming_events(db: Session, *, max_results: int = DEFAULT_MAX_RESULTS) -> L
 def clear_cache():
     """Force a refresh on next call. Used after admin updates the settings."""
     _cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# Ministry-aware filtering
+# ---------------------------------------------------------------------------
+# Events whose titles mention a specific ministry are only shown to members
+# of that ministry. Untagged events (e.g. "Home Church Service",
+# "Fire Wednesday") are general — everyone sees them.
+
+import re as _re
+
+# bucket -> regex pattern matched (case-insensitive) against the event title
+# and against the member's ministry names. Word-boundary so 'men' doesn't
+# match 'women' and 'youth' doesn't match 'young adults'.
+_MINISTRY_PATTERNS = {
+    "singles":      _re.compile(r"\b(singles?|widowed)\b", _re.IGNORECASE),
+    "couples":      _re.compile(r"\b(couples?|married)\b", _re.IGNORECASE),
+    "ladies":       _re.compile(r"\b(ladies|women(?:'?s)?)\b", _re.IGNORECASE),
+    "men":          _re.compile(r"\b(men(?:'?s)?)\b", _re.IGNORECASE),
+    "teens":        _re.compile(r"\bteens?\b", _re.IGNORECASE),
+    "youth":        _re.compile(r"\byouth\b", _re.IGNORECASE),
+    "young_adults": _re.compile(r"\b(young\s+(?:unmarried\s+)?adults?|yua)\b", _re.IGNORECASE),
+}
+
+
+def detect_event_ministry_tags(title: str) -> set:
+    """Return the ministry buckets this event seems targeted at.
+
+    Empty set = general event (everyone sees it). 'Women' is checked before
+    'Men' so an event titled 'Women's Online Session' doesn't accidentally
+    register as a men's event.
+    """
+    if not title:
+        return set()
+    text = title
+    tags = set()
+    has_ladies = bool(_MINISTRY_PATTERNS["ladies"].search(text))
+    if has_ladies:
+        tags.add("ladies")
+    # Only check 'men' if 'ladies' wasn't matched — defence in depth
+    if not has_ladies and _MINISTRY_PATTERNS["men"].search(text):
+        tags.add("men")
+    for bucket in ("singles", "couples", "teens", "youth", "young_adults"):
+        if _MINISTRY_PATTERNS[bucket].search(text):
+            tags.add(bucket)
+    return tags
+
+
+def member_ministry_buckets(ministry_names) -> set:
+    """Map the central API's ministry names (e.g. 'Men On Fire',
+    'Couples On Fire', 'Young Adults') to our buckets so we can intersect."""
+    buckets = set()
+    if not ministry_names:
+        return buckets
+    for raw in ministry_names:
+        if not raw:
+            continue
+        name = str(raw)
+        has_ladies = bool(_MINISTRY_PATTERNS["ladies"].search(name))
+        if has_ladies:
+            buckets.add("ladies")
+        if not has_ladies and _MINISTRY_PATTERNS["men"].search(name):
+            buckets.add("men")
+        for bucket in ("singles", "couples", "teens", "youth", "young_adults"):
+            if _MINISTRY_PATTERNS[bucket].search(name):
+                buckets.add(bucket)
+    return buckets
+
+
+def filter_events_for_member(events: list, ministry_names) -> list:
+    """Drop ministry-targeted events the member isn't in. Untagged events
+    (no recognised ministry keyword in the title) pass through unchanged.
+
+    If we don't know the member's ministries (empty list), be permissive
+    and show everything — better than hiding the whole calendar from a
+    member who isn't yet centrally synced.
+    """
+    if not ministry_names:
+        return list(events or [])
+    my_buckets = member_ministry_buckets(ministry_names)
+    out = []
+    for e in (events or []):
+        tags = detect_event_ministry_tags(e.get("summary", ""))
+        if not tags:
+            out.append(e)
+            continue
+        if tags & my_buckets:
+            out.append(e)
+    return out

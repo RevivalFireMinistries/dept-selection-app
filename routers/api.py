@@ -9787,15 +9787,39 @@ _VERSE_OF_DAY: List[dict] = [
 
 @router.get("/portal/calendar/upcoming")
 def portal_calendar_upcoming(request: Request, db: Session = Depends(get_db)):
-    """Upcoming events from the configured Google Calendar. Used by the
-    Home tab 'What's coming up' section. Returns an empty list if no
-    calendar is wired up — the UI hides the section."""
-    _require_logged_in_member(request, db)
+    """Upcoming events from the configured Google Calendar, filtered to the
+    caller's ministries. Events whose title contains a ministry keyword
+    (Men, Ladies, Couples, Singles, Teens, Youth, Young Adults) are only
+    shown to members of that ministry. General events pass through.
+
+    Empty list when no calendar is wired up — the UI hides the section.
+    """
+    member = _require_logged_in_member(request, db)
     import google_calendar as _cal
-    events = _cal.upcoming_events(db, max_results=8)
+
+    # Pull a wider window so we can still surface enough events after
+    # filtering — the visible cap is applied at the end.
+    raw_events = _cal.upcoming_events(db, max_results=24)
+
+    # Resolve the caller's ministry names from the central rfm-database.
+    # Falls back to an empty list, which the filter treats as 'show all'.
+    ministry_names = []
+    try:
+        central = _portal_central_lookup(member, db)
+        ministry_names = [
+            m.get("name", "")
+            for m in (central.get("ministries") or [])
+            if m.get("name")
+        ]
+    except Exception:
+        ministry_names = []
+
+    filtered = _cal.filter_events_for_member(raw_events, ministry_names)
+
     return {
         "configured": _cal.is_configured(db),
-        "events": events,
+        "events": filtered[:8],
+        "filtered_by_ministry": bool(ministry_names),
     }
 
 
