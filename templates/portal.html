@@ -2,12 +2,12 @@
 {% block title %}My portal · RFM{% endblock %}
 
 {% block content %}
-<div x-data="memberPortal()" x-init="init()" x-cloak class="min-h-screen bg-gray-50">
+<div x-data="memberPortal()" x-init="init()" x-cloak class="min-h-screen" style="background-color: var(--color-paper);">
 
     <!-- Loading state -->
     <div x-show="loading" class="min-h-screen flex items-center justify-center">
         <div class="text-center">
-            <div class="w-12 h-12 mx-auto rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold animate-pulse">RFM</div>
+            <div class="w-12 h-12 mx-auto rounded-2xl bg-ink text-white flex items-center justify-center font-display animate-pulse">RFM</div>
             <p class="mt-3 text-sm text-gray-500">Loading…</p>
         </div>
     </div>
@@ -18,24 +18,24 @@
             <div class="w-14 h-14 mx-auto rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-2xl">🔒</div>
             <h1 class="mt-3 text-lg font-bold text-gray-900">Please log in</h1>
             <p class="mt-1 text-sm text-gray-600">Your session has expired or you aren't signed in yet.</p>
-            <a href="/" class="mt-4 inline-block px-5 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg">Sign in</a>
+            <a href="/" class="mt-4 inline-block px-5 py-2 bg-ink text-white text-sm font-medium rounded-lg">Sign in</a>
         </div>
     </div>
 
     <div x-show="!loading && data">
 
         <!-- Header -->
-        <header class="bg-gradient-to-br from-indigo-600 to-violet-700 text-white px-5 pt-6 pb-4 sticky top-0 z-30 shadow-sm">
+        <header class="text-white px-5 pt-6 pb-4 sticky top-0 z-30 shadow-sm" style="background-color: var(--color-ink);">
             <div class="max-w-3xl mx-auto flex items-center justify-between">
                 <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center text-sm font-bold" x-text="initials(data.member.full_name)"></div>
+                    <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-sm font-semibold font-display" x-text="initials(data.member.full_name)"></div>
                     <div class="min-w-0">
-                        <div class="text-[10px] uppercase tracking-widest text-indigo-100/80 truncate" x-text="data.assembly_name || 'RFM Portal'"></div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60 truncate" x-text="data.assembly_name || 'Revival Fire Ministries'"></div>
                         <div class="text-base font-semibold truncate" x-text="data.member.full_name"></div>
                     </div>
                 </div>
                 <button @click="menuOpen = true" aria-label="Open menu"
-                    class="w-10 h-10 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center">
+                    class="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
@@ -50,27 +50,29 @@
             <div x-show="tab === 'home'" class="space-y-4">
 
                 <!-- Greeting -->
-                <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <div class="text-sm text-gray-500" x-text="greeting()"></div>
-                    <div class="text-xl font-bold text-gray-900 mt-1" x-text="firstName(data.member.full_name) + ' 👋'"></div>
-                    <div x-show="data.open_change_requests > 0" class="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        ✏️ You have <span x-text="data.open_change_requests"></span> change request(s) awaiting approval.
+                <section class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
+                    <div class="text-sm" style="color: var(--color-mute);" x-text="greeting()"></div>
+                    <div class="font-display text-3xl mt-1" style="color: var(--color-ink);" x-text="firstName(data.member.full_name)"></div>
+                    <div x-show="data.open_change_requests > 0" class="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        You have <span x-text="data.open_change_requests"></span> change request(s) awaiting approval.
                     </div>
                 </section>
 
                 <!-- Push prompt — only when notifications aren't enabled yet -->
                 <section x-show="shouldShowPushPrompt()"
-                         class="bg-gradient-to-br from-rose-50 to-rose-100/60 border border-rose-200 rounded-2xl p-4">
+                         class="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4">
                     <div class="flex items-start gap-3">
                         <div class="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-xl shadow-sm">🔔</div>
                         <div class="flex-1 min-w-0">
-                            <p class="font-semibold text-gray-900 text-sm">Stay in the loop</p>
-                            <p class="text-xs text-gray-700 mt-0.5">Get notified about new announcements, meeting reminders, contribution receipts and more.</p>
+                            <p class="font-semibold text-sm" style="color: var(--color-ink);">Stay in the loop</p>
+                            <p class="text-xs mt-0.5" style="color: var(--color-mute);">Get notified about new announcements, meeting reminders, contribution receipts and more.</p>
                             <div class="mt-3 flex flex-wrap items-center gap-2">
-                                <button @click="openPush(); pushPromptSeen()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg">
+                                <button @click="openPush(); pushPromptSeen()"
+                                    class="px-3 py-1.5 text-white text-xs font-semibold rounded-lg"
+                                    style="background-color: var(--color-ember);">
                                     Enable notifications
                                 </button>
-                                <button @click="snoozePushPrompt()" class="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900">Maybe later</button>
+                                <button @click="snoozePushPrompt()" class="px-3 py-1.5 text-xs hover:text-gray-900" style="color: var(--color-mute);">Maybe later</button>
                                 <button @click="neverPushPrompt()" class="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600">Don't show again</button>
                             </div>
                         </div>
@@ -335,13 +337,14 @@
 
                 <!-- Hero — selected month -->
                 <section x-show="!attendanceLoading && attendance"
-                         class="bg-gradient-to-br from-indigo-500 to-violet-700 text-white rounded-2xl p-5">
-                    <div class="text-xs uppercase tracking-wider opacity-80" x-text="monthLabel()"></div>
-                    <div class="flex items-end gap-2 mt-1">
-                        <div class="text-3xl font-bold" x-text="monthAttended()"></div>
-                        <div class="text-sm opacity-90 mb-1" x-text="monthAttendedLabel()"></div>
+                         class="text-white rounded-2xl p-5"
+                         style="background: linear-gradient(135deg, var(--color-ink) 0%, var(--color-ink-soft) 100%);">
+                    <div class="text-[10px] uppercase tracking-[0.2em] opacity-60" x-text="monthLabel()"></div>
+                    <div class="flex items-end gap-2 mt-2">
+                        <div class="font-display text-5xl" x-text="monthAttended()"></div>
+                        <div class="text-sm opacity-80 mb-2" x-text="monthAttendedLabel()"></div>
                     </div>
-                    <div class="text-[11px] opacity-80 mt-1" x-text="monthSubtitle()"></div>
+                    <div class="text-[11px] opacity-70 mt-1" x-text="monthSubtitle()"></div>
                 </section>
 
                 <!-- Compliment / pastoral nudge -->
@@ -415,12 +418,12 @@
         </main>
 
         <!-- ==================== BOTTOM TAB BAR ==================== -->
-        <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-30">
+        <nav class="fixed bottom-0 inset-x-0 bg-white z-30" style="border-top: 1px solid var(--color-border);">
             <div class="max-w-3xl mx-auto grid grid-cols-4">
                 <template x-for="t in tabs" :key="t.id">
                     <button @click="setTab(t.id)"
-                        :class="tab === t.id ? 'text-indigo-600' : 'text-gray-500'"
-                        class="flex flex-col items-center justify-center py-2.5 hover:bg-gray-50 transition">
+                        :style="tab === t.id ? 'color: var(--color-ember);' : 'color: var(--color-mute);'"
+                        class="flex flex-col items-center justify-center py-2.5 hover:bg-stone-50 transition">
                         <span class="text-xl" x-text="t.icon"></span>
                         <span class="text-[10px] font-semibold mt-0.5" x-text="t.label"></span>
                     </button>
@@ -771,7 +774,7 @@
                 <div x-show="changeFormError" class="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="changeFormError"></div>
 
                 <button @click="submitChange()" :disabled="changeFormSaving"
-                    class="w-full px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+                    class="w-full px-4 py-2.5 bg-ink text-white text-sm font-medium rounded-lg disabled:opacity-50 hover:bg-ink-soft">
                     <span x-text="changeFormSaving ? 'Submitting…' : 'Submit for approval'"></span>
                 </button>
                 <p class="text-[11px] text-gray-400 text-center">An admin or pastor will review your request.</p>
