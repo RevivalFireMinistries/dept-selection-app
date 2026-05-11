@@ -877,3 +877,27 @@ class ConnectFormSubmission(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     followed_up_by = relationship("Member", foreign_keys=[followed_up_by_id])
+
+
+# ============ DEVOTIONALS ============
+
+class Devotional(Base):
+    """A daily devotional written by the devotionals team. One per
+    scheduled_date — the portal Home tab shows today's published one
+    (or falls back to a curated verse if nothing is scheduled)."""
+    __tablename__ = "devotionals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scheduled_date = Column(Date, unique=True, nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    scripture_reference = Column(String(120), nullable=True)  # e.g. "Galatians 5:16-18"
+    scripture_text = Column(Text, nullable=True)              # optional passage body
+    body = Column(Text, nullable=False)                       # reflection
+    author_name = Column(String(120), nullable=True)          # display override
+    status = Column(String(20), nullable=False, server_default="draft")  # draft | published
+    published_at = Column(DateTime(timezone=True), nullable=True)
+    created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    created_by = relationship("Member", foreign_keys=[created_by_member_id])

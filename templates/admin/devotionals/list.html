@@ -1,0 +1,110 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Devotionals · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-4xl mx-auto px-4 py-6" x-data="devotionalsAdmin()" x-init="load()">
+
+    <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">📖 Devotionals</h1>
+            <p class="text-sm text-gray-500">Daily devotionals shown on the member portal Home tab.</p>
+        </div>
+        <a href="/admin/devotionals/builder" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg">+ New devotional</a>
+    </div>
+
+    <div class="flex items-center gap-1 mb-4 flex-wrap">
+        <template x-for="opt in filters" :key="opt.value">
+            <button @click="filter = opt.value; load()"
+                :class="filter === opt.value ? 'bg-amber-600 text-white' : 'bg-white border border-gray-200 text-gray-600'"
+                class="px-3 py-1.5 text-xs font-medium rounded-lg" x-text="opt.label"></button>
+        </template>
+    </div>
+
+    <div x-show="loading" class="p-8 text-center text-sm text-gray-500">Loading…</div>
+    <div x-show="!loading && !rows.length" class="p-8 text-center text-sm text-gray-500 bg-white rounded-xl border border-gray-100">No devotionals yet.</div>
+
+    <div class="space-y-3">
+        <template x-for="d in rows" :key="d.id">
+            <div class="bg-white border border-gray-200 rounded-xl p-4">
+                <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 font-semibold rounded" :class="statusClass(d.status)" x-text="d.status"></span>
+                            <span class="text-xs text-gray-500" x-text="formatDate(d.scheduled_date)"></span>
+                            <span x-show="d.scheduled_date === todayIso" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold uppercase">Today</span>
+                        </div>
+                        <a :href="`/admin/devotionals/builder?id=${d.id}`" class="block mt-1 font-semibold text-gray-900 hover:text-amber-700" x-text="d.title"></a>
+                        <div x-show="d.scripture_reference" class="text-xs text-amber-700 mt-0.5" x-text="d.scripture_reference"></div>
+                        <div class="text-xs text-gray-500 mt-1 line-clamp-2" x-text="d.body"></div>
+                        <div class="text-[11px] text-gray-400 mt-1" x-show="d.author_name || (d.created_by && d.created_by.full_name)">
+                            By <span x-text="d.author_name || d.created_by?.full_name"></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <button x-show="d.status === 'draft'" @click="publish(d)" class="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium">Publish</button>
+                        <button x-show="d.status === 'published'" @click="unpublish(d)" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded">Unpublish</button>
+                        <a :href="`/admin/devotionals/builder?id=${d.id}`" class="px-3 py-1.5 text-xs bg-amber-600 text-white rounded">Edit</a>
+                        <button @click="del(d)" class="px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function devotionalsAdmin() {
+    return {
+        loading: true,
+        rows: [],
+        filter: '',
+        todayIso: new Date().toISOString().slice(0, 10),
+        filters: [
+            {value: '',          label: 'All'},
+            {value: 'draft',     label: 'Drafts'},
+            {value: 'published', label: 'Published'},
+        ],
+
+        async load() {
+            this.loading = true;
+            try {
+                const url = this.filter ? `/api/admin/devotionals?status=${this.filter}` : '/api/admin/devotionals';
+                const r = await fetch(url);
+                this.rows = r.ok ? await r.json() : [];
+            } catch (e) { console.error(e); }
+            this.loading = false;
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            try { return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); }
+            catch (e) { return iso; }
+        },
+
+        statusClass(s) {
+            return ({
+                draft: 'bg-gray-100 text-gray-700',
+                published: 'bg-emerald-100 text-emerald-700',
+            })[s] || 'bg-gray-100 text-gray-700';
+        },
+
+        async publish(d) {
+            const r = await fetch(`/api/admin/devotionals/${d.id}/publish`, { method: 'POST' });
+            if (r.ok) { const u = await r.json(); const i = this.rows.findIndex(x => x.id === d.id); if (i >= 0) this.rows[i] = u; }
+        },
+        async unpublish(d) {
+            if (!confirm('Unpublish this devotional? Members won\'t see it on the Home tab.')) return;
+            const r = await fetch(`/api/admin/devotionals/${d.id}/unpublish`, { method: 'POST' });
+            if (r.ok) { const u = await r.json(); const i = this.rows.findIndex(x => x.id === d.id); if (i >= 0) this.rows[i] = u; }
+        },
+        async del(d) {
+            if (!confirm(`Delete "${d.title}"? This cannot be undone.`)) return;
+            const r = await fetch(`/api/admin/devotionals/${d.id}`, { method: 'DELETE' });
+            if (r.ok) this.rows = this.rows.filter(x => x.id !== d.id);
+        },
+    };
+}
+</script>
+{% endblock %}

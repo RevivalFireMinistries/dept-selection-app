@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect
+from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals
 
 
 def run_migrations():
@@ -762,6 +762,7 @@ app.include_router(reading_plans.router, prefix="/api", tags=["reading-plans"])
 app.include_router(push.router, prefix="/api", tags=["push"])
 app.include_router(external.router, prefix="/api", tags=["external"])
 app.include_router(connect.router, prefix="/api", tags=["connect"])
+app.include_router(devotionals.router, prefix="/api", tags=["devotionals"])
 app.include_router(display.router, prefix="/api/display", tags=["display"])
 app.include_router(songlist.router, tags=["songlist"])
 app.include_router(pages.router, tags=["pages"])

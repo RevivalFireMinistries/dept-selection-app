@@ -405,6 +405,20 @@ async def admin_connect_submissions_page(request: Request):
     return templates.TemplateResponse("admin/connect_submissions.html", {"request": request})
 
 
+@router.get("/admin/devotionals")
+async def admin_devotionals_page(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/devotionals/list.html", {"request": request})
+
+
+@router.get("/admin/devotionals/builder")
+async def admin_devotionals_builder(request: Request):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/devotionals/builder.html", {"request": request})
+
+
 @router.get("/admin/announcements")
 async def admin_announcements_page(request: Request):
     if not is_authenticated(request):

@@ -1,0 +1,183 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Devotional builder · Admin{% endblock %}
+
+{% block admin_content %}
+<div class="max-w-3xl mx-auto px-4 py-6" x-data="devotionalBuilder()" x-init="init()">
+
+    <a href="/admin/devotionals" class="text-xs text-gray-400 hover:text-gray-600">← Back to devotionals</a>
+    <h1 class="text-2xl font-bold text-gray-900 mt-2 mb-1" x-text="form.id ? 'Edit devotional' : 'New devotional'"></h1>
+    <p class="text-sm text-gray-500 mb-4">Save as draft, then publish when ready. Published devotionals appear on members' Home tab for their scheduled date.</p>
+
+    <div x-show="errorMsg" class="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700" x-text="errorMsg"></div>
+
+    <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Scheduled date <span class="text-red-500">*</span></label>
+                <input type="date" x-model="form.scheduled_date" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Title <span class="text-red-500">*</span></label>
+                <input type="text" x-model="form.title" maxlength="200" placeholder="e.g. Walking in the Spirit"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3">
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Scripture reference</label>
+                <input type="text" x-model="form.scripture_reference" maxlength="120" placeholder="e.g. Galatians 5:16-18"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Scripture text <span class="font-normal text-gray-400">(optional — shown as a blockquote)</span></label>
+                <textarea x-model="form.scripture_text" rows="2" placeholder="So I say, walk by the Spirit, and you will not gratify the desires of the flesh…"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-scripture"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Reflection <span class="text-red-500">*</span></label>
+                <textarea x-model="form.body" rows="10" placeholder="Write the devotional reflection here. Paragraphs separated by a blank line will render as paragraphs on the Home tab."
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm leading-relaxed"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Author name <span class="font-normal text-gray-400">(optional — overrides creator)</span></label>
+                <input type="text" x-model="form.author_name" maxlength="120" placeholder="e.g. Pastor Russel"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview -->
+    <div x-show="form.body" class="mt-4">
+        <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2">Preview</div>
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="p-5">
+                <div class="text-[10px] uppercase tracking-[0.2em] text-amber-700 font-semibold">Today's devotional</div>
+                <h2 class="mt-2 font-display text-2xl text-gray-900" x-text="form.title || 'Untitled'"></h2>
+                <div x-show="form.scripture_reference" class="text-xs text-amber-700 mt-1" x-text="form.scripture_reference"></div>
+                <blockquote x-show="form.scripture_text" class="mt-3 px-3 py-2 border-l-2 border-amber-300 font-scripture text-base text-gray-800 italic" x-text="form.scripture_text"></blockquote>
+                <div class="mt-3 space-y-3 text-sm text-gray-800 leading-relaxed">
+                    <template x-for="(p, i) in paragraphs()" :key="i">
+                        <p x-text="p"></p>
+                    </template>
+                </div>
+                <div x-show="form.author_name" class="mt-4 text-[11px] text-gray-500 italic" x-text="'— ' + form.author_name"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="mt-4 flex items-center justify-end gap-2 sticky bottom-0 bg-white border border-gray-200 rounded-xl p-3 shadow-md">
+        <a href="/admin/devotionals" class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg">Cancel</a>
+        <button @click="save()" :disabled="saving" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+            <span x-text="saving ? 'Saving…' : (form.id ? 'Save changes' : 'Save draft')"></span>
+        </button>
+        <button x-show="form.id && form.status !== 'published'" @click="publish()" :disabled="saving" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">Publish</button>
+        <button x-show="form.id && form.status === 'published'" @click="unpublish()" :disabled="saving" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg">Unpublish</button>
+    </div>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function devotionalBuilder() {
+    return {
+        saving: false,
+        errorMsg: '',
+        form: {
+            id: null,
+            scheduled_date: new Date().toISOString().slice(0, 10),
+            title: '',
+            scripture_reference: '',
+            scripture_text: '',
+            body: '',
+            author_name: '',
+            status: 'draft',
+        },
+
+        async init() {
+            const params = new URLSearchParams(location.search);
+            const id = params.get('id');
+            if (id) await this.load(id);
+        },
+
+        async load(id) {
+            try {
+                const r = await fetch(`/api/admin/devotionals/${id}`);
+                if (!r.ok) { this.errorMsg = 'Could not load'; return; }
+                const data = await r.json();
+                this.form = {
+                    id: data.id,
+                    scheduled_date: data.scheduled_date,
+                    title: data.title,
+                    scripture_reference: data.scripture_reference || '',
+                    scripture_text: data.scripture_text || '',
+                    body: data.body || '',
+                    author_name: data.author_name || '',
+                    status: data.status,
+                };
+            } catch (e) { this.errorMsg = String(e); }
+        },
+
+        paragraphs() {
+            return (this.form.body || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+        },
+
+        _payload() {
+            return {
+                scheduled_date: this.form.scheduled_date,
+                title: this.form.title,
+                scripture_reference: this.form.scripture_reference || null,
+                scripture_text: this.form.scripture_text || null,
+                body: this.form.body,
+                author_name: this.form.author_name || null,
+            };
+        },
+
+        async save() {
+            this.errorMsg = '';
+            if (!this.form.scheduled_date) { this.errorMsg = 'Pick a scheduled date'; return; }
+            if (!this.form.title.trim()) { this.errorMsg = 'Title is required'; return; }
+            if (!this.form.body.trim()) { this.errorMsg = 'Reflection is required'; return; }
+            this.saving = true;
+            try {
+                const url = this.form.id ? `/api/admin/devotionals/${this.form.id}` : '/api/admin/devotionals';
+                const method = this.form.id ? 'PUT' : 'POST';
+                const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(this._payload()) });
+                const data = await r.json();
+                if (!r.ok) { this.errorMsg = data.detail || 'Save failed'; this.saving = false; return; }
+                if (!this.form.id) { location.href = `/admin/devotionals/builder?id=${data.id}`; return; }
+                this.form.status = data.status;
+                alert('Saved.');
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+
+        async publish() {
+            await this.save();
+            if (this.errorMsg) return;
+            this.saving = true;
+            try {
+                const r = await fetch(`/api/admin/devotionals/${this.form.id}/publish`, { method: 'POST' });
+                const data = await r.json();
+                if (!r.ok) this.errorMsg = data.detail || 'Publish failed';
+                else { this.form.status = data.status; alert('Published.'); }
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+
+        async unpublish() {
+            if (!confirm('Unpublish this devotional?')) return;
+            this.saving = true;
+            try {
+                const r = await fetch(`/api/admin/devotionals/${this.form.id}/unpublish`, { method: 'POST' });
+                const data = await r.json();
+                if (!r.ok) this.errorMsg = data.detail || 'Unpublish failed';
+                else { this.form.status = data.status; alert('Reverted to draft.'); }
+            } catch (e) { this.errorMsg = String(e); }
+            this.saving = false;
+        },
+    };
+}
+</script>
+{% endblock %}
