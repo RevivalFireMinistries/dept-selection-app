@@ -187,6 +187,31 @@
                     </div>
                 </section>
 
+                <!-- What's coming up (from Google Calendar) -->
+                <section x-show="calendarEvents.length" class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">What's coming up</h2>
+                    <div class="space-y-2">
+                        <template x-for="e in calendarEvents" :key="e.id">
+                            <a :href="e.html_link || '#'" :target="e.html_link ? '_blank' : ''" rel="noopener"
+                               class="block p-3 border rounded-xl hover:border-amber-300" style="border-color: var(--color-border);">
+                                <div class="flex items-start gap-3">
+                                    <div class="flex flex-col items-center justify-center text-center w-10 flex-shrink-0">
+                                        <div class="text-[9px] uppercase tracking-widest font-semibold" style="color: var(--color-ember);" x-text="eventMonth(e)"></div>
+                                        <div class="text-xl font-display leading-none" style="color: var(--color-ink);" x-text="eventDay(e)"></div>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="font-semibold text-sm" style="color: var(--color-ink);" x-text="e.summary"></div>
+                                        <div class="text-[11px] mt-0.5" style="color: var(--color-mute);" x-text="eventWhen(e)"></div>
+                                        <div x-show="e.location" class="text-[11px] mt-0.5 truncate" style="color: var(--color-mute);">
+                                            <span>📍</span> <span x-text="e.location"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+                        </template>
+                    </div>
+                </section>
+
                 <!-- Upcoming meetings -->
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
@@ -925,6 +950,10 @@ function memberPortal() {
         meetingsLoading: false,
         upcomingMeetings: [],
 
+        // Church calendar (Google Calendar)
+        calendarEvents: [],
+        _calendarLoaded: false,
+
         // Reading plans (home tab)
         readingPlans: [],
 
@@ -1021,6 +1050,7 @@ function memberPortal() {
                 this.loadReadingPlans();
                 this.loadAnnouncements();
                 this.loadVerse();
+                this.loadCalendarEvents();
             }
             if (id === 'contributions') {
                 this.loadBanking();
@@ -1479,6 +1509,42 @@ function memberPortal() {
                 this.pushError = String(e.message || e);
             }
             this.pushBusy = false;
+        },
+
+        async loadCalendarEvents() {
+            if (this._calendarLoaded) return;
+            try {
+                const r = await fetch('/api/portal/calendar/upcoming');
+                if (!r.ok) return;
+                const data = await r.json();
+                this.calendarEvents = data?.events || [];
+                this._calendarLoaded = true;
+            } catch (e) { /* non-fatal */ }
+        },
+
+        eventDate(e) {
+            if (!e) return null;
+            try { return new Date(e.start_iso); } catch (err) { return null; }
+        },
+        eventDay(e) {
+            const d = this.eventDate(e);
+            return d ? d.getDate() : '';
+        },
+        eventMonth(e) {
+            const d = this.eventDate(e);
+            if (!d) return '';
+            const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            return names[d.getMonth()];
+        },
+        eventWhen(e) {
+            const d = this.eventDate(e);
+            if (!d) return '';
+            const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+            const wd = days[d.getDay()];
+            if (e.all_day) return `${wd} · all day`;
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            return `${wd} · ${hh}:${mm}`;
         },
 
         async loadVerse() {

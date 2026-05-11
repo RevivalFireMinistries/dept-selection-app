@@ -9785,6 +9785,96 @@ _VERSE_OF_DAY: List[dict] = [
 ]
 
 
+@router.get("/portal/calendar/upcoming")
+def portal_calendar_upcoming(request: Request, db: Session = Depends(get_db)):
+    """Upcoming events from the configured Google Calendar. Used by the
+    Home tab 'What's coming up' section. Returns an empty list if no
+    calendar is wired up — the UI hides the section."""
+    _require_logged_in_member(request, db)
+    import google_calendar as _cal
+    events = _cal.upcoming_events(db, max_results=8)
+    return {
+        "configured": _cal.is_configured(db),
+        "events": events,
+    }
+
+
+@router.get("/admin/google-calendar/config")
+def admin_get_google_calendar_config(request: Request, db: Session = Depends(get_db)):
+    """Returns the calendar id (visible) and a masked preview of the API
+    key. Used to populate the admin settings form."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    def _s(key):
+        row = db.query(Settings).filter(Settings.key == key).first()
+        return (row.value or "").strip() if row else ""
+
+    cal_id = _s("google_calendar_id")
+    api_key = _s("google_calendar_api_key")
+    masked = ""
+    if api_key:
+        masked = api_key[:6] + "•" * max(0, len(api_key) - 10) + api_key[-4:] if len(api_key) > 10 else "•" * len(api_key)
+    return {
+        "google_calendar_id": cal_id,
+        "google_calendar_api_key_set": bool(api_key),
+        "google_calendar_api_key_masked": masked,
+    }
+
+
+@router.put("/admin/google-calendar/config")
+def admin_save_google_calendar_config(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Save or update the calendar id / API key. Sending '••••' for the
+    api key leaves the saved value alone."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    def _set(key, value):
+        row = db.query(Settings).filter(Settings.key == key).first()
+        if row:
+            row.value = value
+        else:
+            db.add(Settings(key=key, value=value))
+
+    if "google_calendar_id" in payload:
+        _set("google_calendar_id", (payload.get("google_calendar_id") or "").strip())
+    if "google_calendar_api_key" in payload:
+        val = (payload.get("google_calendar_api_key") or "").strip()
+        # Don't overwrite a stored key with the masked placeholder
+        if val and "•" not in val:
+            _set("google_calendar_api_key", val)
+    db.commit()
+    # Drop the cache so the next /portal/calendar/upcoming refetches
+    try:
+        import google_calendar as _cal
+        _cal.clear_cache()
+    except Exception:
+        pass
+    return {"success": True}
+
+
+@router.post("/admin/google-calendar/test")
+def admin_test_google_calendar(request: Request, db: Session = Depends(get_db)):
+    """Hit the configured calendar right now and report what came back —
+    useful when the admin's setting up to verify the keys work."""
+    from routers.pages import is_authenticated
+    if not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin only")
+    import google_calendar as _cal
+    if not _cal.is_configured(db):
+        return {"ok": False, "error": "google_calendar_id and google_calendar_api_key must both be set"}
+    # Force a refresh
+    _cal.clear_cache()
+    events = _cal.upcoming_events(db, max_results=3)
+    return {
+        "ok": True,
+        "event_count": len(events),
+        "sample": events[:3],
+    }
+
+
 @router.get("/portal/verse-of-the-day")
 def portal_verse_of_the_day():
     """Today's verse. Day-of-year indexed so the rotation is stable and

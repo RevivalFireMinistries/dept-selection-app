@@ -60,6 +60,42 @@
         </p>
     </div>
 
+    <!-- Google Calendar -->
+    <div class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">📅 Google Calendar</h3>
+        <p class="text-sm text-gray-600 mb-4">
+            Pull church events from a public Google Calendar onto the member portal Home tab.
+            Make sure your calendar's <em>Access permissions</em> include <strong>"Make available to public"</strong>,
+            then get a Calendar API key from
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-blue-600 hover:underline">Google Cloud Console</a>.
+        </p>
+
+        <div id="gcalMessage" class="hidden mb-3 px-3 py-2 rounded-lg text-sm"></div>
+
+        <div class="space-y-3">
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">Calendar ID</label>
+                <input type="text" id="gcalId" placeholder="something@group.calendar.google.com"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" />
+                <p class="text-[11px] text-gray-500 mt-1">Find it in Google Calendar → Settings → Integrate calendar → Calendar ID.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1">API key</label>
+                <input type="text" id="gcalApiKey" autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" />
+                <p class="text-[11px] text-gray-500 mt-1">Server-side only — never sent to browsers. Restrict it to the Calendar API for safety.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button onclick="saveGoogleCalendar()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg">
+                    Save
+                </button>
+                <button onclick="testGoogleCalendar()" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-medium rounded-lg">
+                    Test connection
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- External API keys -->
     <div class="bg-white rounded-xl shadow p-6">
         <div class="flex items-center justify-between mb-2">
@@ -281,6 +317,64 @@ async function savePassword(key) {
         console.error('Failed to save password:', error);
         showMessage('Failed to save password', true);
     }
+}
+
+// ==================== GOOGLE CALENDAR ====================
+
+async function loadGoogleCalendarConfig() {
+    try {
+        const r = await fetch('/api/admin/google-calendar/config');
+        if (!r.ok) return;
+        const data = await r.json();
+        document.getElementById('gcalId').value = data.google_calendar_id || '';
+        const apiKeyInput = document.getElementById('gcalApiKey');
+        apiKeyInput.value = '';
+        apiKeyInput.placeholder = data.google_calendar_api_key_set
+            ? `Saved: ${data.google_calendar_api_key_masked} — paste a new one to replace`
+            : 'AIzaSy...';
+    } catch (e) { console.error(e); }
+}
+
+function showGcalMessage(text, isError) {
+    const el = document.getElementById('gcalMessage');
+    el.textContent = text;
+    el.className = `mb-3 px-3 py-2 rounded-lg text-sm ${isError ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('hidden'), 6000);
+}
+
+async function saveGoogleCalendar() {
+    const body = { google_calendar_id: document.getElementById('gcalId').value.trim() };
+    const apiKey = document.getElementById('gcalApiKey').value.trim();
+    if (apiKey) body.google_calendar_api_key = apiKey;
+    try {
+        const r = await fetch('/api/admin/google-calendar/config', {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { showGcalMessage(data.detail || 'Save failed', true); return; }
+        showGcalMessage('Saved.', false);
+        await loadGoogleCalendarConfig();
+    } catch (e) { showGcalMessage(String(e), true); }
+}
+
+async function testGoogleCalendar() {
+    showGcalMessage('Testing…', false);
+    try {
+        const r = await fetch('/api/admin/google-calendar/test', { method: 'POST' });
+        const data = await r.json();
+        if (!data.ok) {
+            showGcalMessage(`Failed: ${data.error || 'unknown'}`, true);
+            return;
+        }
+        if (data.event_count === 0) {
+            showGcalMessage('Connected — but no upcoming events found on this calendar.', false);
+            return;
+        }
+        const first = data.sample[0]?.summary || '';
+        showGcalMessage(`✓ Connected. ${data.event_count} upcoming event${data.event_count === 1 ? '' : 's'} (e.g. "${first}").`, false);
+    } catch (e) { showGcalMessage(String(e), true); }
 }
 
 // ==================== EXTERNAL API KEYS ====================
@@ -632,5 +726,6 @@ loadSongStats();
 loadYocoConfig();
 loadPushStatus();
 loadExternalKeys();
+loadGoogleCalendarConfig();
 </script>
 {% endblock %}
