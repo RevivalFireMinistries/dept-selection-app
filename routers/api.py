@@ -7311,6 +7311,112 @@ def admin_upsert_attendance(
     return _attendance_to_dict(entry, db)
 
 
+@router.post("/admin/home-church/attendance/bulk-cancel")
+def admin_bulk_cancel_attendance(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Mark a week as 'didn't meet' for EVERY active home church in one go.
+
+    Body:
+      roster_date  (required, YYYY-MM-DD)  — the meeting date (typically Monday)
+      reason       (optional, string)       — stamped into notes for each row
+
+    Use for service-wide suspensions: conference week, public holidays,
+    Christmas break, national lockdowns, etc. Idempotent — running it
+    twice on the same date is safe and updates existing rows. Inactive
+    home churches are skipped.
+    """
+    actor = _require_committee_or_admin(request, db)
+    try:
+        d = date.fromisoformat(data["roster_date"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="roster_date is required (YYYY-MM-DD)")
+    reason = (data.get("reason") or "").strip() or None
+
+    active_hcs = db.query(HomeChurch).filter(HomeChurch.is_active == True).all()
+    if not active_hcs:
+        return {"date": d.isoformat(), "marked": 0, "total": 0, "skipped": []}
+
+    marked = 0
+    skipped: List[dict] = []
+    for hc in active_hcs:
+        existing = db.query(HomeChurchAttendance).filter(
+            HomeChurchAttendance.home_church_id == hc.id,
+            HomeChurchAttendance.roster_date == d,
+        ).first()
+        if existing and not existing.did_not_meet and (existing.attendance_count or 0) > 0:
+            # Real attendance was already captured — don't blow it away;
+            # caller can delete the row manually if they really mean to.
+            skipped.append({"home_church_id": hc.id, "name": hc.name, "reason": "attendance already captured"})
+            continue
+        if existing:
+            existing.did_not_meet = True
+            existing.attendance_count = 0
+            existing.adults_count = None
+            existing.children_count = None
+            existing.new_visitors_count = 0
+            existing.offering_amount = "0"
+            if reason and not existing.notes:
+                existing.notes = reason
+            elif reason:
+                existing.notes = f"{existing.notes}\n{reason}".strip()
+            if actor:
+                existing.submitted_by_member_id = actor.id
+        else:
+            db.add(HomeChurchAttendance(
+                home_church_id=hc.id,
+                roster_date=d,
+                did_not_meet=True,
+                attendance_count=0,
+                new_visitors_count=0,
+                offering_amount="0",
+                notes=reason,
+                submitted_by_member_id=actor.id if actor else None,
+            ))
+        marked += 1
+
+    db.commit()
+    _log_admin_action(
+        request, db, "bulk_cancel_home_churches", "home_church_attendance", None,
+        f"Marked {marked} home church(es) as 'didn't meet' for {d.isoformat()}"
+        + (f" — {reason}" if reason else "")
+    )
+    db.commit()
+    return {
+        "date": d.isoformat(),
+        "marked": marked,
+        "total": len(active_hcs),
+        "skipped": skipped,
+        "reason": reason or "",
+    }
+
+
+@router.post("/admin/home-church/attendance/bulk-uncancel")
+def admin_bulk_uncancel_attendance(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Reverse a previous bulk-cancel for a given date. Removes only rows
+    that were marked did_not_meet AND have no captured attendance — never
+    deletes a row with real data on it."""
+    _require_committee_or_admin(request, db)
+    try:
+        d = date.fromisoformat(data["roster_date"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="roster_date is required")
+    rows = db.query(HomeChurchAttendance).filter(
+        HomeChurchAttendance.roster_date == d,
+        HomeChurchAttendance.did_not_meet == True,
+    ).all()
+    removed = 0
+    for r in rows:
+        if (r.attendance_count or 0) == 0:
+            db.delete(r)
+            removed += 1
+    db.commit()
+    _log_admin_action(
+        request, db, "bulk_uncancel_home_churches", "home_church_attendance", None,
+        f"Cleared {removed} 'didn't meet' row(s) for {d.isoformat()}"
+    )
+    db.commit()
+    return {"date": d.isoformat(), "removed": removed}
+
+
 @router.delete("/admin/home-church/attendance/{attendance_id}")
 def admin_delete_attendance(attendance_id: int, request: Request, db: Session = Depends(get_db)):
     _require_committee_or_admin(request, db)
