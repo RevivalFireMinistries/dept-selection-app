@@ -9634,39 +9634,48 @@ def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
     central: dict = {}
     central_source = None
 
-    # Banking is assembly-wide (not per-member), so even members whose
-    # individual record isn't yet linked to rfm-database should see the
-    # church's bank details. Fall back to the portal's default assembly id
-    # when the caller's own external_assembly_id isn't set.
+    # Banking is church-wide. ALWAYS use the portal's default assembly id —
+    # never the caller's own external_assembly_id — so every member sees the
+    # same bank details regardless of whether their record is synced, whether
+    # an old central record points at a different assembly, or whether the
+    # API key is admin-grade vs scoped. Try caller's id only as a last-ditch
+    # fallback in case _resolve_default_assembly_id returns nothing.
     #   assembly.metadata.banking_details — the canonical location
     # Top-level metadata keys are tolerated for backward compatibility.
-    assembly_id_for_banking = member.external_assembly_id
-    if not assembly_id_for_banking and _rfm.is_enabled(db) and _rfm.is_configured(db):
+    candidate_assembly_ids = []
+    if _rfm.is_enabled(db) and _rfm.is_configured(db):
         try:
-            assembly_id_for_banking = _resolve_default_assembly_id(db)
-        except Exception:
-            assembly_id_for_banking = None
-
-    if assembly_id_for_banking and _rfm.is_enabled(db) and _rfm.is_configured(db):
-        try:
-            r = _rfm.get_assembly(assembly_id_for_banking, db=db)
-            if r.ok and isinstance(r.data, dict):
-                meta = r.data.get("metadata") or r.data.get("extra_metadata") or {}
-                if isinstance(meta, dict):
-                    bank_block = meta.get("banking_details")
-                    # Fallback: if no nested block, read from top-level metadata
-                    if not isinstance(bank_block, dict):
-                        bank_block = meta
-                    norm = {
-                        str(k).lower(): str(v).strip()
-                        for k, v in bank_block.items()
-                        if v not in (None, "")
-                    }
-                    central = norm
-                    if any(norm.get(k) for k in ("bank_name", "account_number", "online_giving_url")):
-                        central_source = "central"
+            primary = _resolve_default_assembly_id(db)
+            if primary:
+                candidate_assembly_ids.append(str(primary))
         except Exception:
             pass
+        # Caller's own as a backup if it's different from the default
+        if member.external_assembly_id and str(member.external_assembly_id) not in candidate_assembly_ids:
+            candidate_assembly_ids.append(str(member.external_assembly_id))
+
+    for assembly_id_for_banking in candidate_assembly_ids:
+        try:
+            r = _rfm.get_assembly(assembly_id_for_banking, db=db)
+            if not (r.ok and isinstance(r.data, dict)):
+                continue
+            meta = r.data.get("metadata") or r.data.get("extra_metadata") or {}
+            if not isinstance(meta, dict):
+                continue
+            bank_block = meta.get("banking_details")
+            if not isinstance(bank_block, dict):
+                bank_block = meta  # backward-compat: top-level keys
+            norm = {
+                str(k).lower(): str(v).strip()
+                for k, v in bank_block.items()
+                if v not in (None, "")
+            }
+            if any(norm.get(k) for k in ("bank_name", "account_number", "online_giving_url")):
+                central = norm
+                central_source = "central"
+                break  # first assembly with banking data wins
+        except Exception:
+            continue
 
     def pick(*keys, fallback_setting=None):
         # Try central first (any matching key), then a local Settings key
