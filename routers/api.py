@@ -9786,23 +9786,42 @@ _VERSE_OF_DAY: List[dict] = [
 
 
 @router.get("/portal/calendar/upcoming")
-def portal_calendar_upcoming(request: Request, db: Session = Depends(get_db)):
+def portal_calendar_upcoming(
+    range: str = Query("week", description="week | month"),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
     """Upcoming events from the configured Google Calendar, filtered to the
-    caller's ministries. Events whose title contains a ministry keyword
-    (Men, Ladies, Couples, Singles, Teens, Youth, Young Adults) are only
-    shown to members of that ministry. General events pass through.
+    caller's ministries.
 
-    Empty list when no calendar is wired up — the UI hides the section.
+    range=week  -> from now through end of this Sunday (default)
+    range=month -> from now through end of the current month
+
+    Events whose title contains a ministry keyword (Men, Ladies, Couples,
+    Singles, Teens, Youth, Young Adults) are only shown to members of
+    that ministry. General events pass through.
     """
     member = _require_logged_in_member(request, db)
     import google_calendar as _cal
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    from calendar import monthrange as _mr
 
-    # Pull a wider window so we can still surface enough events after
-    # filtering — the visible cap is applied at the end.
-    raw_events = _cal.upcoming_events(db, max_results=24)
+    # Resolve the upper bound. Done server-side so we don't ship the
+    # full month to the client when only the week is needed.
+    now = _dt.now(_tz.utc)
+    if (range or "week").lower() == "month":
+        last_day = _mr(now.year, now.month)[1]
+        end = now.replace(day=last_day, hour=23, minute=59, second=59, microsecond=0)
+        max_results = 60
+    else:
+        # End of this week (Sunday 23:59 UTC). Python weekday: Mon=0..Sun=6.
+        days_to_sunday = 6 - now.weekday()
+        end = (now + _td(days=days_to_sunday)).replace(hour=23, minute=59, second=59, microsecond=0)
+        max_results = 30
+    time_max_iso = end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Resolve the caller's ministry names from the central rfm-database.
-    # Falls back to an empty list, which the filter treats as 'show all'.
+    raw_events = _cal.upcoming_events(db, max_results=max_results, time_max_iso=time_max_iso)
+
     ministry_names = []
     try:
         central = _portal_central_lookup(member, db)
@@ -9818,7 +9837,9 @@ def portal_calendar_upcoming(request: Request, db: Session = Depends(get_db)):
 
     return {
         "configured": _cal.is_configured(db),
-        "events": filtered[:8],
+        "range": "month" if (range or "week").lower() == "month" else "week",
+        "time_max": time_max_iso,
+        "events": filtered,  # caller's range bounds already cap the count
         "filtered_by_ministry": bool(ministry_names),
     }
 

@@ -188,12 +188,26 @@
                 </section>
 
                 <!-- What's coming up (from Google Calendar) -->
-                <section x-show="calendarEvents.length" class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
-                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">What's coming up</h2>
+                <section x-show="calendarConfigured" class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
+                    <div class="flex items-center justify-between mb-3 gap-2">
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">What's coming up</h2>
+                        <div class="inline-flex items-center text-[11px] rounded-lg overflow-hidden" style="border: 1px solid var(--color-border);">
+                            <button @click="setCalendarRange('week')"
+                                :style="calendarRange === 'week' ? 'background-color: var(--color-ink); color: white;' : 'color: var(--color-mute);'"
+                                class="px-2.5 py-1 font-semibold">Week</button>
+                            <button @click="setCalendarRange('month')"
+                                :style="calendarRange === 'month' ? 'background-color: var(--color-ink); color: white;' : 'color: var(--color-mute);'"
+                                class="px-2.5 py-1 font-semibold">Month</button>
+                        </div>
+                    </div>
+                    <div x-show="calendarLoading" class="text-[11px] text-mute italic py-2">Loading…</div>
+                    <div x-show="!calendarLoading && !calendarEvents.length" class="text-[11px] text-mute italic py-2">
+                        <span x-text="calendarRange === 'week' ? 'Nothing scheduled this week.' : 'Nothing scheduled this month.'"></span>
+                    </div>
                     <div class="space-y-2">
                         <template x-for="e in calendarEvents" :key="e.id">
-                            <a :href="e.html_link || '#'" :target="e.html_link ? '_blank' : ''" rel="noopener"
-                               class="block p-3 border rounded-xl hover:border-amber-300" style="border-color: var(--color-border);">
+                            <button type="button" @click="openCalendarEvent(e)"
+                                class="w-full block p-3 border rounded-xl hover:border-amber-300 text-left transition" style="border-color: var(--color-border);">
                                 <div class="flex items-start gap-3">
                                     <div class="flex flex-col items-center justify-center text-center w-10 flex-shrink-0">
                                         <div class="text-[9px] uppercase tracking-widest font-semibold" style="color: var(--color-ember);" x-text="eventMonth(e)"></div>
@@ -207,7 +221,7 @@
                                         </div>
                                     </div>
                                 </div>
-                            </a>
+                            </button>
                         </template>
                     </div>
                 </section>
@@ -792,6 +806,49 @@
         </div>
     </div>
 
+    <!-- ==================== CALENDAR EVENT DETAILS SHEET ==================== -->
+    <div x-show="calendarEventOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="calendarEventOpen = false" @keydown.escape.window="calendarEventOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-start justify-between gap-3">
+                <div class="flex items-start gap-3 min-w-0">
+                    <div class="flex flex-col items-center justify-center text-center w-11 flex-shrink-0">
+                        <div class="text-[10px] uppercase tracking-widest font-semibold" style="color: var(--color-ember);" x-text="eventMonth(calendarEvent)"></div>
+                        <div class="text-2xl font-display leading-none" style="color: var(--color-ink);" x-text="eventDay(calendarEvent)"></div>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="font-semibold text-base" style="color: var(--color-ink);" x-text="calendarEvent?.summary"></div>
+                        <div class="text-xs mt-0.5" style="color: var(--color-mute);" x-text="eventLongWhen(calendarEvent)"></div>
+                    </div>
+                </div>
+                <button @click="calendarEventOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center flex-shrink-0">✕</button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div x-show="calendarEvent?.location" class="flex items-start gap-2 text-sm">
+                    <span class="text-base flex-shrink-0">📍</span>
+                    <div>
+                        <div style="color: var(--color-ink);" x-text="calendarEvent?.location"></div>
+                        <a :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(calendarEvent?.location || '')}`" target="_blank" rel="noopener"
+                           class="text-[11px] font-semibold" style="color: var(--color-ember);">Open in Maps →</a>
+                    </div>
+                </div>
+
+                <div x-show="calendarEvent?.description" class="text-sm leading-relaxed whitespace-pre-wrap" style="color: var(--color-ink-soft);" x-html="calendarEventDescriptionHtml()"></div>
+
+                <div class="pt-3 border-t flex flex-wrap gap-2" style="border-color: var(--color-border);">
+                    <button @click="addToMyCalendar()" class="px-3 py-2 text-xs font-semibold rounded-lg text-white" style="background-color: var(--color-ink);">
+                        Add to my calendar
+                    </button>
+                    <a x-show="calendarEvent?.html_link" :href="calendarEvent?.html_link" target="_blank" rel="noopener"
+                       class="px-3 py-2 text-xs font-semibold rounded-lg" style="color: var(--color-mute); border: 1px solid var(--color-border);">
+                        Open in Google Calendar →
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== HOME CHURCH INFO MODAL ==================== -->
     <div x-show="hcInfoOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="hcInfoOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -952,7 +1009,11 @@ function memberPortal() {
 
         // Church calendar (Google Calendar)
         calendarEvents: [],
-        _calendarLoaded: false,
+        calendarConfigured: false,
+        calendarRange: 'week',  // week | month
+        calendarLoading: false,
+        calendarEventOpen: false,
+        calendarEvent: null,
 
         // Reading plans (home tab)
         readingPlans: [],
@@ -1512,14 +1573,21 @@ function memberPortal() {
         },
 
         async loadCalendarEvents() {
-            if (this._calendarLoaded) return;
+            this.calendarLoading = true;
             try {
-                const r = await fetch('/api/portal/calendar/upcoming');
-                if (!r.ok) return;
+                const r = await fetch(`/api/portal/calendar/upcoming?range=${this.calendarRange}`);
+                if (!r.ok) { this.calendarLoading = false; return; }
                 const data = await r.json();
+                this.calendarConfigured = !!data?.configured;
                 this.calendarEvents = data?.events || [];
-                this._calendarLoaded = true;
             } catch (e) { /* non-fatal */ }
+            this.calendarLoading = false;
+        },
+
+        setCalendarRange(range) {
+            if (this.calendarRange === range) return;
+            this.calendarRange = range;
+            this.loadCalendarEvents();
         },
 
         eventDate(e) {
@@ -1545,6 +1613,64 @@ function memberPortal() {
             const hh = String(d.getHours()).padStart(2, '0');
             const mm = String(d.getMinutes()).padStart(2, '0');
             return `${wd} · ${hh}:${mm}`;
+        },
+
+        eventLongWhen(e) {
+            if (!e) return '';
+            const start = this.eventDate(e);
+            if (!start) return '';
+            const dateStr = start.toLocaleDateString(undefined, {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+            });
+            if (e.all_day) return `${dateStr} · all day`;
+            const startStr = start.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            let endStr = '';
+            try {
+                if (e.end_iso) {
+                    const end = new Date(e.end_iso);
+                    if (!isNaN(end.getTime())) {
+                        endStr = end.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                    }
+                }
+            } catch (err) {}
+            return endStr ? `${dateStr} · ${startStr} – ${endStr}` : `${dateStr} · ${startStr}`;
+        },
+
+        openCalendarEvent(e) {
+            this.calendarEvent = e;
+            this.calendarEventOpen = true;
+        },
+
+        calendarEventDescriptionHtml() {
+            // Google Calendar stores descriptions with HTML-ish line breaks.
+            // Strip tags and re-render newlines safely.
+            const raw = (this.calendarEvent?.description || '').toString();
+            const noTags = raw.replace(/<\/?(?:p|div|br|li)[^>]*>/gi, '\n').replace(/<[^>]+>/g, '');
+            const escaped = noTags.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // Auto-link URLs
+            return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color: var(--color-ember); text-decoration: underline;">$1</a>');
+        },
+
+        addToMyCalendar() {
+            const e = this.calendarEvent;
+            if (!e) return;
+            // Build a Google Calendar 'TEMPLATE' URL that opens a pre-filled
+            // 'add event' form in the user's own Google account
+            const fmt = (iso) => {
+                if (!iso) return '';
+                const d = new Date(iso);
+                if (isNaN(d.getTime())) return '';
+                const pad = n => String(n).padStart(2, '0');
+                return `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00Z`;
+            };
+            const params = new URLSearchParams({
+                action: 'TEMPLATE',
+                text: e.summary || '',
+                dates: `${fmt(e.start_iso)}/${fmt(e.end_iso || e.start_iso)}`,
+                details: e.description || '',
+                location: e.location || '',
+            });
+            window.open(`https://calendar.google.com/calendar/render?${params.toString()}`, '_blank', 'noopener');
         },
 
         async loadVerse() {

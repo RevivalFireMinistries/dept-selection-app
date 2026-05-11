@@ -43,12 +43,17 @@ def is_configured(db: Session) -> bool:
     return bool(_get_setting(db, "google_calendar_id") and _get_setting(db, "google_calendar_api_key"))
 
 
-def upcoming_events(db: Session, *, max_results: int = DEFAULT_MAX_RESULTS) -> List[dict]:
+def upcoming_events(
+    db: Session,
+    *,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    time_max_iso: Optional[str] = None,
+) -> List[dict]:
     """Return the next N events from the configured calendar.
 
     Each event:
       {
-        id, summary, description (truncated), location,
+        id, summary, description (FULL, untrimmed), location,
         start_iso, end_iso, all_day, html_link
       }
     Empty list if not configured, network fails, or the calendar is empty.
@@ -58,8 +63,8 @@ def upcoming_events(db: Session, *, max_results: int = DEFAULT_MAX_RESULTS) -> L
     if not cal_id or not api_key:
         return []
 
-    # Cached?
-    cache_key = f"{cal_id}:{max_results}"
+    # Cached? Key includes time_max so different windows cache separately
+    cache_key = f"{cal_id}:{max_results}:{time_max_iso or ''}"
     cached = _cache.get(cache_key)
     if cached and (time.time() - cached[0]) < CACHE_TTL_SECONDS:
         return cached[1]
@@ -73,6 +78,8 @@ def upcoming_events(db: Session, *, max_results: int = DEFAULT_MAX_RESULTS) -> L
         "maxResults": str(int(max_results)),
         "showDeleted": "false",
     }
+    if time_max_iso:
+        params["timeMax"] = time_max_iso
     url = (
         f"https://www.googleapis.com/calendar/v3/calendars/"
         f"{urllib.parse.quote(cal_id)}/events?"
@@ -106,9 +113,8 @@ def upcoming_events(db: Session, *, max_results: int = DEFAULT_MAX_RESULTS) -> L
         start_iso = start.get("dateTime") or start.get("date") or ""
         end_iso = end.get("dateTime") or end.get("date") or ""
 
+        # Full description preserved — the portal sheet shows it in full
         description = (item.get("description") or "").strip()
-        if len(description) > 240:
-            description = description[:237] + "…"
 
         out.append({
             "id": item.get("id"),
