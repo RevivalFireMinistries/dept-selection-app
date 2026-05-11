@@ -753,6 +753,15 @@
                         class="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm" />
                     <p class="text-[11px] text-gray-500 mt-1">Stamped on each row's notes so the committee can see why later.</p>
                 </div>
+
+                <label class="flex items-start gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer">
+                    <input type="checkbox" x-model="bulkCancel.notify" class="w-5 h-5 mt-0.5 flex-shrink-0" />
+                    <div class="flex-1">
+                        <div class="text-sm font-medium text-gray-900">Notify leaders and assigned preachers</div>
+                        <div class="text-[11px] text-gray-500 mt-0.5">Push notification + email to every home church leader and anyone rostered to preach that night.</div>
+                    </div>
+                </label>
+
                 <div class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
                     ⚠ Home churches that already have <strong>real attendance captured</strong> for this date will be skipped — your data is safe. Only blank rows or already-cancelled rows get marked.
                 </div>
@@ -761,6 +770,11 @@
                     <div class="font-semibold mb-1">Done</div>
                     <div class="text-xs">
                         Marked <strong x-text="bulkCancel.result?.marked"></strong> of <span x-text="bulkCancel.result?.total"></span> home church(es).
+                    </div>
+                    <div class="text-xs mt-1" x-show="bulkCancel.result?.notifications">
+                        Notified <strong x-text="bulkCancel.result?.notifications?.recipients || 0"></strong> people ·
+                        <span x-text="bulkCancel.result?.notifications?.push_sent || 0"></span> push,
+                        <span x-text="bulkCancel.result?.notifications?.email_sent || 0"></span> email.
                     </div>
                     <template x-for="s in (bulkCancel.result?.skipped || [])" :key="s.home_church_id">
                         <div class="text-[11px] text-amber-700 mt-1">• <span x-text="s.name"></span> — <span x-text="s.reason"></span></div>
@@ -1263,7 +1277,7 @@ function homeChurchApp() {
         },
         bulkCancel: {
             open: false, busy: false,
-            date: '', reason: '',
+            date: '', reason: '', notify: true,
             result: null,
         },
         history: { open: false, loading: false, hc: null, data: null },
@@ -2087,14 +2101,16 @@ function homeChurchApp() {
 
         // ---- Service-wide bulk cancel ----
         openBulkCancel() {
-            // Default to the most recent Monday so the common case is one click
+            // Default to next Monday so future cancellations (the common case
+            // for "planned" service-wide suspensions) are one click away.
             const today = new Date();
             const day = today.getDay();  // Sun=0..Sat=6
-            const offsetToMonday = day === 0 ? -6 : (1 - day);
+            // Days until next Monday: 1 (today is Sun) ... 7 (today is Mon — give them next Mon, not today)
+            const offsetToMonday = day === 1 ? 7 : ((8 - day) % 7 || 7);
             const monday = new Date(today);
             monday.setDate(today.getDate() + offsetToMonday);
             const iso = monday.toISOString().slice(0, 10);
-            this.bulkCancel = { open: true, busy: false, date: iso, reason: '', result: null };
+            this.bulkCancel = { open: true, busy: false, date: iso, reason: '', notify: true, result: null };
         },
 
         async runBulkCancel() {
@@ -2108,7 +2124,11 @@ function homeChurchApp() {
                 const r = await fetch('/api/admin/home-church/attendance/bulk-cancel', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ roster_date: this.bulkCancel.date, reason }),
+                    body: JSON.stringify({
+                        roster_date: this.bulkCancel.date,
+                        reason,
+                        notify: !!this.bulkCancel.notify,
+                    }),
                 });
                 const data = await r.json();
                 if (!r.ok) { alert(data.detail || 'Bulk-cancel failed'); this.bulkCancel.busy = false; return; }

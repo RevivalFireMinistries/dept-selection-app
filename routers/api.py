@@ -7311,13 +7311,121 @@ def admin_upsert_attendance(
     return _attendance_to_dict(entry, db)
 
 
+def _notify_home_church_cancelled(db: Session, marked_hcs, roster_date, reason: Optional[str]):
+    """Fan push + email to every home church leader + rostered preacher
+    affected by a service-wide cancellation. Best-effort — failures don't
+    block the cancellation itself."""
+    recipients = []  # [{member, role, hc_name}]
+    seen = set()
+
+    for hc in marked_hcs:
+        if hc.leader_member_id and hc.leader_member_id not in seen:
+            leader = db.query(Member).filter(Member.id == hc.leader_member_id).first()
+            if leader:
+                recipients.append({"member": leader, "role": "leader", "hc_name": hc.name})
+                seen.add(leader.id)
+        roster = db.query(HomeChurchRoster).filter(
+            HomeChurchRoster.home_church_id == hc.id,
+            HomeChurchRoster.roster_date == roster_date,
+            HomeChurchRoster.preacher_member_id.isnot(None),
+        ).first()
+        if roster and roster.preacher_member_id and roster.preacher_member_id not in seen:
+            preacher = db.query(Member).filter(Member.id == roster.preacher_member_id).first()
+            if preacher:
+                recipients.append({"member": preacher, "role": "preacher", "hc_name": hc.name})
+                seen.add(preacher.id)
+
+    summary = {"recipients": len(recipients), "push_sent": 0, "email_sent": 0}
+    if not recipients:
+        return summary
+
+    nice_date = roster_date.strftime("%A, %d %B %Y")
+    short_date = roster_date.strftime("%d %b")
+    title = f"Home church cancelled — {short_date}"
+
+    # ---- Push ----
+    try:
+        import push_service
+        if push_service.is_configured(db):
+            for r in recipients:
+                role_phrase = "(you lead)" if r["role"] == "leader" else "(you're rostered to preach)"
+                body = f"{nice_date} — {r['hc_name']} {role_phrase}."
+                if reason:
+                    body += f"\n{reason}"
+                result = push_service.send_to_member(
+                    db, r["member"].id,
+                    title=title,
+                    body=body[:300],
+                    url="/admin/home-churches",
+                    tag=f"hc-cancel-{roster_date.isoformat()}",
+                )
+                summary["push_sent"] += result.sent
+    except Exception:
+        pass
+
+    # ---- Email via rfm-notify ----
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        channel = RfmNotifyChannel()
+        if channel.is_configured():
+            for r in recipients:
+                m = r["member"]
+                if not (m.email and "@" in m.email):
+                    continue
+                role_phrase = (
+                    "you lead this group"
+                    if r["role"] == "leader"
+                    else "you're rostered to preach there"
+                )
+                reason_html = (
+                    f'<p style="margin: 0 0 14px 0; color: #4b5563; font-size: 14px; line-height: 1.6;">'
+                    f"<strong>Reason:</strong> {reason}</p>"
+                    if reason else ""
+                )
+                html = f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#fff;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;">
+<tr><td style="padding:0 0 24px 0;">
+<h2 style="margin:0 0 4px 0;color:#111827;font-size:20px;font-weight:700;">Home church cancelled</h2>
+<p style="margin:0 0 16px 0;color:#111827;font-size:15px;line-height:1.6;">Hi <strong>{m.full_name or 'there'}</strong>,</p>
+<p style="margin:0 0 14px 0;color:#4b5563;font-size:14px;line-height:1.6;">
+Heads up that <strong>{r['hc_name']}</strong> on <strong>{nice_date}</strong> won't be meeting — {role_phrase}.
+</p>
+{reason_html}
+<p style="margin:0 0 14px 0;color:#4b5563;font-size:14px;line-height:1.6;">No action needed on your side — this is just a heads-up so you can let your group know.</p>
+<p style="margin:24px 0 0 0;color:#9ca3af;font-size:12px;">Revival Fire Ministries · Stellenbosch</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+                ok, err = channel.send(
+                    recipient=m.email,
+                    subject=f"Home church cancelled — {short_date}",
+                    body=html,
+                    event_code="home_church.bulk_cancelled",
+                    recipient_name=m.full_name,
+                    idempotency_key=f"hc-cancel-{roster_date.isoformat()}-{m.id}",
+                )
+                if ok:
+                    summary["email_sent"] += 1
+    except Exception:
+        pass
+
+    return summary
+
+
 @router.post("/admin/home-church/attendance/bulk-cancel")
 def admin_bulk_cancel_attendance(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     """Mark a week as 'didn't meet' for EVERY active home church in one go.
 
     Body:
-      roster_date  (required, YYYY-MM-DD)  — the meeting date (typically Monday)
+      roster_date  (required, YYYY-MM-DD)  — meeting date (past, today, or future)
       reason       (optional, string)       — stamped into notes for each row
+      notify       (optional, bool, default true) — fan push + email to
+                    every leader and rostered preacher affected
 
     Use for service-wide suspensions: conference week, public holidays,
     Christmas break, national lockdowns, etc. Idempotent — running it
@@ -7336,6 +7444,7 @@ def admin_bulk_cancel_attendance(data: dict = Body(...), request: Request = None
         return {"date": d.isoformat(), "marked": 0, "total": 0, "skipped": []}
 
     marked = 0
+    marked_hcs = []  # list of HomeChurch rows we actually touched
     skipped: List[dict] = []
     for hc in active_hcs:
         existing = db.query(HomeChurchAttendance).filter(
@@ -7372,6 +7481,7 @@ def admin_bulk_cancel_attendance(data: dict = Body(...), request: Request = None
                 submitted_by_member_id=actor.id if actor else None,
             ))
         marked += 1
+        marked_hcs.append(hc)
 
     db.commit()
     _log_admin_action(
@@ -7380,12 +7490,26 @@ def admin_bulk_cancel_attendance(data: dict = Body(...), request: Request = None
         + (f" — {reason}" if reason else "")
     )
     db.commit()
+
+    # Fan push + email to the parties who need to know — leaders + rostered
+    # preachers. Defaults to on; admin can pass notify=false to skip
+    # (e.g. silent backfill of past cancellations).
+    notify_flag = data.get("notify")
+    do_notify = True if notify_flag is None else bool(notify_flag)
+    notify_summary = {"recipients": 0, "push_sent": 0, "email_sent": 0}
+    if do_notify and marked_hcs:
+        try:
+            notify_summary = _notify_home_church_cancelled(db, marked_hcs, d, reason)
+        except Exception as exc:
+            notify_summary = {"recipients": 0, "push_sent": 0, "email_sent": 0, "error": str(exc)[:200]}
+
     return {
         "date": d.isoformat(),
         "marked": marked,
         "total": len(active_hcs),
         "skipped": skipped,
         "reason": reason or "",
+        "notifications": notify_summary,
     }
 
 
