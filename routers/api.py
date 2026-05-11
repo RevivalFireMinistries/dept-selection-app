@@ -9634,12 +9634,22 @@ def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
     central: dict = {}
     central_source = None
 
-    # Try central if the member is linked. Banking lives at:
-    #   assembly.metadata.banking_details (the canonical location)
-    # We also tolerate top-level keys on metadata for backward compatibility.
-    if member.external_assembly_id and _rfm.is_enabled(db) and _rfm.is_configured(db):
+    # Banking is assembly-wide (not per-member), so even members whose
+    # individual record isn't yet linked to rfm-database should see the
+    # church's bank details. Fall back to the portal's default assembly id
+    # when the caller's own external_assembly_id isn't set.
+    #   assembly.metadata.banking_details — the canonical location
+    # Top-level metadata keys are tolerated for backward compatibility.
+    assembly_id_for_banking = member.external_assembly_id
+    if not assembly_id_for_banking and _rfm.is_enabled(db) and _rfm.is_configured(db):
         try:
-            r = _rfm.get_assembly(member.external_assembly_id, db=db)
+            assembly_id_for_banking = _resolve_default_assembly_id(db)
+        except Exception:
+            assembly_id_for_banking = None
+
+    if assembly_id_for_banking and _rfm.is_enabled(db) and _rfm.is_configured(db):
+        try:
+            r = _rfm.get_assembly(assembly_id_for_banking, db=db)
             if r.ok and isinstance(r.data, dict):
                 meta = r.data.get("metadata") or r.data.get("extra_metadata") or {}
                 if isinstance(meta, dict):
