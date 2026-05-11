@@ -156,15 +156,18 @@ _MINISTRY_PATTERNS = {
     "teens":        _re.compile(r"\bteens?\b", _re.IGNORECASE),
     "youth":        _re.compile(r"\byouth\b", _re.IGNORECASE),
     "young_adults": _re.compile(r"\b(young\s+(?:unmarried\s+)?adults?|yua)\b", _re.IGNORECASE),
+    # HoDs only — events for heads of department or project management
+    "hod":          _re.compile(r"\b(hods?|heads?\s+of\s+departments?|project\s+management|project\s+managers?)\b", _re.IGNORECASE),
+    # Everyone who serves (has at least one approved department)
+    "serving":      _re.compile(r"\b(leaders?|leadership)\b", _re.IGNORECASE),
 }
 
 
 def detect_event_ministry_tags(title: str) -> set:
-    """Return the ministry buckets this event seems targeted at.
+    """Return the audience buckets this event seems targeted at.
 
     Empty set = general event (everyone sees it). 'Women' is checked before
-    'Men' so an event titled 'Women's Online Session' doesn't accidentally
-    register as a men's event.
+    'Men' so 'Women's Online Session' doesn't register as a men's event.
     """
     if not title:
         return set()
@@ -176,7 +179,7 @@ def detect_event_ministry_tags(title: str) -> set:
     # Only check 'men' if 'ladies' wasn't matched — defence in depth
     if not has_ladies and _MINISTRY_PATTERNS["men"].search(text):
         tags.add("men")
-    for bucket in ("singles", "couples", "teens", "youth", "young_adults"):
+    for bucket in ("singles", "couples", "teens", "youth", "young_adults", "hod", "serving"):
         if _MINISTRY_PATTERNS[bucket].search(text):
             tags.add(bucket)
     return tags
@@ -204,22 +207,29 @@ def member_ministry_buckets(ministry_names) -> set:
 
 
 def filter_events_for_member(events: list, ministry_names) -> list:
-    """Drop ministry-targeted events the member isn't in. Untagged events
-    (no recognised ministry keyword in the title) pass through unchanged.
-
-    If we don't know the member's ministries (empty list), be permissive
-    and show everything — better than hiding the whole calendar from a
-    member who isn't yet centrally synced.
-    """
+    """Backward-compatible wrapper. Use filter_events_by_buckets() when the
+    caller already has the final bucket set (e.g. ministry + HoD + serving)."""
     if not ministry_names:
         return list(events or [])
-    my_buckets = member_ministry_buckets(ministry_names)
+    return filter_events_by_buckets(events, member_ministry_buckets(ministry_names))
+
+
+def filter_events_by_buckets(events: list, member_buckets: set) -> list:
+    """Drop targeted events the member isn't in. Untagged events (no
+    recognised audience keyword in the title) pass through unchanged.
+
+    Empty buckets => permissive (show all) — better than hiding the
+    whole calendar from a member who isn't yet centrally synced or
+    serving anywhere.
+    """
+    if not member_buckets:
+        return list(events or [])
     out = []
     for e in (events or []):
         tags = detect_event_ministry_tags(e.get("summary", ""))
         if not tags:
             out.append(e)
             continue
-        if tags & my_buckets:
+        if tags & member_buckets:
             out.append(e)
     return out

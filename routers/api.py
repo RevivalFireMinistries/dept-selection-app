@@ -9822,7 +9822,11 @@ def portal_calendar_upcoming(
 
     raw_events = _cal.upcoming_events(db, max_results=max_results, time_max_iso=time_max_iso)
 
-    ministry_names = []
+    # Build the full audience bucket set for this caller. Includes:
+    #  - ministry-derived buckets from the central rfm-database
+    #  - 'hod' if the member is head of any local department
+    #  - 'serving' if the member has any approved local department
+    buckets: set = set()
     try:
         central = _portal_central_lookup(member, db)
         ministry_names = [
@@ -9830,17 +9834,31 @@ def portal_calendar_upcoming(
             for m in (central.get("ministries") or [])
             if m.get("name")
         ]
+        buckets |= _cal.member_ministry_buckets(ministry_names)
     except Exception:
         ministry_names = []
 
-    filtered = _cal.filter_events_for_member(raw_events, ministry_names)
+    try:
+        is_hod = db.query(Department).filter(Department.hod_member_id == member.id).count() > 0
+        if is_hod:
+            buckets.add("hod")
+        has_approved_dept = db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member.id,
+            MemberDepartment.status == "approved",
+        ).count() > 0
+        if has_approved_dept:
+            buckets.add("serving")
+    except Exception:
+        pass
+
+    filtered = _cal.filter_events_by_buckets(raw_events, buckets)
 
     return {
         "configured": _cal.is_configured(db),
         "range": "month" if (range or "week").lower() == "month" else "week",
         "time_max": time_max_iso,
-        "events": filtered,  # caller's range bounds already cap the count
-        "filtered_by_ministry": bool(ministry_names),
+        "events": filtered,
+        "filtered": bool(buckets),
     }
 
 
