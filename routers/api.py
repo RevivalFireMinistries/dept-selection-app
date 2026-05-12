@@ -10278,6 +10278,7 @@ def _profile_missing_for(member: Member, db: Session) -> dict:
         "date_of_birth": central.get("date_of_birth") or "",
         "marital_status": central.get("marital_status") or "",
         "home_church_id": str(central.get("home_church_id") or "") or "",
+        "family_id": str(central.get("family_id") or "") or "",
     }
 
     # Display order — most useful first
@@ -10294,6 +10295,10 @@ def _profile_missing_for(member: Member, db: Session) -> dict:
         ordered.append("date_of_birth")
     if not out["current"]["marital_status"]:
         ordered.append("marital_status")
+    # Married but not yet linked to a family — invite them to set up
+    # a family record by picking their spouse from the directory.
+    if (out["current"]["marital_status"] or "").upper() == "MARRIED" and not out["current"]["family_id"]:
+        ordered.append("spouse")
 
     out["missing"] = ordered
     return out
@@ -10344,7 +10349,51 @@ _VALID_ENRICH_FIELDS = {
     "date_of_birth": None,
     "marital_status": None,
     "home_church_id": None,
+    # Pseudo-field: 'spouse' creates a family centrally instead of PATCHing
+    # the member directly. Handled in a separate branch below.
+    "spouse": None,
 }
+
+
+@router.get("/portal/profile/spouse-search")
+def portal_spouse_search(
+    q: str = Query(..., min_length=2),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Look up potential spouses by name or phone in the central database.
+    Excludes the caller themselves; returns lightweight rows for the picker."""
+    member = _require_logged_in_member(request, db)
+    if not member.external_member_id:
+        raise HTTPException(status_code=400, detail="Your record isn't linked to the central database yet.")
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        raise HTTPException(status_code=503, detail="Search isn't available right now.")
+
+    assembly_id = member.external_assembly_id or _resolve_default_assembly_id(db)
+    r = _rfm.search_members(
+        search=q.strip(),
+        assembly_id=str(assembly_id) if assembly_id else None,
+        page=1, size=15, db=db,
+    )
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    items = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+    my_id = str(member.external_member_id)
+    out = []
+    for c in items:
+        cid = str(c.get("id") or "")
+        if not cid or cid == my_id:
+            continue
+        out.append({
+            "external_member_id": cid,
+            "full_name": " ".join(filter(None, [c.get("first_name"), c.get("last_name")])).strip() or "—",
+            "phone": (c.get("phone") or "").strip().replace(" ", ""),
+            "gender": c.get("gender") or "",
+            "suburb": (c.get("suburb") or "").strip(),
+            "marital_status": c.get("marital_status") or "",
+            "has_family": bool(c.get("family_id")),
+        })
+    return {"matches": out}
 
 
 @router.post("/portal/profile/enrich")
@@ -10363,6 +10412,79 @@ def portal_profile_enrich(payload: dict = Body(...), request: Request = None, db
 
     if field not in _VALID_ENRICH_FIELDS:
         raise HTTPException(status_code=400, detail=f"Unknown field: {field}")
+
+    # ---- 'spouse' is a special case: create a family centrally ----
+    if field == "spouse":
+        spouse_id = (raw_value or "").strip()
+        if not spouse_id:
+            raise HTTPException(status_code=400, detail="Pick your spouse from the list.")
+
+        # Verify spouse exists and isn't already in a family
+        sr = _rfm.get_member(spouse_id, db=db)
+        if not sr.ok or not isinstance(sr.data, dict):
+            raise HTTPException(status_code=400, detail="Couldn't find that member.")
+        spouse = sr.data
+        if str(spouse.get("id") or "") == str(member.external_member_id):
+            raise HTTPException(status_code=400, detail="You can't be your own spouse 🙂")
+        if spouse.get("family_id"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{spouse.get('first_name', 'That member')} is already part of a family. An admin can merge if needed.",
+            )
+
+        # Resolve assembly + caller's last name for the family name
+        assembly_id = member.external_assembly_id or _resolve_default_assembly_id(db)
+        if not assembly_id:
+            raise HTTPException(status_code=400, detail="Could not resolve assembly for new family.")
+
+        caller_last = ""
+        try:
+            caller_r = _rfm.get_member(member.external_member_id, db=db)
+            if caller_r.ok and isinstance(caller_r.data, dict):
+                caller_last = (caller_r.data.get("last_name") or "").strip()
+        except Exception:
+            pass
+        family_name = f"{caller_last} family" if caller_last else "Family"
+
+        # 1) Create family with caller as head
+        cf = _rfm.create_family({
+            "assembly_id": str(assembly_id),
+            "name": family_name[:120],
+            "head_member_id": str(member.external_member_id),
+        }, db=db)
+        if not cf.ok or not isinstance(cf.data, dict):
+            raise HTTPException(status_code=502, detail=f"Central API error: {cf.error or 'create family failed'}")
+        family_id = cf.data.get("id") or (cf.data.get("data") or {}).get("id")
+        if not family_id:
+            raise HTTPException(status_code=502, detail="Central API didn't return a family id.")
+
+        # 2) Add spouse to the family
+        am = _rfm.add_family_member(str(family_id), {
+            "member_id": str(spouse_id),
+            "family_role": "SPOUSE",
+        }, db=db)
+        if not am.ok:
+            raise HTTPException(status_code=502, detail=f"Central API error adding spouse: {am.error}")
+
+        # 3) Make sure spouse's marital_status is MARRIED (no-op if already set)
+        if (spouse.get("marital_status") or "").upper() != "MARRIED":
+            try:
+                _rfm.update_member(str(spouse_id), {"marital_status": "MARRIED"}, db=db)
+            except Exception:
+                pass
+
+        _log_member_action(
+            request, db, member, "create_family", "member", member.id,
+            f"Created family with spouse {spouse_id}",
+        )
+        db.commit()
+
+        return {
+            "success": True,
+            "field": "spouse",
+            "family_id": str(family_id),
+            "missing": _profile_missing_for(member, db).get("missing", []),
+        }
 
     # Validate per-field shape
     central_value: Any = None

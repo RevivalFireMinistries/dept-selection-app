@@ -281,6 +281,18 @@ def count_members_with_home_church(*, assembly_id: Optional[str] = None, db=None
     )
 
 
+def create_family(payload: dict, *, db=None) -> ApiResult:
+    """Create a family centrally. The endpoint links the head member back
+    automatically (sets head.family_id + family_role HUSBAND/WIFE by
+    gender)."""
+    return _request("POST", "/api/v1/families", db=db, body=payload)
+
+
+def add_family_member(family_id: str, payload: dict, *, db=None) -> ApiResult:
+    """Add a member to an existing family — body: {member_id, family_role?}."""
+    return _request("POST", f"/api/v1/families/{family_id}/members", db=db, body=payload)
+
+
 def get_assembly(assembly_id: str, *, db=None) -> ApiResult:
     """Fetch a single assembly's full record (incl. metadata)."""
     return _request("GET", f"/api/v1/assemblies/{assembly_id}", db=db)

@@ -107,6 +107,34 @@
                                         <option :value="hc.external_id" x-text="hc.name + (hc.suburb ? ` · ${hc.suburb}` : '')"></option>
                                     </template>
                                 </select>
+
+                                <!-- Spouse picker — search + select -->
+                                <div x-show="enrichField === 'spouse'" class="space-y-2">
+                                    <input type="text" x-model="spouseQuery"
+                                        @input.debounce.250ms="searchSpouse()"
+                                        placeholder="Search by name or phone"
+                                        class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                                    <div x-show="spouseSearching" class="text-[11px] italic" style="color: var(--color-mute);">Searching…</div>
+                                    <div x-show="spouseQuery.length >= 2 && !spouseSearching && !spouseResults.length" class="text-[11px] italic" style="color: var(--color-mute);">No matches. Maybe they aren't registered yet?</div>
+                                    <div class="space-y-1 max-h-48 overflow-y-auto">
+                                        <template x-for="s in spouseResults" :key="s.external_member_id">
+                                            <button type="button" @click="enrichValue = s.external_member_id; spouseSelectedName = s.full_name"
+                                                :class="enrichValue === s.external_member_id ? 'border-2' : 'border'"
+                                                :style="enrichValue === s.external_member_id ? 'border-color: var(--color-ember); background-color: rgba(245, 165, 36, 0.06);' : 'border-color: var(--color-border);'"
+                                                class="w-full p-2 rounded-lg text-left">
+                                                <div class="text-sm font-medium" style="color: var(--color-ink);" x-text="s.full_name"></div>
+                                                <div class="text-[11px]" style="color: var(--color-mute);">
+                                                    <span x-text="s.phone || ''"></span>
+                                                    <span x-show="s.suburb"> · <span x-text="s.suburb"></span></span>
+                                                    <span x-show="s.has_family" class="text-amber-700"> · already in a family</span>
+                                                </div>
+                                            </button>
+                                        </template>
+                                    </div>
+                                    <div x-show="spouseSelectedName" class="text-[11px] p-2 rounded-lg" style="background-color: rgba(245, 165, 36, 0.08); color: var(--color-ink);">
+                                        We'll create a family with you and <strong x-text="spouseSelectedName"></strong>. You'll appear as the head, your spouse as the partner. Admin can adjust later.
+                                    </div>
+                                </div>
                             </div>
 
                             <div x-show="enrichError" class="mt-2 text-xs text-red-600" x-text="enrichError"></div>
@@ -1095,6 +1123,11 @@ function memberPortal() {
         enrichError: '',
         homeChurchOptions: [],
         _enrichLoaded: false,
+        // Spouse picker state
+        spouseQuery: '',
+        spouseResults: [],
+        spouseSearching: false,
+        spouseSelectedName: '',
 
         // Today's devotional (preferred) + Verse of the day (fallback)
         devotional: null,
@@ -1836,6 +1869,9 @@ function memberPortal() {
                     this.enrichField = f;
                     this.enrichValue = '';
                     this.enrichError = '';
+                    this.spouseQuery = '';
+                    this.spouseResults = [];
+                    this.spouseSelectedName = '';
                     if (f === 'home_church' && !this.homeChurchOptions.length) {
                         this._loadHomeChurchOptions();
                     }
@@ -1843,6 +1879,22 @@ function memberPortal() {
                 }
             }
             this.enrichField = null;
+        },
+
+        async searchSpouse() {
+            const q = (this.spouseQuery || '').trim();
+            if (q.length < 2) { this.spouseResults = []; return; }
+            this.spouseSearching = true;
+            try {
+                const r = await fetch(`/api/portal/profile/spouse-search?q=${encodeURIComponent(q)}`);
+                if (r.ok) {
+                    const data = await r.json();
+                    this.spouseResults = data?.matches || [];
+                } else {
+                    this.spouseResults = [];
+                }
+            } catch (e) { this.spouseResults = []; }
+            this.spouseSearching = false;
         },
 
         async _loadHomeChurchOptions() {
@@ -1869,6 +1921,7 @@ function memberPortal() {
                 home_church:   "Which home church do you call home?",
                 date_of_birth: "When's your birthday?",
                 marital_status:"What's your marital status?",
+                spouse:        "Who's your spouse?",
             })[this.enrichField] || '';
         },
 
@@ -1880,6 +1933,7 @@ function memberPortal() {
                 home_church:   "We'll connect you with your home church group.",
                 date_of_birth: "We'd love to wish you a happy birthday.",
                 marital_status:"Helps us include you in the right ministry events.",
+                spouse:        "Pick them from our directory — we'll set up your family record.",
             })[this.enrichField] || '';
         },
 
@@ -1894,6 +1948,7 @@ function memberPortal() {
                 home_church:    'home_church_id',
                 date_of_birth:  'date_of_birth',
                 marital_status: 'marital_status',
+                spouse:         'spouse',
             })[this.enrichField];
             if (!apiField) return;
             this.enrichBusy = true;
