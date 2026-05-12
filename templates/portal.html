@@ -76,8 +76,21 @@
                                 <textarea x-show="enrichField === 'address'" x-model="enrichValue" rows="2"
                                     placeholder="e.g. 4 Aristata Street, Somerset West"
                                     class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></textarea>
-                                <input x-show="enrichField === 'date_of_birth'" type="date"
-                                    x-model="enrichValue" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                                <!-- Birthday — day + month only (we don't ask the year) -->
+                                <div x-show="enrichField === 'date_of_birth'" class="flex gap-2">
+                                    <select x-model="bdayDay" @change="updateBdayValue()"
+                                        class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        <option value="">Day</option>
+                                        <template x-for="d in 31" :key="d"><option :value="d" x-text="d"></option></template>
+                                    </select>
+                                    <select x-model="bdayMonth" @change="updateBdayValue()"
+                                        class="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        <option value="">Month</option>
+                                        <template x-for="(name, i) in ['January','February','March','April','May','June','July','August','September','October','November','December']" :key="name">
+                                            <option :value="i + 1" x-text="name"></option>
+                                        </template>
+                                    </select>
+                                </div>
 
                                 <!-- Gender — pills -->
                                 <div x-show="enrichField === 'gender'" class="flex gap-2">
@@ -1128,6 +1141,9 @@ function memberPortal() {
         spouseResults: [],
         spouseSearching: false,
         spouseSelectedName: '',
+        // Birthday picker (we only ask day + month; year stored as 2000)
+        bdayDay: '',
+        bdayMonth: '',
 
         // Today's devotional (preferred) + Verse of the day (fallback)
         devotional: null,
@@ -1872,6 +1888,8 @@ function memberPortal() {
                     this.spouseQuery = '';
                     this.spouseResults = [];
                     this.spouseSelectedName = '';
+                    this.bdayDay = '';
+                    this.bdayMonth = '';
                     if (f === 'home_church' && !this.homeChurchOptions.length) {
                         this._loadHomeChurchOptions();
                     }
@@ -1879,6 +1897,16 @@ function memberPortal() {
                 }
             }
             this.enrichField = null;
+        },
+
+        updateBdayValue() {
+            // Year 2000 is a leap year, so 29 Feb is accepted. We only ask
+            // the member for day + month; the year is a stable sentinel.
+            if (!this.bdayDay || !this.bdayMonth) { this.enrichValue = ''; return; }
+            const m = String(this.bdayMonth).padStart(2, '0');
+            const d = String(this.bdayDay).padStart(2, '0');
+            // Cap day-of-month so e.g. 31 Feb -> invalid (lets server reject)
+            this.enrichValue = `2000-${m}-${d}`;
         },
 
         async searchSpouse() {
@@ -1931,7 +1959,7 @@ function memberPortal() {
                 gender:        "Helps us group you for ministries like Men's, Ladies, Couples.",
                 address:       "Used only for pastoral follow-up — never shared publicly.",
                 home_church:   "We'll connect you with your home church group.",
-                date_of_birth: "We'd love to wish you a happy birthday.",
+                date_of_birth: "Just the day and month — we'd love to wish you a happy birthday.",
                 marital_status:"Helps us include you in the right ministry events.",
                 spouse:        "Pick them from our directory — we'll set up your family record.",
             })[this.enrichField] || '';
