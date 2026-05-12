@@ -687,6 +687,15 @@ async def payment_failure_page(request: Request):
     return templates.TemplateResponse("payment_failure.html", {"request": request})
 
 
+@router.get("/portal/profile")
+async def member_profile_page(request: Request, db: Session = Depends(get_db)):
+    """Member-facing profile page — shows everything we know about them."""
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/portal/profile", status_code=302)
+    return templates.TemplateResponse("portal_profile.html", {"request": request})
+
+
 @router.get("/portal/classic")
 async def member_portal_classic(request: Request, db: Session = Depends(get_db)):
     """Legacy portal — kept for flows that haven't moved to the new design

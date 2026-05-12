@@ -10304,6 +10304,186 @@ def _profile_missing_for(member: Member, db: Session) -> dict:
     return out
 
 
+@router.get("/portal/profile/full")
+def portal_profile_full(request: Request, db: Session = Depends(get_db)):
+    """Comprehensive profile snapshot for the /portal/profile page —
+    pulls everything we know about the caller from local + central."""
+    member = _require_logged_in_member(request, db)
+
+    # ---- Local: departments, HoD status, leadership flags ----
+    member = db.query(Member).options(
+        joinedload(Member.departments).joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).filter(Member.id == member.id).first()
+
+    approved_departments = []
+    pending_departments = []
+    for md in member.departments:
+        if not md.department:
+            continue
+        record = {
+            "department_name": md.department.name,
+            "category_name": md.department.category.name if md.department.category else None,
+            "status": md.status or "pending",
+        }
+        if (md.status or "") == "approved":
+            approved_departments.append(record)
+        elif (md.status or "") == "pending":
+            pending_departments.append(record)
+
+    leadership_roles: List[str] = []
+    if member.leadership_roles:
+        try:
+            leadership_roles = (
+                json.loads(member.leadership_roles)
+                if isinstance(member.leadership_roles, str)
+                else list(member.leadership_roles)
+            )
+        except (ValueError, TypeError):
+            leadership_roles = []
+
+    hod_departments = [
+        {"name": d.name}
+        for d in db.query(Department).filter(Department.hod_member_id == member.id).all()
+    ]
+    led_home_churches = [
+        {"id": hc.id, "name": hc.name}
+        for hc in db.query(HomeChurch).filter(HomeChurch.leader_member_id == member.id).all()
+    ]
+
+    # ---- Central: personal + faith info ----
+    central_info: dict = {}
+    family_info = None
+    assembly_name = None
+    home_church_info = None
+
+    if member.external_member_id and _rfm.is_enabled(db) and _rfm.is_configured(db):
+        try:
+            r = _rfm.get_member(member.external_member_id, db=db)
+            if r.ok and isinstance(r.data, dict):
+                c = r.data
+                central_info = {
+                    "first_name": (c.get("first_name") or "").strip(),
+                    "last_name": (c.get("last_name") or "").strip(),
+                    "preferred_name": (c.get("preferred_name") or "").strip(),
+                    "phone": (c.get("phone") or "").strip(),
+                    "alternate_phone": (c.get("alternate_phone") or "").strip(),
+                    "email": (c.get("email") or "").strip(),
+                    "gender": c.get("gender") or "",
+                    "date_of_birth": c.get("date_of_birth") or "",
+                    "marital_status": c.get("marital_status") or "",
+                    "physical_address": (c.get("physical_address") or "").strip(),
+                    "suburb": (c.get("suburb") or "").strip(),
+                    "city": (c.get("city") or "").strip(),
+                    "postal_code": (c.get("postal_code") or "").strip(),
+                    "occupation": (c.get("occupation") or "").strip(),
+                    "membership_status": c.get("membership_status") or "",
+                    "membership_date": c.get("membership_date") or "",
+                    "emergency_contact_name": (c.get("emergency_contact_name") or "").strip(),
+                    "emergency_contact_phone": (c.get("emergency_contact_phone") or "").strip(),
+                    "ministries": [
+                        {"id": m.get("id"), "name": m.get("name") or ""}
+                        for m in (c.get("ministries") or [])
+                        if (m.get("name") or "").strip()
+                    ],
+                    "is_profile_complete": bool(c.get("is_profile_complete")),
+                    "missing_fields": c.get("missing_fields") or [],
+                }
+
+                # Resolve home church via local mirror so we get meeting day/time
+                hc_id = c.get("home_church_id")
+                if hc_id:
+                    local_hc = db.query(HomeChurch).filter(
+                        HomeChurch.external_home_church_id == str(hc_id)
+                    ).first()
+                    if local_hc:
+                        home_church_info = {
+                            "id": local_hc.id,
+                            "name": local_hc.name,
+                            "suburb": local_hc.suburb or "",
+                            "address": local_hc.address or "",
+                            "meeting_day": local_hc.meeting_day,
+                            "meeting_time": local_hc.meeting_time or "",
+                            "leader_name": local_hc.leader.full_name if local_hc.leader else None,
+                        }
+
+                # Family info — fetch the full family so we can show partner
+                if c.get("family_id"):
+                    try:
+                        fr = _rfm.get_family(str(c["family_id"]), db=db)
+                        if fr.ok and isinstance(fr.data, dict):
+                            fam = fr.data
+                            members_payload = fam.get("members") or []
+                            others = [
+                                {
+                                    "id": m.get("id"),
+                                    "full_name": " ".join(filter(None, [m.get("first_name"), m.get("last_name")])).strip() or "—",
+                                    "family_role": (m.get("family_role") or "").strip(),
+                                }
+                                for m in members_payload
+                                if str(m.get("id") or "") != str(member.external_member_id)
+                            ]
+                            family_info = {
+                                "id": fam.get("id"),
+                                "name": fam.get("name") or "",
+                                "my_role": c.get("family_role") or "",
+                                "others": others,
+                            }
+                    except Exception:
+                        pass
+
+                # Assembly name lookup (used for header chip)
+                try:
+                    ar = _rfm.list_assemblies(db=db)
+                    if ar.ok:
+                        items = ar.data if isinstance(ar.data, list) else (ar.data or {}).get("data") or []
+                        target = str(c.get("assembly_id") or member.external_assembly_id or "")
+                        if target:
+                            for a in items:
+                                if str(a.get("id") or "") == target:
+                                    assembly_name = a.get("name")
+                                    break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return {
+        "member_id": member.id,
+        "full_name": member.full_name,
+        "phone": central_info.get("phone") or member.phone,
+        "email": central_info.get("email") or (member.email or ""),
+        "address": central_info.get("physical_address") or (member.address or ""),
+        "central_synced": bool(member.external_member_id and central_info),
+        "assembly_name": assembly_name or "",
+        "personal": {
+            "preferred_name": central_info.get("preferred_name", ""),
+            "alternate_phone": central_info.get("alternate_phone", ""),
+            "gender": central_info.get("gender", ""),
+            "date_of_birth": central_info.get("date_of_birth", ""),
+            "marital_status": central_info.get("marital_status", ""),
+            "suburb": central_info.get("suburb", ""),
+            "city": central_info.get("city", ""),
+            "postal_code": central_info.get("postal_code", ""),
+            "occupation": central_info.get("occupation", ""),
+            "membership_status": central_info.get("membership_status", ""),
+            "membership_date": central_info.get("membership_date", ""),
+            "emergency_contact_name": central_info.get("emergency_contact_name", ""),
+            "emergency_contact_phone": central_info.get("emergency_contact_phone", ""),
+        },
+        "ministries": central_info.get("ministries", []),
+        "home_church": home_church_info,
+        "family": family_info,
+        "departments": {
+            "approved": approved_departments,
+            "pending": pending_departments,
+            "hod": hod_departments,
+        },
+        "led_home_churches": led_home_churches,
+        "leadership_roles": leadership_roles,
+        "missing_fields": central_info.get("missing_fields", []),
+    }
+
+
 @router.get("/portal/profile/missing")
 def portal_profile_missing(request: Request, db: Session = Depends(get_db)):
     """Returns the prioritised list of missing profile fields for the

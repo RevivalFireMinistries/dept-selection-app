@@ -281,6 +281,11 @@ def count_members_with_home_church(*, assembly_id: Optional[str] = None, db=None
     )
 
 
+def get_family(family_id: str, *, db=None) -> ApiResult:
+    """Fetch a single family with members for the profile page."""
+    return _request("GET", f"/api/v1/families/{family_id}", db=db)
+
+
 def create_family(payload: dict, *, db=None) -> ApiResult:
     """Create a family centrally. The endpoint links the head member back
     automatically (sets head.family_id + family_role HUSBAND/WIFE by
