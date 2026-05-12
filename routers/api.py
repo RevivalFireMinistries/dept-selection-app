@@ -10243,6 +10243,197 @@ def portal_verse_of_the_day():
 
 
 @router.get("/portal/announcements")
+def _profile_missing_for(member: Member, db: Session) -> dict:
+    """Compute which profile fields are missing for a member. Combines:
+      - missing_fields from the central rfm-database (email, gender, address, …)
+      - home_church_id check (we want every member affiliated with one)
+
+    Returns a prioritised list — most useful first — for the progressive
+    profile prompt on the portal Home tab.
+    """
+    out = {
+        "central_synced": False,
+        "missing": [],  # list of field codes in display order
+        "current": {},  # current value per field (for pre-fill / 'looks right?' UX)
+    }
+    if not member.external_member_id:
+        # Without a central link we can't enrich; the portal UI hides the card
+        return out
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        return out
+    try:
+        r = _rfm.get_member(member.external_member_id, db=db)
+        if not r.ok or not isinstance(r.data, dict):
+            return out
+    except Exception:
+        return out
+
+    central = r.data
+    out["central_synced"] = True
+    out["current"] = {
+        "email": (central.get("email") or "").strip(),
+        "gender": central.get("gender") or "",
+        "physical_address": (central.get("physical_address") or "").strip(),
+        "suburb": (central.get("suburb") or "").strip(),
+        "city": (central.get("city") or "").strip(),
+        "date_of_birth": central.get("date_of_birth") or "",
+        "marital_status": central.get("marital_status") or "",
+        "home_church_id": str(central.get("home_church_id") or "") or "",
+    }
+
+    # Display order — most useful first
+    ordered: List[str] = []
+    if not out["current"]["email"]:
+        ordered.append("email")
+    if not out["current"]["gender"]:
+        ordered.append("gender")
+    if not out["current"]["home_church_id"]:
+        ordered.append("home_church")
+    if not out["current"]["physical_address"]:
+        ordered.append("address")
+    if not out["current"]["date_of_birth"]:
+        ordered.append("date_of_birth")
+    if not out["current"]["marital_status"]:
+        ordered.append("marital_status")
+
+    out["missing"] = ordered
+    return out
+
+
+@router.get("/portal/profile/missing")
+def portal_profile_missing(request: Request, db: Session = Depends(get_db)):
+    """Returns the prioritised list of missing profile fields for the
+    logged-in member. Used by the 'help us serve you better' prompt
+    on the portal Home tab."""
+    member = _require_logged_in_member(request, db)
+    return _profile_missing_for(member, db)
+
+
+@router.get("/portal/home-churches")
+def portal_home_churches(request: Request, db: Session = Depends(get_db)):
+    """Public-to-logged-in-members list of home churches the member can
+    pick from for the 'add my home church' prompt. We only show active
+    ones that are linked to a central record (so the enrich step has a
+    UUID to send)."""
+    _require_logged_in_member(request, db)
+    rows = (
+        db.query(HomeChurch)
+        .filter(HomeChurch.is_active == True)
+        .order_by(HomeChurch.name)
+        .all()
+    )
+    return [
+        {
+            "id": hc.id,
+            "external_id": hc.external_home_church_id,
+            "name": hc.name,
+            "suburb": hc.suburb or "",
+            "meeting_day": hc.meeting_day,
+            "meeting_time": hc.meeting_time or "",
+        }
+        for hc in rows
+        if hc.external_home_church_id  # need a central UUID for the PATCH
+    ]
+
+
+_VALID_ENRICH_FIELDS = {
+    # central API field name -> local mirror field name (for local sync too)
+    "email": "email",
+    "physical_address": "address",
+    "suburb": None,
+    "gender": None,
+    "date_of_birth": None,
+    "marital_status": None,
+    "home_church_id": None,
+}
+
+
+@router.post("/portal/profile/enrich")
+def portal_profile_enrich(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Member submits a single missing field. Validates, then PATCHes the
+    central rfm-database. Local mirror is updated for the fields it tracks
+    (email / address) so the portal sees the change immediately."""
+    member = _require_logged_in_member(request, db)
+    if not member.external_member_id:
+        raise HTTPException(status_code=400, detail="Your record isn't linked to the central database yet.")
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        raise HTTPException(status_code=503, detail="Central database integration isn't available right now.")
+
+    field = (payload.get("field") or "").strip()
+    raw_value = payload.get("value")
+
+    if field not in _VALID_ENRICH_FIELDS:
+        raise HTTPException(status_code=400, detail=f"Unknown field: {field}")
+
+    # Validate per-field shape
+    central_value: Any = None
+    if field == "email":
+        v = (raw_value or "").strip()
+        if not v or "@" not in v or "." not in v.split("@")[-1]:
+            raise HTTPException(status_code=400, detail="That doesn't look like a valid email address.")
+        central_value = v
+    elif field == "gender":
+        v = (raw_value or "").strip().upper()
+        if v not in {"MALE", "FEMALE"}:
+            raise HTTPException(status_code=400, detail="Pick Male or Female.")
+        central_value = v
+    elif field == "physical_address":
+        v = (raw_value or "").strip()
+        if len(v) < 4:
+            raise HTTPException(status_code=400, detail="Please enter your address.")
+        central_value = v[:300]
+    elif field == "suburb":
+        v = (raw_value or "").strip()
+        if not v:
+            raise HTTPException(status_code=400, detail="Please enter your suburb.")
+        central_value = v[:100]
+    elif field == "date_of_birth":
+        v = (raw_value or "").strip()
+        try:
+            date.fromisoformat(v[:10])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Date should look like YYYY-MM-DD.")
+        central_value = v[:10]
+    elif field == "marital_status":
+        v = (raw_value or "").strip().upper()
+        if v not in {"SINGLE", "MARRIED", "WIDOWED", "DIVORCED"}:
+            raise HTTPException(status_code=400, detail="Pick one of: Single, Married, Widowed, Divorced.")
+        central_value = v
+    elif field == "home_church_id":
+        v = (raw_value or "").strip()
+        if not v:
+            raise HTTPException(status_code=400, detail="Pick a home church.")
+        # Verify it's a known active home church on this portal (we sent the list)
+        hc = db.query(HomeChurch).filter(HomeChurch.external_home_church_id == v).first()
+        if not hc:
+            raise HTTPException(status_code=400, detail="That home church isn't on our list anymore.")
+        central_value = v
+
+    # PATCH central
+    r = _rfm.update_member(member.external_member_id, {field: central_value}, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+
+    # Mirror locally for the fields we keep
+    local_field = _VALID_ENRICH_FIELDS.get(field)
+    if local_field == "email":
+        member.email = central_value
+        member.external_synced_at = datetime.utcnow()
+        db.commit()
+    elif local_field == "address":
+        member.address = central_value
+        member.external_synced_at = datetime.utcnow()
+        db.commit()
+
+    _log_member_action(
+        request, db, member, "profile_enrich", "member", member.id,
+        f"Updated {field}",
+    )
+    db.commit()
+
+    return {"success": True, "field": field, "missing": _profile_missing_for(member, db).get("missing", [])}
+
+
 def portal_announcements(request: Request, db: Session = Depends(get_db)):
     """Active, in-window announcements for the logged-in member, pinned first."""
     _require_logged_in_member(request, db)
