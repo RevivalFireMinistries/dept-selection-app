@@ -10242,7 +10242,6 @@ def portal_verse_of_the_day():
     }
 
 
-@router.get("/portal/announcements")
 def _profile_missing_for(member: Member, db: Session) -> dict:
     """Compute which profile fields are missing for a member. Combines:
       - missing_fields from the central rfm-database (email, gender, address, …)
@@ -10434,6 +10433,7 @@ def portal_profile_enrich(payload: dict = Body(...), request: Request = None, db
     return {"success": True, "field": field, "missing": _profile_missing_for(member, db).get("missing", [])}
 
 
+@router.get("/portal/announcements")
 def portal_announcements(request: Request, db: Session = Depends(get_db)):
     """Active, in-window announcements for the logged-in member, pinned first."""
     _require_logged_in_member(request, db)
