@@ -9751,10 +9751,25 @@ def _require_member_with_central_link(request: Request, db: Session) -> Member:
     return member
 
 
-def _serialize_contribution(c: dict) -> dict:
-    """Trim a central contribution record for the portal."""
+def _serialize_contribution(c: dict, *, viewer_external_id: str | None = None) -> dict:
+    """Trim a central contribution record for the portal.
+
+    `viewer_external_id` is the logged-in member's central UUID. When the
+    spouse's view folds in their partner's contributions (include_spouse
+    on the central API), every row carries the *real* contributor's
+    member_id — comparing that to the viewer's id tells the UI whether
+    to render a "by ${spouse_name}" badge. Without that information the
+    husband's R500 and the wife's R200 look indistinguishable on the
+    ledger, which defeats the point of the family fold-in.
+    """
     if not isinstance(c, dict):
         return {}
+    contributor_id = c.get("member_id")
+    contributor_name = c.get("member_name") or None
+    paid_by_self = bool(
+        viewer_external_id and contributor_id
+        and str(contributor_id) == str(viewer_external_id)
+    )
     return {
         "id": c.get("id"),
         "category": c.get("category") or "",
@@ -9767,6 +9782,11 @@ def _serialize_contribution(c: dict) -> dict:
         "notes": c.get("notes") or None,
         "receipt_sent": bool(c.get("receipt_sent")),
         "receipt_sent_at": c.get("receipt_sent_at"),
+        # Family-aware attribution. paid_by_self is the cheap UI flag;
+        # contributor_name is shown as a "by ${name}" badge when false.
+        "contributor_id": contributor_id,
+        "contributor_name": contributor_name,
+        "paid_by_self": paid_by_self,
     }
 
 
@@ -9842,8 +9862,9 @@ def portal_giving_recent(
         items = r.data
     elif isinstance(r.data, dict):
         items = r.data.get("data") or []
+    viewer_id = getattr(member, "external_member_id", None)
     return {
-        "items": [_serialize_contribution(c) for c in items],
+        "items": [_serialize_contribution(c, viewer_external_id=viewer_id) for c in items],
         "count": len(items),
     }
 

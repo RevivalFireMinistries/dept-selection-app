@@ -495,6 +495,17 @@
                                         <div class="flex items-center gap-2 flex-wrap">
                                             <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
                                             <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
+                                            <!--
+                                                Spouse-attribution pill: only renders when this contribution
+                                                was made by the family partner (paid_by_self === false). Keeps
+                                                the husband's R500 distinct from the wife's R200 on the merged
+                                                ledger so neither spouse mistakes who actually gave what.
+                                            -->
+                                            <span
+                                                x-show="c.paid_by_self === false && c.contributor_name"
+                                                class="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-medium rounded-full"
+                                                x-text="`by ${c.contributor_name}`"
+                                            ></span>
                                         </div>
                                         <div class="mt-1 text-sm text-gray-600" x-text="formatLongDate(c.contribution_date)"></div>
                                         <div x-show="c.payment_method || c.reference" class="text-[11px] text-gray-400 mt-0.5">
