@@ -9945,25 +9945,25 @@ def portal_giving_banking(request: Request, db: Session = Depends(get_db)):
     central: dict = {}
     central_source = None
 
-    # Banking is church-wide. ALWAYS use the portal's default assembly id —
-    # never the caller's own external_assembly_id — so every member sees the
-    # same bank details regardless of whether their record is synced, whether
-    # an old central record points at a different assembly, or whether the
-    # API key is admin-grade vs scoped. Try caller's id only as a last-ditch
-    # fallback in case _resolve_default_assembly_id returns nothing.
+    # Source of truth: the LOGGED-IN MEMBER'S assembly. Each member belongs
+    # to a specific branch, and the banking they see must be that branch's
+    # banking — not some portal-wide default. The default resolver is only
+    # used as a last-ditch fallback for members whose record hasn't been
+    # synced yet (no external_assembly_id) so they at least see *some*
+    # bank details rather than an unhelpful blank state.
     #   assembly.metadata.banking_details — the canonical location
     # Top-level metadata keys are tolerated for backward compatibility.
     candidate_assembly_ids = []
     if _rfm.is_enabled(db) and _rfm.is_configured(db):
+        if member.external_assembly_id:
+            candidate_assembly_ids.append(str(member.external_assembly_id))
+        # Fallback only if the member has no central link yet
         try:
             primary = _resolve_default_assembly_id(db)
-            if primary:
+            if primary and str(primary) not in candidate_assembly_ids:
                 candidate_assembly_ids.append(str(primary))
         except Exception:
             pass
-        # Caller's own as a backup if it's different from the default
-        if member.external_assembly_id and str(member.external_assembly_id) not in candidate_assembly_ids:
-            candidate_assembly_ids.append(str(member.external_assembly_id))
 
     for assembly_id_for_banking in candidate_assembly_ids:
         try:
