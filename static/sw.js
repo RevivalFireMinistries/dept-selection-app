@@ -1,5 +1,9 @@
 /* RFM Stellenbosch Portal — Service Worker */
-const VERSION = 'rfm-portal-v2';
+// Bump the VERSION any time HTML / cached assets need to be force-refreshed
+// on every client. The activate handler below wipes any cache that doesn't
+// match the current VERSION, which is the only reliable way to evict stale
+// templates from existing installs (display_submit.html in particular).
+const VERSION = 'rfm-portal-v3';
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
