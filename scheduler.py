@@ -311,15 +311,19 @@ def cleanup_past_programs():
 
 
 def cleanup_fetched_display_submissions():
-    """Delete display submissions (and their uploaded files) that were
-    fetched by a display client (FirePresenter) more than 14 days ago.
+    """Delete display submissions (and their uploaded files) older than 14 days.
 
-    Replaces the old delete-on-fetch behavior in /api/display/fetch which
-    raced FirePresenter's download — files vanished before the client
-    could request them. 14 days is well past any reasonable retention
-    window for a one-off service announcement, while giving display
-    clients (and any operator who wants to revisit a recent submission)
-    plenty of time to grab the asset.
+    Previously this filtered by ``fetched == True``, but now that the
+    /api/display/fetch endpoint supports multiple FirePresenter instances
+    (each one tracks "already seen" client-side via localStorage) the
+    server no longer writes ``fetched = True`` — there's no single point
+    at which a submission is considered "consumed by everyone". So we
+    just sweep on age: 14 days is well past any reasonable retention
+    window for a one-off service announcement, while giving every
+    display client plenty of time to grab the asset.
+
+    The job name is kept as ``cleanup_fetched_display_submissions`` for
+    operational continuity (existing dashboards, scheduler entries).
     """
     import os
     from models import DisplaySubmission
@@ -329,7 +333,6 @@ def cleanup_fetched_display_submissions():
     try:
         cutoff = datetime.now() - td(days=14)
         old = db.query(DisplaySubmission).filter(
-            DisplaySubmission.fetched == True,  # noqa: E712
             DisplaySubmission.created_at < cutoff,
         ).all()
         for s in old:
@@ -341,9 +344,9 @@ def cleanup_fetched_display_submissions():
             db.delete(s)
         if old:
             db.commit()
-            print(f"[Cleanup] Removed {len(old)} fetched display submission(s) older than 14 days")
+            print(f"[Cleanup] Removed {len(old)} display submission(s) older than 14 days")
     except Exception as e:
-        print(f"[Cleanup] Failed to clean fetched display submissions: {e}")
+        print(f"[Cleanup] Failed to clean old display submissions: {e}")
     finally:
         db.close()
 

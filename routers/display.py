@@ -197,10 +197,19 @@ def fetch_for_presenter(
         except ValueError:
             pass
 
-    # Get approved items that haven't been fetched yet
+    # Return ALL approved submissions for the target date — no fetched
+    # filter, no fetched=True write. Multiple FirePresenter instances may
+    # each want their own copy of the same submission (e.g. a poster
+    # used at the main church AND a remote campus), so the server can't
+    # treat a single fetch as "consumed by all clients". Each instance
+    # tracks which submissions it has already seen client-side via
+    # localStorage and only pops the new-content notification for IDs
+    # it hasn't processed before.
+    #
+    # The `fetched` column is left in place for future use / audit but
+    # no longer affects this query.
     submissions = db.query(DisplaySubmission).filter(
         DisplaySubmission.status == "approved",
-        DisplaySubmission.fetched == False,
         DisplaySubmission.service_date == target_date,
     ).order_by(
         DisplaySubmission.display_slot,
@@ -211,28 +220,7 @@ def fetch_for_presenter(
     if not submissions:
         return {"items": [], "count": 0}
 
-    result = [submission_to_dict(s) for s in submissions]
-
-    # Mark as fetched — don't delete the file or the DB row here.
-    #
-    # The previous code deleted both atomically with the fetch response,
-    # which meant FirePresenter received a URL pointing at a file the
-    # server had already removed by the time the request finished. The
-    # in-popup thumbnail and the main-process local-cache fetch both hit
-    # 404s because of this.
-    #
-    # The `fetched == False` filter at the top of this handler is the
-    # idempotency mechanism — flipping the flag is enough to stop the
-    # same submission being returned again. Disk space is managed by a
-    # scheduled cleanup elsewhere (see scheduler.py
-    # cleanup_old_display_submissions) which removes fetched submissions
-    # older than 14 days, giving any display client plenty of time to
-    # download the asset.
-    for s in submissions:
-        s.fetched = True
-    db.commit()
-
-    return {"items": result, "count": len(result)}
+    return {"items": [submission_to_dict(s) for s in submissions], "count": len(submissions)}
 
 
 # ─── Approve / Reject ───────────────────────────────────────────────────
