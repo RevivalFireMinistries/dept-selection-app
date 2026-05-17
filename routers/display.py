@@ -24,8 +24,20 @@ from models import DisplaySubmission
 
 router = APIRouter()
 
-# Upload directory for submitted files
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "display_uploads")
+# Upload directory for submitted files.
+#
+# In production this MUST point at a persistent volume — Railway / Fly / etc.
+# containers are ephemeral, so anything written to the in-container filesystem
+# at runtime is wiped on the next redeploy. DB rows persist (Postgres), but
+# the files they reference don't, which is why FirePresenter was getting
+# 404s for every submission older than the last deploy.
+#
+# Set the env var `DISPLAY_UPLOAD_DIR` to the mount path of a Railway volume
+# (e.g. `/data/display_uploads`). The default is the in-repo `static/...`
+# location, which is fine for local development.
+UPLOAD_DIR = os.environ.get("DISPLAY_UPLOAD_DIR") or os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "static", "display_uploads"
+)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -201,15 +213,23 @@ def fetch_for_presenter(
 
     result = [submission_to_dict(s) for s in submissions]
 
-    # Delete after fetching (as requested — clean up)
+    # Mark as fetched — don't delete the file or the DB row here.
+    #
+    # The previous code deleted both atomically with the fetch response,
+    # which meant FirePresenter received a URL pointing at a file the
+    # server had already removed by the time the request finished. The
+    # in-popup thumbnail and the main-process local-cache fetch both hit
+    # 404s because of this.
+    #
+    # The `fetched == False` filter at the top of this handler is the
+    # idempotency mechanism — flipping the flag is enough to stop the
+    # same submission being returned again. Disk space is managed by a
+    # scheduled cleanup elsewhere (see scheduler.py
+    # cleanup_old_display_submissions) which removes fetched submissions
+    # older than 14 days, giving any display client plenty of time to
+    # download the asset.
     for s in submissions:
-        # Delete the uploaded file too
-        if s.file_path and os.path.exists(s.file_path):
-            try:
-                os.remove(s.file_path)
-            except:
-                pass
-        db.delete(s)
+        s.fetched = True
     db.commit()
 
     return {"items": result, "count": len(result)}

@@ -68,6 +68,19 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # Display submission cleanup — runs daily at 1:30 AM. Used to live
+    # inline with /api/display/fetch (delete-on-fetch), but that broke
+    # FirePresenter: by the time FP requested the file, the server had
+    # already removed it. Now we hold the file for at least 14 days
+    # after the submission has been fetched, then sweep.
+    scheduler.add_job(
+        cleanup_fetched_display_submissions,
+        CronTrigger(hour=1, minute=30),
+        id="cleanup_fetched_display_submissions",
+        name="Cleanup Fetched Display Submissions",
+        replace_existing=True
+    )
+
     # Add service schedule notifications - runs daily at 7:00 AM
     scheduler.add_job(
         check_service_schedules,
@@ -293,6 +306,44 @@ def cleanup_past_programs():
             print(f"[Cleanup] Deleted {deleted} past service program(s)")
     except Exception as e:
         print(f"[Cleanup] Failed to clean past programs: {e}")
+    finally:
+        db.close()
+
+
+def cleanup_fetched_display_submissions():
+    """Delete display submissions (and their uploaded files) that were
+    fetched by a display client (FirePresenter) more than 14 days ago.
+
+    Replaces the old delete-on-fetch behavior in /api/display/fetch which
+    raced FirePresenter's download — files vanished before the client
+    could request them. 14 days is well past any reasonable retention
+    window for a one-off service announcement, while giving display
+    clients (and any operator who wants to revisit a recent submission)
+    plenty of time to grab the asset.
+    """
+    import os
+    from models import DisplaySubmission
+    from datetime import timedelta as td
+
+    db: Session = SessionLocal()
+    try:
+        cutoff = datetime.now() - td(days=14)
+        old = db.query(DisplaySubmission).filter(
+            DisplaySubmission.fetched == True,  # noqa: E712
+            DisplaySubmission.created_at < cutoff,
+        ).all()
+        for s in old:
+            if s.file_path and os.path.exists(s.file_path):
+                try:
+                    os.remove(s.file_path)
+                except Exception as fe:
+                    print(f"[Cleanup] Couldn't remove {s.file_path}: {fe}")
+            db.delete(s)
+        if old:
+            db.commit()
+            print(f"[Cleanup] Removed {len(old)} fetched display submission(s) older than 14 days")
+    except Exception as e:
+        print(f"[Cleanup] Failed to clean fetched display submissions: {e}")
     finally:
         db.close()
 

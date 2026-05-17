@@ -752,7 +752,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
+# Mount static files.
+#
+# Specific mount for uploaded submission media goes FIRST so requests to
+# /static/display_uploads/<uuid>.<ext> hit the dedicated mount before
+# falling through to the generic /static one. This decouples uploads from
+# the in-repo `static/` directory so they can live on a Railway persistent
+# volume — set DISPLAY_UPLOAD_DIR=/data/display_uploads (or similar) and
+# mount the volume at that path. Without this, uploaded files only survive
+# until the next container restart, which is why FirePresenter was getting
+# 404s for previously-submitted posters.
+from routers.display import UPLOAD_DIR as _DISPLAY_UPLOAD_DIR
+app.mount("/static/display_uploads", StaticFiles(directory=_DISPLAY_UPLOAD_DIR), name="display_uploads")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
