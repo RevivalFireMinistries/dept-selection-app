@@ -18,8 +18,9 @@
     <summary class="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer">Your Info & Service Details</summary>
     <div class="px-4 pb-3 space-y-2">
       <input id="submitterName" class="w-full px-3 py-2 border rounded-md text-sm" placeholder="Your name *">
+      <label class="block text-xs text-gray-600 mt-2 mb-1" for="serviceDate">Service date <span class="text-red-500">*</span></label>
       <div class="flex gap-2">
-        <input id="serviceDate" type="date" class="flex-1 px-3 py-2 border rounded-md text-sm">
+        <input id="serviceDate" type="date" required class="flex-1 px-3 py-2 border rounded-md text-sm" aria-label="Service date" title="Which service is this for?">
         <select id="displaySlot" class="flex-1 px-3 py-2 border rounded-md text-sm">
           <option value="before_service">Before Service</option>
           <option value="during_worship">During Worship</option>
@@ -142,10 +143,17 @@
   const saved = JSON.parse(localStorage.getItem('displaySubmitter') || '{}');
   if (saved.name) document.getElementById('submitterName').value = saved.name;
 
-  // Default to next Sunday
-  const today = new Date();
-  const d = (7 - today.getDay()) % 7 || 7;
-  document.getElementById('serviceDate').value = new Date(today.getTime() + d * 86400000).toISOString().split('T')[0];
+  // Service date is intentionally LEFT BLANK — submitters now have to
+  // pick it explicitly. Auto-defaulting to "next Sunday" meant the
+  // <details> section stayed collapsed and submitters never noticed
+  // their poster was being scheduled against a date they didn't choose
+  // (e.g. submitting on Wednesday for "next Sunday" when they actually
+  // wanted the following Sunday). The submit handler refuses to send
+  // without a date now and pops the section open to point at the field.
+
+  // Minimum allowed date = today, so users can't accidentally pick a
+  // past date. Date pickers in most browsers will grey out earlier days.
+  document.getElementById('serviceDate').min = new Date().toISOString().split('T')[0];
 
   let submittedCount = 0;
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -316,6 +324,21 @@
     const type = document.getElementById('formType').value;
     const title = document.getElementById('itemTitle').value.trim();
     if (!title) { document.getElementById('itemTitle').focus(); return; }
+
+    // Force the submitter to choose a service date — no implicit default.
+    // The date field lives inside the collapsed "Your Info & Service
+    // Details" <details>, so if it's empty we pop that open before
+    // focusing the input; otherwise the user just sees the alert with
+    // no obvious place to type the date.
+    const serviceDateInput = document.getElementById('serviceDate');
+    if (!serviceDateInput.value) {
+      const infoSection = document.getElementById('infoSection');
+      if (infoSection) infoSection.open = true;
+      alert('Please pick which service this is for before submitting.');
+      serviceDateInput.focus();
+      try { serviceDateInput.showPicker && serviceDateInput.showPicker(); } catch (_) { /* not supported in some browsers */ }
+      return;
+    }
 
     // File size check
     const fileInput = document.getElementById('itemFile');
