@@ -18,11 +18,26 @@
 
     <div x-show="loading" class="text-center py-16 text-sm" style="color: var(--color-mute);">Loading…</div>
 
-    <!-- No devotional for this date -->
-    <div x-show="!loading && !devotional" class="max-w-2xl mx-auto px-4 py-12 text-center">
+    <!-- Fallback: no devotional published — quiet verse-of-the-day instead -->
+    <article x-show="!loading && !devotional && verse" class="max-w-2xl mx-auto px-5 py-10">
+        <div class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-ember);">Today's verse</div>
+        <p class="mt-1 text-xs" style="color: var(--color-mute);">No devotional was posted today — sit with this for a moment.</p>
+
+        <blockquote class="mt-8 font-scripture italic text-2xl sm:text-3xl leading-relaxed" style="color: var(--color-ink);" x-text="`“${verse?.text || ''}”`"></blockquote>
+        <div class="mt-4 text-sm font-semibold" style="color: var(--color-ember);" x-text="verse?.reference || ''"></div>
+
+        <div class="mt-8 flex flex-wrap items-center gap-3">
+            <button @click="copyVerse()" class="px-3 py-2 text-xs font-semibold rounded-lg" style="background-color: var(--color-ink); color: white;" x-text="verseCopied ? '✓ Copied' : 'Copy'"></button>
+            <button x-show="canShare" @click="shareVerse()" class="px-3 py-2 text-xs font-semibold rounded-lg" style="background-color: var(--color-paper); border: 1px solid var(--color-border); color: var(--color-mute);">Share</button>
+            <a href="/portal" class="text-xs hover:underline" style="color: var(--color-mute);">Back to portal</a>
+        </div>
+    </article>
+
+    <!-- Final fallback when even the verse failed to load -->
+    <div x-show="!loading && !devotional && !verse" class="max-w-2xl mx-auto px-4 py-12 text-center">
         <div class="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-2xl" style="background-color: var(--color-paper); border: 1px solid var(--color-border);">📖</div>
-        <h1 class="mt-4 font-display text-2xl" style="color: var(--color-ink);">No devotional today</h1>
-        <p class="mt-2 text-sm" style="color: var(--color-mute);">Check back tomorrow — the devotionals team posts most days.</p>
+        <h1 class="mt-4 font-display text-2xl" style="color: var(--color-ink);">Nothing to read just yet</h1>
+        <p class="mt-2 text-sm" style="color: var(--color-mute);">Check back later.</p>
         <a href="/portal" class="mt-6 inline-block px-5 py-2.5 bg-ink text-white text-sm font-medium rounded-lg">Back to portal</a>
     </div>
 
@@ -93,6 +108,8 @@ function devotionalPage() {
         devotional: null,
         archive: [],
         copied: false,
+        verse: null,
+        verseCopied: false,
         canShare: typeof navigator !== 'undefined' && !!navigator.share,
 
         async load() {
@@ -112,7 +129,38 @@ function devotionalPage() {
                 const r = await fetch('/api/portal/devotionals/archive');
                 if (r.ok) this.archive = await r.json();
             } catch (e) { /* non-fatal */ }
+            // Fallback verse if nothing posted for today
+            if (!this.devotional) {
+                try {
+                    const r = await fetch('/api/portal/verse-of-the-day');
+                    if (r.ok) this.verse = await r.json();
+                } catch (e) { /* non-fatal */ }
+            }
             this.loading = false;
+        },
+
+        _verseText() {
+            if (!this.verse) return '';
+            return `“${this.verse.text || ''}”\n— ${this.verse.reference || ''}`;
+        },
+
+        copyVerse() {
+            const text = this._verseText();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                this.verseCopied = true;
+                setTimeout(() => { this.verseCopied = false; }, 2000);
+            });
+        },
+
+        async shareVerse() {
+            if (!navigator.share || !this.verse) return;
+            try {
+                await navigator.share({
+                    title: `${this.verse.reference || 'Today\'s verse'} — Revival Fire`,
+                    text: this._verseText(),
+                });
+            } catch (e) { /* dismissed */ }
         },
 
         formatDate(iso) {
