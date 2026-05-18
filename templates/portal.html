@@ -1030,11 +1030,34 @@
         <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
                 <div>
-                    <div class="font-semibold text-gray-900">Give online</div>
-                    <div class="text-[11px] text-gray-500">Secure payment via Yoco</div>
+                    <div class="font-semibold text-gray-900">Make a payment</div>
+                    <div class="text-[11px] text-gray-500"
+                         x-text="payMethod === 'card' ? 'Secure card payment via Yoco' : 'Record an EFT, bank deposit, or cash payment'"></div>
                 </div>
                 <button @click="payOpen = false" class="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center">✕</button>
             </div>
+
+            <!--
+                Payment-method tabs. "Card" routes through the existing
+                Yoco hosted checkout (auto-verified by webhook). "EFT /
+                Deposit" routes through the new manual flow with
+                optional POP upload — lands as PENDING for admin review.
+            -->
+            <div class="px-5 pt-4">
+                <div class="grid grid-cols-2 gap-1 bg-gray-100 p-1 rounded-xl">
+                    <button type="button" @click="payMethod = 'card'"
+                        :class="payMethod === 'card' ? 'bg-white shadow-sm text-emerald-700' : 'text-gray-600'"
+                        class="px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                        💳 Card
+                    </button>
+                    <button type="button" @click="payMethod = 'eft'"
+                        :class="payMethod === 'eft' ? 'bg-white shadow-sm text-emerald-700' : 'text-gray-600'"
+                        class="px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                        🏦 EFT / Deposit
+                    </button>
+                </div>
+            </div>
+
             <div class="p-5 space-y-4">
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 mb-2">Project</label>
@@ -1107,16 +1130,83 @@
                             class="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-base text-right font-semibold" />
                     </div>
                 </div>
+                <!--
+                    EFT/Deposit-only fields: payment method, payment
+                    date, reference, optional POP file. Hidden on the
+                    Card tab. Reference + POP help the admin reconcile
+                    against the bank statement faster.
+                -->
+                <div x-show="payMethod === 'eft'" class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Payment method</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <template x-for="opt in eftMethods" :key="opt.value">
+                                <button type="button" @click="payForm.eft_method = opt.value"
+                                    :class="payForm.eft_method === opt.value ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white'"
+                                    class="p-2 rounded-lg border text-center text-[11px] font-semibold">
+                                    <div class="text-base" x-text="opt.icon"></div>
+                                    <div class="mt-0.5" x-text="opt.label"></div>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">Payment date</label>
+                        <input type="date" x-model="payForm.contribution_date"
+                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                            Reference <span class="text-gray-400 font-normal">(optional but helps reconciliation)</span>
+                        </label>
+                        <input type="text" x-model="payForm.reference" maxlength="100"
+                            placeholder="EFT reference / deposit slip number"
+                            class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                            Proof of payment <span class="text-gray-400 font-normal">(optional, max 10MB)</span>
+                        </label>
+                        <input type="file" @change="onPopFileChange($event)"
+                            accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                            class="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 file:font-semibold" />
+                        <p x-show="popFileName" class="text-[11px] text-emerald-700 mt-1">
+                            ✓ <span x-text="popFileName"></span>
+                            (<span x-text="popFileSizeLabel"></span>)
+                        </p>
+                    </div>
+                </div>
+
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 mb-1">Note (optional)</label>
                     <input type="text" x-model="payForm.notes" maxlength="200" placeholder="Anything you'd like recorded with this gift" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
                 <div x-show="payError" class="p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700" x-text="payError"></div>
-                <button @click="startPayment()" :disabled="paySubmitting"
+
+                <!--
+                    Context-aware Pay button:
+                      • Card tab → redirect to Yoco hosted checkout
+                      • EFT tab → submit multipart to /api/portal/contributions/manual,
+                                  show success state with verification note
+                -->
+                <button x-show="payMethod === 'card'"
+                    @click="startPayment()" :disabled="paySubmitting"
                     class="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-lg">
                     <span x-text="paySubmitting ? 'Connecting to Yoco…' : `Pay ${formatPayAmount()}`"></span>
                 </button>
-                <p class="text-[11px] text-gray-400 text-center">You'll be redirected to Yoco's secure payment page. Card details are never seen by RFM.</p>
+                <button x-show="payMethod === 'eft'"
+                    @click="submitManualPayment()" :disabled="paySubmitting"
+                    class="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-lg">
+                    <span x-text="paySubmitting ? 'Submitting…' : `Submit ${formatPayAmount()}`"></span>
+                </button>
+
+                <p x-show="payMethod === 'card'" class="text-[11px] text-gray-400 text-center">
+                    You'll be redirected to Yoco's secure payment page. Card details are never seen by RFM.
+                </p>
+                <p x-show="payMethod === 'eft'" class="text-[11px] text-gray-400 text-center">
+                    Your submission will be marked <strong>pending</strong> until an
+                    administrator confirms the payment against the bank statement.
+                </p>
             </div>
         </div>
     </div>
@@ -1380,19 +1470,38 @@ function memberPortal() {
         pledgeForm: { project_id: '', amount: '', promised_date: '', notes: '' },
         activeProjects: [],
         _activeProjectsLoaded: false,
-        // Online payment (Yoco)
+        // Online payment (Yoco) + manual EFT/deposit (PENDING audit)
         payOpen: false,
         payError: '',
         paySubmitting: false,
-        // payForm now carries project_id (mandatory) + pledge_id
-        // (optional, set when paying against an open pledge). The
-        // legacy `category` field is kept as a fallback for installs
-        // where projects haven't migrated yet — the central side
-        // resolves it to a SYSTEM project when project_id is empty.
-        payForm: { project_id: '', pledge_id: '', category: 'TITHE', amount: '', custom_label: '', notes: '' },
+        // payMethod toggles between 'card' (Yoco hosted checkout) and
+        // 'eft' (member-claimed EFT/bank deposit/cash with optional POP).
+        // Defaults to card since the existing flow is unchanged on Card.
+        payMethod: 'card',
+        // payForm carries project_id (mandatory) + pledge_id (optional).
+        // EFT-specific fields: eft_method (EFT/BANK_DEPOSIT/CASH),
+        // contribution_date, reference. The pop file lives on
+        // popFileBytes separately because FileReader binds awkwardly
+        // to Alpine reactive state.
+        payForm: {
+            project_id: '', pledge_id: '', category: 'TITHE',
+            amount: '', custom_label: '', notes: '',
+            eft_method: 'EFT', contribution_date: '', reference: '',
+        },
         payProjects: [],
         payProjectsLoading: false,
         payOpenPledges: [],   // open pledges (member's + spouse's) for the chosen project
+        // POP file picked by the member. Held in the Alpine state so
+        // submitManualPayment can pull it into FormData.
+        popFile: null,
+        popFileName: '',
+        popFileSizeLabel: '',
+        // EFT payment-method options.
+        eftMethods: [
+            { value: 'EFT',          icon: '🏦', label: 'EFT' },
+            { value: 'BANK_DEPOSIT', icon: '🧾', label: 'Deposit' },
+            { value: 'CASH',         icon: '💵', label: 'Cash' },
+        ],
         payCategories: [
             { value: 'TITHE',            icon: '🙏', label: 'Tithe' },
             { value: 'OFFERING',         icon: '💝', label: 'Offering' },
@@ -2361,7 +2470,16 @@ function memberPortal() {
 
         async openPay() {
             if (!this.data?.member?.external_synced) return;
-            this.payForm = { project_id: '', pledge_id: '', category: 'TITHE', amount: '', custom_label: '', notes: '' };
+            const today = new Date().toISOString().split('T')[0];
+            this.payForm = {
+                project_id: '', pledge_id: '', category: 'TITHE',
+                amount: '', custom_label: '', notes: '',
+                eft_method: 'EFT', contribution_date: today, reference: '',
+            };
+            this.payMethod = 'card';
+            this.popFile = null;
+            this.popFileName = '';
+            this.popFileSizeLabel = '';
             this.payError = '';
             this.payOpenPledges = [];
             this.payOpen = true;
@@ -2508,6 +2626,90 @@ function memberPortal() {
                 // Stash the txn id so the success page can poll for it
                 try { sessionStorage.setItem('rfm_pending_txn', String(data.transaction_id)); } catch (e) {}
                 window.location.assign(data.redirect_url);
+            } catch (e) {
+                this.payError = String(e);
+                this.paySubmitting = false;
+            }
+        },
+
+        onPopFileChange(event) {
+            // Bound to the EFT-tab file input. Keeps the File object on
+            // Alpine state so submitManualPayment can fold it into the
+            // FormData. Bails on size > 10MB to match the central
+            // CHECK constraint — caller gets a clear UI hint before
+            // hitting submit.
+            this.payError = '';
+            const f = event?.target?.files?.[0];
+            if (!f) {
+                this.popFile = null;
+                this.popFileName = '';
+                this.popFileSizeLabel = '';
+                return;
+            }
+            if (f.size > 10 * 1024 * 1024) {
+                this.payError = 'Proof of payment is too large (max 10MB). Please compress.';
+                event.target.value = '';
+                this.popFile = null;
+                this.popFileName = '';
+                this.popFileSizeLabel = '';
+                return;
+            }
+            this.popFile = f;
+            this.popFileName = f.name;
+            const kb = f.size / 1024;
+            this.popFileSizeLabel = kb < 1024
+                ? `${kb.toFixed(0)} KB`
+                : `${(kb / 1024).toFixed(1)} MB`;
+        },
+
+        async submitManualPayment() {
+            // Member-claimed EFT / bank deposit / cash. Lands in
+            // rfm-database as PENDING via the church-manager proxy →
+            // /api/portal/contributions/manual. Admin gets an email
+            // with the POP link to reconcile against bank statement.
+            this.payError = '';
+            const amt = parseFloat(this.payForm.amount || '0');
+            if (!amt || amt < 1) { this.payError = 'Enter an amount of at least R1.00.'; return; }
+            if (!this.payForm.project_id) { this.payError = 'Pick a project.'; return; }
+            if (!this.payForm.eft_method) { this.payError = 'Pick a payment method.'; return; }
+            if (!this.payForm.contribution_date) {
+                this.payError = 'Pick the date you made the payment.'; return;
+            }
+
+            this.paySubmitting = true;
+            try {
+                const fd = new FormData();
+                fd.append('project_id', this.payForm.project_id);
+                if (this.payForm.pledge_id) fd.append('pledge_id', this.payForm.pledge_id);
+                fd.append('amount', String(amt));
+                fd.append('payment_method', this.payForm.eft_method);
+                fd.append('contribution_date', this.payForm.contribution_date);
+                if (this.payForm.reference) fd.append('reference', this.payForm.reference);
+                if (this.payForm.notes) fd.append('notes', this.payForm.notes);
+                if (this.popFile) fd.append('pop_file', this.popFile, this.popFile.name);
+
+                const res = await fetch('/api/portal/contributions/manual', {
+                    method: 'POST',
+                    body: fd,
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.payError = data.detail || `Submission failed (${res.status}).`;
+                    this.paySubmitting = false;
+                    return;
+                }
+                // Close modal + refresh contributions + pledges so the
+                // PENDING entry and updated pledge progress show
+                // immediately in the Contributions tab.
+                this.payOpen = false;
+                this.paySubmitting = false;
+                this._givingLoaded = false;
+                this._pledgesLoaded = false;
+                await this.loadGiving();
+                alert(
+                    'Thanks! Your payment has been recorded and is pending verification. ' +
+                    'An administrator will confirm it against the bank statement shortly.'
+                );
             } catch (e) {
                 this.payError = String(e);
                 this.paySubmitting = false;

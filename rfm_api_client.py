@@ -934,3 +934,95 @@ def create_pledge(payload: dict, *, db=None) -> ApiResult:
     without it being explicit.
     """
     return _request("POST", "/api/v1/projects/pledges", db=db, body=payload)
+
+
+def create_manual_contribution(
+    *,
+    member_id: str,
+    amount: float,
+    payment_method: str,
+    contribution_date: str,
+    project_id: Optional[str] = None,
+    pledge_id: Optional[str] = None,
+    reference: Optional[str] = None,
+    notes: Optional[str] = None,
+    pop_file_bytes: Optional[bytes] = None,
+    pop_filename: Optional[str] = None,
+    pop_content_type: Optional[str] = None,
+    db=None,
+) -> ApiResult:
+    """Member-claimed EFT / bank deposit / cash with optional POP upload.
+
+    Hits POST /api/v1/contributions/manual as multipart/form-data. The
+    portal's standard ``_request`` only knows JSON, so we use httpx here.
+    Returns an ApiResult that mirrors the rest of the client surface.
+    """
+    if not is_enabled(db):
+        return ApiResult.disabled_result()
+    url = get_api_url(db)
+    key = get_api_key(db)
+    if not url or not key:
+        return ApiResult.err(
+            "rfm-db API not configured (RFM_API_URL / RFM_API_KEY missing)"
+        )
+
+    import httpx as _httpx
+
+    # All form fields go on `data`; the file (when present) goes on
+    # `files`. httpx handles the boundary + content-type for us.
+    data = {
+        "member_id": member_id,
+        "amount": str(amount),
+        "payment_method": payment_method,
+        "contribution_date": contribution_date,
+    }
+    for k, v in (
+        ("project_id", project_id),
+        ("pledge_id", pledge_id),
+        ("reference", reference),
+        ("notes", notes),
+    ):
+        if v:
+            data[k] = v
+
+    files = None
+    if pop_file_bytes:
+        files = {
+            "pop_file": (
+                pop_filename or "pop",
+                pop_file_bytes,
+                pop_content_type or "application/octet-stream",
+            ),
+        }
+
+    try:
+        with _httpx.Client(timeout=get_timeout(db)) as client:
+            r = client.post(
+                f"{url}/api/v1/contributions/manual",
+                headers={
+                    "X-API-Key": key,
+                    "Accept": "application/json",
+                    "User-Agent": "RFM-Stellenbosch-Portal/1.0",
+                },
+                data=data,
+                files=files,
+            )
+    except _httpx.HTTPError as e:
+        return ApiResult.err(f"network error: {e}")
+
+    payload = None
+    try:
+        payload = r.json()
+    except Exception:
+        payload = None
+
+    if 200 <= r.status_code < 300:
+        if isinstance(payload, dict) and "data" in payload:
+            return ApiResult(ok=True, data=payload["data"], status=r.status_code)
+        return ApiResult(ok=True, data=payload, status=r.status_code)
+
+    err_msg = None
+    if isinstance(payload, dict):
+        err = payload.get("error") or {}
+        err_msg = err.get("message") or payload.get("detail") or json.dumps(payload)[:300]
+    return ApiResult.err(err_msg or f"HTTP {r.status_code}", status=r.status_code)

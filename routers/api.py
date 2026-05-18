@@ -10247,6 +10247,96 @@ def portal_list_pledges(
     return {"items": items, "count": len(items)}
 
 
+@router.post("/portal/contributions/manual")
+async def portal_create_manual_contribution(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Member-claimed EFT / bank deposit / cash, with optional POP.
+
+    multipart/form-data body:
+      - amount, payment_method, contribution_date (required)
+      - project_id, pledge_id, reference, notes (optional)
+      - pop_file (optional file upload — image or PDF, ≤10MB)
+
+    Security: member_id is NEVER taken from the form — pinned to the
+    authenticated session's external_member_id, same as the self-pledge
+    flow. Prevents a logged-in member from spoofing a payment on
+    someone else's behalf.
+
+    Lands in rfm-database as verification_status='PENDING' so the
+    assembly's Pastor/Administrator gets emailed to reconcile against
+    the bank statement before it counts as audited revenue. Pledge
+    progress recomputes immediately so the member sees instant
+    feedback in the portal.
+    """
+    from fastapi import HTTPException as _HTTPException
+
+    member = _require_member_with_central_link(request, db)
+    form = await request.form()
+
+    amount_raw = (form.get("amount") or "").strip()
+    payment_method = (form.get("payment_method") or "").strip().upper()
+    contribution_date = (form.get("contribution_date") or "").strip()
+    project_id = (form.get("project_id") or "").strip() or None
+    pledge_id = (form.get("pledge_id") or "").strip() or None
+    reference = (form.get("reference") or "").strip() or None
+    notes = (form.get("notes") or "").strip() or None
+
+    try:
+        amount = float(amount_raw or 0)
+    except (TypeError, ValueError):
+        raise _HTTPException(status_code=400, detail="amount must be a number")
+    if amount <= 0:
+        raise _HTTPException(status_code=400, detail="amount must be greater than 0")
+
+    if payment_method not in ("EFT", "BANK_DEPOSIT", "CASH", "OTHER"):
+        raise _HTTPException(
+            status_code=400,
+            detail="payment_method must be EFT, BANK_DEPOSIT, CASH, or OTHER",
+        )
+    if not contribution_date:
+        raise _HTTPException(status_code=400, detail="contribution_date is required")
+
+    # Optional file upload. The central side enforces the 10MB ceiling +
+    # content-type allow-list, but we cap here too so we don't waste
+    # bandwidth shuffling a 50MB JPEG over the wire just to reject it.
+    pop_file_bytes = None
+    pop_filename = None
+    pop_content_type = None
+    pop_file = form.get("pop_file")
+    if pop_file is not None and hasattr(pop_file, "read"):
+        pop_file_bytes = await pop_file.read()
+        if len(pop_file_bytes) > 10 * 1024 * 1024:
+            raise _HTTPException(
+                status_code=400,
+                detail="Proof of payment is too large (max 10MB). Please compress.",
+            )
+        pop_filename = getattr(pop_file, "filename", None) or "pop"
+        pop_content_type = getattr(pop_file, "content_type", None) or "application/octet-stream"
+
+    r = _rfm.create_manual_contribution(
+        member_id=str(member.external_member_id),
+        amount=amount,
+        payment_method=payment_method,
+        contribution_date=contribution_date,
+        project_id=project_id,
+        pledge_id=pledge_id,
+        reference=reference,
+        notes=notes,
+        pop_file_bytes=pop_file_bytes,
+        pop_filename=pop_filename,
+        pop_content_type=pop_content_type,
+        db=db,
+    )
+    if not r.ok:
+        raise _HTTPException(
+            status_code=502 if (r.status or 0) >= 500 else 400,
+            detail=f"Central API error: {r.error}",
+        )
+    return r.data or {}
+
+
 @router.post("/portal/pledges")
 def portal_create_pledge(
     payload: dict = Body(...),
