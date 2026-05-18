@@ -538,20 +538,16 @@
                     <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Recent</h2>
                     <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
                     <div x-show="!givingLoading && !(givingRecent?.items || []).length" class="text-sm text-gray-500 italic">No recent contributions.</div>
+
+                    <!-- Latest 3 -->
                     <div class="space-y-2">
-                        <template x-for="c in (givingRecent?.items || [])" :key="c.id">
+                        <template x-for="c in latestContribs()" :key="c.id">
                             <div class="p-3 border border-gray-200 rounded-xl">
                                 <div class="flex items-start justify-between gap-2">
                                     <div class="min-w-0">
                                         <div class="flex items-center gap-2 flex-wrap">
                                             <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
                                             <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
-                                            <!--
-                                                Spouse-attribution pill: only renders when this contribution
-                                                was made by the family partner (paid_by_self === false). Keeps
-                                                the husband's R500 distinct from the wife's R200 on the merged
-                                                ledger so neither spouse mistakes who actually gave what.
-                                            -->
                                             <span
                                                 x-show="c.paid_by_self === false && c.contributor_name"
                                                 class="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-medium rounded-full"
@@ -569,6 +565,56 @@
                                         <div class="font-bold text-gray-900" x-text="formatMoney(c.amount, c.currency)"></div>
                                         <div x-show="c.receipt_sent" class="text-[10px] text-emerald-600 mt-0.5">✓ Receipted</div>
                                     </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Toggle: previous contributions by month -->
+                    <button
+                        x-show="hasOlderContribs()"
+                        @click="givingShowOlder = !givingShowOlder"
+                        class="mt-3 w-full text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center justify-center gap-1 py-2 border-t border-gray-100">
+                        <span x-text="givingShowOlder ? 'Hide previous' : 'View previous contributions'"></span>
+                        <span x-text="givingShowOlder ? '▴' : '▾'"></span>
+                    </button>
+
+                    <!-- Older, grouped by month -->
+                    <div x-show="givingShowOlder && hasOlderContribs()" class="mt-3 space-y-4">
+                        <template x-for="g in olderContribsByMonth()" :key="g.key">
+                            <div>
+                                <div class="text-[10px] uppercase tracking-[0.2em] font-semibold text-gray-500 mb-2 flex items-baseline justify-between">
+                                    <span x-text="g.label"></span>
+                                    <span class="text-[11px] tracking-normal font-medium text-gray-400" x-text="formatMoney(g.total, g.currency)"></span>
+                                </div>
+                                <div class="space-y-2">
+                                    <template x-for="c in g.items" :key="c.id">
+                                        <div class="p-3 border border-gray-200 rounded-xl">
+                                            <div class="flex items-start justify-between gap-2">
+                                                <div class="min-w-0">
+                                                    <div class="flex items-center gap-2 flex-wrap">
+                                                        <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
+                                                        <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
+                                                        <span
+                                                            x-show="c.paid_by_self === false && c.contributor_name"
+                                                            class="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-medium rounded-full"
+                                                            x-text="`by ${c.contributor_name}`"
+                                                        ></span>
+                                                    </div>
+                                                    <div class="mt-1 text-sm text-gray-600" x-text="formatLongDate(c.contribution_date)"></div>
+                                                    <div x-show="c.payment_method || c.reference" class="text-[11px] text-gray-400 mt-0.5">
+                                                        <span x-show="c.payment_method" x-text="c.payment_method"></span>
+                                                        <span x-show="c.payment_method && c.reference"> · </span>
+                                                        <span x-show="c.reference" x-text="`Ref ${c.reference}`"></span>
+                                                    </div>
+                                                </div>
+                                                <div class="text-right shrink-0">
+                                                    <div class="font-bold text-gray-900" x-text="formatMoney(c.amount, c.currency)"></div>
+                                                    <div x-show="c.receipt_sent" class="text-[10px] text-emerald-600 mt-0.5">✓ Receipted</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </template>
@@ -1225,6 +1271,7 @@ function memberPortal() {
         givingError: '',
         givingSummary: null,
         givingRecent: null,
+        givingShowOlder: false,
         _givingLoaded: false,
         banking: null,
         bankingCopied: false,
@@ -2325,13 +2372,45 @@ function memberPortal() {
             this.meetingsLoading = false;
         },
 
+        // ---- Recent contributions: top-3 + collapsible month-grouped rest ----
+        latestContribs() {
+            const items = this.givingRecent?.items || [];
+            return items.slice(0, 3);
+        },
+        hasOlderContribs() {
+            return (this.givingRecent?.items || []).length > 3;
+        },
+        olderContribsByMonth() {
+            const rest = (this.givingRecent?.items || []).slice(3);
+            // Group by YYYY-MM, preserve newest-first order
+            const buckets = new Map();
+            for (const c of rest) {
+                const d = c.contribution_date ? new Date(c.contribution_date) : null;
+                if (!d || isNaN(d)) continue;
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!buckets.has(key)) {
+                    buckets.set(key, {
+                        key,
+                        label: d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+                        items: [],
+                        total: 0,
+                        currency: c.currency || 'ZAR',
+                    });
+                }
+                const g = buckets.get(key);
+                g.items.push(c);
+                g.total += Number(c.amount) || 0;
+            }
+            return Array.from(buckets.values());
+        },
+
         async loadGiving() {
             if (this._givingLoaded || this.givingLoading) return;
             this.givingLoading = true;
             try {
                 const [s, r] = await Promise.all([
                     fetch('/api/portal/giving/summary'),
-                    fetch('/api/portal/giving/recent?limit=20'),
+                    fetch('/api/portal/giving/recent?limit=50'),
                 ]);
                 if (s.ok) this.givingSummary = await s.json();
                 if (r.ok) this.givingRecent = await r.json();
