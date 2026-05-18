@@ -572,6 +572,20 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (can_create_surveys): {e}")
 
+        # Migration: email verification columns. Registrations now send a
+        # verification email; we track when the user clicks it.
+        try:
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ NULL,
+                ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR NULL,
+                ADD COLUMN IF NOT EXISTS email_verification_expires TIMESTAMPTZ NULL
+            """))
+            conn.commit()
+            print("Migration: Added email verification columns to members")
+        except Exception as e:
+            print(f"Migration note (email_verification): {e}")
+
         # Seed starter reading plans (drafts) if the table is empty so the
         # Bible Reading Plan team has something to clone-and-edit instead
         # of an empty page on day one.

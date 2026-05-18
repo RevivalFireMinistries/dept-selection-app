@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Verify your email — Revival Fire{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 flex items-center justify-center px-4 py-8">
+    <div class="w-full max-w-sm">
+        <div class="bg-white rounded-2xl shadow-lg p-6 text-center" id="card">
+            <div class="text-4xl mb-2" id="emoji">⏳</div>
+            <h1 class="text-xl font-bold text-gray-900" id="title">Verifying your email…</h1>
+            <p class="text-sm text-gray-600 mt-2" id="message">Hold tight, this only takes a second.</p>
+            <div id="actions" class="hidden mt-6 space-y-2">
+                <a href="/" class="block w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm">Sign in</a>
+                <button id="resendBtn" class="hidden block w-full py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm rounded-xl">Send a new verification email</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get('token') || '';
+const emoji = document.getElementById('emoji');
+const title = document.getElementById('title');
+const message = document.getElementById('message');
+const actions = document.getElementById('actions');
+const resendBtn = document.getElementById('resendBtn');
+
+function showError(msg, allowResend) {
+    emoji.textContent = '⚠️';
+    title.textContent = 'Couldn\'t verify';
+    message.textContent = msg;
+    actions.classList.remove('hidden');
+    if (allowResend) resendBtn.classList.remove('hidden');
+}
+
+function showSuccess(name) {
+    emoji.textContent = '✅';
+    title.textContent = name ? `Welcome, ${name.split(' ')[0]}!` : 'Email verified';
+    message.textContent = 'Your email is confirmed. You can sign in now.';
+    actions.classList.remove('hidden');
+}
+
+async function verify() {
+    if (!token) { showError('No verification token in this link.', false); return; }
+    try {
+        const r = await fetch('/api/auth/verify-email', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token})
+        });
+        const data = await r.json();
+        if (r.ok) { showSuccess(data.full_name); return; }
+        showError(data.detail || 'Verification failed.', true);
+    } catch (e) {
+        showError('Network error — please try again.', true);
+    }
+}
+
+resendBtn.addEventListener('click', async () => {
+    const email = prompt('Enter the email you registered with:');
+    if (!email) return;
+    resendBtn.disabled = true;
+    resendBtn.textContent = 'Sending…';
+    try {
+        await fetch('/api/auth/resend-verification', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email})
+        });
+        resendBtn.textContent = 'Sent — check your inbox';
+    } catch (e) {
+        resendBtn.disabled = false;
+        resendBtn.textContent = 'Try again';
+    }
+});
+
+verify();
+</script>
+{% endblock %}

@@ -36,6 +36,14 @@
                         class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Assembly *</label>
+                    <select id="regAssembly"
+                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white">
+                        <option value="">Loading…</option>
+                    </select>
+                    <p class="text-xs text-gray-400 mt-1">Which RFM assembly do you attend?</p>
+                </div>
+                <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
                     <input type="text" id="regAddress" placeholder="Your address (optional)" autocomplete="street-address"
                         class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
@@ -76,6 +84,35 @@
 
 {% block scripts %}
 <script>
+async function loadAssemblies() {
+    const sel = document.getElementById('regAssembly');
+    try {
+        const r = await fetch('/api/public/assemblies');
+        const list = r.ok ? await r.json() : [];
+        sel.innerHTML = '';
+        if (!list.length) {
+            sel.innerHTML = '<option value="">No assemblies available</option>';
+            return;
+        }
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Choose your assembly…';
+        sel.appendChild(placeholder);
+        list.forEach(a => {
+            const o = document.createElement('option');
+            o.value = a.id;
+            const loc = a.suburb || a.city || '';
+            o.textContent = loc ? `${a.name} (${loc})` : a.name;
+            sel.appendChild(o);
+        });
+        // Auto-select if exactly one assembly came back
+        if (list.length === 1) sel.value = list[0].id;
+    } catch (e) {
+        sel.innerHTML = '<option value="">Could not load assemblies</option>';
+    }
+}
+loadAssemblies();
+
 async function register() {
     const name = document.getElementById('regName').value.trim();
     const phone = document.getElementById('regPhone').value.trim();
@@ -83,6 +120,7 @@ async function register() {
     const address = document.getElementById('regAddress').value.trim();
     const password = document.getElementById('regPassword').value;
     const confirm = document.getElementById('regConfirm').value;
+    const assembly_id = document.getElementById('regAssembly').value;
 
     const errorDiv = document.getElementById('regError');
     const successDiv = document.getElementById('regSuccess');
@@ -98,6 +136,7 @@ async function register() {
     if (digits.length !== 10) { errorDiv.textContent = 'Phone number must be 10 digits'; errorDiv.classList.remove('hidden'); return; }
 
     if (!email) { errorDiv.textContent = 'Email is required'; errorDiv.classList.remove('hidden'); return; }
+    if (!assembly_id) { errorDiv.textContent = 'Please choose your assembly'; errorDiv.classList.remove('hidden'); return; }
     if (password.length < 6) { errorDiv.textContent = 'Password must be at least 6 characters'; errorDiv.classList.remove('hidden'); return; }
     if (password !== confirm) { errorDiv.textContent = 'Passwords do not match'; errorDiv.classList.remove('hidden'); return; }
 
@@ -108,14 +147,13 @@ async function register() {
         const res = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ full_name: name, phone, email, address, password })
+            body: JSON.stringify({ full_name: name, phone, email, address, password, assembly_id })
         });
 
         const data = await res.json();
 
         if (res.ok) {
-            // Redirect to login with success message
-            window.location.href = `/?message=${encodeURIComponent('Account created! An admin will review and approve your account.')}&type=success`;
+            window.location.href = `/?message=${encodeURIComponent('Account created! Check your inbox for a verification email — then sign in.')}&type=success`;
         } else {
             errorDiv.textContent = data.detail || 'Registration failed';
             errorDiv.classList.remove('hidden');

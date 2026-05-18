@@ -1203,6 +1203,9 @@ function memberPortal() {
             { id: 'attendance', icon: '📅', label: 'Attendance' },
         ],
 
+        // Email verification banner
+        verifyResendState: 'Resend the email',
+
         // Change requests
         changeOpen: false,
         changeForm: { change_type: 'profile', summary: '', details: '' },
@@ -2079,6 +2082,21 @@ function memberPortal() {
                 const r = await fetch('/api/portal/home-churches');
                 if (r.ok) this.homeChurchOptions = await r.json();
             } catch (e) { /* non-fatal */ }
+        },
+
+        async resendVerification() {
+            if (!this.data?.member?.email) return;
+            this.verifyResendState = 'Sending…';
+            try {
+                await fetch('/api/auth/resend-verification', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email: this.data.member.email}),
+                });
+                this.verifyResendState = 'Sent — check your inbox';
+            } catch (e) {
+                this.verifyResendState = 'Couldn\'t send — try again';
+            }
         },
 
         enrichDismissed(field) {

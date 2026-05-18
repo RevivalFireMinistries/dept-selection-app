@@ -148,6 +148,13 @@ async def register_page(request: Request):
     return templates.TemplateResponse("register.html", {"request": request})
 
 
+@router.get("/verify-email")
+async def verify_email_page(request: Request):
+    """Landing page for the email verification link. Reads ?token=… from
+    the URL and calls /api/auth/verify-email client-side."""
+    return templates.TemplateResponse("verify_email.html", {"request": request})
+
+
 @router.get("/forgot-password")
 async def forgot_password_page(request: Request):
     """Forgot password page"""

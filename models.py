@@ -51,6 +51,12 @@ class Member(Base):
     is_active = Column(Boolean, nullable=False, server_default="true")
     reset_token = Column(String, nullable=True)
     reset_token_expires = Column(DateTime(timezone=True), nullable=True)
+    # Email verification (set after the user clicks the link in their welcome
+    # email). null email_verified_at = unverified — portal shows a banner
+    # nudging them to verify, but doesn't block login.
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
+    email_verification_token = Column(String, nullable=True)
+    email_verification_expires = Column(DateTime(timezone=True), nullable=True)
     # Link to the central rfm-database (the source of truth for member info).
     # external_member_id holds the API's UUID once matched; null means we
     # haven't matched this local member to the API yet (legacy or orphan).
