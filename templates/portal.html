@@ -535,9 +535,22 @@
                 </section>
 
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Recent</h2>
+                    <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">Recent</h2>
+                        <select x-show="contribProjectOptions().length > 1"
+                                x-model="givingProjectFilter"
+                                @change="givingShowOlder = false"
+                                class="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700">
+                            <template x-for="opt in contribProjectOptions()" :key="opt.value">
+                                <option :value="opt.value" x-text="opt.label"></option>
+                            </template>
+                        </select>
+                    </div>
                     <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
-                    <div x-show="!givingLoading && !(givingRecent?.items || []).length" class="text-sm text-gray-500 italic">No recent contributions.</div>
+                    <div x-show="!givingLoading && !filteredContribs().length" class="text-sm text-gray-500 italic">
+                        <span x-show="givingProjectFilter === ''">No recent contributions.</span>
+                        <span x-show="givingProjectFilter !== ''">No contributions for this project yet.</span>
+                    </div>
 
                     <!-- Latest 3 -->
                     <div class="space-y-2">
@@ -548,6 +561,7 @@
                                         <div class="flex items-center gap-2 flex-wrap">
                                             <span class="text-xs uppercase tracking-wider px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold rounded" x-text="c.category"></span>
                                             <span x-show="c.custom_label" class="text-[11px] text-gray-500" x-text="c.custom_label"></span>
+                                            <span x-show="c.project_name" class="text-[11px] px-2 py-0.5 bg-amber-50 text-amber-700 font-medium rounded-full" x-text="c.project_name"></span>
                                             <span
                                                 x-show="c.paid_by_self === false && c.contributor_name"
                                                 class="text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-medium rounded-full"
@@ -1272,6 +1286,7 @@ function memberPortal() {
         givingSummary: null,
         givingRecent: null,
         givingShowOlder: false,
+        givingProjectFilter: '',  // '' = all, '__none__' = non-project, '<uuid>' = specific project
         _givingLoaded: false,
         banking: null,
         bankingCopied: false,
@@ -2372,16 +2387,38 @@ function memberPortal() {
             this.meetingsLoading = false;
         },
 
-        // ---- Recent contributions: top-3 + collapsible month-grouped rest ----
-        latestContribs() {
+        // ---- Recent contributions: project filter + top-3 + month-grouped rest ----
+        contribProjectOptions() {
             const items = this.givingRecent?.items || [];
-            return items.slice(0, 3);
+            const map = new Map();
+            let hasNonProject = false;
+            for (const c of items) {
+                if (c.project_id && c.project_name) {
+                    map.set(String(c.project_id), c.project_name);
+                } else {
+                    hasNonProject = true;
+                }
+            }
+            const opts = [{value: '', label: 'All contributions'}];
+            for (const [id, name] of map.entries()) opts.push({value: id, label: name});
+            if (hasNonProject && map.size > 0) opts.push({value: '__none__', label: 'Tithes & general offerings'});
+            return opts;
+        },
+        filteredContribs() {
+            const items = this.givingRecent?.items || [];
+            const f = this.givingProjectFilter;
+            if (!f) return items;
+            if (f === '__none__') return items.filter(c => !c.project_id);
+            return items.filter(c => String(c.project_id || '') === f);
+        },
+        latestContribs() {
+            return this.filteredContribs().slice(0, 3);
         },
         hasOlderContribs() {
-            return (this.givingRecent?.items || []).length > 3;
+            return this.filteredContribs().length > 3;
         },
         olderContribsByMonth() {
-            const rest = (this.givingRecent?.items || []).slice(3);
+            const rest = this.filteredContribs().slice(3);
             // Group by YYYY-MM, preserve newest-first order
             const buckets = new Map();
             for (const c of rest) {

@@ -10072,6 +10072,11 @@ def _serialize_contribution(c: dict, *, viewer_external_id: str | None = None) -
         "notes": c.get("notes") or None,
         "receipt_sent": bool(c.get("receipt_sent")),
         "receipt_sent_at": c.get("receipt_sent_at"),
+        # Project linkage — surfaced so the portal can offer a project
+        # filter on the contributions list. Non-project gifts (tithes,
+        # general offerings) carry no project_id.
+        "project_id": c.get("project_id") or None,
+        "project_name": c.get("project_name") or None,
         # Family-aware attribution. paid_by_self is the cheap UI flag;
         # contributor_name is shown as a "by ${name}" badge when false.
         "contributor_id": contributor_id,
