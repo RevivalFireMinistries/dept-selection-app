@@ -10,7 +10,7 @@ Endpoints:
   DELETE /api/display/{id}          — Delete a submission
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from typing import Optional
@@ -182,6 +182,7 @@ def list_submissions(
 
 @router.get("/fetch")
 def fetch_for_presenter(
+    request: Request,
     service_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
@@ -196,6 +197,13 @@ def fetch_for_presenter(
             target_date = date.fromisoformat(service_date)
         except ValueError:
             pass
+
+    # Each FirePresenter install sends a stable per-install ID. Log it so
+    # an admin can answer "which FirePresenters polled the server today,
+    # and did they all see the latest submission?" without crawling
+    # individual logs. We don't fail the request if the header is missing
+    # — older FirePresenter builds (<= v2.3.0) won't send it.
+    instance = (request.headers.get("X-FirePresenter-Instance") or "unknown").strip()[:80]
 
     # Return ALL approved submissions for the target date — no fetched
     # filter, no fetched=True write. Multiple FirePresenter instances may
@@ -218,8 +226,10 @@ def fetch_for_presenter(
     ).all()
 
     if not submissions:
+        print(f"[display.fetch] instance={instance} date={target_date.isoformat()} count=0")
         return {"items": [], "count": 0}
 
+    print(f"[display.fetch] instance={instance} date={target_date.isoformat()} count={len(submissions)}")
     return {"items": [submission_to_dict(s) for s in submissions], "count": len(submissions)}
 
 

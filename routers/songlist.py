@@ -12,7 +12,7 @@ Endpoints:
   GET  /api/songs/new            — FirePresenter polls for new songs to import
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from typing import Optional, List
@@ -164,11 +164,16 @@ def submit_song_list(req: SongListSubmitRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/api/songlist/fetch")
-def fetch_song_list(db: Session = Depends(get_db)):
+def fetch_song_list(request: Request, db: Session = Depends(get_db)):
     """
     FirePresenter polls this endpoint. Returns unfetched song list items
     and marks them as fetched.
+
+    Logs the X-FirePresenter-Instance header (per-install identifier) so
+    an admin can answer "which FirePresenter actually picked up the list?"
+    Header is optional — old FirePresenter builds (<= v2.3.0) won't send it.
     """
+    instance = (request.headers.get("X-FirePresenter-Instance") or "unknown").strip()[:80]
     items = (
         db.query(SongListSubmission)
         .filter(SongListSubmission.fetched == False)
@@ -191,6 +196,7 @@ def fetch_song_list(db: Session = Depends(get_db)):
         item.fetched = True
 
     db.commit()
+    print(f"[songlist.fetch] instance={instance} count={len(result)}")
     return {"items": result}
 
 
@@ -257,11 +263,13 @@ def submit_new_song(req: NewSongRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/api/songs/new")
-def fetch_new_songs(db: Session = Depends(get_db)):
+def fetch_new_songs(request: Request, db: Session = Depends(get_db)):
     """
     FirePresenter polls this endpoint. Returns unfetched new songs
-    and marks them as fetched.
+    and marks them as fetched. Header X-FirePresenter-Instance is
+    logged for audit (optional; missing on old clients).
     """
+    instance = (request.headers.get("X-FirePresenter-Instance") or "unknown").strip()[:80]
     items = (
         db.query(NewSongSubmission)
         .filter(NewSongSubmission.fetched == False)
@@ -283,4 +291,5 @@ def fetch_new_songs(db: Session = Depends(get_db)):
         item.fetched = True
 
     db.commit()
+    print(f"[songs.new.fetch] instance={instance} count={len(result)}")
     return {"items": result}
