@@ -264,10 +264,10 @@
     /* Autocomplete */
     .autocomplete-wrapper { position: relative; flex: 1; }
     .autocomplete-dropdown {
-        position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
-        background: white; border: 1px solid #d1d5db; border-top: none;
-        border-radius: 0 0 12px 12px; max-height: 200px; overflow-y: auto;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        position: fixed; z-index: 9999;
+        background: white; border: 1px solid #d1d5db;
+        border-radius: 12px; max-height: 240px; overflow-y: auto;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
     }
     .autocomplete-dropdown .ac-item {
         padding: 12px 16px; cursor: pointer; font-size: 14px;
@@ -584,10 +584,16 @@ function setupServiceManagerAutocomplete() {
             div.addEventListener('touchstart', () => pick(m), { passive: true });
             dropdown.appendChild(div);
         });
-        input.parentElement.appendChild(dropdown);
+        document.body.appendChild(dropdown);
+        positionFixed(dropdown, input);
+        window.addEventListener('scroll', repos, true);
+        window.addEventListener('resize', repos);
     }
+    function repos() { if (dropdown) positionFixed(dropdown, input); }
     function hide() {
         if (dropdown && dropdown.parentElement) dropdown.remove();
+        window.removeEventListener('scroll', repos, true);
+        window.removeEventListener('resize', repos);
         dropdown = null;
         selectedIndex = -1;
     }
@@ -1136,12 +1142,32 @@ function setupAutocomplete(input) {
             div.addEventListener('touchstart', (e) => { selectMember(m); }, { passive: true });
             dropdown.appendChild(div);
         });
-        input.parentElement.appendChild(dropdown);
+        document.body.appendChild(dropdown);
+        positionDropdown();
+        window.addEventListener('scroll', positionDropdown, true);
+        window.addEventListener('resize', positionDropdown);
         activeDropdown = dropdown;
+    }
+
+    function positionDropdown() {
+        if (!dropdown) return;
+        const r = input.getBoundingClientRect();
+        dropdown.style.left = r.left + 'px';
+        dropdown.style.width = r.width + 'px';
+        // Prefer below; flip above if it would overflow the viewport
+        const dropH = Math.min(dropdown.scrollHeight, 240);
+        const spaceBelow = window.innerHeight - r.bottom;
+        if (spaceBelow < dropH + 8 && r.top > dropH + 8) {
+            dropdown.style.top = (r.top - dropH - 4) + 'px';
+        } else {
+            dropdown.style.top = (r.bottom + 4) + 'px';
+        }
     }
 
     function hideDropdown() {
         if (dropdown && dropdown.parentElement) dropdown.remove();
+        window.removeEventListener('scroll', positionDropdown, true);
+        window.removeEventListener('resize', positionDropdown);
         dropdown = null; activeDropdown = null; selectedIndex = -1;
     }
 
@@ -1202,6 +1228,19 @@ function setupAutocomplete(input) {
 function closeAllDropdowns() {
     document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.remove());
     activeDropdown = null;
+}
+
+function positionFixed(dropdown, input) {
+    const r = input.getBoundingClientRect();
+    dropdown.style.left = r.left + 'px';
+    dropdown.style.width = r.width + 'px';
+    const dropH = Math.min(dropdown.scrollHeight, 240);
+    const spaceBelow = window.innerHeight - r.bottom;
+    if (spaceBelow < dropH + 8 && r.top > dropH + 8) {
+        dropdown.style.top = (r.top - dropH - 4) + 'px';
+    } else {
+        dropdown.style.top = (r.bottom + 4) + 'px';
+    }
 }
 
 // ==================== ANNOUNCEMENTS ====================
