@@ -487,7 +487,14 @@
                 -->
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3 gap-2">
-                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">My pledges</h2>
+                        <!--
+                            Family pledges — shows the logged-in member's
+                            pledges AND their spouse's (when married).
+                            Either spouse can settle any family pledge,
+                            so showing only your own would hide
+                            commitments the household needs to honour.
+                        -->
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">Family pledges</h2>
                         <button @click="openPledgeModal()" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background: #00796B; color: white;">
                             + Pledge to a project
                         </button>
@@ -512,6 +519,17 @@
                                                     CANCELLED: 'background:#FAFAFA;color:#9E9E9E',
                                                 }[pl.status] || 'background:#F5F5F5;color:#616161'"
                                                 x-text="pl.status"></span>
+                                            <!--
+                                                Spouse-pledge attribution pill. Only renders
+                                                when the pledge belongs to the partner so the
+                                                viewer can tell whose commitment it is —
+                                                avoids the "wait, is this MY pledge?" moment
+                                                on the joint card.
+                                            -->
+                                            <span x-show="pl.member_id && pl.member_id !== data?.member?.external_id && pl.member_name"
+                                                class="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                                style="background:#E0F2F1;color:#00695C"
+                                                x-text="`${pl.member_name}'s pledge`"></span>
                                             <span x-show="(pl.days_until_due ?? 0) < 0 && (pl.status === 'PENDING' || pl.status === 'PARTIAL')"
                                                 class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-semibold"
                                                 style="background:#FFEBEE;color:#C62828">
@@ -528,6 +546,20 @@
                                             · Outstanding <span x-text="formatMoney(pl.outstanding, 'ZAR')"></span>
                                         </div>
                                     </div>
+                                    <!--
+                                        Per-row Pay button. Only on open pledges
+                                        (PENDING / PARTIAL) — fulfilled / cancelled
+                                        ones don't need an action. Tapping pre-fills
+                                        the Yoco pay modal with the right project,
+                                        pledge attribution, and outstanding amount,
+                                        so settlement is one tap from here.
+                                    -->
+                                    <button x-show="pl.status === 'PENDING' || pl.status === 'PARTIAL'"
+                                        @click="payPledge(pl)"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0 active:scale-95"
+                                        style="background:#2E7D32;color:white;">
+                                        Pay
+                                    </button>
                                 </div>
                             </div>
                         </template>
@@ -2395,6 +2427,50 @@ function memberPortal() {
             this.payForm.amount = String(pl.outstanding || pl.amount_pledged || '');
         },
 
+        async payPledge(pl) {
+            // Direct shortcut from the family-pledges card: open the
+            // Yoco pay modal pre-configured for this specific pledge.
+            // We rebuild the project list (cheap, cached on subsequent
+            // opens) and seed selectedProject + selectedPledge so the
+            // member can tap straight through to Yoco without manually
+            // re-picking project + pledge.
+            if (!this.data?.member?.external_synced) return;
+            this.payForm = {
+                project_id: '',
+                pledge_id: '',
+                category: 'OTHER',
+                amount: '',
+                custom_label: null,
+                notes: null,
+            };
+            this.payError = '';
+            this.payOpenPledges = [];
+            this.payOpen = true;
+
+            this.payProjectsLoading = true;
+            try {
+                const r = await fetch('/api/portal/projects');
+                if (r.ok) {
+                    const data = await r.json();
+                    this.payProjects = data.items || [];
+                }
+            } catch (e) { console.error('payProjects load failed', e); }
+            this.payProjectsLoading = false;
+
+            // Find the project this pledge belongs to and select it —
+            // that triggers the spouse-aware open-pledges fetch.
+            const project = (this.payProjects || []).find(p => p.id === pl.project_id);
+            if (project) {
+                await this.selectPayProject(project);
+            } else {
+                // Fallback: project missing from active list (closed
+                // mid-pledge, edge case). Still allow payment with
+                // pledge_id directly attributed.
+                this.payForm.project_id = pl.project_id;
+            }
+            this.selectPayPledge(pl);
+        },
+
         formatPayAmount() {
             const amt = parseFloat(this.payForm.amount || '0');
             if (!amt || amt <= 0) return '';
@@ -2581,7 +2657,11 @@ function memberPortal() {
             if (this._pledgesLoaded || this.pledgesLoading) return;
             this.pledgesLoading = true;
             try {
-                const r = await fetch('/api/portal/pledges');
+                // include_spouse=true so the card shows BOTH partners'
+                // pledges. Either one can settle a family pledge —
+                // showing only your own would hide commitments the
+                // household needs to honour.
+                const r = await fetch('/api/portal/pledges?include_spouse=true');
                 if (r.ok) {
                     const data = await r.json();
                     this.pledges = data.items || [];

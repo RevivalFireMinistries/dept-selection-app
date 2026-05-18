@@ -9872,6 +9872,11 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "leadership_roles": leadership_roles,
             "external_synced": bool(member.external_member_id),
             "email_verified": bool(getattr(member, "email_verified_at", None)),
+            # The central rfm-database UUID. The template uses this to
+            # tell "your pledge" apart from "spouse's pledge" on the
+            # family-pledges card and the pay modal — previously not
+            # surfaced, so the comparison silently fell through.
+            "external_id": str(member.external_member_id) if member.external_member_id else None,
         },
         "departments": {
             "approved": approved_departments,
