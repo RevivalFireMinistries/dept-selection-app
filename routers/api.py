@@ -190,25 +190,41 @@ def _send_verification_email(request: Request, member: Member, token: str) -> No
         print(f"[register] verification email error: {e}")
 
 
+def _admin_member_emails(db: Session) -> List[Tuple[int, str, str]]:
+    """All members flagged as admins — i.e. their leadership_roles JSON
+    array contains 'admin'. Returns [(id, full_name, email), ...] with
+    non-empty email only. Used to fan out admin notifications."""
+    out: List[Tuple[int, str, str]] = []
+    for m in db.query(Member).filter(Member.email != "").all():
+        if not m.leadership_roles:
+            continue
+        try:
+            roles = (
+                json.loads(m.leadership_roles)
+                if isinstance(m.leadership_roles, str)
+                else list(m.leadership_roles)
+            )
+        except (ValueError, TypeError):
+            continue
+        if "admin" not in [str(r).lower() for r in roles]:
+            continue
+        if m.email and m.email.strip():
+            out.append((m.id, m.full_name, m.email.strip()))
+    return out
+
+
 def _notify_admin_central_sync_failed(member: Member, error: str, db: Session) -> None:
     """Tell admins that a registration was saved locally but didn't make it
-    into the central rfm-database. Best-effort."""
+    into the central rfm-database. Fans out to every member tagged as
+    'admin' in leadership_roles. Best-effort."""
     try:
         from notifications.channels.rfm_notify import RfmNotifyChannel
-        from notifications.dispatcher import get_email_settings
         ch = RfmNotifyChannel()
         if not ch.is_configured():
             return
-        s = get_email_settings(db)
-        admin_email = (
-            os.getenv("ADMIN_EMAIL")
-            or s.get("admin_notification_email")
-            or os.getenv("RESEND_FROM_EMAIL")
-            or s.get("resend_from_email")
-            or os.getenv("SMTP_FROM_EMAIL")
-            or s.get("smtp_from_email")
-        )
-        if not admin_email:
+        recipients = _admin_member_emails(db)
+        if not recipients:
+            print("[register] no admin members with email to notify about central-sync failure")
             return
         subject = "Action required: new portal sign-up didn't reach central database"
         html = f"""
@@ -223,13 +239,16 @@ def _notify_admin_central_sync_failed(member: Member, error: str, db: Session) -
           <li><b>Error:</b> {error}</li>
         </ul>
         """.strip()
-        ch.send(
-            recipient=admin_email,
-            subject=subject,
-            body=html,
-            event_code="portal.central_sync_failed",
-            idempotency_key=f"central-sync-failed:{member.id}",
-        )
+        for admin_id, admin_name, admin_email in recipients:
+            ch.send(
+                recipient=admin_email,
+                subject=subject,
+                body=html,
+                event_code="portal.central_sync_failed",
+                recipient_id=admin_id,
+                recipient_name=admin_name,
+                idempotency_key=f"central-sync-failed:{member.id}:{admin_id}",
+            )
     except Exception as e:
         print(f"[register] admin notify error: {e}")
 
