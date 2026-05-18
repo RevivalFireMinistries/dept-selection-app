@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Today's devotional — Revival Fire{% endblock %}
+{% block meta_description %}Today's devotional from Revival Fire Ministries — a daily reflection from the devotionals team.{% endblock %}
+
+{% block content %}
+<div x-data="devotionalPage()" x-init="load()" class="min-h-screen bg-paper pb-20">
+
+    <!-- Header -->
+    <header class="text-white px-5 pt-6 pb-4 shadow-sm" style="background-color: var(--color-ink);">
+        <div class="max-w-2xl mx-auto flex items-center justify-between">
+            <a href="/portal" class="flex items-center gap-2 text-white/80 hover:text-white text-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                <span>Home</span>
+            </a>
+            <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Devotional</div>
+        </div>
+    </header>
+
+    <div x-show="loading" class="text-center py-16 text-sm" style="color: var(--color-mute);">Loading…</div>
+
+    <!-- No devotional for this date -->
+    <div x-show="!loading && !devotional" class="max-w-2xl mx-auto px-4 py-12 text-center">
+        <div class="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-2xl" style="background-color: var(--color-paper); border: 1px solid var(--color-border);">📖</div>
+        <h1 class="mt-4 font-display text-2xl" style="color: var(--color-ink);">No devotional today</h1>
+        <p class="mt-2 text-sm" style="color: var(--color-mute);">Check back tomorrow — the devotionals team posts most days.</p>
+        <a href="/portal" class="mt-6 inline-block px-5 py-2.5 bg-ink text-white text-sm font-medium rounded-lg">Back to portal</a>
+    </div>
+
+    <article x-show="!loading && devotional" class="max-w-2xl mx-auto px-5 py-6">
+
+        <!-- Date + scripture reference -->
+        <div class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-ember);" x-text="formatDate(devotional?.scheduled_date)"></div>
+        <div x-show="devotional?.scripture_reference" class="text-xs font-semibold mt-1" style="color: var(--color-ember);" x-text="devotional?.scripture_reference"></div>
+
+        <!-- Title -->
+        <h1 class="font-display text-3xl sm:text-4xl mt-3 leading-tight" style="color: var(--color-ink);" x-text="devotional?.title"></h1>
+
+        <!-- Scripture quote — Newsreader serif italic, large block -->
+        <blockquote x-show="devotional?.scripture_text"
+                    class="mt-6 px-4 py-3 border-l-2 font-scripture text-lg sm:text-xl leading-relaxed italic"
+                    style="border-color: var(--color-flame); color: var(--color-ink);"
+                    x-text="`“${devotional?.scripture_text || ''}”`"></blockquote>
+
+        <!-- Body — paragraphs with light markdown, plus Declaration callout -->
+        <div class="mt-6 space-y-4 leading-relaxed text-base" style="color: var(--color-ink-soft);">
+            <template x-for="(block, i) in renderedBlocks()" :key="i">
+                <template x-if="block.kind === 'paragraph'">
+                    <p class="text-base" x-html="block.html"></p>
+                </template>
+                <template x-if="block.kind === 'declaration'">
+                    <div class="mt-2 rounded-2xl p-4 shadow-sm"
+                         style="background: linear-gradient(135deg, rgba(245, 165, 36, 0.08), rgba(184, 84, 28, 0.06)); border: 1px solid rgba(184, 84, 28, 0.2);">
+                        <div class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-ember);">Declaration</div>
+                        <p class="font-display text-xl mt-1 leading-snug" style="color: var(--color-ink);" x-html="block.html"></p>
+                    </div>
+                </template>
+            </template>
+        </div>
+
+        <!-- Author byline -->
+        <div x-show="devotional?.author_name" class="mt-8 pt-4 text-sm italic" style="border-top: 1px solid var(--color-border); color: var(--color-mute);" x-text="'— ' + (devotional?.author_name || '')"></div>
+
+        <!-- Actions -->
+        <div class="mt-6 flex flex-wrap items-center gap-3">
+            <button @click="copy()" class="px-3 py-2 text-xs font-semibold rounded-lg" style="background-color: var(--color-ink); color: white;" x-text="copied ? '✓ Copied' : 'Copy'"></button>
+            <button x-show="canShare" @click="share()" class="px-3 py-2 text-xs font-semibold rounded-lg" style="background-color: var(--color-paper); border: 1px solid var(--color-border); color: var(--color-mute);">Share</button>
+        </div>
+
+        <!-- Archive strip -->
+        <section x-show="archive.length > 1" class="mt-10">
+            <div class="text-[10px] uppercase tracking-[0.2em] font-semibold mb-3" style="color: var(--color-mute);">Recent devotionals</div>
+            <div class="space-y-2">
+                <template x-for="a in archive" :key="a.scheduled_date">
+                    <a :href="`/portal/devotional?date=${a.scheduled_date}`"
+                       :class="a.scheduled_date === devotional?.scheduled_date ? 'border-2' : 'border'"
+                       :style="a.scheduled_date === devotional?.scheduled_date ? 'border-color: var(--color-ember); background-color: rgba(245, 165, 36, 0.04);' : 'border-color: var(--color-border); background: white;'"
+                       class="block p-3 rounded-xl">
+                        <div class="text-[10px] uppercase tracking-widest font-semibold" style="color: var(--color-ember);" x-text="formatDateShort(a.scheduled_date)"></div>
+                        <div class="text-sm font-semibold mt-0.5" style="color: var(--color-ink);" x-text="a.title"></div>
+                        <div x-show="a.scripture_reference" class="text-[11px] mt-0.5" style="color: var(--color-mute);" x-text="a.scripture_reference"></div>
+                    </a>
+                </template>
+            </div>
+        </section>
+    </article>
+</div>
+
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function devotionalPage() {
+    return {
+        loading: true,
+        devotional: null,
+        archive: [],
+        copied: false,
+        canShare: typeof navigator !== 'undefined' && !!navigator.share,
+
+        async load() {
+            // Optional ?date=YYYY-MM-DD for archived devotionals
+            const params = new URLSearchParams(location.search);
+            const dateParam = params.get('date');
+            const url = dateParam ? `/api/portal/devotional/by-date/${encodeURIComponent(dateParam)}` : '/api/portal/devotional/today';
+            try {
+                const r = await fetch(url);
+                if (r.ok) {
+                    const data = await r.json();
+                    this.devotional = data?.devotional || null;
+                }
+            } catch (e) { /* non-fatal */ }
+            // Archive strip — last 60 days, includes today
+            try {
+                const r = await fetch('/api/portal/devotionals/archive');
+                if (r.ok) this.archive = await r.json();
+            } catch (e) { /* non-fatal */ }
+            this.loading = false;
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleDateString(undefined, {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                });
+            } catch (e) { return iso; }
+        },
+        formatDateShort(iso) {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleDateString(undefined, {
+                    weekday: 'short', day: 'numeric', month: 'short',
+                });
+            } catch (e) { return iso; }
+        },
+
+        // ---- Body renderer: paragraphs + light markdown + Declaration callout ----
+        renderedBlocks() {
+            const raw = this.devotional?.body || '';
+            // Split on blank lines → paragraphs; trim each
+            const paragraphs = raw.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
+            const out = [];
+            for (const p of paragraphs) {
+                // Detect Declaration block — e.g. starts with 'Declaration:' or 'Declaration —'
+                const decl = p.match(/^\s*Declaration\s*[:–—-]\s*(.+)$/is);
+                if (decl) {
+                    out.push({ kind: 'declaration', html: this._inline(decl[1].trim()) });
+                    continue;
+                }
+                out.push({ kind: 'paragraph', html: this._inline(p) });
+            }
+            return out;
+        },
+
+        _escapeHtml(s) {
+            return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        },
+
+        _inline(text) {
+            // Escape first, THEN add our markup so user-supplied HTML can never leak through
+            let s = this._escapeHtml(text);
+            // **bold**
+            s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+            // *italic* (matches anything not crossing newlines or asterisks)
+            s = s.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+            // _italic_ as alternative
+            s = s.replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>');
+            // Soft line breaks within a paragraph
+            s = s.replace(/\n/g, '<br>');
+            // Auto-link bare URLs
+            s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color: var(--color-ember); text-decoration: underline;">$1</a>');
+            return s;
+        },
+
+        _shareText() {
+            const d = this.devotional;
+            if (!d) return '';
+            const parts = [
+                d.title,
+                d.scripture_reference || '',
+                d.scripture_text ? `“${d.scripture_text}”` : '',
+                d.body || '',
+                d.author_name ? `— ${d.author_name}` : '',
+            ].filter(Boolean);
+            return parts.join('\n\n');
+        },
+
+        copy() {
+            const text = this._shareText();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                this.copied = true;
+                setTimeout(() => { this.copied = false; }, 2000);
+            });
+        },
+
+        async share() {
+            if (!navigator.share || !this.devotional) return;
+            try {
+                await navigator.share({
+                    title: `${this.devotional.title} — Revival Fire devotional`,
+                    text: this._shareText(),
+                });
+            } catch (e) { /* dismissed */ }
+        },
+    };
+}
+</script>
+{% endblock %}

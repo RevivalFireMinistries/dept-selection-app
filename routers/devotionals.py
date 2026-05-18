@@ -111,6 +111,48 @@ def _parse_date(value) -> Optional[date]:
 # Member-facing
 # ---------------------------------------------------------------------------
 
+@router.get("/portal/devotional/by-date/{iso_date}")
+def portal_devotional_by_date(iso_date: str, request: Request, db: Session = Depends(get_db)):
+    """Look up a published devotional for an arbitrary date (archive view)."""
+    _require_member(request, db)
+    try:
+        target = date.fromisoformat(iso_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Bad date — use YYYY-MM-DD")
+    d = (
+        db.query(Devotional)
+        .options(joinedload(Devotional.created_by))
+        .filter(Devotional.scheduled_date == target, Devotional.status == "published")
+        .first()
+    )
+    return {"devotional": _serialize(d) if d else None, "date": target.isoformat()}
+
+
+@router.get("/portal/devotionals/archive")
+def portal_devotionals_archive(request: Request, db: Session = Depends(get_db)):
+    """Recent published devotionals (last 60 days). Used by the archive
+    strip on the devotional detail page."""
+    _require_member(request, db)
+    from datetime import timedelta as _td
+    cutoff = date.today() - _td(days=60)
+    rows = (
+        db.query(Devotional)
+        .filter(Devotional.status == "published",
+                Devotional.scheduled_date >= cutoff,
+                Devotional.scheduled_date <= date.today())
+        .order_by(Devotional.scheduled_date.desc())
+        .all()
+    )
+    return [
+        {
+            "scheduled_date": r.scheduled_date.isoformat(),
+            "title": r.title,
+            "scripture_reference": r.scripture_reference or "",
+        }
+        for r in rows
+    ]
+
+
 @router.get("/portal/devotional/today")
 def portal_devotional_today(request: Request, db: Session = Depends(get_db)):
     """Today's published devotional, or null if none is scheduled."""

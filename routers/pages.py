@@ -687,6 +687,15 @@ async def payment_failure_page(request: Request):
     return templates.TemplateResponse("payment_failure.html", {"request": request})
 
 
+@router.get("/portal/devotional")
+async def member_devotional_page(request: Request, db: Session = Depends(get_db)):
+    """Full-page reading view of today's (or an archived) devotional."""
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/portal/devotional", status_code=302)
+    return templates.TemplateResponse("portal_devotional.html", {"request": request})
+
+
 @router.get("/portal/profile")
 async def member_profile_page(request: Request, db: Session = Depends(get_db)):
     """Member-facing profile page — shows everything we know about them."""

@@ -165,39 +165,20 @@
                 </section>
 
                 <!-- Today's devotional (falls back to verse if none scheduled) -->
-                <section x-show="devotional" class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border: 1px solid var(--color-border);">
+                <a x-show="devotional" href="/portal/devotional"
+                   class="block bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition"
+                   style="border: 1px solid var(--color-border);">
                     <div class="p-5">
                         <div class="text-[10px] uppercase tracking-[0.2em]" style="color: var(--color-ember);">Today's devotional</div>
                         <h2 class="mt-2 font-display text-2xl leading-tight" style="color: var(--color-ink);" x-text="devotional?.title"></h2>
                         <div x-show="devotional?.scripture_reference" class="text-xs font-semibold mt-1" style="color: var(--color-ember);" x-text="devotional?.scripture_reference"></div>
                         <blockquote x-show="devotional?.scripture_text" class="mt-3 pl-3 border-l-2 font-scripture italic leading-relaxed" style="border-color: var(--color-flame); color: var(--color-ink);" x-text="devotional?.scripture_text"></blockquote>
-                        <div class="mt-4 space-y-3 leading-relaxed" style="color: var(--color-ink-soft);">
-                            <template x-for="(p, i) in devotionalParagraphs(devotionalExpanded ? Infinity : 2)" :key="i">
-                                <p class="text-sm" x-text="p"></p>
-                            </template>
+                        <p class="mt-4 text-sm leading-relaxed line-clamp-3" style="color: var(--color-ink-soft);" x-text="devotionalFirstParagraph()"></p>
+                        <div class="mt-3 inline-flex items-center gap-1 text-xs font-semibold" style="color: var(--color-ember);">
+                            Read full devotional →
                         </div>
-                        <button x-show="devotionalParagraphs(Infinity).length > 2 && !devotionalExpanded"
-                                @click="devotionalExpanded = true"
-                                class="mt-3 text-xs font-semibold hover:underline" style="color: var(--color-ember);">
-                            Read more →
-                        </button>
-                        <div x-show="devotional?.author_name" class="mt-4 text-[11px] italic" style="color: var(--color-mute);" x-text="'— ' + (devotional?.author_name || '')"></div>
                     </div>
-                    <div class="px-5 py-2.5 flex items-center gap-3 text-xs" style="background-color: var(--color-paper); border-top: 1px solid var(--color-border);">
-                        <button @click="copyDevotional()" class="flex items-center gap-1.5 hover:text-ember transition" style="color: var(--color-mute);">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>
-                            </svg>
-                            <span x-text="devotionalCopied ? 'Copied' : 'Copy'"></span>
-                        </button>
-                        <button x-show="canShareDevotional" @click="shareDevotional()" class="flex items-center gap-1.5 hover:text-ember transition" style="color: var(--color-mute);">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m9.032 4.026a3 3 0 10-2.684 2.684m2.684-2.684a3 3 0 10-2.684-2.684"/>
-                            </svg>
-                            Share
-                        </button>
-                    </div>
-                </section>
+                </a>
 
                 <!-- Verse of the day (fallback when no devotional is scheduled) -->
                 <section x-show="!devotional && verse" class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border: 1px solid var(--color-border);">
@@ -1840,6 +1821,14 @@ function memberPortal() {
             if (!this.devotional) return [];
             const all = (this.devotional.body || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
             return Number.isFinite(limit) ? all.slice(0, limit) : all;
+        },
+
+        devotionalFirstParagraph() {
+            // First non-Declaration paragraph as a teaser on the Home card
+            for (const p of this.devotionalParagraphs(Infinity)) {
+                if (!/^\s*Declaration\s*[:–—\-]/i.test(p)) return p;
+            }
+            return '';
         },
 
         _devotionalText() {
