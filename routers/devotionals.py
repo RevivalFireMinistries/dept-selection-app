@@ -21,6 +21,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
@@ -172,6 +173,29 @@ def portal_devotional_today(request: Request, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Team-facing
 # ---------------------------------------------------------------------------
+
+@router.get("/admin/devotionals/author-search")
+def admin_author_search(
+    q: str = Query(..., min_length=1),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Autocomplete for the 'author' picker on the devotional builder.
+    Searches local members by name or phone. Admin/team only."""
+    _require_team(request, db)
+    needle = f"%{q.strip()}%"
+    rows = (
+        db.query(Member)
+        .filter(or_(Member.full_name.ilike(needle), Member.phone.ilike(needle)))
+        .order_by(Member.full_name.asc())
+        .limit(15)
+        .all()
+    )
+    return [
+        {"id": m.id, "full_name": m.full_name, "phone": m.phone or ""}
+        for m in rows
+    ]
+
 
 @router.get("/admin/devotionals")
 def admin_list_devotionals(
