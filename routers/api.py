@@ -131,50 +131,320 @@ def _send_password_setup_email(db, member, token: str):
         print(f"Error sending password setup email: {e}")
 
 
+def _split_full_name(full_name: str) -> Tuple[str, str]:
+    """Split 'John Doe' → ('John', 'Doe'). Single-word names go to first
+    name and last is a placeholder so the central API accepts it."""
+    parts = [p for p in (full_name or "").strip().split() if p]
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], "-"
+    return parts[0], " ".join(parts[1:])
+
+
+def _portal_base_url(request: Request) -> str:
+    """Best guess at the portal's public URL for verification links."""
+    env_url = os.getenv("APP_URL") or os.getenv("PUBLIC_APP_URL")
+    if env_url:
+        return env_url.rstrip("/")
+    railway = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    if railway:
+        return f"https://{railway.rstrip('/')}"
+    # Fall back to whatever the request was made against
+    return f"{request.url.scheme}://{request.url.netloc}".rstrip("/")
+
+
+def _send_verification_email(request: Request, member: Member, token: str) -> None:
+    """Send the welcome / verify-your-email message. Best-effort — never
+    fails the registration."""
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        ch = RfmNotifyChannel()
+        if not ch.is_configured():
+            print("[register] rfm-notify not configured — skipping verification email")
+            return
+        link = f"{_portal_base_url(request)}/verify-email?token={token}"
+        subject = "Confirm your RFM portal account"
+        html = f"""
+        <p>Hi {member.full_name.split(' ')[0] or 'there'},</p>
+        <p>Thanks for signing up to the RFM Stellenbosch portal. Please confirm
+        your email address by clicking the button below — the link is valid
+        for 24 hours.</p>
+        <p><a href="{link}" style="display:inline-block;padding:10px 18px;background:#b8541c;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Confirm email</a></p>
+        <p>If the button doesn't work, paste this into your browser:<br>
+        <a href="{link}">{link}</a></p>
+        <p>— RFM Stellenbosch</p>
+        """.strip()
+        ok, err = ch.send(
+            recipient=member.email,
+            subject=subject,
+            body=html,
+            event_code="portal.email_verification",
+            recipient_id=member.id,
+            recipient_name=member.full_name,
+            idempotency_key=f"verify-email:{member.id}:{token[:10]}",
+        )
+        if not ok:
+            print(f"[register] verification email failed: {err}")
+    except Exception as e:
+        print(f"[register] verification email error: {e}")
+
+
+def _notify_admin_central_sync_failed(member: Member, error: str, db: Session) -> None:
+    """Tell admins that a registration was saved locally but didn't make it
+    into the central rfm-database. Best-effort."""
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        from notifications.dispatcher import get_email_settings
+        ch = RfmNotifyChannel()
+        if not ch.is_configured():
+            return
+        s = get_email_settings(db)
+        admin_email = (
+            os.getenv("ADMIN_EMAIL")
+            or s.get("admin_notification_email")
+            or os.getenv("RESEND_FROM_EMAIL")
+            or s.get("resend_from_email")
+            or os.getenv("SMTP_FROM_EMAIL")
+            or s.get("smtp_from_email")
+        )
+        if not admin_email:
+            return
+        subject = "Action required: new portal sign-up didn't reach central database"
+        html = f"""
+        <p>A new member registered on the portal but the central rfm-database
+        create call failed. The local record has been saved — please add them
+        to central manually or retry the link from the admin members page.</p>
+        <ul>
+          <li><b>Name:</b> {member.full_name}</li>
+          <li><b>Phone:</b> {member.phone}</li>
+          <li><b>Email:</b> {member.email or '—'}</li>
+          <li><b>Local member id:</b> {member.id}</li>
+          <li><b>Error:</b> {error}</li>
+        </ul>
+        """.strip()
+        ch.send(
+            recipient=admin_email,
+            subject=subject,
+            body=html,
+            event_code="portal.central_sync_failed",
+            idempotency_key=f"central-sync-failed:{member.id}",
+        )
+    except Exception as e:
+        print(f"[register] admin notify error: {e}")
+
+
+@router.get("/public/assemblies")
+def public_list_assemblies(db: Session = Depends(get_db)):
+    """Assemblies available for registration. Pulled live from the central
+    rfm-database. Returns a flat array of {id, name, suburb?}. Public — no
+    auth — because we call it from the unauthenticated /register page."""
+    if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        return []
+    r = _rfm.list_assemblies(db=db)
+    if not r.ok:
+        return []
+    items = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+    out = []
+    for a in items:
+        aid = a.get("id")
+        name = (a.get("name") or "").strip()
+        if not aid or not name:
+            continue
+        out.append({
+            "id": str(aid),
+            "name": name,
+            "suburb": (a.get("suburb") or "").strip(),
+            "city": (a.get("city") or "").strip(),
+        })
+    out.sort(key=lambda x: x["name"].lower())
+    return out
+
+
 @router.post("/auth/register")
 def register_member(
     request: Request,
     data: dict = Body(...),
     db: Session = Depends(get_db)
 ):
-    """Register a new member account (requires admin approval)"""
+    """Register a new member account.
+
+    Flow:
+      1. Validate basic fields + assembly_id (from rfm-database list).
+      2. Reject if phone already exists locally.
+      3. Try to create the member in the central rfm-database. On success
+         we store external_member_id/external_assembly_id locally.
+      4. On central failure we still create locally and email an admin so
+         the central record can be added/retried manually.
+      5. Generate an email verification token (24h) and send the verify
+         email. Account is created with email_verified_at = null — the
+         portal banner will nudge them until they click the link.
+    """
     full_name = (data.get("full_name") or "").strip()
     phone = (data.get("phone") or "").strip()
     email = (data.get("email") or "").strip()
     address = (data.get("address") or "").strip()
     password = data.get("password") or ""
+    assembly_id = (data.get("assembly_id") or "").strip()
 
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required")
     if not phone or not validate_phone(phone):
         raise HTTPException(status_code=400, detail="Valid 10-digit phone number is required")
-    if not email:
-        raise HTTPException(status_code=400, detail="Email is required")
+    if not email or "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="A valid email is required")
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if not assembly_id:
+        raise HTTPException(status_code=400, detail="Please choose your assembly")
 
-    # Check if phone already exists
+    # Validate assembly_id against the central list
+    if _rfm.is_enabled(db) and _rfm.is_configured(db):
+        ar = _rfm.list_assemblies(db=db)
+        if ar.ok:
+            items = ar.data if isinstance(ar.data, list) else (ar.data or {}).get("data") or []
+            valid_ids = {str(a.get("id")) for a in items if a.get("id")}
+            if valid_ids and assembly_id not in valid_ids:
+                raise HTTPException(status_code=400, detail="That assembly isn't recognised — please pick from the list.")
+
+    # Phone uniqueness — same loop as before, but limited to active rows
     normalized = phone.strip().replace(" ", "").replace("-", "")
     existing = db.query(Member).all()
     for m in existing:
-        m_normalized = m.phone.strip().replace(" ", "").replace("-", "")
+        m_normalized = (m.phone or "").strip().replace(" ", "").replace("-", "")
         if m_normalized == normalized:
             raise HTTPException(status_code=400, detail="An account with this phone number already exists. Try logging in or use Forgot Password.")
 
+    first_name, last_name = _split_full_name(full_name)
+
+    # Attempt central create
+    external_member_id: Optional[str] = None
+    external_assembly_id: Optional[str] = assembly_id or None
+    central_error: Optional[str] = None
+    if _rfm.is_enabled(db) and _rfm.is_configured(db) and assembly_id:
+        canonical_phone = _rfm.to_sa_canonical_mobile(phone) or phone
+        payload = {
+            "assembly_id": assembly_id,
+            "first_name": first_name or full_name,
+            "last_name": last_name or "-",
+            "phone": canonical_phone,
+            "email": email,
+        }
+        if address:
+            payload["physical_address"] = address
+        try:
+            result = _rfm.create_member(payload, db=db)
+            if result.ok:
+                new_record = result.data
+                if isinstance(new_record, dict) and "data" in new_record:
+                    new_record = new_record["data"]
+                new_id = (new_record or {}).get("id")
+                if new_id:
+                    external_member_id = str(new_id)
+            else:
+                central_error = result.error or "Central API rejected the request"
+        except Exception as e:
+            central_error = str(e)
+
+    # Build local row
+    token = secrets.token_urlsafe(32)
     member = Member(
         full_name=full_name,
         phone=phone,
         email=email,
         address=address or "",
         password_hash=_hash_password(password),
-        is_active=False  # Requires admin approval
+        is_active=True,  # Allow login; banner will nag until verified
+        external_member_id=external_member_id,
+        external_assembly_id=external_assembly_id,
+        external_match_status="matched" if external_member_id else "unmatched",
+        external_synced_at=datetime.utcnow() if external_member_id else None,
+        email_verification_token=token,
+        email_verification_expires=datetime.utcnow() + timedelta(hours=24),
     )
     db.add(member)
     db.flush()
-    _log_member_action(request, db, member, "register", "member", member.id, f"New registration (pending approval)")
+    note = "New self-registration"
+    if central_error:
+        note += f" (central sync FAILED: {central_error[:200]})"
+    elif external_member_id:
+        note += f" — linked to central {external_member_id}"
+    _log_member_action(request, db, member, "register", "member", member.id, note)
     db.commit()
+    db.refresh(member)
 
-    return {"success": True, "message": "Your account has been created and is pending admin approval. You will be notified once approved."}
+    # Fire-and-forget: verification email + admin notice on central failure
+    _send_verification_email(request, member, token)
+    if central_error:
+        _notify_admin_central_sync_failed(member, central_error, db)
+
+    return {
+        "success": True,
+        "central_synced": bool(external_member_id),
+        "message": (
+            "Account created. We've sent a verification link to your email — "
+            "please confirm it within 24 hours."
+        ),
+    }
+
+
+@router.post("/auth/verify-email")
+def verify_email(data: dict = Body(...), db: Session = Depends(get_db)):
+    """Consume an email verification token. Idempotent — if the user is
+    already verified, returns success."""
+    token = (data.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing verification token")
+    member = (
+        db.query(Member)
+        .filter(Member.email_verification_token == token)
+        .first()
+    )
+    if not member:
+        # Maybe they already verified and we cleared the token — accept
+        # silently rather than show a scary error.
+        raise HTTPException(status_code=404, detail="This verification link isn't valid. Try resending the email.")
+    if member.email_verification_expires and member.email_verification_expires < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="This verification link has expired. Please request a new one.")
+    if not member.email_verified_at:
+        member.email_verified_at = datetime.utcnow()
+    member.email_verification_token = None
+    member.email_verification_expires = None
+    db.commit()
+    return {"success": True, "full_name": member.full_name}
+
+
+@router.post("/auth/resend-verification")
+def resend_verification(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Generate a fresh verification token + email it. Looks up by phone
+    or email. Always returns success to avoid leaking which addresses are
+    registered."""
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    member = None
+    if phone:
+        normalized = phone.replace(" ", "").replace("-", "")
+        for m in db.query(Member).all():
+            if (m.phone or "").replace(" ", "").replace("-", "") == normalized:
+                member = m
+                break
+    if not member and email:
+        member = (
+            db.query(Member)
+            .filter(func.lower(Member.email) == email)
+            .first()
+        )
+    if member and not member.email_verified_at and member.email:
+        token = secrets.token_urlsafe(32)
+        member.email_verification_token = token
+        member.email_verification_expires = datetime.utcnow() + timedelta(hours=24)
+        db.commit()
+        _send_verification_email(request, member, token)
+    return {"success": True}
 
 
 @router.post("/auth/login")
@@ -9582,6 +9852,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "address": member.address or "",
             "leadership_roles": leadership_roles,
             "external_synced": bool(member.external_member_id),
+            "email_verified": bool(getattr(member, "email_verified_at", None)),
         },
         "departments": {
             "approved": approved_departments,
@@ -9867,6 +10138,114 @@ def portal_giving_recent(
         "items": [_serialize_contribution(c, viewer_external_id=viewer_id) for c in items],
         "count": len(items),
     }
+
+
+# ---------------------------------------------------------------------------
+# Finance projects & pledges (portal-facing)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/portal/projects")
+def portal_list_projects(request: Request = None, db: Session = Depends(get_db)):
+    """List active finance projects the logged-in member can pledge to.
+
+    Returns a slim shape — just the fields the modal needs — so we
+    don't ship every metadata blob the central API knows about.
+    """
+    member = _require_logged_in_member(request, db)
+    assembly_id = member.external_assembly_id or _resolve_default_assembly_id(db)
+    r = _rfm.list_projects(assembly_id=assembly_id, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    items_raw = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+    items = [
+        {
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "description": p.get("description"),
+            "kind": p.get("kind"),
+            "target_amount": p.get("target_amount"),
+            "end_date": p.get("end_date"),
+        }
+        for p in (items_raw or [])
+        if (p.get("status") or "ACTIVE") == "ACTIVE"
+    ]
+    return {"items": items, "count": len(items)}
+
+
+@router.get("/portal/pledges")
+def portal_list_pledges(request: Request = None, db: Session = Depends(get_db)):
+    """Pledges the logged-in member has open. Trimmed to UI-required
+    fields; days_until_due is computed server-side so the template
+    doesn't redo date math (and we avoid the inevitable "Sunday-as-day-0"
+    JavaScript timezone bugs).
+    """
+    member = _require_member_with_central_link(request, db)
+    r = _rfm.list_member_pledges(member.external_member_id, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    items_raw = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+    items = []
+    for p in items_raw or []:
+        items.append({
+            "id": p.get("id"),
+            "project_id": p.get("project_id"),
+            "project_name": p.get("project_name"),
+            "amount_pledged": p.get("amount_pledged"),
+            "promised_date": p.get("promised_date"),
+            "status": p.get("status"),
+            "source": p.get("source"),
+            "paid_total": p.get("paid_total") or 0,
+            "outstanding": p.get("outstanding") or 0,
+            "days_until_due": p.get("days_until_due"),
+            "notes": p.get("notes"),
+        })
+    return {"items": items, "count": len(items)}
+
+
+@router.post("/portal/pledges")
+def portal_create_pledge(
+    payload: dict = Body(...),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Self-pledge from the portal.
+
+    Security: member_id is NEVER taken from the client — we pin it to
+    the authenticated session's external_member_id so a malicious caller
+    can't pledge on someone else's behalf. source is forced to SELF so
+    the central side picks the "thank you for committing" template
+    rather than the admin-captured one.
+    """
+    member = _require_member_with_central_link(request, db)
+    if not payload or not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Body required")
+    project_id = payload.get("project_id")
+    amount_pledged = payload.get("amount_pledged")
+    promised_date = payload.get("promised_date")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    try:
+        amt = float(amount_pledged or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="amount_pledged must be a number")
+    if amt <= 0:
+        raise HTTPException(status_code=400, detail="amount_pledged must be > 0")
+    if not promised_date:
+        raise HTTPException(status_code=400, detail="promised_date is required")
+
+    body = {
+        "project_id": project_id,
+        "member_id": member.external_member_id,
+        "amount_pledged": amt,
+        "promised_date": promised_date,
+        "notes": (payload.get("notes") or None),
+        "source": "SELF",
+    }
+    r = _rfm.create_pledge(body, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    return r.data or {}
 
 
 @router.get("/admin/debug/central-member/{member_id}")

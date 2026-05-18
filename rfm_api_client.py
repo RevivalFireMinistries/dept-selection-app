@@ -884,3 +884,43 @@ def _score_and_strip(api_member: dict, score: float) -> dict:
         "membership_status": api_member.get("membership_status"),
         "_score": round(score, 3),
     }
+
+
+# ---------------------------------------------------------------------------
+# Finance projects + pledges
+# ---------------------------------------------------------------------------
+
+
+def list_projects(*, assembly_id: Optional[str] = None, include_closed: bool = False, db=None) -> ApiResult:
+    """List active finance projects for the assembly.
+
+    The portal calls this to populate the self-pledge modal's project
+    picker. `include_closed=False` is the default since members can
+    only pledge to ACTIVE projects.
+    """
+    params: dict = {}
+    if assembly_id:
+        params["assembly_id"] = assembly_id
+    if include_closed:
+        params["include_closed"] = "true"
+    return _request("GET", "/api/v1/projects", db=db, params=params or None)
+
+
+def list_member_pledges(member_id: str, *, db=None) -> ApiResult:
+    """All non-cancelled pledges for a single member. Drives the
+    "My pledges" card in the portal Contributions tab.
+    """
+    return _request(
+        "GET",
+        f"/api/v1/projects/pledges/member/{member_id}",
+        db=db,
+    )
+
+
+def create_pledge(payload: dict, *, db=None) -> ApiResult:
+    """Self-pledge from the portal. Caller must populate source='SELF'
+    and member_id from the authenticated session — the central API
+    refuses to silently accept member_id from a service-key request
+    without it being explicit.
+    """
+    return _request("POST", "/api/v1/projects/pledges", db=db, body=payload)

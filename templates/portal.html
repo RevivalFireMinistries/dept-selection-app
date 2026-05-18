@@ -58,6 +58,18 @@
                     </div>
                 </section>
 
+                <!-- Email verification nudge — shown until they click the link -->
+                <section x-show="data.member.email_verified === false" class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                    <div class="flex items-start gap-3">
+                        <div class="text-xl flex-shrink-0">✉️</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-semibold text-amber-900">Verify your email</div>
+                            <div class="text-xs text-amber-800 mt-0.5">We sent a confirmation link to <span class="font-medium" x-text="data.member.email"></span>. Click it to finish setting up your account.</div>
+                            <button @click="resendVerification()" class="mt-2 text-xs font-semibold text-amber-900 underline hover:no-underline" x-text="verifyResendState"></button>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Profile enrichment nudge — one missing field at a time -->
                 <section x-show="enrichField && !enrichDismissed(enrichField)"
                          class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
@@ -464,6 +476,64 @@
                     </dl>
                 </section>
 
+                <!--
+                    Pledges card. Shows the member's open commitments
+                    with status badges (PENDING / PARTIAL / FULFILLED)
+                    and a "Due in 3 days" / "Overdue by 2 days" indicator
+                    derived server-side from days_until_due so we don't
+                    redo date math here. The "Pledge to a project" button
+                    opens a modal where they can self-pledge against any
+                    active project.
+                -->
+                <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <div class="flex items-center justify-between mb-3 gap-2">
+                        <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">My pledges</h2>
+                        <button @click="openPledgeModal()" class="text-xs font-semibold px-3 py-1.5 rounded-lg" style="background: #00796B; color: white;">
+                            + Pledge to a project
+                        </button>
+                    </div>
+                    <div x-show="pledgesLoading" class="text-xs text-gray-400 italic">Loading…</div>
+                    <div x-show="!pledgesLoading && !(pledges || []).length" class="text-sm text-gray-500 italic">
+                        No active pledges. Tap "Pledge to a project" above to commit to a giving goal.
+                    </div>
+                    <div class="space-y-2">
+                        <template x-for="pl in (pledges || [])" :key="pl.id">
+                            <div class="p-3 border rounded-xl"
+                                :style="(pl.days_until_due ?? 0) < 0 && (pl.status === 'PENDING' || pl.status === 'PARTIAL') ? 'border-color:#FFCDD2;background:#FFF5F5;' : 'border-color:#E5E7EB;'">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="font-medium text-sm text-gray-800" x-text="pl.project_name"></span>
+                                            <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-semibold"
+                                                :style="{
+                                                    PENDING:   'background:#FFF8E1;color:#F9A825',
+                                                    PARTIAL:   'background:#E3F2FD;color:#1565C0',
+                                                    FULFILLED: 'background:#E8F5E9;color:#2E7D32',
+                                                    CANCELLED: 'background:#FAFAFA;color:#9E9E9E',
+                                                }[pl.status] || 'background:#F5F5F5;color:#616161'"
+                                                x-text="pl.status"></span>
+                                            <span x-show="(pl.days_until_due ?? 0) < 0 && (pl.status === 'PENDING' || pl.status === 'PARTIAL')"
+                                                class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-semibold"
+                                                style="background:#FFEBEE;color:#C62828">
+                                                Overdue
+                                            </span>
+                                        </div>
+                                        <div class="mt-1 text-sm text-gray-600">
+                                            <span x-text="formatMoney(pl.amount_pledged, 'ZAR')"></span>
+                                            ·
+                                            <span x-text="pledgeDueLabel(pl)"></span>
+                                        </div>
+                                        <div x-show="(Number(pl.paid_total) || 0) > 0" class="text-[11px] text-gray-500 mt-0.5">
+                                            Paid <span x-text="formatMoney(pl.paid_total, 'ZAR')"></span>
+                                            · Outstanding <span x-text="formatMoney(pl.outstanding, 'ZAR')"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Recent</h2>
                     <div x-show="givingLoading" class="text-xs text-gray-400 italic">Loading…</div>
@@ -803,6 +873,65 @@
         </aside>
     </div>
 
+    <!-- ==================== PLEDGE MODAL ==================== -->
+    <!--
+        Self-pledge from the member portal. Lists active projects from
+        the central DB; the member picks one, types an amount and a
+        promised date, and we POST /api/portal/pledges which forwards
+        to rfm-database with source=SELF. The "thank-you for committing"
+        email goes out automatically from the proxy side-effect.
+    -->
+    <div x-show="pledgeOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="pledgeOpen = false">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between">
+                <div>
+                    <div class="text-[10px] uppercase tracking-widest text-gray-400">Make a pledge</div>
+                    <h3 class="text-lg font-semibold">Commit to a project</h3>
+                </div>
+                <button @click="pledgeOpen = false" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+                <div x-show="pledgeError" class="text-sm p-2.5 rounded-lg" style="background:#FFEBEE;color:#C62828" x-text="pledgeError"></div>
+                <div>
+                    <label class="text-xs font-medium text-gray-600 mb-1 block">Project</label>
+                    <select x-model="pledgeForm.project_id" class="w-full p-2.5 border border-gray-200 rounded-lg text-sm">
+                        <option value="">— Choose a project —</option>
+                        <template x-for="p in (activeProjects || [])" :key="p.id">
+                            <option :value="p.id" x-text="p.name + (p.kind === 'SYSTEM' ? '' : (p.target_amount ? ` (target R${Number(p.target_amount).toLocaleString('en-ZA')})` : ''))"></option>
+                        </template>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-medium text-gray-600 mb-1 block">Amount (R)</label>
+                    <input type="number" min="0" step="0.01" inputmode="decimal" x-model="pledgeForm.amount" class="w-full p-2.5 border border-gray-200 rounded-lg text-sm" placeholder="0.00"/>
+                </div>
+                <div>
+                    <label class="text-xs font-medium text-gray-600 mb-1 block">Promised date</label>
+                    <input type="date" x-model="pledgeForm.promised_date" class="w-full p-2.5 border border-gray-200 rounded-lg text-sm"/>
+                </div>
+                <div>
+                    <label class="text-xs font-medium text-gray-600 mb-1 block">Notes (optional)</label>
+                    <textarea x-model="pledgeForm.notes" rows="2" class="w-full p-2.5 border border-gray-200 rounded-lg text-sm" placeholder="Anything to add"></textarea>
+                </div>
+                <p class="text-[11px] text-gray-500 italic">
+                    You can pay anytime before the due date. We'll send a reminder a few days before — no pressure.
+                </p>
+            </div>
+            <div class="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-3 flex gap-2 justify-end">
+                <button @click="pledgeOpen = false" class="px-3 py-2 text-sm text-gray-600">Cancel</button>
+                <button
+                    @click="submitPledge()"
+                    :disabled="pledgeSubmitting"
+                    class="px-4 py-2 text-sm font-semibold rounded-lg"
+                    style="background:#00796B;color:white">
+                    <span x-show="!pledgeSubmitting">Submit pledge</span>
+                    <span x-show="pledgeSubmitting">Saving…</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- ==================== PAY (ONLINE GIVING) MODAL ==================== -->
     <div x-show="payOpen" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="payOpen = false">
         <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
@@ -1098,6 +1227,16 @@ function memberPortal() {
         bankingCopied: false,
         copiedField: null,
         canShare: typeof navigator !== 'undefined' && !!navigator.share,
+        // Pledges (member self-service)
+        pledges: [],
+        pledgesLoading: false,
+        _pledgesLoaded: false,
+        pledgeOpen: false,
+        pledgeError: '',
+        pledgeSubmitting: false,
+        pledgeForm: { project_id: '', amount: '', promised_date: '', notes: '' },
+        activeProjects: [],
+        _activeProjectsLoaded: false,
         // Online payment (Yoco)
         payOpen: false,
         payError: '',
@@ -2181,6 +2320,85 @@ function memberPortal() {
                 this._givingLoaded = true;
             } catch (e) { console.error(e); }
             this.givingLoading = false;
+            // Fire-and-forget — pledges load in parallel with giving but
+            // don't block the giving render if they fail (network or
+            // central-DB issue). Pledge card just stays empty in that case.
+            this.loadPledges();
+        },
+
+        async loadPledges() {
+            if (this._pledgesLoaded || this.pledgesLoading) return;
+            this.pledgesLoading = true;
+            try {
+                const r = await fetch('/api/portal/pledges');
+                if (r.ok) {
+                    const data = await r.json();
+                    this.pledges = data.items || [];
+                    this._pledgesLoaded = true;
+                }
+            } catch (e) { console.error('pledges load failed', e); }
+            this.pledgesLoading = false;
+        },
+
+        async openPledgeModal() {
+            this.pledgeError = '';
+            this.pledgeForm = { project_id: '', amount: '', promised_date: '', notes: '' };
+            this.pledgeOpen = true;
+            // Lazy-load active projects on first open. Cached for the
+            // session — admins rarely add projects mid-day, and a stale
+            // list is acceptable for an opt-in pledge flow.
+            if (!this._activeProjectsLoaded) {
+                try {
+                    const r = await fetch('/api/portal/projects');
+                    if (r.ok) {
+                        const data = await r.json();
+                        this.activeProjects = data.items || [];
+                        this._activeProjectsLoaded = true;
+                    }
+                } catch (e) { console.error('projects load failed', e); }
+            }
+        },
+
+        async submitPledge() {
+            if (this.pledgeSubmitting) return;
+            if (!this.pledgeForm.project_id) { this.pledgeError = 'Pick a project.'; return; }
+            const amt = Number(this.pledgeForm.amount);
+            if (!amt || amt <= 0) { this.pledgeError = 'Enter a pledge amount.'; return; }
+            if (!this.pledgeForm.promised_date) { this.pledgeError = 'Choose a promised date.'; return; }
+            this.pledgeSubmitting = true;
+            this.pledgeError = '';
+            try {
+                const r = await fetch('/api/portal/pledges', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project_id: this.pledgeForm.project_id,
+                        amount_pledged: amt,
+                        promised_date: this.pledgeForm.promised_date,
+                        notes: this.pledgeForm.notes || null,
+                    }),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || `Pledge failed (${r.status})`);
+                }
+                // Refresh the list so the new pledge shows up immediately.
+                this._pledgesLoaded = false;
+                this.pledgeOpen = false;
+                await this.loadPledges();
+            } catch (e) {
+                this.pledgeError = e.message || 'Could not submit pledge.';
+            }
+            this.pledgeSubmitting = false;
+        },
+
+        pledgeDueLabel(pl) {
+            const d = pl.days_until_due;
+            if (typeof d !== 'number') return `due ${pl.promised_date}`;
+            if (d < 0) return `overdue by ${Math.abs(d)} day${Math.abs(d) === 1 ? '' : 's'}`;
+            if (d === 0) return 'due today';
+            if (d === 1) return 'due tomorrow';
+            return `due in ${d} days`;
         },
 
         // ---- Helpers ----
