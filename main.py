@@ -586,6 +586,21 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (email_verification): {e}")
 
+        # Pledge-aware payment_transactions. project_id + pledge_id are
+        # forwarded up to rfm-database after Yoco captures so the
+        # contribution lands attributed to the right finance project
+        # (and, optionally, fulfils an open pledge).
+        try:
+            conn.execute(text("""
+                ALTER TABLE payment_transactions
+                ADD COLUMN IF NOT EXISTS project_id VARCHAR(36) NULL,
+                ADD COLUMN IF NOT EXISTS pledge_id VARCHAR(36) NULL
+            """))
+            conn.commit()
+            print("Migration: Added project_id + pledge_id to payment_transactions")
+        except Exception as e:
+            print(f"Migration note (payment_transactions project/pledge): {e}")
+
         # Seed starter reading plans (drafts) if the table is empty so the
         # Bible Reading Plan team has something to clone-and-edit instead
         # of an empty page on day one.

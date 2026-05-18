@@ -10198,14 +10198,27 @@ def portal_list_projects(request: Request = None, db: Session = Depends(get_db))
 
 
 @router.get("/portal/pledges")
-def portal_list_pledges(request: Request = None, db: Session = Depends(get_db)):
-    """Pledges the logged-in member has open. Trimmed to UI-required
-    fields; days_until_due is computed server-side so the template
-    doesn't redo date math (and we avoid the inevitable "Sunday-as-day-0"
+def portal_list_pledges(
+    include_spouse: bool = Query(False),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Pledges the logged-in member has open.
+
+    days_until_due is computed server-side so the template doesn't
+    redo date math (and we avoid the inevitable "Sunday-as-day-0"
     JavaScript timezone bugs).
+
+    When ``include_spouse=true`` the response also includes the
+    member's spouse's open pledges — used by the pay modal so a
+    wife paying via Yoco can see (and settle) her husband's pledges
+    in one tap. The response carries member_id + member_name on each
+    row so the UI can label "Your pledge" vs "Mr X's pledge".
     """
     member = _require_member_with_central_link(request, db)
-    r = _rfm.list_member_pledges(member.external_member_id, db=db)
+    r = _rfm.list_member_pledges(
+        member.external_member_id, include_spouse=include_spouse, db=db,
+    )
     if not r.ok:
         raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
     items_raw = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
@@ -10215,6 +10228,8 @@ def portal_list_pledges(request: Request = None, db: Session = Depends(get_db)):
             "id": p.get("id"),
             "project_id": p.get("project_id"),
             "project_name": p.get("project_name"),
+            "member_id": p.get("member_id"),
+            "member_name": p.get("member_name"),
             "amount_pledged": p.get("amount_pledged"),
             "promised_date": p.get("promised_date"),
             "status": p.get("status"),

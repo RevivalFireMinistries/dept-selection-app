@@ -906,14 +906,24 @@ def list_projects(*, assembly_id: Optional[str] = None, include_closed: bool = F
     return _request("GET", "/api/v1/projects", db=db, params=params or None)
 
 
-def list_member_pledges(member_id: str, *, db=None) -> ApiResult:
-    """All non-cancelled pledges for a single member. Drives the
-    "My pledges" card in the portal Contributions tab.
+def list_member_pledges(
+    member_id: str, *, include_spouse: bool = False, db=None
+) -> ApiResult:
+    """All non-cancelled pledges for a single member.
+
+    With ``include_spouse=True``, the response also folds in the
+    spouse's open pledges (HUSBAND ↔ WIFE / legacy HEAD ↔ SPOUSE)
+    so the portal's payment flow can show either partner all the
+    open family pledges they could settle.
     """
+    params: dict = {}
+    if include_spouse:
+        params["include_spouse"] = "true"
     return _request(
         "GET",
         f"/api/v1/projects/pledges/member/{member_id}",
         db=db,
+        params=params or None,
     )
 
 

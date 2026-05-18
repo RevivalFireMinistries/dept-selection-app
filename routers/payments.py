@@ -63,8 +63,21 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
     if not secret_key:
         raise HTTPException(status_code=503, detail="Online payments aren't configured yet. Please use the bank details below.")
 
+    # Project + pledge are the new attribution model. Old clients sent
+    # only `category` (TITHE/OFFERING/etc.) — we still accept that path
+    # for backward compatibility but, where present, project_id wins
+    # and the category is derived from the project's name downstream.
+    project_id = (payload.get("project_id") or "").strip() or None
+    pledge_id = (payload.get("pledge_id") or "").strip() or None
+
     category = (payload.get("category") or "").strip().upper()
-    if category not in VALID_CATEGORIES:
+    # When a project_id is supplied, the category requirement relaxes —
+    # the central side resolves the project_id and stores the right
+    # mapping. We still pass *something* in category for the legacy
+    # PaymentTransaction column which is NOT NULL.
+    if not category:
+        category = "OTHER"
+    if not project_id and category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Pick a category: {', '.join(sorted(VALID_CATEGORIES))}")
 
     custom_label = (payload.get("custom_label") or "").strip() or None
@@ -114,6 +127,8 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
         category=category,
         custom_label=custom_label,
         notes=notes,
+        project_id=project_id,
+        pledge_id=pledge_id,
     )
     db.add(txn)
     db.commit()
@@ -314,6 +329,15 @@ def _push_to_central(txn: PaymentTransaction, db: Session) -> None:
         payload["custom_label"] = txn.custom_label
     if member and member.external_assembly_id:
         payload["assembly_id"] = member.external_assembly_id
+    # Forward the project + pledge attribution. The central side does
+    # the cross-checks (project belongs to the right assembly, pledge
+    # belongs to member or spouse, pledge not cancelled, etc.). When
+    # both are set the contribution lands attributed AND the pledge's
+    # status auto-recomputes (PENDING → PARTIAL → FULFILLED).
+    if txn.project_id:
+        payload["project_id"] = txn.project_id
+    if txn.pledge_id:
+        payload["pledge_id"] = txn.pledge_id
 
     r = _rfm.create_contribution(payload, db=db)
     if not r.ok:

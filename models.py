@@ -662,6 +662,12 @@ class PaymentTransaction(Base):
     category = Column(String(50), nullable=False)  # TITHE | OFFERING | BUILDING_FUND | OTHER
     custom_label = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
+    # Finance-project linkage. project_id is the central rfm-database
+    # FinanceProject UUID — when set, the contribution pushed up after
+    # capture inherits it. pledge_id is the optional pledge this
+    # payment is fulfilling (member's own OR their spouse's).
+    project_id = Column(String(36), nullable=True)
+    pledge_id = Column(String(36), nullable=True)
     # Where this contribution lands in the central DB once captured
     central_contribution_id = Column(String(36), nullable=True)
     central_pushed_at = Column(DateTime(timezone=True), nullable=True)
