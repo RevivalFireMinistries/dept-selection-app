@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Revival Fire">
+  <!-- Rounded background in 'ink' so the mark reads on any browser chrome -->
+  <rect width="32" height="32" rx="7" fill="#1F1B16"/>
+  <!-- Outer flame (ember) -->
+  <path fill="#B8541C"
+        d="M16 4
+           C 14.5 8, 10.5 11, 10.5 17
+           a 5.5 5.5 0 0 0 11 0
+           C 21.5 13.5, 19.5 11.5, 18 9
+           c 1 -1.2 1 -2.8 0 -4
+           c -.2 1.5 -1.2 2 -2 -1 z"/>
+  <!-- Inner flame (flame) -->
+  <path fill="#F5A524"
+        d="M16 16
+           c -1.4 1.8 -3 3.6 -3 5.8
+           a 3 3 0 0 0 6 0
+           c 0 -2.2 -1.6 -4 -3 -5.8 z"/>
+</svg>
