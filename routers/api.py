@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_, and_
 from typing import Optional, Dict, Any, List, Tuple
 from io import BytesIO
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import os
 import re
 import uuid
@@ -379,7 +379,7 @@ def register_member(
         external_match_status="matched" if external_member_id else "unmatched",
         external_synced_at=datetime.utcnow() if external_member_id else None,
         email_verification_token=token,
-        email_verification_expires=datetime.utcnow() + timedelta(hours=24),
+        email_verification_expires=datetime.now(timezone.utc) + timedelta(hours=24),
     )
     db.add(member)
     db.flush()
@@ -423,10 +423,17 @@ def verify_email(data: dict = Body(...), db: Session = Depends(get_db)):
         # Maybe they already verified and we cleared the token — accept
         # silently rather than show a scary error.
         raise HTTPException(status_code=404, detail="This verification link isn't valid. Try resending the email.")
-    if member.email_verification_expires and member.email_verification_expires < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="This verification link has expired. Please request a new one.")
+    now = datetime.now(timezone.utc)
+    expires = member.email_verification_expires
+    if expires is not None:
+        # Promote naive expiries (older rows) to UTC so the comparison is
+        # always aware-vs-aware.
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < now:
+            raise HTTPException(status_code=400, detail="This verification link has expired. Please request a new one.")
     if not member.email_verified_at:
-        member.email_verified_at = datetime.utcnow()
+        member.email_verified_at = now
     member.email_verification_token = None
     member.email_verification_expires = None
     db.commit()
@@ -460,7 +467,7 @@ def resend_verification(
     if member and not member.email_verified_at and member.email:
         token = secrets.token_urlsafe(32)
         member.email_verification_token = token
-        member.email_verification_expires = datetime.utcnow() + timedelta(hours=24)
+        member.email_verification_expires = datetime.now(timezone.utc) + timedelta(hours=24)
         db.commit()
         _send_verification_email(request, member, token)
     return {"success": True}
