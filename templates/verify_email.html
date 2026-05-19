@@ -44,18 +44,32 @@ function showSuccess(name) {
 
 async function verify() {
     if (!token) { showError('No verification token in this link.', false); return; }
+    let r;
     try {
-        const r = await fetch('/api/auth/verify-email', {
+        r = await fetch('/api/auth/verify-email', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({token})
+            body: JSON.stringify({token}),
+            credentials: 'same-origin',
         });
-        const data = await r.json();
-        if (r.ok) { showSuccess(data.full_name); return; }
-        showError(data.detail || 'Verification failed.', true);
     } catch (e) {
-        showError('Network error — please try again.', true);
+        console.error('verify fetch threw', e);
+        showError('Couldn\'t reach the server. Check your connection and try again.', true);
+        return;
     }
+    // Parse body defensively — server may return HTML on 5xx
+    let data = {};
+    let bodyText = '';
+    try {
+        bodyText = await r.text();
+        data = bodyText ? JSON.parse(bodyText) : {};
+    } catch (e) {
+        console.error('verify response not JSON', r.status, bodyText.slice(0, 300));
+        showError(`Server returned ${r.status} ${r.statusText || ''}. Please try the resend option below.`, true);
+        return;
+    }
+    if (r.ok) { showSuccess(data.full_name); return; }
+    showError(data.detail || `Verification failed (status ${r.status}).`, true);
 }
 
 resendBtn.addEventListener('click', async () => {
