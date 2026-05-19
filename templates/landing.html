@@ -1,81 +1,172 @@
 {% extends "base.html" %}
 
-{% block title %}RFM Portal{% endblock %}
+{% block title %}Revival Fire Ministries Stellenbosch — Members' Portal{% endblock %}
+{% block meta_description %}The home for Revival Fire Stellenbosch members — daily devotionals, giving, home church, where you serve, and what's coming up this week.{% endblock %}
 
 {% block content %}
-<div class="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 flex items-center justify-center px-4 py-8">
-    <div class="w-full max-w-sm space-y-5">
+<div class="min-h-screen relative overflow-hidden" style="background-color: var(--color-paper);">
 
-        <!-- Header -->
+    <!-- Warm ambient glow behind the hero -->
+    <div aria-hidden="true" class="pointer-events-none absolute -top-32 -right-32 w-[420px] h-[420px] rounded-full opacity-40"
+         style="background: radial-gradient(closest-side, rgba(245,165,36,0.35), transparent 70%);"></div>
+    <div aria-hidden="true" class="pointer-events-none absolute -bottom-40 -left-32 w-[480px] h-[480px] rounded-full opacity-30"
+         style="background: radial-gradient(closest-side, rgba(184,84,28,0.30), transparent 70%);"></div>
+
+    <div class="relative max-w-md mx-auto px-5 pt-10 pb-12 sm:pt-14">
+
+        <!-- ============ BRAND HEADER ============ -->
         <div class="text-center">
-            <h1 class="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                RFM Stellenbosch
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] uppercase tracking-[0.22em] font-semibold"
+                 style="background: rgba(184,84,28,0.08); color: var(--color-ember);">
+                <span class="w-1.5 h-1.5 rounded-full" style="background-color: var(--color-ember);"></span>
+                Stellenbosch
+            </div>
+            <h1 class="font-display mt-4 text-4xl sm:text-5xl leading-[1.05]" style="color: var(--color-ink);">
+                Revival&nbsp;Fire
             </h1>
-            <p class="text-gray-500 text-sm mt-1">Portal</p>
+            <p class="mt-3 text-[15px] leading-relaxed max-w-xs mx-auto" style="color: var(--color-mute);">
+                Welcome home. Your church, in your pocket — a quiet place to grow, give, and stay connected.
+            </p>
         </div>
 
-        <!-- Login Card -->
-        <div class="bg-white rounded-2xl shadow-lg p-6">
-            <h2 class="text-lg font-semibold text-gray-900 mb-1">Sign in</h2>
-            <p class="text-sm text-gray-500 mb-5">Enter your phone number and password</p>
+        <!-- ============ SIGN-IN CARD ============ -->
+        <div class="mt-8 rounded-3xl p-6 sm:p-7 shadow-sm"
+             style="background-color: #ffffff; border: 1px solid var(--color-border);">
+
+            <!-- Tabs (Sign in / Create account) -->
+            <div class="flex items-center gap-1 p-1 rounded-2xl mb-5"
+                 style="background-color: var(--color-paper);">
+                <button class="flex-1 py-2 text-sm font-semibold rounded-xl shadow-sm"
+                        style="background-color: white; color: var(--color-ink);">
+                    Sign in
+                </button>
+                <a href="/register" class="flex-1 py-2 text-sm font-semibold rounded-xl text-center"
+                   style="color: var(--color-mute);">
+                    Create account
+                </a>
+            </div>
 
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color: var(--color-mute);">Phone number</label>
                     <input type="tel" id="loginPhone" placeholder="0711234456" autocomplete="tel"
-                        class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        class="w-full px-4 py-3 rounded-xl text-sm focus:ring-2 focus:outline-none"
+                        style="background-color: var(--color-paper); border: 1px solid var(--color-border); color: var(--color-ink);"
                         onkeydown="if(event.key==='Enter'){document.getElementById('loginPassword').focus();}">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color: var(--color-mute);">Password</label>
                     <div class="relative">
-                        <input type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password"
-                            class="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 pr-10"
+                        <input type="password" id="loginPassword" placeholder="Your password" autocomplete="current-password"
+                            class="w-full px-4 py-3 pr-11 rounded-xl text-sm focus:ring-2 focus:outline-none"
+                            style="background-color: var(--color-paper); border: 1px solid var(--color-border); color: var(--color-ink);"
                             onkeydown="if(event.key==='Enter') login();">
-                        <button onclick="togglePasswordVisibility('loginPassword', this)" type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                            <svg class="w-4.5 h-4.5 eye-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        <button onclick="togglePasswordVisibility('loginPassword', this)" type="button"
+                                class="absolute right-3 top-1/2 -translate-y-1/2 transition-colors" style="color: var(--color-mute);">
+                            <svg class="w-5 h-5 eye-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
                         </button>
+                    </div>
+                    <div class="flex items-center justify-between mt-2">
+                        <a href="/forgot-password" class="text-xs font-medium hover:underline" style="color: var(--color-ember);">Forgot password?</a>
+                        <span class="text-[11px]" style="color: var(--color-mute);">First time? Use your phone</span>
                     </div>
                 </div>
 
                 <button onclick="login()" id="loginBtn"
-                    class="w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-xl text-sm hover:bg-indigo-700 transition-colors">
-                    Sign In
+                    class="w-full py-3 font-semibold rounded-xl text-sm transition-all shadow-sm hover:shadow"
+                    style="background-color: var(--color-ink); color: white;">
+                    Sign in
                 </button>
 
-                <div id="loginError" class="hidden text-sm text-red-600 text-center"></div>
-                <div id="loginSuccess" class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center"></div>
-
-                <div class="flex items-center justify-between pt-1">
-                    <a href="/forgot-password" class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">Forgot password?</a>
-                    <span class="text-xs text-gray-400">First time? Use your phone number as password</span>
-                </div>
+                <div id="loginError" class="hidden text-sm text-center rounded-xl px-3 py-2"
+                     style="background-color: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;"></div>
+                <div id="loginSuccess" class="hidden text-sm text-center rounded-xl px-3 py-2"
+                     style="background-color: rgba(63,125,88,0.08); color: var(--color-sage); border: 1px solid rgba(63,125,88,0.25);"></div>
             </div>
-        </div>
 
-        <!-- Register Link -->
-        <div class="text-center">
-            <p class="text-sm text-gray-500">
-                Don't have an account?
-                <a href="/register" class="text-indigo-600 hover:text-indigo-700 font-semibold">Create one</a>
+            <!-- Register hint -->
+            <p class="text-center mt-5 text-xs" style="color: var(--color-mute);">
+                New to Revival Fire?
+                <a href="/register" class="font-semibold hover:underline" style="color: var(--color-ember);">Create your account</a>
             </p>
         </div>
 
-        <!-- Staff Links -->
-        <div class="flex justify-center gap-4 pt-2">
-            <a href="/desk" class="flex items-center gap-1.5 px-3 py-2 bg-white/80 rounded-xl text-xs font-medium text-gray-600 hover:bg-white hover:shadow transition-all">
-                <svg class="w-3.5 h-3.5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                </svg>
-                Info Desk
-            </a>
-            <a href="/admin" class="flex items-center gap-1.5 px-3 py-2 bg-white/80 rounded-xl text-xs font-medium text-gray-600 hover:bg-white hover:shadow transition-all">
-                <svg class="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                </svg>
-                Admin
-            </a>
+        <!-- ============ WHAT'S INSIDE ============ -->
+        <section class="mt-10">
+            <div class="text-[10px] uppercase tracking-[0.22em] font-semibold text-center mb-4" style="color: var(--color-mute);">
+                What's inside
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <!-- Devotional -->
+                <div class="p-4 rounded-2xl" style="background-color: white; border: 1px solid var(--color-border);">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-2"
+                         style="background: linear-gradient(135deg, rgba(245,165,36,0.18), rgba(184,84,28,0.12));">📖</div>
+                    <div class="text-sm font-semibold" style="color: var(--color-ink);">Daily devotional</div>
+                    <div class="text-[11px] leading-snug mt-0.5" style="color: var(--color-mute);">A short word for today, posted by our devotionals team.</div>
+                </div>
+
+                <!-- Giving -->
+                <div class="p-4 rounded-2xl" style="background-color: white; border: 1px solid var(--color-border);">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-2"
+                         style="background: linear-gradient(135deg, rgba(63,125,88,0.18), rgba(63,125,88,0.08));">🤲</div>
+                    <div class="text-sm font-semibold" style="color: var(--color-ink);">Tithes & offerings</div>
+                    <div class="text-[11px] leading-snug mt-0.5" style="color: var(--color-mute);">Give securely by card or EFT. See your history any time.</div>
+                </div>
+
+                <!-- Home church -->
+                <div class="p-4 rounded-2xl" style="background-color: white; border: 1px solid var(--color-border);">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-2"
+                         style="background: linear-gradient(135deg, rgba(245,165,36,0.18), rgba(184,84,28,0.12));">🏘</div>
+                    <div class="text-sm font-semibold" style="color: var(--color-ink);">Your home church</div>
+                    <div class="text-[11px] leading-snug mt-0.5" style="color: var(--color-mute);">Know when you meet, who's preaching, and where.</div>
+                </div>
+
+                <!-- Where you serve -->
+                <div class="p-4 rounded-2xl" style="background-color: white; border: 1px solid var(--color-border);">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-2"
+                         style="background: linear-gradient(135deg, rgba(63,125,88,0.18), rgba(63,125,88,0.08));">🛠</div>
+                    <div class="text-sm font-semibold" style="color: var(--color-ink);">Where you serve</div>
+                    <div class="text-[11px] leading-snug mt-0.5" style="color: var(--color-mute);">Your departments, meetings, and roster — all in one place.</div>
+                </div>
+
+                <!-- Events -->
+                <div class="p-4 rounded-2xl" style="background-color: white; border: 1px solid var(--color-border);">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-2"
+                         style="background: linear-gradient(135deg, rgba(245,165,36,0.18), rgba(184,84,28,0.12));">📅</div>
+                    <div class="text-sm font-semibold" style="color: var(--color-ink);">What's on</div>
+                    <div class="text-[11px] leading-snug mt-0.5" style="color: var(--color-mute);">Upcoming services, programs, and events for your ministries.</div>
+                </div>
+
+                <!-- Connect / Prayer -->
+                <div class="p-4 rounded-2xl" style="background-color: white; border: 1px solid var(--color-border);">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg mb-2"
+                         style="background: linear-gradient(135deg, rgba(63,125,88,0.18), rgba(63,125,88,0.08));">🙏</div>
+                    <div class="text-sm font-semibold" style="color: var(--color-ink);">Connect</div>
+                    <div class="text-[11px] leading-snug mt-0.5" style="color: var(--color-mute);">Need prayer or want to plug in? We're a tap away.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ INVITATION ============ -->
+        <section class="mt-10 text-center px-3">
+            <blockquote class="font-scripture italic text-[17px] leading-relaxed" style="color: var(--color-ink-soft);">
+                “Not forsaking the assembling of ourselves together…
+                but exhorting one another.”
+            </blockquote>
+            <div class="text-[11px] uppercase tracking-wider mt-2" style="color: var(--color-ember);">Hebrews 10:25</div>
+        </section>
+
+        <!-- ============ STAFF LINKS (subtle) ============ -->
+        <div class="mt-10 flex items-center justify-center gap-2 text-[11px]" style="color: var(--color-mute);">
+            <a href="/desk" class="px-3 py-1.5 rounded-full hover:underline" style="border: 1px solid var(--color-border); background-color: white;">Info desk</a>
+            <a href="/admin" class="px-3 py-1.5 rounded-full hover:underline" style="border: 1px solid var(--color-border); background-color: white;">Admin</a>
+        </div>
+
+        <div class="mt-6 text-center text-[10px]" style="color: var(--color-mute);">
+            © Revival Fire Ministries Stellenbosch
         </div>
     </div>
 </div>
@@ -87,10 +178,10 @@ function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
     if (input.type === 'password') {
         input.type = 'text';
-        btn.innerHTML = '<svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
+        btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>';
     } else {
         input.type = 'password';
-        btn.innerHTML = '<svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
+        btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>';
     }
 }
 
@@ -132,7 +223,7 @@ async function login() {
     }
 
     btn.disabled = true;
-    btn.textContent = 'Signing in...';
+    btn.textContent = 'Signing in…';
 
     try {
         const res = await fetch('/api/auth/login', {
@@ -156,13 +247,13 @@ async function login() {
             errorDiv.textContent = data.detail || 'Login failed';
             errorDiv.classList.remove('hidden');
             btn.disabled = false;
-            btn.textContent = 'Sign In';
+            btn.textContent = 'Sign in';
         }
     } catch (e) {
         errorDiv.textContent = 'Something went wrong. Please try again.';
         errorDiv.classList.remove('hidden');
         btn.disabled = false;
-        btn.textContent = 'Sign In';
+        btn.textContent = 'Sign in';
     }
 }
 </script>
