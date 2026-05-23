@@ -22,6 +22,7 @@
         <div id="tabBar" class="flex bg-gray-100 rounded-xl p-1 mb-5">
             <button onclick="switchTab('media')" id="tabMedia" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Media</button>
             <button onclick="switchTab('songs')" id="tabSongs" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors hidden">Songs</button>
+            <button onclick="switchTab('verses')" id="tabVerses" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Verses</button>
         </div>
 
         <!-- ============ MEDIA TAB ============ -->
@@ -133,6 +134,60 @@
                 </div>
             </div>
         </div>
+
+        <!-- ============ VERSES TAB ============ -->
+        <div id="panelVerses" class="hidden">
+            <!-- Service Date -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date</label>
+                <input type="date" id="verseDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
+            </div>
+
+            <!-- Translation -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Bible translation</label>
+                <select id="verseTranslation"
+                    class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-white">
+                    <option value="NIV">NIV — New International Version</option>
+                    <option value="ESV">ESV — English Standard Version</option>
+                    <option value="KJV">KJV — King James Version</option>
+                    <option value="NKJV">NKJV — New King James Version</option>
+                    <option value="NLT">NLT — New Living Translation</option>
+                    <option value="NASB">NASB — New American Standard</option>
+                    <option value="AMP">AMP — Amplified Bible</option>
+                    <option value="MSG">MSG — The Message</option>
+                    <option value="NRSV">NRSV — New Revised Standard</option>
+                    <option value="CEV">CEV — Contemporary English</option>
+                    <option value="ASV">ASV — American Standard</option>
+                </select>
+            </div>
+
+            <!-- Reference (autocomplete on book name) -->
+            <div class="mb-4 relative">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Scripture reference</label>
+                <input type="text" id="verseRef" autocomplete="off" spellcheck="false"
+                    placeholder="e.g. Genesis 1:10 or Job 20:1-6"
+                    class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    oninput="verseAutocomplete()"
+                    onkeydown="verseKeyDown(event)">
+                <div id="verseDropdown" class="absolute top-full left-0 right-0 z-30 bg-white border border-gray-200 rounded-b-xl max-h-56 overflow-y-auto hidden shadow-lg"></div>
+                <p id="verseHint" class="text-[11px] text-gray-400 mt-1">Type a book, then chapter:verse (or verse-range).</p>
+            </div>
+
+            <!-- Submit -->
+            <button onclick="submitVerse()" id="verseBtn" class="w-full py-3 bg-amber-600 text-white font-semibold rounded-xl text-sm hover:bg-amber-700 transition-colors flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                Submit Verse
+            </button>
+            <div id="verseError" class="hidden text-sm text-red-600 text-center mt-3"></div>
+            <div id="verseSuccess" class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center mt-3"></div>
+
+            <!-- Your recent verses for this date -->
+            <div id="recentVerses" class="mt-6 hidden">
+                <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Your Submitted Verses</h3>
+                <div id="recentVersesList" class="space-y-2"></div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -174,6 +229,7 @@ async function init() {
     const dateStr = nextSunday.toISOString().split('T')[0];
     document.getElementById('mediaDate').value = dateStr;
     document.getElementById('songDate').value = dateStr;
+    document.getElementById('verseDate').value = dateStr;
 
     // Load song catalog
     try {
@@ -195,17 +251,27 @@ async function init() {
 // ==================== TABS ====================
 
 function switchTab(tab) {
-    const isMedia = tab === 'media';
-    document.getElementById('panelMedia').classList.toggle('hidden', !isMedia);
-    document.getElementById('panelSongs').classList.toggle('hidden', isMedia);
+    const isMedia  = tab === 'media';
+    const isSongs  = tab === 'songs';
+    const isVerses = tab === 'verses';
 
-    document.getElementById('tabMedia').className = `flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${isMedia ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`;
+    document.getElementById('panelMedia').classList.toggle('hidden', !isMedia);
+    document.getElementById('panelSongs').classList.toggle('hidden', !isSongs);
+    document.getElementById('panelVerses').classList.toggle('hidden', !isVerses);
+
+    const baseCls = 'flex-1 py-2 text-sm font-medium rounded-lg transition-colors';
+    const active = ' bg-white shadow-sm text-gray-900';
+    const inactive = ' text-gray-500';
+
+    document.getElementById('tabMedia').className  = baseCls + (isMedia  ? active : inactive);
+    document.getElementById('tabVerses').className = baseCls + (isVerses ? active : inactive);
     const tabSongs = document.getElementById('tabSongs');
     if (!tabSongs.classList.contains('hidden')) {
-        tabSongs.className = `flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${!isMedia ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`;
+        tabSongs.className = baseCls + (isSongs ? active : inactive);
     }
 
-    if (!isMedia) loadPrevSongs();
+    if (isSongs)  loadPrevSongs();
+    if (isVerses) loadRecentVerses();
 }
 
 // ==================== MEDIA ====================
@@ -691,6 +757,249 @@ document.addEventListener('click', (e) => {
 // Reload recent items when date changes
 document.getElementById('mediaDate').addEventListener('change', loadRecentMedia);
 document.getElementById('songDate').addEventListener('change', loadPrevSongs);
+document.getElementById('verseDate').addEventListener('change', loadRecentVerses);
+
+// ==================== VERSES ====================
+// Bible-book catalog with common aliases. Sorted in canonical order so
+// matches that share a prefix (Jude vs Judges) come back in a sensible
+// order. Names are the canonical labels used in the reference string we
+// submit — aliases are matched but rewritten to the canonical name on
+// pick (so 'gen 1:1' → 'Genesis 1:1').
+const BIBLE_BOOKS = [
+    {name: 'Genesis',         aliases: ['Gen', 'Ge', 'Gn']},
+    {name: 'Exodus',          aliases: ['Ex', 'Exo', 'Exod']},
+    {name: 'Leviticus',       aliases: ['Lev', 'Le', 'Lv']},
+    {name: 'Numbers',         aliases: ['Num', 'Nu', 'Nm', 'Nb']},
+    {name: 'Deuteronomy',     aliases: ['Deut', 'Dt']},
+    {name: 'Joshua',          aliases: ['Josh', 'Jos', 'Jsh']},
+    {name: 'Judges',          aliases: ['Judg', 'Jdg', 'Jg', 'Jdgs']},
+    {name: 'Ruth',            aliases: ['Ru', 'Rth']},
+    {name: '1 Samuel',        aliases: ['1 Sam', '1Sam', '1 Sm', 'I Sam', '1 S']},
+    {name: '2 Samuel',        aliases: ['2 Sam', '2Sam', '2 Sm', 'II Sam', '2 S']},
+    {name: '1 Kings',         aliases: ['1 Kgs', '1Kgs', '1 Ki', '1 Kin', 'I Kings']},
+    {name: '2 Kings',         aliases: ['2 Kgs', '2Kgs', '2 Ki', '2 Kin', 'II Kings']},
+    {name: '1 Chronicles',    aliases: ['1 Chr', '1Chr', '1 Ch', 'I Chron']},
+    {name: '2 Chronicles',    aliases: ['2 Chr', '2Chr', '2 Ch', 'II Chron']},
+    {name: 'Ezra',            aliases: ['Ezr', 'Ez']},
+    {name: 'Nehemiah',        aliases: ['Neh', 'Ne']},
+    {name: 'Esther',          aliases: ['Est', 'Esth', 'Es']},
+    {name: 'Job',             aliases: ['Jb']},
+    {name: 'Psalms',          aliases: ['Ps', 'Psa', 'Psm', 'Psalm']},
+    {name: 'Proverbs',        aliases: ['Prov', 'Pr', 'Prv']},
+    {name: 'Ecclesiastes',    aliases: ['Eccl', 'Ec', 'Ecc', 'Qoh']},
+    {name: 'Song of Songs',   aliases: ['Song', 'SOS', 'Song of Solomon', 'Canticles', 'Cant']},
+    {name: 'Isaiah',          aliases: ['Isa', 'Is']},
+    {name: 'Jeremiah',        aliases: ['Jer', 'Je', 'Jr']},
+    {name: 'Lamentations',    aliases: ['Lam', 'La']},
+    {name: 'Ezekiel',         aliases: ['Ezek', 'Eze', 'Ezk']},
+    {name: 'Daniel',          aliases: ['Dan', 'Da', 'Dn']},
+    {name: 'Hosea',           aliases: ['Hos', 'Ho']},
+    {name: 'Joel',            aliases: ['Joe', 'Jl']},
+    {name: 'Amos',            aliases: ['Am']},
+    {name: 'Obadiah',         aliases: ['Obad', 'Ob']},
+    {name: 'Jonah',           aliases: ['Jon', 'Jnh']},
+    {name: 'Micah',           aliases: ['Mic', 'Mc']},
+    {name: 'Nahum',           aliases: ['Nah', 'Na']},
+    {name: 'Habakkuk',        aliases: ['Hab', 'Hb']},
+    {name: 'Zephaniah',       aliases: ['Zeph', 'Zep', 'Zp']},
+    {name: 'Haggai',          aliases: ['Hag', 'Hg']},
+    {name: 'Zechariah',       aliases: ['Zech', 'Zec', 'Zc']},
+    {name: 'Malachi',         aliases: ['Mal', 'Ml']},
+    {name: 'Matthew',         aliases: ['Matt', 'Mt']},
+    {name: 'Mark',            aliases: ['Mrk', 'Mk', 'Mr']},
+    {name: 'Luke',            aliases: ['Luk', 'Lk']},
+    {name: 'John',            aliases: ['Jn', 'Jhn']},
+    {name: 'Acts',            aliases: ['Ac', 'Act']},
+    {name: 'Romans',          aliases: ['Rom', 'Ro', 'Rm']},
+    {name: '1 Corinthians',   aliases: ['1 Cor', '1Cor', '1 Co', 'I Cor']},
+    {name: '2 Corinthians',   aliases: ['2 Cor', '2Cor', '2 Co', 'II Cor']},
+    {name: 'Galatians',       aliases: ['Gal', 'Ga']},
+    {name: 'Ephesians',       aliases: ['Eph', 'Ephes']},
+    {name: 'Philippians',     aliases: ['Phil', 'Php', 'Pp']},
+    {name: 'Colossians',      aliases: ['Col', 'Co']},
+    {name: '1 Thessalonians', aliases: ['1 Thess', '1Thess', '1 Th', 'I Thess']},
+    {name: '2 Thessalonians', aliases: ['2 Thess', '2Thess', '2 Th', 'II Thess']},
+    {name: '1 Timothy',       aliases: ['1 Tim', '1Tim', '1 Ti', 'I Tim']},
+    {name: '2 Timothy',       aliases: ['2 Tim', '2Tim', '2 Ti', 'II Tim']},
+    {name: 'Titus',           aliases: ['Tit', 'Ti']},
+    {name: 'Philemon',        aliases: ['Phlm', 'Phm', 'Pm']},
+    {name: 'Hebrews',         aliases: ['Heb']},
+    {name: 'James',           aliases: ['Jas', 'Jm']},
+    {name: '1 Peter',         aliases: ['1 Pet', '1Pet', '1 Pe', 'I Pet']},
+    {name: '2 Peter',         aliases: ['2 Pet', '2Pet', '2 Pe', 'II Pet']},
+    {name: '1 John',          aliases: ['1 Jn', '1Jn', '1 Jo', 'I John']},
+    {name: '2 John',          aliases: ['2 Jn', '2Jn', '2 Jo', 'II John']},
+    {name: '3 John',          aliases: ['3 Jn', '3Jn', '3 Jo', 'III John']},
+    {name: 'Jude',            aliases: ['Jud', 'Jd']},
+    {name: 'Revelation',      aliases: ['Rev', 'Re', 'Apoc', 'The Revelation']},
+];
+
+let _verseHi = -1;  // current highlighted dropdown index
+
+// Parse what the user has typed so far into a {book_part, rest} pair.
+// Handles 'Gen', '1 Sam', '1Sam', 'Genesis 1:10'.
+function _splitRef(input) {
+    const m = input.match(/^\s*((?:[1-3]\s*)?[A-Za-z][A-Za-z\s]*?)(\s+\d.*)?$/);
+    if (!m) return {bookPart: input.trim(), rest: ''};
+    return {bookPart: (m[1] || '').trim(), rest: (m[2] || '').trim()};
+}
+
+function _matchBooks(prefix) {
+    if (!prefix) return [];
+    const p = prefix.toLowerCase().replace(/\s+/g, ' ').trim();
+    const out = [];
+    for (const b of BIBLE_BOOKS) {
+        const nameL = b.name.toLowerCase();
+        if (nameL.startsWith(p)) { out.push(b); continue; }
+        const hit = b.aliases.some(a => a.toLowerCase().replace(/\s+/g, ' ').startsWith(p));
+        if (hit) out.push(b);
+    }
+    return out.slice(0, 8);
+}
+
+function verseAutocomplete() {
+    const input = document.getElementById('verseRef');
+    const dd = document.getElementById('verseDropdown');
+    const {bookPart, rest} = _splitRef(input.value);
+    // If user has already moved past the book (started typing chapter:verse),
+    // don't keep nagging them with the dropdown.
+    if (rest) { dd.classList.add('hidden'); dd.innerHTML = ''; return; }
+    const matches = _matchBooks(bookPart);
+    if (!matches.length) { dd.classList.add('hidden'); dd.innerHTML = ''; return; }
+    _verseHi = -1;
+    dd.innerHTML = matches.map((b, i) =>
+        `<div class="ac-item px-3 py-2 cursor-pointer text-sm hover:bg-amber-50" data-name="${escapeAttr(b.name)}" data-i="${i}">${escapeHtml(b.name)}</div>`
+    ).join('');
+    dd.classList.remove('hidden');
+    dd.querySelectorAll('.ac-item').forEach(el => {
+        el.addEventListener('mousedown', (e) => { e.preventDefault(); _pickBook(el.dataset.name); });
+        el.addEventListener('touchstart', () => _pickBook(el.dataset.name), {passive: true});
+    });
+}
+
+function _pickBook(name) {
+    const input = document.getElementById('verseRef');
+    input.value = name + ' ';
+    document.getElementById('verseDropdown').classList.add('hidden');
+    input.focus();
+    // Position caret at end so the next keypress goes to chapter:verse
+    input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function verseKeyDown(e) {
+    const dd = document.getElementById('verseDropdown');
+    if (dd.classList.contains('hidden')) {
+        if (e.key === 'Enter') { e.preventDefault(); submitVerse(); }
+        return;
+    }
+    const items = dd.querySelectorAll('.ac-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _verseHi = Math.min(_verseHi + 1, items.length - 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _verseHi = Math.max(_verseHi - 1, 0);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (_verseHi >= 0) _pickBook(items[_verseHi].dataset.name);
+        else submitVerse();
+        return;
+    } else if (e.key === 'Escape') {
+        dd.classList.add('hidden');
+        return;
+    } else {
+        return;
+    }
+    items.forEach((el, i) => el.classList.toggle('bg-amber-50', i === _verseHi));
+}
+
+// Validate the full reference shape: BOOK CHAPTER[:VERSE[-VERSE]]
+function _isValidReference(ref) {
+    const re = /^(?:[1-3]\s*)?[A-Za-z]+(?:\s+[A-Za-z]+)*\s+\d+(?::\d+(?:-\d+)?)?$/;
+    return re.test(ref.trim());
+}
+
+async function submitVerse() {
+    const ref = document.getElementById('verseRef').value.trim().replace(/\s+/g, ' ');
+    const translation = document.getElementById('verseTranslation').value;
+    const serviceDate = document.getElementById('verseDate').value;
+    const errorDiv = document.getElementById('verseError');
+    const successDiv = document.getElementById('verseSuccess');
+    const btn = document.getElementById('verseBtn');
+
+    errorDiv.classList.add('hidden');
+    successDiv.classList.add('hidden');
+
+    if (!serviceDate) { errorDiv.textContent = 'Please select a service date'; errorDiv.classList.remove('hidden'); return; }
+    if (!ref) { errorDiv.textContent = 'Please enter a scripture reference'; errorDiv.classList.remove('hidden'); return; }
+    if (!_isValidReference(ref)) {
+        errorDiv.textContent = 'Reference should look like "Genesis 1:10" or "Job 20:1-6"';
+        errorDiv.classList.remove('hidden');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    const formData = new FormData();
+    formData.append('submitter_name', currentUser.full_name);
+    formData.append('content_type', 'scripture');
+    formData.append('title', ref);
+    formData.append('subtitle', translation);
+    formData.append('service_date', serviceDate);
+    formData.append('display_slot', 'any');
+
+    try {
+        const res = await fetch('/api/display/submit', { method: 'POST', body: formData });
+        if (res.ok) {
+            successDiv.textContent = `Submitted: ${ref} (${translation})`;
+            successDiv.classList.remove('hidden');
+            document.getElementById('verseRef').value = '';
+            loadRecentVerses();
+        } else {
+            const data = await res.json().catch(() => ({}));
+            errorDiv.textContent = data.detail || 'Submission failed';
+            errorDiv.classList.remove('hidden');
+        }
+    } catch (e) {
+        errorDiv.textContent = 'Something went wrong. Please try again.';
+        errorDiv.classList.remove('hidden');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg> Submit Verse';
+}
+
+async function loadRecentVerses() {
+    if (!currentUser) return;
+    const date = document.getElementById('verseDate').value;
+    if (!date) return;
+    try {
+        const res = await fetch(`/api/display/submissions?content_type=scripture&service_date=${encodeURIComponent(date)}`);
+        if (!res.ok) return;
+        const all = await res.json();
+        const mine = all.filter(s => s.submitter_name === currentUser.full_name);
+        const wrap = document.getElementById('recentVerses');
+        const list = document.getElementById('recentVersesList');
+        if (!mine.length) { wrap.classList.add('hidden'); return; }
+        wrap.classList.remove('hidden');
+        list.innerHTML = mine.map(s => `
+            <div class="bg-white border border-gray-100 rounded-xl px-3 py-2.5 flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center text-base flex-shrink-0">📖</div>
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-gray-900 truncate">${escapeHtml(s.title)}</p>
+                    <p class="text-[11px] text-gray-400">${escapeHtml(s.subtitle || '')}</p>
+                </div>
+            </div>`).join('');
+    } catch (e) { console.error(e); }
+}
+
+// Close verse dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#verseRef') && !e.target.closest('#verseDropdown')) {
+        document.getElementById('verseDropdown').classList.add('hidden');
+    }
+});
 
 // Drag and drop support for media
 const dropZone = document.getElementById('dropZone');
