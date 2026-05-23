@@ -274,16 +274,39 @@ def reject_submission(
 @router.delete("/{submission_id}")
 def delete_submission(
     submission_id: int,
+    request: Request,
     db: Session = Depends(get_db),
 ):
+    """Delete a submission. Authorised when:
+      - the caller is the submitter (logged-in member whose full_name
+        matches submitter_name), or
+      - the caller has an admin session.
+    Anonymous deletes are refused — this used to be wide-open."""
     sub = db.query(DisplaySubmission).filter(DisplaySubmission.id == submission_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Submission not found")
 
+    # Resolve who is calling — admin or member
+    from routers.pages import is_authenticated, get_current_member
+    is_admin = is_authenticated(request)
+    actor = None if is_admin else get_current_member(request, db)
+
+    if not is_admin:
+        if not actor:
+            raise HTTPException(status_code=401, detail="Please log in")
+        # Loose name match (case-insensitive, whitespace-collapsed) so
+        # display-name variants like 'Pastor Russel Mupfumira' vs
+        # 'Russel Mupfumira' all resolve to the same human.
+        def _norm(s: str) -> str:
+            return " ".join((s or "").lower().split())
+        if _norm(actor.full_name) not in _norm(sub.submitter_name) and \
+           _norm(sub.submitter_name) not in _norm(actor.full_name):
+            raise HTTPException(status_code=403, detail="You can only delete your own submissions")
+
     if sub.file_path and os.path.exists(sub.file_path):
         try:
             os.remove(sub.file_path)
-        except:
+        except Exception:
             pass
 
     db.delete(sub)
