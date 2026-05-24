@@ -40,6 +40,59 @@ UPLOAD_DIR = os.environ.get("DISPLAY_UPLOAD_DIR") or os.path.join(
 )
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# ─── Cross-instance fetch tracking ─────────────────────────────────────
+#
+# In-memory map of submission_id → {instance_id: last_fetched_at}.
+# Lost on server restart, which is fine: the data is purely an
+# at-a-glance "which campuses have polled this poster" courtesy badge
+# for operators. The contract docs even acknowledge "no auth, log only"
+# for this data.
+#
+# Why an in-memory dict over a SQL table:
+#   - Submissions only live 14 days and we cap each instance's row at
+#     1 timestamp, so total entries are bounded by submissions × active
+#     instances. Tiny. Doesn't earn a migration.
+#   - Restart loss is acceptable: the next poll from any instance
+#     repopulates its own row within minutes.
+#   - Zero migration risk for a feature that's a UX courtesy, not a
+#     correctness requirement.
+#
+# Prune any entry older than 24h on each fetch to keep growth bounded
+# under pathological reconnect-loop scenarios.
+from datetime import timedelta as _td
+from threading import Lock as _Lock
+
+_recent_fetches: dict[int, dict[str, datetime]] = {}
+_recent_fetches_lock = _Lock()
+
+def _record_instance_fetch(submission_ids: list[int], instance_id: str) -> None:
+    """Stamp `instance_id` against each submission as having been polled.
+    No-op when instance_id is the placeholder 'unknown' (older clients)."""
+    if not instance_id or instance_id == "unknown":
+        return
+    now = datetime.now()
+    cutoff = now - _td(hours=24)
+    with _recent_fetches_lock:
+        # Walk a snapshot of keys so we can mutate the dict while iterating.
+        for sid in list(_recent_fetches.keys()):
+            insts = _recent_fetches[sid]
+            for iid in list(insts.keys()):
+                if insts[iid] < cutoff:
+                    del insts[iid]
+            if not insts:
+                del _recent_fetches[sid]
+        for sid in submission_ids:
+            _recent_fetches.setdefault(sid, {})[instance_id] = now
+
+def _fetches_for(sid: int) -> list[dict]:
+    """Return the list of {instance, at} entries for a submission, sorted
+    most-recent first. Always returns a list (possibly empty)."""
+    with _recent_fetches_lock:
+        m = _recent_fetches.get(sid) or {}
+    rows = [{"instance": iid, "at": at.isoformat()} for iid, at in m.items()]
+    rows.sort(key=lambda r: r["at"], reverse=True)
+    return rows
+
 
 def submission_to_dict(sub: DisplaySubmission) -> dict:
     return {
@@ -229,8 +282,23 @@ def fetch_for_presenter(
         print(f"[display.fetch] instance={instance} date={target_date.isoformat()} count=0")
         return {"items": [], "count": 0}
 
+    # Stamp this instance against every returned submission BEFORE building
+    # the response — that way the requester also sees its own poll
+    # reflected (and clients can filter self vs. other in the UI).
+    _record_instance_fetch([s.id for s in submissions], instance)
+
     print(f"[display.fetch] instance={instance} date={target_date.isoformat()} count={len(submissions)}")
-    return {"items": [submission_to_dict(s) for s in submissions], "count": len(submissions)}
+    items: list[dict] = []
+    for s in submissions:
+        d = submission_to_dict(s)
+        # fetched_by: cross-instance courtesy badge. Each entry is
+        # { "instance": "<X-FirePresenter-Instance>", "at": "<ISO>" }.
+        # Sorted most-recent first. Empty list when no instance with a
+        # header has polled this submission yet (or only "unknown"
+        # legacy clients, which we don't track).
+        d["fetched_by"] = _fetches_for(s.id)
+        items.append(d)
+    return {"items": items, "count": len(items)}
 
 
 # ─── Approve / Reject ───────────────────────────────────────────────────
