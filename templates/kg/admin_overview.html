@@ -1,0 +1,77 @@
+{% extends "admin/base.html" %}
+{% block title %}Kingdom Gateway · Admin{% endblock %}
+{% block admin_content %}
+<div class="px-4 sm:px-6 lg:px-8 py-6">
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <h1 class="text-2xl font-bold text-gray-900">Kingdom Gateway</h1>
+    {% if kg_url %}
+      <a href="{{ kg_url }}/admin" target="_blank" rel="noopener"
+         class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-black">
+        Open KG admin
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+      </a>
+    {% endif %}
+  </div>
+  <p class="text-sm text-gray-500 mt-1">
+    Read-only overview. Edit course content, schedule classes, and grade exams in the Kingdom Gateway admin.
+  </p>
+
+  <!-- Health card -->
+  <div class="mt-6 bg-white rounded-lg shadow-sm p-5">
+    <h2 class="text-sm font-semibold text-gray-900">Integration health</h2>
+    <dl class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+      <div>
+        <dt class="text-xs text-gray-500">Configured</dt>
+        <dd class="mt-0.5 font-medium {% if configured %}text-emerald-700{% else %}text-amber-700{% endif %}">
+          {{ "Yes" if configured else "No (set KG_API_URL + KG_API_KEY)" }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-gray-500">Enabled</dt>
+        <dd class="mt-0.5 font-medium {% if enabled %}text-emerald-700{% else %}text-gray-600{% endif %}">
+          {{ "Yes" if enabled else "No (set KG_INTEGRATION_ENABLED=true)" }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-gray-500">Service health</dt>
+        <dd class="mt-0.5 font-medium {% if health_ok %}text-emerald-700{% elif health_ok is none %}text-gray-500{% else %}text-red-700{% endif %}">
+          {% if health_ok %}OK{% elif health_ok is none %}—{% else %}Down ({{ health_error or "unknown" }}){% endif %}
+        </dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- Cohorts table (read-only) -->
+  <div class="mt-6 bg-white rounded-lg shadow-sm overflow-hidden">
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h2 class="text-sm font-semibold text-gray-900">Cohorts (most recent first)</h2>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr class="text-left text-xs uppercase text-gray-500">
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">Starts</th>
+          <th class="px-4 py-3">Pass mark</th>
+          <th class="px-4 py-3">Min attendance</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for c in cohorts %}
+        <tr>
+          <td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td>
+          <td class="px-4 py-3"><span class="text-xs bg-gray-100 rounded px-2 py-0.5">{{ c.status }}</span></td>
+          <td class="px-4 py-3 text-gray-600">{{ c.start_date }}</td>
+          <td class="px-4 py-3 text-gray-600">{{ c.pass_mark_percent }}%</td>
+          <td class="px-4 py-3 text-gray-600">{{ c.min_attendance_percent }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">
+          {% if not enabled %}KG integration is disabled.{% else %}No cohorts yet — create them in the KG admin.{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

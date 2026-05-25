@@ -1,0 +1,75 @@
+{% extends "desk/base.html" %}
+{% block title %}Attendance · Kingdom Gateway{% endblock %}
+{% block desk_content %}
+<div class="min-h-screen bg-gray-50">
+  <nav class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <a href="/desk/kg" class="text-sm text-teal-600 hover:text-teal-700">&larr; Cohorts</a>
+      <h1 class="text-base font-semibold text-gray-900 truncate">{{ cohort.name if cohort else "Cohort" }}</h1>
+      <div></div>
+    </div>
+  </nav>
+
+  <main class="max-w-3xl mx-auto px-4 py-6 space-y-4">
+    {% if error %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">{{ error }}</div>
+    {% endif %}
+
+    {% if request.query_params.get("saved") %}
+      <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">Saved.</div>
+    {% endif %}
+
+    <!-- Class picker -->
+    <div class="bg-white rounded-lg shadow-sm p-4">
+      <label class="block text-xs uppercase tracking-[0.18em] text-gray-500 mb-2">Class</label>
+      <div class="flex flex-wrap gap-2">
+        {% for c in classes %}
+          <a href="?class_id={{ c.id }}"
+             class="px-3 py-1.5 rounded-md text-xs
+                    {% if selected_class and selected_class.id == c.id %}bg-teal-600 text-white{% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
+            {{ c.sequence_no }}. {{ c.title }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if selected_class %}
+    <form method="post" class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <input type="hidden" name="class_id" value="{{ selected_class.id }}">
+      <div class="p-4 border-b border-gray-100">
+        <div class="text-xs uppercase tracking-[0.18em] text-gray-500">Marking attendance for</div>
+        <div class="mt-0.5 text-sm font-semibold text-gray-900">{{ selected_class.title }}</div>
+        <div class="text-xs text-gray-500">{{ selected_class.starts_at[:16].replace("T", " ") if selected_class.starts_at }}{% if selected_class.venue %} · {{ selected_class.venue }}{% endif %}</div>
+      </div>
+      <ul class="divide-y divide-gray-100">
+        {% for e in enrollments %}
+        <li class="p-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-medium text-gray-900 truncate">{{ e.external_member_id[:8] }}…</div>
+            <div class="text-[11px] uppercase tracking-[0.16em] text-gray-400">{{ e.status }}</div>
+          </div>
+          <div class="flex gap-1">
+            {% for status in ['PRESENT','LATE','ABSENT','EXCUSED'] %}
+              <label class="px-2.5 py-1 rounded-md border border-gray-200 text-xs cursor-pointer hover:bg-gray-50 has-[:checked]:bg-teal-600 has-[:checked]:text-white has-[:checked]:border-teal-600">
+                <input type="radio" name="status-{{ e.id }}" value="{{ status }}" class="sr-only">
+                {{ status[0] }}
+              </label>
+            {% endfor %}
+          </div>
+        </li>
+        {% else %}
+        <li class="p-4 text-center text-gray-500 text-sm">No enrollments to show.</li>
+        {% endfor %}
+      </ul>
+      <div class="p-3 border-t border-gray-100 sticky bottom-0 bg-white">
+        <button type="submit" class="w-full px-4 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-md hover:bg-teal-700">
+          Save attendance
+        </button>
+      </div>
+    </form>
+    {% else %}
+      <p class="text-sm text-gray-500">No class selected.</p>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

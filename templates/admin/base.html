@@ -123,6 +123,10 @@
                 <span class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0 text-sm">📖</span>
                 <span class="text-sm font-medium text-gray-700">Reading plans</span>
             </a>
+            <a href="/admin/kg" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/kg' in request.url.path %}bg-blue-50{% endif %}">
+                <span class="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center flex-shrink-0 text-sm">🎓</span>
+                <span class="text-sm font-medium text-gray-700">Kingdom Gateway</span>
+            </a>
             <a href="/admin/change-requests" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/change-requests' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0 text-sm">✏️</span>
                 <span class="text-sm font-medium text-gray-700">Change requests</span>

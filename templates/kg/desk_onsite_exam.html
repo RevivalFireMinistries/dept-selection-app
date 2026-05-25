@@ -1,0 +1,67 @@
+{% extends "desk/base.html" %}
+{% block title %}Onsite exam · Kingdom Gateway{% endblock %}
+{% block desk_content %}
+<div class="min-h-screen bg-gray-50">
+  <nav class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <a href="/desk/kg" class="text-sm text-teal-600 hover:text-teal-700">&larr; Cohorts</a>
+      <h1 class="text-base font-semibold text-gray-900 truncate">{{ cohort.name if cohort else "Cohort" }} · Onsite exam</h1>
+      <div></div>
+    </div>
+  </nav>
+
+  <main class="max-w-4xl mx-auto px-4 py-6 space-y-4">
+    {% if error %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">{{ error }}</div>
+    {% endif %}
+
+    {% set recorded = request.query_params.get("recorded") %}
+    {% set errors = request.query_params.get("errors") %}
+    {% if recorded %}
+      <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">
+        Recorded {{ recorded }} mark(s){% if errors and errors != "0" %} — {{ errors }} had problems{% endif %}.
+      </div>
+    {% endif %}
+
+    {% if not exam_id %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+        This cohort has no exam attached — set one in the Kingdom Gateway admin first.
+      </div>
+    {% else %}
+    <form method="post" class="bg-white rounded-lg shadow-sm overflow-hidden">
+      <input type="hidden" name="exam_id" value="{{ exam_id }}">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left text-xs uppercase text-gray-500">
+            <th class="px-4 py-3">Member</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3">Score</th>
+            <th class="px-4 py-3">Out of</th>
+            <th class="px-4 py-3">Notes (optional)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for e in enrollments %}
+          <tr>
+            <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ e.external_member_id[:8] }}…</td>
+            <td class="px-4 py-3 text-xs text-gray-500">{{ e.status }}</td>
+            <td class="px-4 py-3"><input name="score-{{ e.id }}" type="number" min="0" class="w-20 rounded-md border-gray-300 text-sm px-2 py-1"></td>
+            <td class="px-4 py-3"><input name="max-{{ e.id }}" type="number" min="0" class="w-20 rounded-md border-gray-300 text-sm px-2 py-1"></td>
+            <td class="px-4 py-3"><input name="notes-{{ e.id }}" type="text" class="w-full rounded-md border-gray-300 text-sm px-2 py-1" placeholder=""></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">No enrollments to mark.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="p-3 border-t border-gray-100 bg-gray-50 sticky bottom-0">
+        <button type="submit" class="px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-md hover:bg-black">
+          Record marks
+        </button>
+        <span class="text-xs text-gray-500 ml-3">Leave a row blank if not yet sat.</span>
+      </div>
+    </form>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

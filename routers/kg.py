@@ -1,0 +1,566 @@
+"""Kingdom Gateway routes for the portal.
+
+Three audiences:
+
+* **Members** (`/portal/kg/*`) — see their cohort, attend classes, take the
+  exam, download their certificate.
+* **Facilitators** (`/desk/kg/*`) — mark attendance live during class,
+  enter onsite exam marks. Uses the existing desk session cookie.
+* **Admin** (`/admin/kg`) — read-only summary that deep-links to the KG
+  admin UI for editing course content.
+
+Every page degrades gracefully when KG is unreachable / not configured —
+the kill switch in `kingdom_gateway_client.is_enabled()` keeps the portal
+working even if KG is down.
+"""
+from __future__ import annotations
+
+import io
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import (
+    HTMLResponse, RedirectResponse, Response, StreamingResponse,
+)
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
+
+import kingdom_gateway_client as kg
+from database import get_db
+from models import Member
+from routers.pages import (
+    get_current_member, is_authenticated, is_desk_authenticated,
+)
+
+
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _kg_disabled_page(request: Request, audience: str = "member") -> HTMLResponse:
+    """Friendly "not available right now" page shown when KG is off."""
+    return templates.TemplateResponse(
+        request, "kg/disabled.html",
+        {"audience": audience},
+        status_code=503,
+    )
+
+
+def _require_member(request: Request, db: Session) -> tuple[Member | None, Optional[RedirectResponse]]:
+    """Convenience: return (member, redirect) where redirect is set if no
+    member is logged in. Caller bails out by returning the redirect."""
+    member = get_current_member(request, db)
+    if not member:
+        return None, RedirectResponse(url="/?next=/portal/kg", status_code=302)
+    return member, None
+
+
+def _member_external_id(member: Member) -> str | None:
+    """KG identifies members by their rfm-database UUID. The portal stores
+    it on `Member.external_member_id` when the central-DB integration is
+    on. Without it, we can't talk to KG for this member."""
+    return (member.external_member_id or "").strip() or None
+
+
+# ---------------------------------------------------------------------------
+# MEMBER — landing
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/kg", response_class=HTMLResponse)
+async def portal_kg_home(request: Request, db: Session = Depends(get_db)):
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    external_id = _member_external_id(member)
+    enrollments: list = []
+    error: str | None = None
+
+    if not external_id:
+        error = (
+            "We can't find you in the central member database yet. "
+            "Please contact the church office so they can link your record."
+        )
+    else:
+        r = kg.list_my_enrollments(external_member_id=external_id, db=db)
+        if r.ok:
+            data = r.data
+            if isinstance(data, dict):
+                data = data.get("data") or []
+            enrollments = data or []
+        else:
+            error = r.error or "Could not reach Kingdom Gateway right now."
+
+    return templates.TemplateResponse(
+        request, "kg/portal_home.html",
+        {
+            "member": member,
+            "enrollments": enrollments,
+            "error": error,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# MEMBER — cohort detail (schedule + status)
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/kg/cohort/{cohort_id}", response_class=HTMLResponse)
+async def portal_kg_cohort(
+    cohort_id: str, request: Request, db: Session = Depends(get_db),
+):
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    external_id = _member_external_id(member)
+    if not external_id:
+        return RedirectResponse(url="/portal/kg", status_code=302)
+
+    cohort_r = kg.get_cohort(cohort_id, db=db)
+    classes_r = kg.list_classes(cohort_id, db=db)
+    enrol_r = kg.list_my_enrollments(external_member_id=external_id, db=db)
+
+    cohort = cohort_r.data if cohort_r.ok else None
+    classes = classes_r.data if classes_r.ok else []
+    if isinstance(classes, dict):
+        classes = classes.get("data") or []
+    enrollments = enrol_r.data if enrol_r.ok else []
+    if isinstance(enrollments, dict):
+        enrollments = enrollments.get("data") or []
+    my_enrollment = next(
+        (e for e in enrollments if e.get("cohort_id") == cohort_id), None,
+    )
+
+    exam_id = (cohort or {}).get("exam_id")
+
+    return templates.TemplateResponse(
+        request, "kg/portal_cohort.html",
+        {
+            "member": member,
+            "cohort": cohort,
+            "classes": classes,
+            "enrollment": my_enrollment,
+            "exam_id": exam_id,
+            "error": (None if cohort_r.ok else cohort_r.error),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# MEMBER — accept invite link
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/kg/accept", response_class=HTMLResponse)
+async def portal_kg_accept(
+    request: Request, token: str = "", db: Session = Depends(get_db),
+):
+    """Lands a member on /portal/kg/accept?token=… (built by KG when the
+    invite email goes out). We forward the token to KG which flips their
+    enrollment to ENROLLED."""
+    member, redirect = _require_member(request, db)
+    if redirect:
+        # Preserve the token through the login flow.
+        return RedirectResponse(url=f"/?next=/portal/kg/accept?token={token}", status_code=302)
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    result = kg.accept_invite(token=token, db=db) if token else None
+    if result is None or not result.ok:
+        return templates.TemplateResponse(
+            request, "kg/portal_accept.html",
+            {
+                "member": member,
+                "ok": False,
+                "error": (result.error if result else "Missing or invalid invite token."),
+            },
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request, "kg/portal_accept.html",
+        {
+            "member": member,
+            "ok": True,
+            "enrollment": result.data,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# MEMBER — take exam
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/kg/exam/{exam_id}/start", response_class=HTMLResponse)
+async def portal_kg_exam_start(
+    exam_id: str, request: Request, db: Session = Depends(get_db),
+):
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    external_id = _member_external_id(member)
+    if not external_id:
+        return RedirectResponse(url="/portal/kg", status_code=302)
+
+    r = kg.start_attempt(exam_id=exam_id, external_member_id=external_id, db=db)
+    if not r.ok:
+        return templates.TemplateResponse(
+            request, "kg/portal_exam_error.html",
+            {"member": member, "error": r.error},
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request, "kg/portal_exam.html",
+        {"member": member, "attempt": r.data},
+    )
+
+
+@router.post("/portal/kg/exam/submit")
+async def portal_kg_exam_submit(
+    request: Request, db: Session = Depends(get_db),
+):
+    """Submit an exam attempt. We accept multipart form data so the page
+    can be a plain `<form>` — answers are encoded as `q-<question_id>` per
+    question. Each field's value is the answer in stringified form (the
+    template knows how to serialise per question type)."""
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    attempt_id = (form.get("attempt_id") or "").strip()
+    if not attempt_id:
+        return RedirectResponse(url="/portal/kg", status_code=303)
+
+    # Reconstruct the answers list. Field naming convention:
+    #   q-<question_id>-type    -> MCQ | TRUE_FALSE | FILL_IN_BLANK | SHORT_ANSWER
+    #   q-<question_id>-value   -> primary value(s) for the question
+    # FILL_IN_BLANK uses repeated `q-<id>-blank` fields, one per blank.
+    answers = _build_answers_from_form(form)
+
+    r = kg.submit_attempt(attempt_id=attempt_id, answers=answers, db=db)
+    if not r.ok:
+        return templates.TemplateResponse(
+            request, "kg/portal_exam_error.html",
+            {"member": member, "error": r.error},
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request, "kg/portal_results.html",
+        {"member": member, "result": r.data},
+    )
+
+
+def _build_answers_from_form(form) -> list[dict]:
+    """Walk the multipart form into the answers shape KG expects.
+
+    Each question writes one or more form fields. We identify them by the
+    `q-<uuid>-type` field and combine related fields by uuid.
+    """
+    # Group field names by question id
+    by_qid: dict[str, dict] = {}
+    for key in form.keys():
+        if not key.startswith("q-"):
+            continue
+        # e.g. "q-7c8f...-type", "q-7c8f...-value", "q-7c8f...-blank"
+        parts = key.split("-")
+        if len(parts) < 3:
+            continue
+        qid = "-".join(parts[1:-1])
+        field = parts[-1]
+        bucket = by_qid.setdefault(qid, {"_blanks": []})
+        if field == "blank":
+            # `form.getlist` keeps repeats — we collected multiple fields
+            # named "q-<id>-blank" for multi-blank fill-ins.
+            try:
+                values = form.getlist(key)
+            except AttributeError:
+                values = [form[key]]
+            bucket["_blanks"].extend(v for v in values if v is not None)
+        else:
+            bucket[field] = form[key]
+
+    answers: list[dict] = []
+    for qid, b in by_qid.items():
+        qtype = (b.get("type") or "").upper()
+        raw = b.get("value")
+        ans: dict = {}
+        if qtype == "MCQ":
+            try:
+                ans["choice"] = int(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                ans["choice"] = None
+        elif qtype == "TRUE_FALSE":
+            ans["value"] = (str(raw).lower() == "true")
+        elif qtype == "FILL_IN_BLANK":
+            ans["answers"] = [str(v) for v in b["_blanks"]]
+        else:
+            ans["text"] = str(raw or "")
+        answers.append({"question_id": qid, "answer": ans})
+    return answers
+
+
+# ---------------------------------------------------------------------------
+# MEMBER — certificate
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/kg/certificate/{enrollment_id}")
+async def portal_kg_certificate(
+    enrollment_id: str, request: Request, db: Session = Depends(get_db),
+):
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    ok, body, err = kg.get_certificate_pdf_bytes(enrollment_id, db=db)
+    if not ok or not body:
+        return templates.TemplateResponse(
+            request, "kg/portal_exam_error.html",
+            {"member": member, "error": err or "Certificate not available yet."},
+            status_code=404,
+        )
+    headers = {
+        "Content-Disposition": f'attachment; filename="kingdom-gateway-{enrollment_id}.pdf"',
+    }
+    return Response(content=body, media_type="application/pdf", headers=headers)
+
+
+# ---------------------------------------------------------------------------
+# FACILITATOR (Info Desk) — cohort list + attendance + onsite marks
+# ---------------------------------------------------------------------------
+
+def _require_desk(request: Request) -> Optional[RedirectResponse]:
+    if not is_desk_authenticated(request):
+        return RedirectResponse(url="/desk/login?next=/desk/kg", status_code=302)
+    return None
+
+
+@router.get("/desk/kg", response_class=HTMLResponse)
+async def desk_kg_home(request: Request, db: Session = Depends(get_db)):
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    # Facilitators see active cohorts for the whole assembly the desk key
+    # is scoped to. KG enforces tenant scope server-side.
+    r = kg.health_check(db=db)   # sanity probe so the page can show "KG down"
+    cohorts_resp = kg._request("GET", "/api/v1/cohorts", db=db, params={"status": "ACTIVE"})
+    cohorts = cohorts_resp.data if cohorts_resp.ok else []
+    if isinstance(cohorts, dict):
+        cohorts = cohorts.get("data") or []
+
+    return templates.TemplateResponse(
+        request, "kg/desk_home.html",
+        {"cohorts": cohorts, "kg_health_ok": r.ok, "error": cohorts_resp.error if not cohorts_resp.ok else None},
+    )
+
+
+@router.get("/desk/kg/cohort/{cohort_id}/attendance", response_class=HTMLResponse)
+async def desk_kg_attendance_page(
+    cohort_id: str, request: Request, class_id: str = "",
+    db: Session = Depends(get_db),
+):
+    """Live attendance roster for one class. ?class_id= pre-selects the
+    class — we keep it as a query param so the facilitator can switch
+    classes without losing their place."""
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    cohort_r = kg.get_cohort(cohort_id, db=db)
+    classes_r = kg.list_classes(cohort_id, db=db)
+    enrol_r = kg.list_enrollments_for_cohort(cohort_id, db=db)
+
+    classes = classes_r.data if classes_r.ok else []
+    if isinstance(classes, dict):
+        classes = classes.get("data") or []
+    enrollments = enrol_r.data if enrol_r.ok else []
+    if isinstance(enrollments, dict):
+        enrollments = enrollments.get("data") or []
+
+    selected_class = None
+    if class_id:
+        selected_class = next((c for c in classes if c.get("id") == class_id), None)
+    if not selected_class and classes:
+        selected_class = classes[0]
+
+    return templates.TemplateResponse(
+        request, "kg/desk_attendance.html",
+        {
+            "cohort": cohort_r.data if cohort_r.ok else None,
+            "classes": classes,
+            "selected_class": selected_class,
+            "enrollments": enrollments,
+            "error": (cohort_r.error if not cohort_r.ok else None),
+        },
+    )
+
+
+@router.post("/desk/kg/cohort/{cohort_id}/attendance")
+async def desk_kg_attendance_submit(
+    cohort_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    form = await request.form()
+    class_id = (form.get("class_id") or "").strip()
+    if not class_id:
+        return RedirectResponse(url=f"/desk/kg/cohort/{cohort_id}/attendance", status_code=303)
+
+    # Each row: status-<enrollment_id> = PRESENT|LATE|ABSENT|EXCUSED
+    entries = []
+    for key, value in form.multi_items() if hasattr(form, "multi_items") else form.items():
+        if not key.startswith("status-"):
+            continue
+        enrollment_id = key[len("status-"):]
+        status = (value or "").strip().upper()
+        if status not in ("PRESENT", "LATE", "ABSENT", "EXCUSED"):
+            continue
+        entries.append({"enrollment_id": enrollment_id, "status": status, "method": "MANUAL"})
+
+    if entries:
+        kg.bulk_mark_attendance(class_session_id=class_id, entries=entries, db=db)
+
+    return RedirectResponse(
+        url=f"/desk/kg/cohort/{cohort_id}/attendance?class_id={class_id}&saved=1",
+        status_code=303,
+    )
+
+
+@router.get("/desk/kg/cohort/{cohort_id}/onsite-exam", response_class=HTMLResponse)
+async def desk_kg_onsite_exam_page(
+    cohort_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    cohort_r = kg.get_cohort(cohort_id, db=db)
+    enrol_r = kg.list_enrollments_for_cohort(cohort_id, db=db)
+    enrollments = enrol_r.data if enrol_r.ok else []
+    if isinstance(enrollments, dict):
+        enrollments = enrollments.get("data") or []
+    cohort = cohort_r.data if cohort_r.ok else None
+    exam_id = (cohort or {}).get("exam_id")
+
+    return templates.TemplateResponse(
+        request, "kg/desk_onsite_exam.html",
+        {
+            "cohort": cohort,
+            "exam_id": exam_id,
+            "enrollments": enrollments,
+            "error": cohort_r.error if not cohort_r.ok else None,
+        },
+    )
+
+
+@router.post("/desk/kg/cohort/{cohort_id}/onsite-exam")
+async def desk_kg_onsite_exam_submit(
+    cohort_id: str, request: Request,
+    exam_id: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    form = await request.form()
+    # Field naming: score-<enrollment_id>, max-<enrollment_id>
+    enrollments: dict[str, dict] = {}
+    for key in form.keys():
+        if "-" not in key:
+            continue
+        prefix, eid = key.split("-", 1)
+        if prefix not in ("score", "max", "notes"):
+            continue
+        enrollments.setdefault(eid, {})[prefix] = form[key]
+
+    recorded = 0
+    errors = []
+    for eid, payload in enrollments.items():
+        try:
+            raw = int(payload.get("score") or 0)
+            mx = int(payload.get("max") or 0)
+        except (TypeError, ValueError):
+            errors.append(eid)
+            continue
+        if mx <= 0:
+            continue   # skip blank rows
+        r = kg.record_onsite_mark(
+            enrollment_id=eid, exam_id=exam_id,
+            raw_score=raw, max_score=mx,
+            grader_notes=(payload.get("notes") or None), db=db,
+        )
+        if r.ok:
+            recorded += 1
+        else:
+            errors.append(eid)
+
+    return RedirectResponse(
+        url=f"/desk/kg/cohort/{cohort_id}/onsite-exam?recorded={recorded}&errors={len(errors)}",
+        status_code=303,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — read-only overview + deep link to KG admin
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/kg", response_class=HTMLResponse)
+async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login?next=/admin/kg", status_code=302)
+
+    kg_url = kg.get_api_url(db)
+    configured = kg.is_configured(db)
+    enabled = kg.is_enabled(db)
+    health = kg.health_check(db=db) if enabled else None
+
+    cohorts: list = []
+    if enabled and configured:
+        r = kg._request("GET", "/api/v1/cohorts", db=db, params={"size": 50})
+        if r.ok:
+            data = r.data
+            if isinstance(data, dict):
+                cohorts = data.get("data") or []
+            else:
+                cohorts = data or []
+
+    return templates.TemplateResponse(
+        request, "kg/admin_overview.html",
+        {
+            "kg_url": kg_url,
+            "configured": configured,
+            "enabled": enabled,
+            "health_ok": (health.ok if health else None),
+            "health_error": (health.error if health and not health.ok else None),
+            "cohorts": cohorts,
+        },
+    )

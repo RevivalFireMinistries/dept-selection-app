@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Kingdom Gateway · RFM{% endblock %}
+{% block content %}
+<div class="min-h-screen" style="background-color: var(--color-paper);">
+  <header class="text-white px-5 py-5 sticky top-0 z-30" style="background-color: var(--color-ink);">
+    <div class="max-w-3xl mx-auto flex items-center gap-3">
+      <a href="/portal" class="text-white/70 hover:text-white">&larr;</a>
+      <div>
+        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Course</div>
+        <div class="text-lg font-semibold">Kingdom Gateway</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-5 space-y-4">
+    {% if error %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-sm">{{ error }}</div>
+    {% endif %}
+
+    {% if not enrollments %}
+      <section class="bg-white rounded-2xl shadow-sm p-6 text-center" style="border: 1px solid var(--color-border);">
+        <div class="text-2xl">🌱</div>
+        <h2 class="mt-2 font-display text-xl text-gray-900">No active enrollment</h2>
+        <p class="mt-1 text-sm text-gray-600">
+          When you're invited to a Kingdom Gateway cohort you'll see it here.
+          Speak to your pastor or the church office if you'd like to join.
+        </p>
+      </section>
+    {% else %}
+      {% for e in enrollments %}
+        <a href="/portal/kg/cohort/{{ e.cohort_id }}"
+           class="block bg-white rounded-2xl shadow-sm p-5 hover:shadow-md transition-shadow"
+           style="border: 1px solid var(--color-border);">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-[11px] uppercase tracking-[0.18em] text-gray-500">Your cohort</div>
+              <div class="font-semibold text-gray-900">{{ e.cohort_id[:8] }}…</div>
+            </div>
+            <span class="text-xs px-2.5 py-1 rounded-full
+              {% if e.status == 'COMPLETED' %}bg-emerald-100 text-emerald-800
+              {% elif e.status == 'FAILED' %}bg-red-100 text-red-700
+              {% elif e.status == 'EXAM_READY' %}bg-blue-100 text-blue-800
+              {% elif e.status == 'INVITED' %}bg-amber-100 text-amber-800
+              {% else %}bg-gray-100 text-gray-700{% endif %}">{{ e.status }}</span>
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-3 text-center">
+            <div>
+              <div class="text-xs text-gray-500">Attendance</div>
+              <div class="text-sm font-semibold text-gray-900">
+                {% if e.attendance_percent is not none %}{{ e.attendance_percent }}%{% else %}—{% endif %}
+              </div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500">Exam</div>
+              <div class="text-sm font-semibold text-gray-900">
+                {% if e.final_score_percent is not none %}{{ e.final_score_percent }}%{% else %}—{% endif %}
+              </div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500">Certificate</div>
+              <div class="text-sm font-semibold text-gray-900">
+                {% if e.certificate_number %}<span class="text-emerald-700">Issued</span>{% else %}—{% endif %}
+              </div>
+            </div>
+          </div>
+        </a>
+      {% endfor %}
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

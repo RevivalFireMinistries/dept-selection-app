@@ -1,0 +1,55 @@
+{% extends "desk/base.html" %}
+{% block title %}Kingdom Gateway · Info Desk{% endblock %}
+{% block desk_content %}
+<div class="min-h-screen bg-gray-50">
+  <nav class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <h1 class="text-xl font-bold text-gray-900">Kingdom Gateway · Facilitator</h1>
+      <a href="/desk" class="text-sm text-teal-600 hover:text-teal-700">Info Desk</a>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    {% if not kg_health_ok %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-4 text-sm">
+        Kingdom Gateway service is not responding right now. {% if error %}<span class="text-amber-700">({{ error }})</span>{% endif %}
+      </div>
+    {% endif %}
+
+    <h2 class="text-lg font-semibold text-gray-900">Active cohorts</h2>
+    <p class="text-sm text-gray-500 mt-1">Pick a cohort to mark attendance or enter onsite exam marks.</p>
+
+    <div class="mt-4 bg-white rounded-lg shadow-sm overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left text-xs uppercase text-gray-500">
+            <th class="px-4 py-3">Name</th>
+            <th class="px-4 py-3">Starts</th>
+            <th class="px-4 py-3">Pass mark</th>
+            <th class="px-4 py-3">Min attendance</th>
+            <th class="px-4 py-3 text-right"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for c in cohorts %}
+          <tr>
+            <td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td>
+            <td class="px-4 py-3 text-gray-600">{{ c.start_date }}</td>
+            <td class="px-4 py-3 text-gray-600">{{ c.pass_mark_percent }}%</td>
+            <td class="px-4 py-3 text-gray-600">{{ c.min_attendance_percent }}%</td>
+            <td class="px-4 py-3 text-right">
+              <a href="/desk/kg/cohort/{{ c.id }}/attendance"
+                 class="inline-block px-3 py-1.5 bg-teal-600 text-white text-xs rounded-md hover:bg-teal-700">Attendance</a>
+              <a href="/desk/kg/cohort/{{ c.id }}/onsite-exam"
+                 class="inline-block px-3 py-1.5 ml-1 bg-gray-700 text-white text-xs rounded-md hover:bg-gray-800">Onsite exam</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">No active cohorts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Take exam · Kingdom Gateway{% endblock %}
+{% block content %}
+<div class="min-h-screen" style="background-color: var(--color-paper);">
+  <header class="text-white px-5 py-5 sticky top-0 z-30" style="background-color: var(--color-ink);">
+    <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
+      <div>
+        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Kingdom Gateway</div>
+        <div class="text-lg font-semibold">Exam</div>
+      </div>
+      <div class="text-right" id="timer" data-minutes="{{ attempt.time_limit_minutes }}">
+        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Time left</div>
+        <div class="text-lg font-semibold tabular-nums">--:--</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-5">
+    <form method="post" action="/portal/kg/exam/submit" class="space-y-5">
+      <input type="hidden" name="attempt_id" value="{{ attempt.attempt_id }}">
+
+      {% for q in attempt.questions %}
+      <section class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
+        <input type="hidden" name="q-{{ q.id }}-type" value="{{ q.question_type }}">
+        <div class="flex items-baseline justify-between">
+          <div class="text-[11px] uppercase tracking-[0.18em] text-gray-500">Question {{ loop.index }}</div>
+          <div class="text-[11px] text-gray-400">{{ q.points }} pt</div>
+        </div>
+        <p class="mt-2 text-base text-gray-900">{{ q.question_text }}</p>
+
+        {% if q.question_type == "MCQ" %}
+          <ul class="mt-3 space-y-2">
+            {% for opt in q.options.get("choices", []) %}
+            <li>
+              <label class="flex items-start gap-2 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                <input type="radio" name="q-{{ q.id }}-value" value="{{ loop.index0 }}" class="mt-1">
+                <span class="text-sm text-gray-800">{{ opt }}</span>
+              </label>
+            </li>
+            {% endfor %}
+          </ul>
+        {% elif q.question_type == "TRUE_FALSE" %}
+          <div class="mt-3 flex gap-2">
+            <label class="flex-1 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer text-center text-sm">
+              <input type="radio" name="q-{{ q.id }}-value" value="true" class="mr-1.5"> True
+            </label>
+            <label class="flex-1 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer text-center text-sm">
+              <input type="radio" name="q-{{ q.id }}-value" value="false" class="mr-1.5"> False
+            </label>
+          </div>
+        {% elif q.question_type == "FILL_IN_BLANK" %}
+          {# One text input per blank. KG stores blanks count via correct_answer.blanks; we don't
+             send that to the public-shape question, but the question text usually uses
+             underscores per blank. Render N inputs based on count of "___" runs, min 1. #}
+          {% set blanks = q.question_text.count("___") %}
+          {% if blanks < 1 %}{% set blanks = 1 %}{% endif %}
+          <div class="mt-3 grid grid-cols-1 sm:grid-cols-{{ blanks if blanks < 4 else 4 }} gap-2">
+            {% for _ in range(blanks) %}
+              <input type="text" name="q-{{ q.id }}-blank"
+                     class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                     placeholder="Your answer">
+            {% endfor %}
+          </div>
+        {% else %}
+          <textarea name="q-{{ q.id }}-value" rows="3"
+                    class="mt-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    placeholder="Type your answer"></textarea>
+        {% endif %}
+      </section>
+      {% endfor %}
+
+      <div class="sticky bottom-0 bg-white/95 backdrop-blur py-3 px-1 border-t border-gray-200">
+        <button type="submit"
+                class="w-full px-4 py-3 rounded-lg bg-ink text-white text-sm font-semibold hover:opacity-90">
+          Submit exam
+        </button>
+      </div>
+    </form>
+  </main>
+</div>
+
+<script>
+  // Lightweight client-side countdown. The server enforces the real cap.
+  (function () {
+    const el = document.getElementById('timer');
+    if (!el) return;
+    const minutes = parseInt(el.dataset.minutes || '0', 10);
+    if (!minutes) return;
+    let remaining = minutes * 60;
+    const display = el.querySelector('div.text-lg');
+    function tick() {
+      const m = Math.floor(remaining / 60), s = remaining % 60;
+      display.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      if (remaining <= 0) {
+        const form = document.querySelector('form');
+        if (form) form.submit();
+        return;
+      }
+      remaining--;
+      setTimeout(tick, 1000);
+    }
+    tick();
+  })();
+</script>
+{% endblock %}
