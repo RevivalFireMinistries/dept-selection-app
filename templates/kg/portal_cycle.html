@@ -34,10 +34,17 @@
 
       <div class="mt-4 flex flex-wrap gap-2">
         {% if enrollment.status in ['EXAM_READY', 'FAILED'] and exam_id %}
-          <a href="/portal/kg/exam/{{ exam_id }}/start"
-             class="px-4 py-2 rounded-lg bg-ink text-white text-sm font-medium hover:opacity-90">
-            {% if enrollment.status == 'FAILED' %}Retake exam{% else %}Take the exam{% endif %}
-          </a>
+          {% if exam_is_open %}
+            <a href="/portal/kg/exam/{{ exam_id }}/start"
+               class="px-4 py-2 rounded-lg bg-ink text-white text-sm font-medium hover:opacity-90">
+              {% if enrollment.status == 'FAILED' %}Retake exam{% else %}Take the exam{% endif %}
+            </a>
+          {% elif enrollment.exam_available_at %}
+            <div class="px-4 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 text-sm">
+              📅 Exam scheduled — opens
+              <strong>{{ enrollment.exam_available_at[:16].replace("T", " ") }}</strong>
+            </div>
+          {% endif %}
         {% endif %}
         {% if enrollment.status == 'COMPLETED' %}
           <a href="/portal/kg/certificate/{{ enrollment.id }}"

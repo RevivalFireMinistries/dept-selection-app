@@ -170,6 +170,27 @@ async def portal_kg_cycle(
 
     exam_id = (cycle or {}).get("exam_id")
 
+    # Gate the "Take the exam" button on exam_available_at — admins can
+    # schedule the opening for a future moment without flipping any
+    # background job. If the timestamp is in the past (or absent — meaning
+    # the legacy attendance-only flow set EXAM_READY), the exam is open.
+    exam_is_open = False
+    if my_enrollment:
+        avail = (my_enrollment.get("exam_available_at") or "").strip()
+        if not avail:
+            exam_is_open = True
+        else:
+            from datetime import datetime, timezone
+            try:
+                # Strip trailing Z if rfm-database returned ISO Z form.
+                when = datetime.fromisoformat(avail.replace("Z", "+00:00"))
+                if when.tzinfo is None:
+                    when = when.replace(tzinfo=timezone.utc)
+                exam_is_open = when <= datetime.now(timezone.utc)
+            except ValueError:
+                # Bad value — fail open so a stray format doesn't block the member.
+                exam_is_open = True
+
     return templates.TemplateResponse(
         request, "kg/portal_cycle.html",
         {
@@ -181,6 +202,7 @@ async def portal_kg_cycle(
             "achieved_ids": achieved_ids,
             "attendance_by_class": attendance_by_class,
             "exam_id": exam_id,
+            "exam_is_open": exam_is_open,
             "error": (None if cycle_r.ok else cycle_r.error),
         },
     )
@@ -1467,6 +1489,91 @@ async def admin_kg_cycle_edit_submit(
     return _flash_redirect(
         f"/admin/kg/cycles/{cycle_id}", "Cycle updated.",
     )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — open exam (single member / whole cycle)
+# ---------------------------------------------------------------------------
+
+def _parse_unlock_when(form) -> str | None:
+    """Turn the unlock form's when=now|schedule + date/time pickers into
+    an ISO datetime string (or None for "open immediately")."""
+    when = (form.get("when") or "now").strip().lower()
+    if when != "schedule":
+        return None
+    date_str = (form.get("schedule_date") or "").strip()
+    time_str = (form.get("schedule_time") or "").strip() or "10:00"
+    if not date_str:
+        return None
+    if len(time_str) == 5:
+        time_str = time_str + ":00"
+    return f"{date_str}T{time_str}+00:00"
+
+
+@router.post("/admin/kg/enrollments/{enrollment_id}/unlock-exam")
+async def admin_kg_unlock_exam_member(
+    enrollment_id: str, request: Request,
+    db: Session = Depends(get_db),
+):
+    """Open the exam for one member — KG team or portal admin only.
+
+    Form fields:
+      when:           "now" | "schedule"
+      schedule_date:  YYYY-MM-DD     (when when=schedule)
+      schedule_time:  HH:MM           (when when=schedule, defaults 10:00)
+      back:           URL to redirect to (defaults to the cycle page)
+    """
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    form = await request.form()
+    available_at = _parse_unlock_when(form)
+    back = (form.get("back") or "/admin/kg").strip()
+
+    r = kg.unlock_exam_for_enrollment(
+        enrollment_id, available_at=available_at, db=db,
+    )
+    if not r.ok:
+        return _flash_redirect(back, r.error or "Could not open the exam.")
+
+    if available_at:
+        msg = f"Exam scheduled for {available_at.replace('T', ' ')[:16]}."
+    else:
+        msg = "Exam opened — member can take it now."
+    return _flash_redirect(back, msg)
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/unlock-exam")
+async def admin_kg_unlock_exam_cycle(
+    cycle_id: str, request: Request,
+    db: Session = Depends(get_db),
+):
+    """Move every non-terminal enrollment in a cycle into exam mode."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    form = await request.form()
+    available_at = _parse_unlock_when(form)
+
+    r = kg.unlock_exam_for_cycle(
+        cycle_id, available_at=available_at, db=db,
+    )
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}",
+            r.error or "Could not open the cycle's exam.",
+        )
+
+    count = 0
+    if isinstance(r.data, dict):
+        count = int(r.data.get("unlocked") or 0)
+    if available_at:
+        msg = f"Exam scheduled for {count} member(s) — opens {available_at.replace('T', ' ')[:16]}."
+    else:
+        msg = f"Exam opened for {count} member(s)."
+    return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", msg)
 
 
 @router.get("/admin/kg/cycles/{cycle_id}", response_class=HTMLResponse)

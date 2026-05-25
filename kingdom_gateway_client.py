@@ -311,6 +311,40 @@ def list_attendance_by_enrollment(enrollment_id: str, *, db=None) -> ApiResult:
     )
 
 
+def unlock_exam_for_enrollment(
+    enrollment_id: str, *, available_at: str | None = None, db=None,
+) -> ApiResult:
+    """Open the exam for a single member.
+
+    available_at: ISO datetime string. None = immediately. A future
+    timestamp schedules the opening — the member sees "Exam opens on
+    X" until that moment, then "Take the exam" appears automatically
+    (no background job; the portal page just checks the timestamp).
+    """
+    return _request(
+        "POST", f"/api/v1/enrollments/{enrollment_id}/unlock-exam",
+        db=db, body={"available_at": available_at},
+    )
+
+
+def unlock_exam_for_cycle(
+    cycle_id: str,
+    *,
+    available_at: str | None = None,
+    enrollment_ids: list[str] | None = None,
+    db=None,
+) -> ApiResult:
+    """Move a whole cycle into exam mode in one call. Skips terminal
+    enrollments (COMPLETED / WITHDRAWN / EXEMPTED) automatically."""
+    body: dict = {"available_at": available_at}
+    if enrollment_ids:
+        body["enrollment_ids"] = enrollment_ids
+    return _request(
+        "POST", f"/api/v1/enrollments/cycles/{cycle_id}/unlock-exam",
+        db=db, body=body,
+    )
+
+
 # ---- Onsite exam marks ----
 
 def record_onsite_mark(
