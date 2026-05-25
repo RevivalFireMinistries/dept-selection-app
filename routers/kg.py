@@ -492,6 +492,7 @@ async def desk_kg_attendance_page(
     enrollments = enrol_r.data if enrol_r.ok else []
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
+    _decorate_enrollments_with_names(enrollments, db)
 
     selected_class = None
     if class_id:
@@ -561,6 +562,7 @@ async def desk_kg_onsite_exam_page(
     enrollments = enrol_r.data if enrol_r.ok else []
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
+    _decorate_enrollments_with_names(enrollments, db)
     cycle = cycle_r.data if cycle_r.ok else None
     exam_id = (cycle or {}).get("exam_id")
 
@@ -698,6 +700,7 @@ async def desk_kg_milestones_page(
     enrollments = enr_r.data if enr_r.ok else []
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
+    _decorate_enrollments_with_names(enrollments, db)
 
     # Achievement lookup: { (enrollment_id, milestone_id): true } so the
     # template can render a tick instantly without N round trips.
@@ -1168,6 +1171,38 @@ def _teacher_pool(db: Session, asm_id: str) -> list[Member]:
     )
 
 
+def _member_name_map(db: Session, external_member_ids) -> dict[str, str]:
+    """Resolve external_member_id → full_name from the local Member
+    mirror in one query. Anything not found falls back to a UUID
+    short-prefix so the UI never breaks. Used to label enrollment
+    rosters, attendance lists, milestone check-offs etc. with human
+    names instead of raw UUIDs."""
+    ids = {x for x in external_member_ids if x}
+    if not ids:
+        return {}
+    rows = (
+        db.query(Member.external_member_id, Member.full_name)
+        .filter(Member.external_member_id.in_(list(ids)))
+        .all()
+    )
+    found = {r[0]: (r[1] or "").strip() for r in rows if r[0]}
+    # Fallback so the template never has to special-case missing rows.
+    for ext_id in ids:
+        if not found.get(ext_id):
+            found[ext_id] = f"{ext_id[:8]}…"
+    return found
+
+
+def _decorate_enrollments_with_names(
+    enrollments: list[dict], db: Session,
+) -> None:
+    """Mutate enrollment dicts in place, adding a `_member_name` field
+    for templates that display a roster."""
+    names = _member_name_map(db, (e.get("external_member_id") for e in enrollments))
+    for e in enrollments:
+        e["_member_name"] = names.get(e.get("external_member_id"), "")
+
+
 @router.get(
     "/admin/kg/cycles/{cycle_id}/classes/{class_id}/edit",
     response_class=HTMLResponse,
@@ -1362,6 +1397,7 @@ async def admin_kg_cycle_detail(
     enrollments = enr_r.data if enr_r.ok else []
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
+    _decorate_enrollments_with_names(enrollments, db)
 
     # Resolve teacher names for each class so the table doesn't show raw
     # UUIDs. Cheap — one local query covering the whole assembly.

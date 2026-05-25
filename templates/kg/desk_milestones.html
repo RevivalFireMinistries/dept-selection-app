@@ -40,9 +40,9 @@
         <tbody class="divide-y divide-gray-100">
           {% for e in enrollments %}
             <tr>
-              <td class="px-4 py-3 sticky left-0 bg-white font-mono text-xs">
-                {{ e.external_member_id[:8] }}…
-                <div class="text-[10px] text-gray-400">{{ e.status }}</div>
+              <td class="px-4 py-3 sticky left-0 bg-white text-sm text-gray-900 whitespace-nowrap">
+                {{ e._member_name or (e.external_member_id[:8] + "…") }}
+                <div class="text-[10px] text-gray-400 uppercase tracking-wide">{{ e.status }}</div>
               </td>
               {% for cm in cycle_milestones %}
                 {% set done = achieved.get((e.id, cm.milestone_id)) %}

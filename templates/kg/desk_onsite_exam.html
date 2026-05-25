@@ -43,7 +43,9 @@
         <tbody class="divide-y divide-gray-100">
           {% for e in enrollments %}
           <tr>
-            <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ e.external_member_id[:8] }}…</td>
+            <td class="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+              {{ e._member_name or (e.external_member_id[:8] + "…") }}
+            </td>
             <td class="px-4 py-3 text-xs text-gray-500">{{ e.status }}</td>
             <td class="px-4 py-3"><input name="score-{{ e.id }}" type="number" min="0" class="w-20 rounded-md border-gray-300 text-sm px-2 py-1"></td>
             <td class="px-4 py-3"><input name="max-{{ e.id }}" type="number" min="0" class="w-20 rounded-md border-gray-300 text-sm px-2 py-1"></td>
