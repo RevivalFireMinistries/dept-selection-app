@@ -1363,6 +1363,112 @@ async def admin_kg_class_add(
     return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class added.")
 
 
+# ---------------------------------------------------------------------------
+# ADMIN — edit cycle details (always allowed, even after the cycle has
+# started — KG team can still fix a typo in the name, push the end
+# date, lower the pass mark etc. The KG service itself imposes no
+# status guard on PATCH /cycles/{id}.)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/admin/kg/cycles/{cycle_id}/edit",
+    response_class=HTMLResponse,
+)
+async def admin_kg_cycle_edit(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    asm_id, _ = _resolve_portal_assembly(request, db)
+
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    cycle = cycle_r.data if cycle_r.ok else None
+
+    # Same cross-assembly guard as the detail page.
+    if cycle and asm_id and isinstance(cycle, dict) and cycle.get("assembly_id") != asm_id:
+        return RedirectResponse(url="/admin/kg", status_code=303)
+
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
+        request, "kg/admin_cycle_edit.html",
+        {
+            "cycle": cycle,
+            "error": cycle_r.error if not cycle_r.ok else None,
+            "flash": flash,
+        },
+    )
+    if had_flash:
+        _clear_flash(response)
+    return response
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/edit")
+async def admin_kg_cycle_edit_submit(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    form = await request.form()
+
+    def _opt_int(key: str) -> int | None:
+        raw = (form.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return None
+
+    fields: dict = {}
+    name = (form.get("name") or "").strip()
+    if name:
+        fields["name"] = name
+
+    description = form.get("description")
+    if description is not None:
+        # Allow clearing it by submitting empty.
+        fields["description"] = (description or None)
+
+    end_date = (form.get("end_date") or "").strip()
+    if end_date:
+        fields["end_date"] = end_date
+
+    status = (form.get("status") or "").strip().upper()
+    if status:
+        fields["status"] = status
+
+    for key in (
+        "pass_mark_percent",
+        "min_attendance_percent",
+        "max_exam_attempts",
+        "exam_time_limit_minutes",
+    ):
+        v = _opt_int(key)
+        if v is not None:
+            fields[key] = v
+
+    if not fields:
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}/edit", "Nothing to update.",
+        )
+
+    r = kg.update_cycle(cycle_id, fields, db=db)
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}/edit",
+            r.error or "Could not update cycle.",
+        )
+    return _flash_redirect(
+        f"/admin/kg/cycles/{cycle_id}", "Cycle updated.",
+    )
+
+
 @router.get("/admin/kg/cycles/{cycle_id}", response_class=HTMLResponse)
 async def admin_kg_cycle_detail(
     cycle_id: str, request: Request, db: Session = Depends(get_db),

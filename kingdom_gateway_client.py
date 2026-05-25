@@ -464,6 +464,15 @@ def plan_cycle(*, payload: dict, db=None) -> ApiResult:
     return _request("POST", "/api/v1/cycles/plan", db=db, body=payload)
 
 
+def update_cycle(cycle_id: str, fields: dict, *, db=None) -> ApiResult:
+    """Patch a cycle's mutable details. Works regardless of cycle
+    status — KG team can still tweak name, dates, pass mark etc.
+    after the cycle has started. Note: start_date is NOT in
+    CycleUpdate (KG doesn't ripple it to class sessions); use the
+    session-edit page to shift individual classes if needed."""
+    return _request("PATCH", f"/api/v1/cycles/{cycle_id}", db=db, body=fields)
+
+
 def list_cycle_milestones(cycle_id: str, *, db=None) -> ApiResult:
     """The milestones attached to this cycle (with mandatory flag)."""
     return _request("GET", f"/api/v1/milestones/cycles/{cycle_id}", db=db)
