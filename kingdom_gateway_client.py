@@ -327,6 +327,15 @@ def unlock_exam_for_enrollment(
     )
 
 
+def get_exam_attempt_detail(attempt_id: str, *, db=None) -> ApiResult:
+    """Per-question breakdown for an attempt — used by the member's
+    "View detailed results" page and (potentially later) the facilitator
+    grading screen."""
+    return _request(
+        "GET", f"/api/v1/exam-attempts/{attempt_id}/detail", db=db,
+    )
+
+
 def unlock_exam_for_cycle(
     cycle_id: str,
     *,

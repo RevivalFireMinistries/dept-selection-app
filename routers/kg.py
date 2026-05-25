@@ -185,6 +185,25 @@ async def portal_kg_cycle(
 
     exam_id = (cycle or {}).get("exam_id")
 
+    # If they've already attempted the exam at least once, surface the
+    # most recent attempt id so the cycle page can link to the detailed
+    # results view. Best-effort — the page renders fine without it.
+    latest_attempt_id: str | None = None
+    if my_enrollment and my_enrollment.get("status") in (
+        "EXAM_READY", "FAILED", "COMPLETED",
+    ):
+        att_r = kg.list_exam_attempts(
+            external_member_id=external_id,
+            cycle_id=cycle_id, page=1, size=1, db=db,
+        )
+        if att_r.ok:
+            attempts = (
+                att_r.data if isinstance(att_r.data, list)
+                else (att_r.data or {}).get("data") or []
+            )
+            if attempts:
+                latest_attempt_id = attempts[0].get("id")
+
     # Gate the "Take the exam" button on exam_available_at — admins can
     # schedule the opening for a future moment without flipping any
     # background job. If the timestamp is in the past (or absent — meaning
@@ -236,6 +255,7 @@ async def portal_kg_cycle(
             "attendance_by_class": attendance_by_class,
             "exam_id": exam_id,
             "exam_is_open": exam_is_open,
+            "latest_attempt_id": latest_attempt_id,
             "error": (None if cycle_r.ok else cycle_r.error),
         },
     )
@@ -374,6 +394,41 @@ async def portal_kg_exam_start(
     return templates.TemplateResponse(
         request, "kg/portal_exam.html",
         {"member": member, "attempt": r.data},
+    )
+
+
+@router.get("/portal/kg/results/{attempt_id}", response_class=HTMLResponse)
+async def portal_kg_results_detail(
+    attempt_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Per-question breakdown of one attempt — the page the
+    EXAM_RESULTS email links to. Members can re-view their own
+    attempts here long after submission."""
+    member, redirect = _require_member(request, db)
+    if redirect:
+        # Preserve the deep link through login so the email click works
+        # from a logged-out browser too.
+        return RedirectResponse(
+            url=f"/?next=/portal/kg/results/{attempt_id}", status_code=302,
+        )
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    r = kg.get_exam_attempt_detail(attempt_id, db=db)
+    if not r.ok:
+        return templates.TemplateResponse(
+            request, "kg/portal_exam_error.html",
+            {"member": member, "error": r.error or "Results not found."},
+            status_code=404,
+        )
+    data = r.data or {}
+    return templates.TemplateResponse(
+        request, "kg/portal_results_detail.html",
+        {
+            "member": member,
+            "attempt": data.get("attempt") or {},
+            "answers": data.get("answers") or [],
+        },
     )
 
 

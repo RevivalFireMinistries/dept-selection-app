@@ -52,6 +52,12 @@
             Download certificate
           </a>
         {% endif %}
+        {% if latest_attempt_id %}
+          <a href="/portal/kg/results/{{ latest_attempt_id }}"
+             class="px-4 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50">
+            View results
+          </a>
+        {% endif %}
       </div>
     </section>
     {% endif %}

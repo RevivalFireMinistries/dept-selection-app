@@ -24,9 +24,18 @@
         You didn't quite hit the pass mark this time — but you can retake the exam any number of times.
       </p>
     {% endif %}
-    <a href="/portal/kg" class="mt-6 inline-block px-5 py-2 rounded-lg bg-ink text-white text-sm font-medium">
-      Back to my cycle
-    </a>
+    <div class="mt-6 flex flex-col gap-2">
+      {% if result.attempt_id %}
+        <a href="/portal/kg/results/{{ result.attempt_id }}"
+           class="inline-block px-5 py-2 rounded-lg bg-ink text-white text-sm font-medium">
+          View detailed results
+        </a>
+      {% endif %}
+      <a href="/portal/kg"
+         class="inline-block px-5 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm font-medium">
+        Back to my cycle
+      </a>
+    </div>
   </div>
 </div>
 {% endblock %}

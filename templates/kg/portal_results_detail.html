@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}Exam results · Kingdom Gateway{% endblock %}
+
+{% macro render_answer(ans, q) %}
+  {# How the member's answer + the correct answer should be rendered
+     depends on question_type. Falls back to JSON for anything unknown. #}
+  {% if q.question_type == "MCQ" %}
+    {% set choices = (q.options or {}).get("choices") or [] %}
+    {% set picked = (ans or {}).get("choice") %}
+    {% set correct = (q.correct_answer or {}).get("choice") %}
+    <div class="text-xs">
+      <div>
+        <span class="text-gray-500">Your answer:</span>
+        <span class="font-medium text-gray-900">
+          {% if picked is not none and picked is number and picked < choices|length %}
+            {{ choices[picked] }}
+          {% else %}<em class="text-gray-400">No answer</em>{% endif %}
+        </span>
+      </div>
+      {% if correct is not none and correct is number and correct < choices|length %}
+        <div class="mt-0.5">
+          <span class="text-gray-500">Correct:</span>
+          <span class="font-medium text-emerald-700">{{ choices[correct] }}</span>
+        </div>
+      {% endif %}
+    </div>
+
+  {% elif q.question_type == "TRUE_FALSE" %}
+    {% set picked = (ans or {}).get("value") %}
+    {% set correct = (q.correct_answer or {}).get("value") %}
+    <div class="text-xs">
+      <div>
+        <span class="text-gray-500">Your answer:</span>
+        <span class="font-medium text-gray-900">
+          {% if picked is sameas true %}True{% elif picked is sameas false %}False
+          {% else %}<em class="text-gray-400">No answer</em>{% endif %}
+        </span>
+      </div>
+      {% if correct is sameas true or correct is sameas false %}
+        <div class="mt-0.5">
+          <span class="text-gray-500">Correct:</span>
+          <span class="font-medium text-emerald-700">{{ "True" if correct else "False" }}</span>
+        </div>
+      {% endif %}
+    </div>
+
+  {% elif q.question_type == "FILL_IN_BLANK" %}
+    {% set picked = (ans or {}).get("answers") or [] %}
+    {% set accepted = (q.correct_answer or {}).get("answers") or [] %}
+    <div class="text-xs">
+      <div>
+        <span class="text-gray-500">Your answer:</span>
+        <span class="font-medium text-gray-900">
+          {% if picked %}{{ picked|join(", ") }}{% else %}<em class="text-gray-400">No answer</em>{% endif %}
+        </span>
+      </div>
+      {% if accepted %}
+        <div class="mt-0.5">
+          <span class="text-gray-500">Accepted:</span>
+          <span class="font-medium text-emerald-700">{{ accepted|join(", ") }}</span>
+        </div>
+      {% endif %}
+    </div>
+
+  {% elif q.question_type == "SHORT_ANSWER" %}
+    {% set picked = (ans or {}).get("text") %}
+    <div class="text-xs">
+      <span class="text-gray-500">Your answer:</span>
+      <p class="mt-0.5 text-gray-900 whitespace-pre-wrap">
+        {% if picked %}{{ picked }}{% else %}<em class="text-gray-400">No answer</em>{% endif %}
+      </p>
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="min-h-screen" style="background-color: var(--color-paper);">
+  <header class="text-white px-5 py-5 sticky top-0 z-30" style="background-color: var(--color-ink);">
+    <div class="max-w-3xl mx-auto flex items-center gap-3">
+      <a href="/portal/kg" class="text-white/70 hover:text-white">&larr;</a>
+      <div>
+        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Your exam results</div>
+        <div class="text-lg font-semibold">Kingdom Gateway</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-5 space-y-4">
+    <!-- Score summary -->
+    <section class="bg-white rounded-2xl shadow-sm p-6"
+             style="border: 1px solid var(--color-border);">
+      {% if attempt.passed %}
+        <div class="text-4xl">🎉</div>
+        <h1 class="mt-2 font-display text-2xl text-gray-900">You passed!</h1>
+      {% elif attempt.status == 'SUBMITTED' %}
+        <div class="text-4xl">📝</div>
+        <h1 class="mt-2 font-display text-2xl text-gray-900">Submitted — awaiting review</h1>
+        <p class="mt-1 text-sm text-gray-600">
+          Some questions need a person to grade them. Your final score will
+          land here once a facilitator has reviewed them.
+        </p>
+      {% else %}
+        <div class="text-4xl">📘</div>
+        <h1 class="mt-2 font-display text-2xl text-gray-900">Not yet</h1>
+        <p class="mt-1 text-sm text-gray-600">
+          You can retake the exam any number of times in the portal.
+        </p>
+      {% endif %}
+      <div class="mt-4 grid grid-cols-3 gap-3 text-center">
+        <div>
+          <div class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Score</div>
+          <div class="text-xl font-semibold text-gray-900">
+            {% if attempt.percent is not none %}{{ attempt.percent }}%{% else %}—{% endif %}
+          </div>
+        </div>
+        <div>
+          <div class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Marks</div>
+          <div class="text-xl font-semibold text-gray-900">
+            {{ attempt.raw_score or 0 }}/{{ attempt.max_score or 0 }}
+          </div>
+        </div>
+        <div>
+          <div class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Result</div>
+          <div class="text-xl font-semibold
+                {% if attempt.passed %}text-emerald-700
+                {% elif attempt.status == 'SUBMITTED' %}text-amber-700
+                {% else %}text-red-700{% endif %}">
+            {% if attempt.passed %}Pass
+            {% elif attempt.status == 'SUBMITTED' %}Pending
+            {% else %}Retake{% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Per-question breakdown -->
+    <section class="bg-white rounded-2xl shadow-sm p-5"
+             style="border: 1px solid var(--color-border);">
+      <h2 class="font-semibold text-gray-900">Question-by-question</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Use this to see exactly which questions you got right or wrong —
+        a learning tool for any retake.
+      </p>
+      <ul class="mt-3 divide-y divide-gray-100">
+        {% for a in answers %}
+          {% set max_pts = a.points or 1 %}
+          {% set awarded = a.marks_awarded if a.marks_awarded is not none else 0 %}
+          {% set is_right = a.auto_graded and awarded >= max_pts %}
+          {% set is_partial = a.auto_graded and awarded > 0 and awarded < max_pts %}
+          {% set is_wrong = a.auto_graded and awarded == 0 %}
+          <li class="py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-start gap-2">
+                  <span class="text-xs text-gray-400 mt-0.5 whitespace-nowrap">{{ a.sequence_no }}.</span>
+                  <div class="text-sm text-gray-900">{{ a.question_text }}</div>
+                </div>
+                <div class="mt-2 pl-6">
+                  {{ render_answer(a.your_answer, a) }}
+                  {% if a.grader_note %}
+                    <div class="mt-2 text-xs px-2 py-1 rounded bg-amber-50 text-amber-900 border border-amber-200">
+                      <strong>Facilitator note:</strong> {{ a.grader_note }}
+                    </div>
+                  {% endif %}
+                  {% if a.explanation %}
+                    <details class="mt-2">
+                      <summary class="text-[11px] uppercase tracking-[0.16em] text-gray-500 cursor-pointer hover:text-gray-700">
+                        Explanation
+                      </summary>
+                      <div class="mt-1 text-xs text-gray-600 whitespace-pre-wrap">{{ a.explanation }}</div>
+                    </details>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <div class="text-[10px] uppercase tracking-[0.14em]
+                  {% if is_right %}text-emerald-700
+                  {% elif is_wrong %}text-red-700
+                  {% elif is_partial %}text-amber-700
+                  {% else %}text-gray-400{% endif %}">
+                  {% if is_right %}✓ Correct
+                  {% elif is_wrong %}✗ Wrong
+                  {% elif is_partial %}Partial
+                  {% elif not a.auto_graded %}Manual
+                  {% else %}—{% endif %}
+                </div>
+                <div class="text-sm font-semibold text-gray-900 mt-0.5">
+                  {{ awarded }}/{{ max_pts }}
+                </div>
+              </div>
+            </div>
+          </li>
+        {% else %}
+          <li class="py-3 text-sm text-gray-500">No answers recorded.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <a href="/portal/kg" class="inline-block px-5 py-2 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm font-medium">
+      Back to my cycle
+    </a>
+  </main>
+</div>
+{% endblock %}
