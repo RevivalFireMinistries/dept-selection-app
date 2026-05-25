@@ -16,7 +16,7 @@ working even if KG is down.
 from __future__ import annotations
 
 import io
-from datetime import date as _date, datetime
+from datetime import date as _date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -176,6 +176,72 @@ async def portal_kg_cycle(
 # ---------------------------------------------------------------------------
 # MEMBER — accept invite link
 # ---------------------------------------------------------------------------
+
+@router.post("/portal/kg/request-to-join")
+async def portal_kg_request_to_join(
+    request: Request, db: Session = Depends(get_db),
+):
+    """Self-service flag: the member tells the team they'd like to join
+    a future cycle. The team picks them up from the dashboard's
+    Interested filter and bulk-invites when a suitable cycle is open."""
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    member.kg_interested = True
+    member.kg_interested_at = datetime.now(timezone.utc)
+    db.commit()
+    return RedirectResponse(url="/portal", status_code=303)
+
+
+@router.post("/portal/kg/withdraw-interest")
+async def portal_kg_withdraw_interest(
+    request: Request, db: Session = Depends(get_db),
+):
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    member.kg_interested = False
+    member.kg_interested_at = None
+    db.commit()
+    return RedirectResponse(url="/portal", status_code=303)
+
+
+@router.post("/portal/kg/accept-direct")
+async def portal_kg_accept_direct(
+    request: Request, db: Session = Depends(get_db),
+):
+    """Member accepts an invitation in-portal (no token needed — the
+    portal session identifies them and we verify the enrollment is
+    theirs before forwarding to KG)."""
+    member, redirect = _require_member(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    enrollment_id = (form.get("enrollment_id") or "").strip()
+    if not enrollment_id:
+        return RedirectResponse(url="/portal/kg", status_code=303)
+
+    # Tenant-and-identity safety: verify the enrollment is for THIS
+    # member's external_member_id before forwarding to KG. Stops a
+    # member from accepting someone else's invite by guessing the id.
+    external_id = _member_external_id(member)
+    if not external_id:
+        return RedirectResponse(url="/portal/kg", status_code=303)
+
+    er = kg._request("GET", f"/api/v1/enrollments/{enrollment_id}", db=db)
+    if not er.ok or not isinstance(er.data, dict):
+        return RedirectResponse(url="/portal/kg", status_code=303)
+    if er.data.get("external_member_id") != external_id:
+        return RedirectResponse(url="/portal/kg", status_code=303)
+
+    kg.accept_enrollment_direct(enrollment_id, db=db)
+    # Wherever they clicked from — default back to /portal/kg.
+    back = (form.get("back") or "/portal/kg").strip()
+    return RedirectResponse(url=back, status_code=303)
+
 
 @router.get("/portal/kg/accept", response_class=HTMLResponse)
 async def portal_kg_accept(
@@ -1091,7 +1157,8 @@ async def admin_kg_cycle_detail(
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
 
-    return templates.TemplateResponse(
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
         request, "kg/admin_cycle_detail.html",
         {
             "cycle": cycle,
@@ -1099,8 +1166,12 @@ async def admin_kg_cycle_detail(
             "cycle_milestones": cycle_milestones,
             "enrollments": enrollments,
             "error": cycle_r.error if not cycle_r.ok else None,
+            "flash": flash,
         },
     )
+    if had_flash:
+        _clear_flash(response)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1342,20 +1413,32 @@ async def admin_kg_cycle_invite_submit(
     else:
         ids = [form.get("member_id")] if form.get("member_id") else []
 
+    # No-email members get an in-portal invite — they'll see it on
+    # their dashboard the next time they log in and accept in-app, no
+    # email round-trip required.
     skipped: list[str] = []
     members_payload: list[dict] = []
     for mid in ids:
         email = (form.get(f"email_{mid}") or "").strip()
-        if not email:
-            skipped.append(mid)
-            continue
-        members_payload.append({"external_member_id": mid, "email": email})
+        members_payload.append({
+            "external_member_id": mid,
+            "email": email or None,
+        })
 
     invited_count = 0
     if members_payload:
         r = kg.bulk_invite(cycle_id=cycle_id, members=members_payload, db=db)
         if r.ok and isinstance(r.data, dict):
             invited_count = r.data.get("invited", 0)
+            # Clear the self-request flag for any of these members that
+            # had it set — they're enrolled now, the team responded.
+            invited_ext_ids = [m["external_member_id"] for m in members_payload]
+            db.query(Member).filter(
+                Member.external_member_id.in_(invited_ext_ids),
+                Member.kg_interested == True,  # noqa: E712
+            ).update({"kg_interested": False, "kg_interested_at": None},
+                     synchronize_session=False)
+            db.commit()
         elif not r.ok:
             # Send the user back with the error.
             return RedirectResponse(
@@ -1373,6 +1456,31 @@ async def admin_kg_cycle_invite_submit(
         ),
         status_code=303,
     )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — mark an INVITED enrollment as accepted manually
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/kg/enrollments/{enrollment_id}/mark-accepted")
+async def admin_kg_mark_accepted(
+    enrollment_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Manual mark-accepted — used when a member without email was
+    invited verbally and the team needs to flip them to ENROLLED so
+    attendance / exam / completion code paths kick in."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    r = kg.accept_enrollment_direct(enrollment_id, db=db)
+    form = await request.form()
+    # The form sends "back" so we can return the user to wherever they
+    # clicked from (cycle detail by default).
+    back_url = (form.get("back") or "/admin/kg").strip()
+    if not r.ok:
+        return _flash_redirect(back_url, r.error or "Could not mark accepted.")
+    return _flash_redirect(back_url, "Marked accepted.")
 
 
 # ===========================================================================
@@ -1430,7 +1538,18 @@ async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
 
     # Stat-card totals — one paginated fetch per bucket to get the
     # total count from the meta envelope, no data needed.
-    stats = {"total": 0, "done": 0, "active": 0, "notyet": 0, "failed": 0}
+    stats = {"total": 0, "done": 0, "active": 0, "notyet": 0, "failed": 0, "interested": 0}
+
+    # Interested count is portal-local; one extra query.
+    stats["interested"] = (
+        db.query(Member)
+        .filter(
+            Member.kg_interested == True,  # noqa: E712
+            Member.external_assembly_id == asm_id,
+            Member.is_active == True,  # noqa: E712
+        )
+        .count()
+    )
     counts_query = [
         ("total",  None),
         ("done",   ["COMPLETED", "EXEMPTED"]),
@@ -1476,6 +1595,71 @@ async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
             page = max(1, int(request.query_params.get("page") or 1))
         except (TypeError, ValueError):
             page = 1
+
+        # The "Interested" bucket lives entirely portal-side
+        # (Member.kg_interested) — bypass rfm-database and read from
+        # the local table joined to the assembly.
+        if people_status_filter == "interested":
+            q = (
+                db.query(Member)
+                .filter(
+                    Member.kg_interested == True,  # noqa: E712
+                    Member.external_assembly_id == asm_id,
+                    Member.is_active == True,  # noqa: E712
+                )
+            )
+            if search:
+                like = f"%{search}%"
+                q = q.filter(
+                    (Member.full_name.ilike(like)) |
+                    (Member.phone.ilike(like)) |
+                    (Member.email.ilike(like))
+                )
+            total = q.count()
+            local_rows = (
+                q.order_by(Member.kg_interested_at.desc())
+                .offset((page - 1) * 25)
+                .limit(25)
+                .all()
+            )
+            # Reshape to the same dict shape the rest of the template expects.
+            people = []
+            for m in local_rows:
+                first, _, last = (m.full_name or "").partition(" ")
+                people.append({
+                    "id": m.external_member_id or str(m.id),
+                    "first_name": first or m.full_name,
+                    "last_name": last,
+                    "phone": m.phone,
+                    "email": m.email,
+                    "kingdom_gateway_status": "NOT_STARTED",
+                    "kingdom_gateway_completed_at": None,
+                    "_bucket": "interested",
+                    "_status_label": "Interested",
+                    "_status_colour": "violet",
+                })
+            people_meta = {
+                "total": total,
+                "page": page, "size": 25,
+                "pages": (total + 24) // 25,
+            }
+            # Render and bail before the central-status code path.
+            flash, had_flash = _consume_flash(request)
+            response = templates.TemplateResponse(
+                request, "kg/admin_dashboard.html",
+                {
+                    "tab": tab, "asm_id": asm_id, "assembly_name": assembly_name,
+                    "stats": stats, "people": people, "people_meta": people_meta,
+                    "people_status_filter": people_status_filter,
+                    "search": search, "page": page,
+                    "results": [], "results_meta": {},
+                    "selected_cycle_id": "", "cycles_for_filter": [],
+                    "flash": flash,
+                },
+            )
+            if had_flash:
+                _clear_flash(response)
+            return response
 
         # Translate the dashboard bucket → list of central statuses.
         bucket_to_statuses = {

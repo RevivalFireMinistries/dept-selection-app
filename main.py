@@ -586,6 +586,21 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (kg_manager): {e}")
 
+        # Migration: Kingdom Gateway — self-request to join.
+        # Members tap "Request to join" on their profile to flag interest;
+        # the KG team picks them up from the dashboard's "Interested" view
+        # and bulk-invites them to the next cycle.
+        try:
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS kg_interested BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS kg_interested_at TIMESTAMPTZ NULL
+            """))
+            conn.commit()
+            print("Migration: Added kg_interested flag to members")
+        except Exception as e:
+            print(f"Migration note (kg_interested): {e}")
+
         # Migration: email verification columns. Registrations now send a
         # verification email; we track when the user clicks it.
         try:

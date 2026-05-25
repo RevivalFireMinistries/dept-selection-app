@@ -81,11 +81,9 @@
             <td class="px-4 py-3">
               {% if already %}
                 <span class="text-xs text-emerald-600" title="Already enrolled">✓</span>
-              {% elif not has_email %}
-                <span class="text-xs text-amber-500" title="No email — can't invite">!</span>
               {% else %}
                 <input type="checkbox" name="member_id" value="{{ m.id }}">
-                <input type="hidden" name="email_{{ m.id }}" value="{{ m.email }}">
+                <input type="hidden" name="email_{{ m.id }}" value="{{ m.email or '' }}">
               {% endif %}
             </td>
             <td class="px-4 py-3 font-medium text-gray-900">
@@ -97,7 +95,10 @@
               {% if already %}
                 <span class="text-xs bg-emerald-100 text-emerald-700 rounded px-2 py-0.5">Enrolled</span>
               {% elif not has_email %}
-                <span class="text-xs bg-amber-100 text-amber-700 rounded px-2 py-0.5">No email</span>
+                <span class="text-xs bg-amber-100 text-amber-800 rounded px-2 py-0.5"
+                      title="No email on file — they'll see the invite on their portal home.">
+                  In-portal only
+                </span>
               {% else %}
                 <span class="text-xs text-gray-400">—</span>
               {% endif %}

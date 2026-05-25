@@ -9741,6 +9741,37 @@ def _require_logged_in_member(request: Request, db: Session) -> Member:
     return member
 
 
+def _portal_kg_pending_invites(member: Member, db: Session) -> list[dict]:
+    """Best-effort fetch of this member's KG enrollments that are still
+    INVITED (i.e. awaiting an accept). Returns [] when KG is disabled,
+    unreachable, or the member isn't linked to the central directory.
+    Drives the "You're invited" card on the portal home — members
+    without email get an in-portal accept this way."""
+    if not member.external_member_id:
+        return []
+    try:
+        import kingdom_gateway_client as _kg
+        if not _kg.is_enabled(db):
+            return []
+        r = _kg.list_my_enrollments(
+            external_member_id=member.external_member_id, db=db,
+        )
+        if not r.ok:
+            return []
+        rows = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+        return [
+            {
+                "enrollment_id": e.get("id"),
+                "cycle_id": e.get("cycle_id"),
+                "status": e.get("status"),
+            }
+            for e in rows
+            if e.get("status") == "INVITED"
+        ]
+    except Exception:
+        return []
+
+
 def _portal_central_lookup(member: Member, db: Session) -> dict:
     """Best-effort fetch of ministries + home church + assembly from the central
     API. Returns {} on any failure — never raises so the portal always loads."""
@@ -9892,6 +9923,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "external_synced": bool(member.external_member_id),
             "email_verified": bool(getattr(member, "email_verified_at", None)),
             "kg_manager": bool(getattr(member, "kg_manager", False)),
+            "kg_interested": bool(getattr(member, "kg_interested", False)),
             # The central rfm-database UUID. The template uses this to
             # tell "your pledge" apart from "spouse's pledge" on the
             # family-pledges card and the pay modal — previously not
@@ -9909,6 +9941,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
         "assembly_name": central.get("assembly_name") or "",
         "kingdom_gateway_status": central.get("kingdom_gateway_status"),
         "kingdom_gateway_completed_at": central.get("kingdom_gateway_completed_at"),
+        "kg_pending_invites": _portal_kg_pending_invites(member, db),
         "leadership": {
             "is_hc_leader": is_hc_leader,
             "led_home_churches": led_home_churches,

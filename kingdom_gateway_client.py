@@ -385,6 +385,20 @@ def list_cycles(*, assembly_id: str | None = None, status: str | None = None, db
     )
 
 
+def accept_enrollment_direct(enrollment_id: str, *, db=None) -> ApiResult:
+    """Flip an enrollment from INVITED to ENROLLED without needing a
+    token. Used when:
+      * the member accepts from inside the portal (portal verified
+        their identity before calling), or
+      * the KG team manually marks an enrollment as accepted (for
+        members invited verbally / without email).
+    Idempotent — calling on an already-ENROLLED enrollment is a no-op.
+    """
+    return _request(
+        "POST", f"/api/v1/invites/accept-direct/{enrollment_id}", db=db,
+    )
+
+
 def bulk_invite(
     *, cycle_id: str, members: list[dict], db=None,
 ) -> ApiResult:

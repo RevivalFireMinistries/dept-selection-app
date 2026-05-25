@@ -77,6 +77,14 @@ class Member(Base):
     # (not per-department) so a pastor or visiting facilitator can also be
     # granted without changing their primary department.
     kg_manager = Column(Boolean, nullable=False, server_default="false")
+    # Self-requested interest in joining Kingdom Gateway. Members who haven't
+    # completed the course see a button on their profile that flips this to
+    # true; the KG team's dashboard shows them under an "Interested" filter
+    # where they can be bulk-invited to the next cycle. Auto-cleared when
+    # the team invites them (the INVITED enrollment is the canonical record
+    # from that point onward).
+    kg_interested = Column(Boolean, nullable=False, server_default="false")
+    kg_interested_at = Column(DateTime(timezone=True), nullable=True)
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")
