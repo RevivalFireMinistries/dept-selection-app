@@ -601,6 +601,19 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (kg_interested): {e}")
 
+        # Migration: Kingdom Gateway — kg_teacher flag.
+        # Pool of members who teach KG sessions. The session-edit teacher
+        # picker filters to this pool by default.
+        try:
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS kg_teacher BOOLEAN NOT NULL DEFAULT FALSE
+            """))
+            conn.commit()
+            print("Migration: Added kg_teacher flag to members")
+        except Exception as e:
+            print(f"Migration note (kg_teacher): {e}")
+
         # Migration: email verification columns. Registrations now send a
         # verification email; we track when the user clicks it.
         try:

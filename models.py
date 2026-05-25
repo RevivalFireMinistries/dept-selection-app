@@ -77,6 +77,13 @@ class Member(Base):
     # (not per-department) so a pastor or visiting facilitator can also be
     # granted without changing their primary department.
     kg_manager = Column(Boolean, nullable=False, server_default="false")
+    # KG teacher pool. Marked by the team — the session-edit teacher picker
+    # defaults to showing only members with this flag, but allows picking
+    # any member if needed (a visiting speaker, for example). Separate from
+    # kg_manager because the two roles are independent — most teachers
+    # don't need to manage the cycle, and most managers aren't the ones
+    # teaching the lessons.
+    kg_teacher = Column(Boolean, nullable=False, server_default="false")
     # Self-requested interest in joining Kingdom Gateway. Members who haven't
     # completed the course see a button on their profile that flips this to
     # true; the KG team's dashboard shows them under an "Interested" filter

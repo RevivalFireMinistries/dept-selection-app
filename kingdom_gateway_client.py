@@ -302,6 +302,15 @@ def bulk_mark_attendance(
     )
 
 
+def list_attendance_by_enrollment(enrollment_id: str, *, db=None) -> ApiResult:
+    """Per-enrollment attendance history — used to draw ✓/late/✗ chips
+    next to each class on the member's own cycle page, and to fill the
+    facilitator's member-detail view."""
+    return _request(
+        "GET", f"/api/v1/attendance/by-enrollment/{enrollment_id}", db=db,
+    )
+
+
 # ---- Onsite exam marks ----
 
 def record_onsite_mark(
@@ -339,6 +348,37 @@ def list_modules(course_id: str, *, db=None) -> ApiResult:
     """Topics from the book, in book order. Used by the cycle-creation
     form to render the checkboxes the admin picks from."""
     return _request("GET", f"/api/v1/courses/{course_id}/modules", db=db)
+
+
+# ---- Class sessions (edit / add / remove) ----
+
+def update_class_session(class_id: str, fields: dict, *, db=None) -> ApiResult:
+    """PATCH a class session — title, dates, venue, facilitator, module."""
+    return _request("PATCH", f"/api/v1/classes/{class_id}", db=db, body=fields)
+
+
+def create_class_session(payload: dict, *, db=None) -> ApiResult:
+    """Schedule a new class within an existing cycle."""
+    return _request("POST", "/api/v1/classes", db=db, body=payload)
+
+
+def delete_class_session(class_id: str, *, db=None) -> ApiResult:
+    return _request("DELETE", f"/api/v1/classes/{class_id}", db=db)
+
+
+def list_class_session_milestones(class_session_id: str, *, db=None) -> ApiResult:
+    return _request(
+        "GET", f"/api/v1/milestones/class-sessions/{class_session_id}", db=db,
+    )
+
+
+def replace_class_session_milestones(
+    class_session_id: str, milestone_ids: list[str], *, db=None,
+) -> ApiResult:
+    return _request(
+        "PUT", f"/api/v1/milestones/class-sessions/{class_session_id}",
+        db=db, body={"milestone_ids": milestone_ids},
+    )
 
 
 def list_kg_milestones(*, db=None) -> ApiResult:

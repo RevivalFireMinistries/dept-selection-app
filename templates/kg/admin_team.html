@@ -39,7 +39,8 @@
           <th class="px-4 py-3">Member</th>
           <th class="px-4 py-3">Phone</th>
           <th class="px-4 py-3">Email</th>
-          <th class="px-4 py-3 text-right">KG manager</th>
+          <th class="px-4 py-3 text-center">Manager</th>
+          <th class="px-4 py-3 text-center">Teacher</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
@@ -48,25 +49,35 @@
           <td class="px-4 py-3 font-medium text-gray-900">{{ m.full_name }}</td>
           <td class="px-4 py-3 text-gray-600 text-xs">{{ m.phone or "—" }}</td>
           <td class="px-4 py-3 text-gray-600 text-xs">{{ m.email or "—" }}</td>
-          <td class="px-4 py-3 text-right">
+          <td class="px-4 py-3 text-center">
             <form method="post" action="/admin/kg/team/toggle" class="inline">
               <input type="hidden" name="member_id" value="{{ m.id }}">
+              <input type="hidden" name="role" value="manager">
               <input type="hidden" name="enable" value="{% if m.kg_manager %}false{% else %}true{% endif %}">
               {% if show_all %}<input type="hidden" name="show" value="all">{% endif %}
-              <button type="submit"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md
-                       {% if m.kg_manager %}bg-emerald-100 text-emerald-700 hover:bg-emerald-200{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
-                {% if m.kg_manager %}
-                  ✓ Granted — revoke
-                {% else %}
-                  Grant
-                {% endif %}
+              <button type="submit" title="{% if m.kg_manager %}Revoke KG manager{% else %}Grant KG manager{% endif %}"
+                class="inline-flex items-center justify-center w-9 h-9 rounded-full text-base
+                       {% if m.kg_manager %}bg-emerald-100 text-emerald-700 hover:bg-emerald-200{% else %}bg-gray-100 text-gray-400 hover:bg-gray-200{% endif %}">
+                {% if m.kg_manager %}✓{% else %}—{% endif %}
+              </button>
+            </form>
+          </td>
+          <td class="px-4 py-3 text-center">
+            <form method="post" action="/admin/kg/team/toggle" class="inline">
+              <input type="hidden" name="member_id" value="{{ m.id }}">
+              <input type="hidden" name="role" value="teacher">
+              <input type="hidden" name="enable" value="{% if m.kg_teacher %}false{% else %}true{% endif %}">
+              {% if show_all %}<input type="hidden" name="show" value="all">{% endif %}
+              <button type="submit" title="{% if m.kg_teacher %}Remove from teacher pool{% else %}Add to teacher pool{% endif %}"
+                class="inline-flex items-center justify-center w-9 h-9 rounded-full text-base
+                       {% if m.kg_teacher %}bg-violet-100 text-violet-700 hover:bg-violet-200{% else %}bg-gray-100 text-gray-400 hover:bg-gray-200{% endif %}">
+                {% if m.kg_teacher %}🎓{% else %}—{% endif %}
               </button>
             </form>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="px-4 py-6 text-center text-gray-500">No members to show.</td></tr>
+        <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">No members to show.</td></tr>
         {% endfor %}
       </tbody>
     </table>

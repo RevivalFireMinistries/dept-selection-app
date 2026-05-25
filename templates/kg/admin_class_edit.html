@@ -1,0 +1,125 @@
+{% extends "admin/base.html" %}
+{% block title %}Edit class · {{ cls.title if cls else "Session" }}{% endblock %}
+{% block admin_content %}
+<div class="px-3 sm:px-6 lg:px-8 py-4 max-w-3xl">
+  <a href="/admin/kg/cycles/{{ cycle.id }}" class="text-xs text-gray-500 hover:underline">← {{ cycle.name }}</a>
+  <h1 class="mt-2 text-2xl font-bold text-gray-900">Edit class</h1>
+  <p class="text-sm text-gray-500 mt-0.5">Session {{ cls.sequence_no }}</p>
+
+  {% if flash %}
+    <div class="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">{{ flash }}</div>
+  {% endif %}
+
+  {# Pre-fill date/time inputs by splitting the ISO string #}
+  {% set starts_at = (cls.starts_at or "")[:16] %}
+  {% set ends_at = (cls.ends_at or "")[:16] %}
+
+  <form method="post" action="/admin/kg/cycles/{{ cycle.id }}/classes/{{ cls.id }}/edit"
+        class="mt-5 space-y-5">
+    <!-- Basics -->
+    <section class="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+      <div>
+        <label class="text-xs uppercase text-gray-500">Title</label>
+        <input type="text" name="title" required value="{{ cls.title }}"
+               class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs uppercase text-gray-500">Starts (date)</label>
+          <input type="date" name="starts_at_date" required value="{{ starts_at[:10] }}"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Starts (time)</label>
+          <input type="time" name="starts_at_time" required value="{{ starts_at[11:16] }}"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Ends (date)</label>
+          <input type="date" name="ends_at_date" required value="{{ ends_at[:10] }}"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Ends (time)</label>
+          <input type="time" name="ends_at_time" required value="{{ ends_at[11:16] }}"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs uppercase text-gray-500">Venue</label>
+        <input type="text" name="venue" value="{{ cls.venue or '' }}"
+               class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2"
+               placeholder="Main hall">
+      </div>
+    </section>
+
+    <!-- Teacher -->
+    <section class="bg-white border border-gray-200 rounded-lg p-4">
+      <label class="text-xs uppercase text-gray-500">Teacher</label>
+      <select name="facilitator_external_member_id"
+              class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        <option value="">— Unassigned —</option>
+        {% for t in teachers %}
+          <option value="{{ t.external_member_id }}"
+                  {% if t.external_member_id == cls.facilitator_external_member_id %}selected{% endif %}>
+            {{ t.full_name }}
+          </option>
+        {% endfor %}
+      </select>
+      <p class="mt-1 text-[11px] text-gray-500">
+        Pool comes from members marked as Teacher in
+        <a href="/admin/kg/team" class="underline">/admin/kg/team</a>.
+      </p>
+    </section>
+
+    <!-- Topic (module from the book) -->
+    <section class="bg-white border border-gray-200 rounded-lg p-4">
+      <label class="text-xs uppercase text-gray-500">Topic</label>
+      <select name="module_id"
+              class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        <option value="">— None (e.g. milestone-only session) —</option>
+        {% for m in modules %}
+          <option value="{{ m.id }}" {% if m.id == cls.module_id %}selected{% endif %}>
+            {{ m.sequence_no }}. {{ m.title }}
+          </option>
+        {% endfor %}
+      </select>
+    </section>
+
+    <!-- Milestones covered in this session -->
+    <section class="bg-white border border-gray-200 rounded-lg p-4">
+      <h2 class="text-sm font-semibold text-gray-900">Milestones covered</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Tick if this session is when the listed milestones happen
+        (e.g. the Water Baptism Sunday).
+      </p>
+      <ul class="mt-3 space-y-2">
+        {% for ms in milestones %}
+          <li>
+            <label class="flex items-start gap-2 p-2 rounded border border-gray-200 hover:bg-gray-50 cursor-pointer">
+              <input type="checkbox" name="milestone_{{ ms.id }}"
+                     {% if ms.id|string in (attached_milestone_ids|map('string')|list) %}checked{% endif %}
+                     class="mt-0.5">
+              <span class="text-sm">{{ ms.name }}</span>
+            </label>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <div class="flex items-center justify-between">
+      <button type="submit"
+              class="px-5 py-2.5 rounded bg-gray-900 hover:bg-black text-white text-sm font-medium">
+        Save changes
+      </button>
+      <form method="post" action="/admin/kg/cycles/{{ cycle.id }}/classes/{{ cls.id }}/delete"
+            onsubmit="return confirm('Delete this class session? This can\'t be undone.');" class="inline">
+        <button type="submit"
+                class="px-4 py-2 rounded bg-red-50 text-red-700 text-sm hover:bg-red-100">
+          Delete
+        </button>
+      </form>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -147,6 +147,7 @@ async def portal_kg_cycle(
     if isinstance(cycle_milestones, dict):
         cycle_milestones = cycle_milestones.get("data") or []
     achieved_ids: set[str] = set()
+    attendance_by_class: dict[str, dict] = {}
     if my_enrollment:
         ach_r = kg.list_enrollment_milestones(my_enrollment["id"], db=db)
         if ach_r.ok:
@@ -155,6 +156,17 @@ async def portal_kg_cycle(
                 else (ach_r.data or {}).get("data") or []
             )
             achieved_ids = {r["milestone_id"] for r in rows if r.get("milestone_id")}
+
+        # Attendance per class — render ✓/late/✗ markers in the schedule.
+        att_r = kg.list_attendance_by_enrollment(my_enrollment["id"], db=db)
+        if att_r.ok:
+            rows = (
+                att_r.data if isinstance(att_r.data, list)
+                else (att_r.data or {}).get("data") or []
+            )
+            attendance_by_class = {
+                r["class_session_id"]: r for r in rows if r.get("class_session_id")
+            }
 
     exam_id = (cycle or {}).get("exam_id")
 
@@ -167,6 +179,7 @@ async def portal_kg_cycle(
             "enrollment": my_enrollment,
             "cycle_milestones": cycle_milestones,
             "achieved_ids": achieved_ids,
+            "attendance_by_class": attendance_by_class,
             "exam_id": exam_id,
             "error": (None if cycle_r.ok else cycle_r.error),
         },
@@ -970,8 +983,9 @@ async def admin_kg_team(request: Request, db: Session = Depends(get_db)):
 async def admin_kg_team_toggle(
     request: Request, db: Session = Depends(get_db),
 ):
-    """Single-member toggle from the team page. Idempotent — re-posting
-    with the same `enable` value is a no-op."""
+    """Single-cell toggle from the team page. Supports two roles:
+    ``role=manager`` flips kg_manager, ``role=teacher`` flips kg_teacher.
+    Idempotent — re-posting with the same enable value is a no-op."""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login?next=/admin/kg/team", status_code=302)
 
@@ -984,13 +998,16 @@ async def admin_kg_team_toggle(
         return RedirectResponse(url="/admin/kg/team", status_code=303)
 
     enable = (form.get("enable") or "").lower() in ("true", "on", "1")
+    role = (form.get("role") or "manager").lower()
 
     member = db.query(Member).filter(Member.id == member_id).first()
     if member:
-        member.kg_manager = enable
+        if role == "teacher":
+            member.kg_teacher = enable
+        else:
+            member.kg_manager = enable
         db.commit()
 
-    # Preserve ?show=all so the admin doesn't lose their filter state.
     show_all = (form.get("show") == "all")
     qs = "?show=all&saved=1" if show_all else "?saved=1"
     return RedirectResponse(url=f"/admin/kg/team{qs}", status_code=303)
@@ -1122,6 +1139,195 @@ async def admin_kg_cycle_create(
     return RedirectResponse(url="/admin/kg", status_code=303)
 
 
+# ---------------------------------------------------------------------------
+# ADMIN — class session editor (move dates, change teacher / topic)
+# ---------------------------------------------------------------------------
+
+def _combine_datetime(date_str: str | None, time_str: str | None) -> str | None:
+    """Combine YYYY-MM-DD + HH:MM form fields into an ISO datetime KG
+    accepts. Returns None when the date is missing."""
+    if not date_str:
+        return None
+    time_part = (time_str or "10:00").strip()
+    if len(time_part) == 5:
+        time_part += ":00"
+    return f"{date_str}T{time_part}+00:00"
+
+
+def _teacher_pool(db: Session, asm_id: str) -> list[Member]:
+    """Members in the assembly with the kg_teacher flag."""
+    return (
+        db.query(Member)
+        .filter(
+            Member.kg_teacher == True,  # noqa: E712
+            Member.external_assembly_id == asm_id,
+            Member.is_active == True,  # noqa: E712
+        )
+        .order_by(Member.full_name)
+        .all()
+    )
+
+
+@router.get(
+    "/admin/kg/cycles/{cycle_id}/classes/{class_id}/edit",
+    response_class=HTMLResponse,
+)
+async def admin_kg_class_edit(
+    cycle_id: str, class_id: str,
+    request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return _flash_redirect("/admin/kg", asm_err or "No assembly resolved.")
+
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    cycle = cycle_r.data if cycle_r.ok else None
+    if cycle and cycle.get("assembly_id") != asm_id:
+        return _flash_redirect("/admin/kg", "Not in your assembly.")
+
+    classes_r = kg.list_classes(cycle_id, db=db)
+    cls = None
+    if classes_r.ok:
+        rows = classes_r.data if isinstance(classes_r.data, list) else (classes_r.data or {}).get("data") or []
+        cls = next((c for c in rows if c.get("id") == class_id), None)
+    if not cls:
+        return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class not found.")
+
+    modules: list = []
+    if cycle and cycle.get("course_id"):
+        mr = kg.list_modules(cycle["course_id"], db=db)
+        if mr.ok:
+            modules = mr.data if isinstance(mr.data, list) else (mr.data or {}).get("data") or []
+
+    ms_r = kg.list_kg_milestones(db=db)
+    milestones = []
+    if ms_r.ok:
+        milestones = ms_r.data if isinstance(ms_r.data, list) else (ms_r.data or {}).get("data") or []
+
+    attached_r = kg.list_class_session_milestones(class_id, db=db)
+    attached_ids: set = set()
+    if attached_r.ok:
+        rows = attached_r.data if isinstance(attached_r.data, list) else (attached_r.data or {}).get("data") or []
+        attached_ids = {r.get("milestone_id") for r in rows}
+
+    teachers = _teacher_pool(db, asm_id)
+    flash, had = _consume_flash(request)
+    response = templates.TemplateResponse(
+        request, "kg/admin_class_edit.html",
+        {
+            "cycle": cycle, "cls": cls,
+            "modules": modules, "milestones": milestones,
+            "attached_milestone_ids": attached_ids,
+            "teachers": teachers, "flash": flash,
+        },
+    )
+    if had:
+        _clear_flash(response)
+    return response
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/classes/{class_id}/edit")
+async def admin_kg_class_edit_submit(
+    cycle_id: str, class_id: str,
+    request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    form = await request.form()
+    payload: dict = {}
+    title = (form.get("title") or "").strip()
+    if title:
+        payload["title"] = title
+    starts_at = _combine_datetime(form.get("starts_at_date"), form.get("starts_at_time"))
+    if starts_at:
+        payload["starts_at"] = starts_at
+    ends_at = _combine_datetime(form.get("ends_at_date"), form.get("ends_at_time"))
+    if ends_at:
+        payload["ends_at"] = ends_at
+    venue = form.get("venue")
+    if venue is not None:
+        payload["venue"] = venue or None
+    payload["module_id"] = (form.get("module_id") or "").strip() or None
+    payload["facilitator_external_member_id"] = (
+        (form.get("facilitator_external_member_id") or "").strip() or None
+    )
+
+    r = kg.update_class_session(class_id, payload, db=db)
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}/classes/{class_id}/edit",
+            r.error or "Could not update class.",
+        )
+
+    milestone_ids = [
+        key[len("milestone_"):]
+        for key in form.keys()
+        if key.startswith("milestone_") and form.get(key)
+    ]
+    kg.replace_class_session_milestones(class_id, milestone_ids, db=db)
+
+    return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class updated.")
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/classes/{class_id}/delete")
+async def admin_kg_class_delete(
+    cycle_id: str, class_id: str,
+    request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    kg.delete_class_session(class_id, db=db)
+    return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class removed.")
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/classes/add")
+async def admin_kg_class_add(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    form = await request.form()
+    starts_date = form.get("starts_at_date")
+    # End date defaults to start date — the common case is a same-day
+    # class. The dedicated edit form lets KG team pick a different end
+    # date when needed (e.g. an overnight retreat).
+    ends_date = form.get("ends_at_date") or starts_date
+    starts_at = _combine_datetime(starts_date, form.get("starts_at_time")) or ""
+    ends_at = _combine_datetime(ends_date, form.get("ends_at_time")) or ""
+
+    # KG requires sequence_no; compute next.
+    classes_r = kg.list_classes(cycle_id, db=db)
+    existing = []
+    if classes_r.ok:
+        existing = classes_r.data if isinstance(classes_r.data, list) else (classes_r.data or {}).get("data") or []
+    next_seq = (max((c.get("sequence_no") or 0) for c in existing) + 1) if existing else 1
+
+    payload = {
+        "cycle_id": cycle_id,
+        "sequence_no": next_seq,
+        "title": (form.get("title") or f"Session {next_seq}").strip(),
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "venue": (form.get("venue") or None),
+        "module_id": (form.get("module_id") or "").strip() or None,
+        "facilitator_external_member_id": (form.get("facilitator_external_member_id") or "").strip() or None,
+    }
+    r = kg.create_class_session(payload, db=db)
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}",
+            r.error or "Could not add class.",
+        )
+    return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class added.")
+
+
 @router.get("/admin/kg/cycles/{cycle_id}", response_class=HTMLResponse)
 async def admin_kg_cycle_detail(
     cycle_id: str, request: Request, db: Session = Depends(get_db),
@@ -1157,6 +1363,26 @@ async def admin_kg_cycle_detail(
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
 
+    # Resolve teacher names for each class so the table doesn't show raw
+    # UUIDs. Cheap — one local query covering the whole assembly.
+    teacher_lookup: dict[str, str] = {}
+    if asm_id:
+        for t in _teacher_pool(db, asm_id):
+            if t.external_member_id:
+                teacher_lookup[t.external_member_id] = t.full_name
+    for c in classes:
+        fac = c.get("facilitator_external_member_id")
+        c["_teacher_name"] = teacher_lookup.get(fac) if fac else None
+
+    # Modules + teachers needed by the "Add class" form embedded on the
+    # detail page.
+    modules = []
+    if cycle and cycle.get("course_id"):
+        mr = kg.list_modules(cycle["course_id"], db=db)
+        if mr.ok:
+            modules = mr.data if isinstance(mr.data, list) else (mr.data or {}).get("data") or []
+    teachers = _teacher_pool(db, asm_id) if asm_id else []
+
     flash, had_flash = _consume_flash(request)
     response = templates.TemplateResponse(
         request, "kg/admin_cycle_detail.html",
@@ -1165,6 +1391,8 @@ async def admin_kg_cycle_detail(
             "classes": classes,
             "cycle_milestones": cycle_milestones,
             "enrollments": enrollments,
+            "modules": modules,
+            "teachers": teachers,
             "error": cycle_r.error if not cycle_r.ok else None,
             "flash": flash,
         },
