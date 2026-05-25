@@ -1,0 +1,74 @@
+{% extends "desk/base.html" %}
+{% block title %}Milestones · Kingdom Gateway{% endblock %}
+{% block desk_content %}
+<div class="min-h-screen bg-gray-50">
+  <nav class="bg-white shadow-sm sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <a href="/desk/kg" class="text-sm text-teal-600 hover:text-teal-700">&larr; Cycles</a>
+      <h1 class="text-base font-semibold text-gray-900 truncate">
+        {{ cycle.name if cycle else "Cycle" }} · Milestones
+      </h1>
+      <div></div>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+    {% if error %}
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">{{ error }}</div>
+    {% endif %}
+
+    {% if not cycle_milestones %}
+      <div class="bg-white rounded-lg shadow-sm p-6 text-center text-sm text-gray-500">
+        This cycle has no milestones configured. Add them in the Kingdom Gateway admin.
+      </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-sm overflow-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left text-xs uppercase text-gray-500">
+            <th class="px-4 py-3 sticky left-0 bg-gray-50">Member</th>
+            {% for cm in cycle_milestones %}
+              <th class="px-4 py-3 text-center">
+                <div class="font-semibold text-gray-700 normal-case">{{ cm.milestone.name }}</div>
+                <div class="mt-0.5 text-[10px] {% if cm.is_mandatory %}text-amber-700{% else %}text-gray-400{% endif %}">
+                  {% if cm.is_mandatory %}MANDATORY{% else %}optional{% endif %}
+                </div>
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for e in enrollments %}
+            <tr>
+              <td class="px-4 py-3 sticky left-0 bg-white font-mono text-xs">
+                {{ e.external_member_id[:8] }}…
+                <div class="text-[10px] text-gray-400">{{ e.status }}</div>
+              </td>
+              {% for cm in cycle_milestones %}
+                {% set done = achieved.get((e.id, cm.milestone_id)) %}
+                <td class="px-4 py-3 text-center">
+                  <form method="post" class="inline">
+                    <input type="hidden" name="enrollment_id" value="{{ e.id }}">
+                    <input type="hidden" name="milestone_id" value="{{ cm.milestone_id }}">
+                    <input type="hidden" name="action" value="{% if done %}revoke{% else %}achieve{% endif %}">
+                    <button type="submit"
+                      class="inline-flex items-center justify-center w-10 h-10 rounded-full
+                             {% if done %}bg-emerald-100 text-emerald-700 hover:bg-emerald-200{% else %}bg-gray-100 text-gray-400 hover:bg-gray-200{% endif %}">
+                      {% if done %}✓{% else %}—{% endif %}
+                    </button>
+                  </form>
+                </td>
+              {% endfor %}
+            </tr>
+          {% else %}
+            <tr><td colspan="{{ cycle_milestones|length + 1 }}" class="px-4 py-6 text-center text-gray-500">
+              No members enrolled yet.
+            </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

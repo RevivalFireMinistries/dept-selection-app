@@ -37,9 +37,11 @@
             <td class="px-4 py-3 text-gray-600">{{ c.start_date }}</td>
             <td class="px-4 py-3 text-gray-600">{{ c.pass_mark_percent }}%</td>
             <td class="px-4 py-3 text-gray-600">{{ c.min_attendance_percent }}%</td>
-            <td class="px-4 py-3 text-right">
+            <td class="px-4 py-3 text-right whitespace-nowrap">
               <a href="/desk/kg/cycle/{{ c.id }}/attendance"
                  class="inline-block px-3 py-1.5 bg-teal-600 text-white text-xs rounded-md hover:bg-teal-700">Attendance</a>
+              <a href="/desk/kg/cycle/{{ c.id }}/milestones"
+                 class="inline-block px-3 py-1.5 ml-1 bg-violet-600 text-white text-xs rounded-md hover:bg-violet-700">Milestones</a>
               <a href="/desk/kg/cycle/{{ c.id }}/onsite-exam"
                  class="inline-block px-3 py-1.5 ml-1 bg-gray-700 text-white text-xs rounded-md hover:bg-gray-800">Onsite exam</a>
             </td>

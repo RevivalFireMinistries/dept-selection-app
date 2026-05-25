@@ -129,6 +129,7 @@ async def portal_kg_cycle(
     cycle_r = kg.get_cycle(cycle_id, db=db)
     classes_r = kg.list_classes(cycle_id, db=db)
     enrol_r = kg.list_my_enrollments(external_member_id=external_id, db=db)
+    cycle_milestones_r = kg.list_cycle_milestones(cycle_id, db=db)
 
     cycle = cycle_r.data if cycle_r.ok else None
     classes = classes_r.data if classes_r.ok else []
@@ -141,6 +142,20 @@ async def portal_kg_cycle(
         (e for e in enrollments if e.get("cycle_id") == cycle_id), None,
     )
 
+    # Milestones for this cycle + which ones this member has achieved.
+    cycle_milestones = cycle_milestones_r.data if cycle_milestones_r.ok else []
+    if isinstance(cycle_milestones, dict):
+        cycle_milestones = cycle_milestones.get("data") or []
+    achieved_ids: set[str] = set()
+    if my_enrollment:
+        ach_r = kg.list_enrollment_milestones(my_enrollment["id"], db=db)
+        if ach_r.ok:
+            rows = (
+                ach_r.data if isinstance(ach_r.data, list)
+                else (ach_r.data or {}).get("data") or []
+            )
+            achieved_ids = {r["milestone_id"] for r in rows if r.get("milestone_id")}
+
     exam_id = (cycle or {}).get("exam_id")
 
     return templates.TemplateResponse(
@@ -150,6 +165,8 @@ async def portal_kg_cycle(
             "cycle": cycle,
             "classes": classes,
             "enrollment": my_enrollment,
+            "cycle_milestones": cycle_milestones,
+            "achieved_ids": achieved_ids,
             "exam_id": exam_id,
             "error": (None if cycle_r.ok else cycle_r.error),
         },
@@ -563,4 +580,89 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
             "health_error": (health.error if health and not health.ok else None),
             "cycles": cycles,
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# FACILITATOR (Info Desk) — milestone marking
+# ---------------------------------------------------------------------------
+
+@router.get("/desk/kg/cycle/{cycle_id}/milestones", response_class=HTMLResponse)
+async def desk_kg_milestones_page(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    cm_r = kg.list_cycle_milestones(cycle_id, db=db)
+    enr_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
+
+    cycle = cycle_r.data if cycle_r.ok else None
+    cycle_milestones = cm_r.data if cm_r.ok else []
+    if isinstance(cycle_milestones, dict):
+        cycle_milestones = cycle_milestones.get("data") or []
+    enrollments = enr_r.data if enr_r.ok else []
+    if isinstance(enrollments, dict):
+        enrollments = enrollments.get("data") or []
+
+    # Achievement lookup: { (enrollment_id, milestone_id): true } so the
+    # template can render a tick instantly without N round trips.
+    achieved: dict[tuple[str, str], bool] = {}
+    for e in enrollments:
+        ach_r = kg.list_enrollment_milestones(e["id"], db=db)
+        if ach_r.ok:
+            rows = (
+                ach_r.data if isinstance(ach_r.data, list)
+                else (ach_r.data or {}).get("data") or []
+            )
+            for row in rows:
+                achieved[(e["id"], row["milestone_id"])] = True
+
+    return templates.TemplateResponse(
+        request, "kg/desk_milestones.html",
+        {
+            "cycle": cycle,
+            "cycle_milestones": cycle_milestones,
+            "enrollments": enrollments,
+            "achieved": achieved,
+            "error": cycle_r.error if not cycle_r.ok else None,
+        },
+    )
+
+
+@router.post("/desk/kg/cycle/{cycle_id}/milestones")
+async def desk_kg_milestones_mark(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Toggle one (enrollment, milestone) achievement. Form fields:
+    enrollment_id, milestone_id, action (achieve|revoke)."""
+    redirect = _require_desk(request)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    form = await request.form()
+    enrollment_id = (form.get("enrollment_id") or "").strip()
+    milestone_id = (form.get("milestone_id") or "").strip()
+    action = (form.get("action") or "achieve").lower()
+    if not enrollment_id or not milestone_id:
+        return RedirectResponse(
+            url=f"/desk/kg/cycle/{cycle_id}/milestones", status_code=303,
+        )
+
+    if action == "revoke":
+        kg.revoke_milestone(
+            enrollment_id=enrollment_id, milestone_id=milestone_id, db=db,
+        )
+    else:
+        kg.mark_milestone_achieved(
+            enrollment_id=enrollment_id, milestone_id=milestone_id, db=db,
+        )
+    return RedirectResponse(
+        url=f"/desk/kg/cycle/{cycle_id}/milestones", status_code=303,
     )

@@ -328,6 +328,49 @@ def record_onsite_mark(
     )
 
 
+# ---- Milestones ----
+
+def list_cycle_milestones(cycle_id: str, *, db=None) -> ApiResult:
+    """The milestones attached to this cycle (with mandatory flag)."""
+    return _request("GET", f"/api/v1/milestones/cycles/{cycle_id}", db=db)
+
+
+def list_enrollment_milestones(enrollment_id: str, *, db=None) -> ApiResult:
+    """Which milestones the member has achieved already."""
+    return _request("GET", f"/api/v1/milestones/enrollments/{enrollment_id}", db=db)
+
+
+def mark_milestone_achieved(
+    *,
+    enrollment_id: str,
+    milestone_id: str,
+    achieved_at: str | None = None,
+    notes: str | None = None,
+    recorded_by_external_member_id: str | None = None,
+    db=None,
+) -> ApiResult:
+    return _request(
+        "POST",
+        f"/api/v1/milestones/enrollments/{enrollment_id}/{milestone_id}/achieve",
+        db=db,
+        body={
+            "achieved_at": achieved_at,
+            "notes": notes,
+            "recorded_by_external_member_id": recorded_by_external_member_id,
+        },
+    )
+
+
+def revoke_milestone(
+    *, enrollment_id: str, milestone_id: str, db=None,
+) -> ApiResult:
+    return _request(
+        "DELETE",
+        f"/api/v1/milestones/enrollments/{enrollment_id}/{milestone_id}",
+        db=db,
+    )
+
+
 # ---- Certificate ----
 
 def get_certificate_meta(enrollment_id: str, *, db=None) -> ApiResult:
