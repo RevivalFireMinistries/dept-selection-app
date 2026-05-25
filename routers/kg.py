@@ -98,6 +98,21 @@ async def portal_kg_home(request: Request, db: Session = Depends(get_db)):
         else:
             error = r.error or "Could not reach Kingdom Gateway right now."
 
+    # If the member has already accepted an invite (status moved past
+    # INVITED) take them straight to their cycle page — that's the
+    # screen they actually want to see. The portal_home listing is only
+    # useful when they have a pending invite to accept or no
+    # enrollments at all. KG returns enrollments ordered by created_at
+    # desc, so the first non-INVITED row is their most recent cycle.
+    accepted = next(
+        (e for e in enrollments if e.get("status") and e.get("status") != "INVITED"),
+        None,
+    )
+    if accepted and accepted.get("cycle_id"):
+        return RedirectResponse(
+            url=f"/portal/kg/cycle/{accepted['cycle_id']}", status_code=303,
+        )
+
     return templates.TemplateResponse(
         request, "kg/portal_home.html",
         {
