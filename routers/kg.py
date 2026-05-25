@@ -1028,3 +1028,147 @@ async def admin_kg_cycle_detail(
             "error": cycle_r.error if not cycle_r.ok else None,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — invite members to a cycle
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/kg/cycles/{cycle_id}/invite", response_class=HTMLResponse)
+async def admin_kg_cycle_invite_page(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Searchable picker for members in the current assembly. Members
+    already enrolled in this cycle are shown disabled so the admin can't
+    accidentally double-invite. Search is server-side — the portal
+    delegates ILIKE matching to rfm-database."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        # Surface the error on the cycle detail page where they came from.
+        return RedirectResponse(url="/admin/kg", status_code=303)
+
+    # Cycle metadata for the header.
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    cycle = cycle_r.data if cycle_r.ok else None
+    if cycle and cycle.get("assembly_id") != asm_id:
+        return RedirectResponse(url="/admin/kg", status_code=303)
+
+    # Search query (passed through to rfm-database). Default to "" so the
+    # first load shows the first page.
+    search = (request.query_params.get("q") or "").strip()
+    try:
+        page = max(1, int(request.query_params.get("page") or 1))
+    except (TypeError, ValueError):
+        page = 1
+
+    # Pull the assembly's members from rfm-database.
+    import rfm_api_client as rfm
+    members_r = rfm.search_members(
+        search=search or None, assembly_id=asm_id,
+        page=page, size=25, db=db,
+    )
+    members: list[dict] = []
+    meta: dict = {}
+    if members_r.ok:
+        if isinstance(members_r.data, list):
+            members = members_r.data
+        elif isinstance(members_r.data, dict):
+            members = members_r.data.get("data") or []
+            meta = members_r.data.get("meta") or {}
+
+    # Already-enrolled set for this cycle so we can disable those rows.
+    enr_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
+    enrolled_ids: set[str] = set()
+    if enr_r.ok:
+        rows = enr_r.data if isinstance(enr_r.data, list) else (enr_r.data or {}).get("data") or []
+        enrolled_ids = {r.get("external_member_id") for r in rows if r.get("external_member_id")}
+
+    result_msg = request.query_params.get("result")
+    invited_count = request.query_params.get("invited")
+    skipped_count = request.query_params.get("skipped")
+
+    return templates.TemplateResponse(
+        request, "kg/admin_cycle_invite.html",
+        {
+            "cycle": cycle,
+            "cycle_id": cycle_id,
+            "members": members,
+            "meta": meta,
+            "search": search,
+            "page": page,
+            "enrolled_ids": enrolled_ids,
+            "result_msg": result_msg,
+            "invited_count": invited_count,
+            "skipped_count": skipped_count,
+            "rfm_error": members_r.error if not members_r.ok else None,
+        },
+    )
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/invite")
+async def admin_kg_cycle_invite_submit(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return RedirectResponse(url="/admin/kg", status_code=303)
+
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    cycle = cycle_r.data if cycle_r.ok else None
+    if not cycle or cycle.get("assembly_id") != asm_id:
+        return RedirectResponse(url="/admin/kg", status_code=303)
+
+    form = await request.form()
+
+    # Picked member rows arrive as multiple `member_id` fields, each
+    # value being the rfm-database UUID. We also accept paired fields
+    # `email_<uuid>` so the picker can carry the email without an
+    # extra round trip — saves N HTTP calls when bulk-inviting.
+    if hasattr(form, "getlist"):
+        ids = [v for v in form.getlist("member_id") if v]
+    else:
+        ids = [form.get("member_id")] if form.get("member_id") else []
+
+    skipped: list[str] = []
+    members_payload: list[dict] = []
+    for mid in ids:
+        email = (form.get(f"email_{mid}") or "").strip()
+        if not email:
+            skipped.append(mid)
+            continue
+        members_payload.append({"external_member_id": mid, "email": email})
+
+    invited_count = 0
+    if members_payload:
+        r = kg.bulk_invite(cycle_id=cycle_id, members=members_payload, db=db)
+        if r.ok and isinstance(r.data, dict):
+            invited_count = r.data.get("invited", 0)
+        elif not r.ok:
+            # Send the user back with the error.
+            return RedirectResponse(
+                url=(
+                    f"/admin/kg/cycles/{cycle_id}/invite?result=error&"
+                    f"invited=0&skipped={len(skipped)}"
+                ),
+                status_code=303,
+            )
+
+    return RedirectResponse(
+        url=(
+            f"/admin/kg/cycles/{cycle_id}/invite?result=ok&"
+            f"invited={invited_count}&skipped={len(skipped)}"
+        ),
+        status_code=303,
+    )

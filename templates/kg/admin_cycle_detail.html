@@ -31,9 +31,15 @@
     </div>
 
     <div class="bg-white border border-gray-200 rounded-lg p-5">
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-gray-900">Enrollments</h2>
-        <span class="text-xs text-gray-500">{{ enrollments|length }} member(s)</span>
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-900">Enrollments</h2>
+          <p class="text-xs text-gray-500 mt-0.5">{{ enrollments|length }} member(s)</p>
+        </div>
+        <a href="/admin/kg/cycles/{{ cycle.id }}/invite"
+           class="px-3 py-1.5 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium whitespace-nowrap">
+          + Invite members
+        </a>
       </div>
       <ul class="mt-3 text-sm divide-y divide-gray-100 max-h-80 overflow-auto">
         {% for e in enrollments %}

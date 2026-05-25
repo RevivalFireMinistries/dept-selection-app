@@ -1,0 +1,131 @@
+{% extends "admin/base.html" %}
+{% block title %}Invite members · {{ cycle.name if cycle else "Cycle" }}{% endblock %}
+{% block admin_content %}
+<div class="px-4 sm:px-6 lg:px-8 py-6">
+  <a href="/admin/kg/cycles/{{ cycle_id }}" class="text-xs text-gray-500 hover:underline">← {{ cycle.name if cycle else "Cycle" }}</a>
+  <h1 class="mt-2 text-2xl font-bold text-gray-900">Invite members</h1>
+  <p class="text-sm text-gray-500 mt-1">
+    Pick the members you'd like to invite to <strong>{{ cycle.name if cycle else "this cycle" }}</strong>.
+    Members already enrolled are greyed out. Each invitee gets an email
+    with a link that signs them up in one click.
+  </p>
+
+  {% if rfm_error %}
+    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+      Couldn't reach the central member directory ({{ rfm_error }}). Try again, or
+      <a class="underline" href="/admin/kg">go back</a>.
+    </div>
+  {% endif %}
+
+  {% if result_msg == "ok" %}
+    <div class="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">
+      Invited <strong>{{ invited_count or 0 }}</strong> member(s).
+      {% if skipped_count and skipped_count != "0" %}
+        <span class="text-amber-700">{{ skipped_count }} skipped (no email on file).</span>
+      {% endif %}
+    </div>
+  {% elif result_msg == "error" %}
+    <div class="mt-4 bg-red-50 border border-red-200 text-red-800 rounded-lg p-3 text-sm">
+      Something went wrong sending invites. Please try again.
+    </div>
+  {% endif %}
+
+  <!-- Search -->
+  <form method="get" action="/admin/kg/cycles/{{ cycle_id }}/invite"
+        class="mt-6 flex gap-2">
+    <input type="text" name="q" value="{{ search }}"
+           placeholder="Search by name, phone or email…"
+           class="flex-1 rounded-lg border-gray-300 text-sm px-3 py-2">
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-gray-900 hover:bg-black text-white text-sm font-medium">
+      Search
+    </button>
+    {% if search %}
+      <a href="/admin/kg/cycles/{{ cycle_id }}/invite"
+         class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Clear</a>
+    {% endif %}
+  </form>
+
+  <!-- Picker -->
+  <form method="post" action="/admin/kg/cycles/{{ cycle_id }}/invite"
+        class="mt-4 bg-white rounded-lg shadow-sm overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+      <div class="text-xs text-gray-500">
+        {% if meta and meta.total is defined %}
+          {{ meta.total }} member(s) in this assembly{% if search %} matching "{{ search }}"{% endif %}
+        {% else %}
+          {{ members|length }} shown
+        {% endif %}
+      </div>
+      <button type="submit"
+              class="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium">
+        Invite selected
+      </button>
+    </div>
+
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr class="text-left text-xs uppercase text-gray-500">
+          <th class="px-4 py-3 w-10"></th>
+          <th class="px-4 py-3">Name</th>
+          <th class="px-4 py-3">Phone</th>
+          <th class="px-4 py-3">Email</th>
+          <th class="px-4 py-3 text-right">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for m in members %}
+          {% set already = m.id in enrolled_ids %}
+          {% set has_email = m.email and m.email|trim %}
+          <tr class="{% if already %}opacity-50{% endif %}">
+            <td class="px-4 py-3">
+              {% if already %}
+                <span class="text-xs text-emerald-600" title="Already enrolled">✓</span>
+              {% elif not has_email %}
+                <span class="text-xs text-amber-500" title="No email — can't invite">!</span>
+              {% else %}
+                <input type="checkbox" name="member_id" value="{{ m.id }}">
+                <input type="hidden" name="email_{{ m.id }}" value="{{ m.email }}">
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 font-medium text-gray-900">
+              {{ m.first_name }} {{ m.last_name }}
+            </td>
+            <td class="px-4 py-3 text-xs text-gray-600">{{ m.phone or "—" }}</td>
+            <td class="px-4 py-3 text-xs text-gray-600">{{ m.email or "—" }}</td>
+            <td class="px-4 py-3 text-right">
+              {% if already %}
+                <span class="text-xs bg-emerald-100 text-emerald-700 rounded px-2 py-0.5">Enrolled</span>
+              {% elif not has_email %}
+                <span class="text-xs bg-amber-100 text-amber-700 rounded px-2 py-0.5">No email</span>
+              {% else %}
+                <span class="text-xs text-gray-400">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">
+            {% if search %}No members match "{{ search }}".{% else %}No members in this assembly yet.{% endif %}
+          </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if meta and meta.pages and meta.pages > 1 %}
+    <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
+      <div class="text-xs text-gray-500">Page {{ page }} of {{ meta.pages }}</div>
+      <div class="flex gap-1">
+        {% if page > 1 %}
+          <a href="?q={{ search }}&page={{ page - 1 }}"
+             class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50">← Prev</a>
+        {% endif %}
+        {% if page < meta.pages %}
+          <a href="?q={{ search }}&page={{ page + 1 }}"
+             class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50">Next →</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

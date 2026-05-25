@@ -346,6 +346,24 @@ def list_kg_milestones(*, db=None) -> ApiResult:
     return _request("GET", "/api/v1/milestones", db=db)
 
 
+def bulk_invite(
+    *, cycle_id: str, members: list[dict], db=None,
+) -> ApiResult:
+    """Invite many members to a cycle in one call.
+
+    ``members`` is a list of ``{"external_member_id": "...", "email": "..."}``
+    dicts. KG creates an Enrollment + Invite row per member and dispatches
+    the invite email via rfm-notify. The plaintext invite token is
+    returned per row — the portal doesn't need to do anything with it
+    (KG already baked it into the email's accept link), but it's
+    available for diagnostics.
+    """
+    return _request(
+        "POST", "/api/v1/invites/bulk", db=db,
+        body={"cycle_id": cycle_id, "members": members},
+    )
+
+
 def plan_cycle(*, payload: dict, db=None) -> ApiResult:
     """Create a cycle with class sessions + milestones auto-generated.
     Posts to KG's POST /api/v1/cycles/plan — the form-style endpoint
