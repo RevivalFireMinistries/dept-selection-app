@@ -666,3 +666,269 @@ async def desk_kg_milestones_mark(
     return RedirectResponse(
         url=f"/desk/kg/cycle/{cycle_id}/milestones", status_code=303,
     )
+
+
+# ===========================================================================
+# PORTAL ADMIN — full cycle management (admin OR member with kg_manager flag)
+# ===========================================================================
+#
+# Portal admins (admin_session) always pass. Members granted the kg_manager
+# flag from /admin/kg/team also pass — they reach these pages via their
+# normal member session.
+#
+# This is intentionally a separate auth path from the existing /admin/*
+# pages so we don't have to broaden the admin_session check; KG management
+# stays a per-member toggle the portal admin controls.
+
+
+def _kg_can_manage(request: Request, db: Session) -> tuple[bool, Optional[Member]]:
+    """Returns (authorised, acting_member). Acting member is the logged-in
+    portal member when authorisation came via the kg_manager flag; None
+    when the caller is a portal admin via admin_session."""
+    if is_authenticated(request):
+        return True, None
+    member = get_current_member(request, db)
+    if member and getattr(member, "kg_manager", False):
+        return True, member
+    return False, None
+
+
+def _require_kg_manage(request: Request, db: Session) -> Optional[RedirectResponse]:
+    ok, _ = _kg_can_manage(request, db)
+    if not ok:
+        return RedirectResponse(url="/admin/login?next=/admin/kg", status_code=302)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — team management (portal admin ONLY — they decide who's KG team)
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/kg/team", response_class=HTMLResponse)
+async def admin_kg_team(request: Request, db: Session = Depends(get_db)):
+    """Lists members in the 'Kingdom Gateway' department by default so
+    the portal admin can flip the kg_manager flag on/off. There's also
+    a `?show=all` query to list every member when the admin needs to
+    grant access to someone not in that department (e.g., a visiting
+    facilitator)."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login?next=/admin/kg/team", status_code=302)
+
+    from models import Department, MemberDepartment
+
+    show_all = request.query_params.get("show") == "all"
+
+    # Find the Kingdom Gateway department (case-insensitive). If it doesn't
+    # exist we surface a helpful note rather than crashing — admin can
+    # create it in /admin/departments first, or just flip to "show all".
+    kg_dept = (
+        db.query(Department)
+        .filter(Department.name.ilike("Kingdom Gateway"))
+        .first()
+    )
+
+    if show_all or kg_dept is None:
+        members = (
+            db.query(Member)
+            .filter(Member.is_active == True)  # noqa: E712
+            .order_by(Member.full_name)
+            .all()
+        )
+    else:
+        members = (
+            db.query(Member)
+            .join(MemberDepartment, MemberDepartment.member_id == Member.id)
+            .filter(
+                MemberDepartment.department_id == kg_dept.id,
+                MemberDepartment.status == "approved",
+                Member.is_active == True,  # noqa: E712
+            )
+            .order_by(Member.full_name)
+            .all()
+        )
+
+    return templates.TemplateResponse(
+        request, "kg/admin_team.html",
+        {
+            "members": members,
+            "kg_dept": kg_dept,
+            "show_all": show_all,
+            "saved": request.query_params.get("saved") == "1",
+        },
+    )
+
+
+@router.post("/admin/kg/team/toggle")
+async def admin_kg_team_toggle(
+    request: Request, db: Session = Depends(get_db),
+):
+    """Single-member toggle from the team page. Idempotent — re-posting
+    with the same `enable` value is a no-op."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login?next=/admin/kg/team", status_code=302)
+
+    form = await request.form()
+    try:
+        member_id = int(form.get("member_id") or 0)
+    except (TypeError, ValueError):
+        member_id = 0
+    if not member_id:
+        return RedirectResponse(url="/admin/kg/team", status_code=303)
+
+    enable = (form.get("enable") or "").lower() in ("true", "on", "1")
+
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if member:
+        member.kg_manager = enable
+        db.commit()
+
+    # Preserve ?show=all so the admin doesn't lose their filter state.
+    show_all = (form.get("show") == "all")
+    qs = "?show=all&saved=1" if show_all else "?saved=1"
+    return RedirectResponse(url=f"/admin/kg/team{qs}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — cycle CRUD (portal admin OR kg_manager member)
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/kg/cycles/new", response_class=HTMLResponse)
+async def admin_kg_cycle_new(
+    request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    # Pull the catalog from KG: courses + modules + milestones.
+    courses_r = kg.list_courses(db=db)
+    courses = (
+        courses_r.data if isinstance(courses_r.data, list)
+        else (courses_r.data or {}).get("data") or []
+    ) if courses_r.ok else []
+
+    default_course = courses[0] if courses else None
+    modules: list = []
+    if default_course:
+        m_r = kg.list_modules(default_course["id"], db=db)
+        modules = (
+            m_r.data if isinstance(m_r.data, list)
+            else (m_r.data or {}).get("data") or []
+        ) if m_r.ok else []
+
+    ms_r = kg.list_kg_milestones(db=db)
+    milestones = (
+        ms_r.data if isinstance(ms_r.data, list)
+        else (ms_r.data or {}).get("data") or []
+    ) if ms_r.ok else []
+
+    return templates.TemplateResponse(
+        request, "kg/admin_cycle_new.html",
+        {
+            "courses": courses,
+            "default_course": default_course,
+            "modules": modules,
+            "milestones": milestones,
+            "error": request.session.pop("flash_cycle_error", None) if hasattr(request, "session") else None,
+        },
+    )
+
+
+@router.post("/admin/kg/cycles/new")
+async def admin_kg_cycle_create(
+    request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+
+    # Collect module + milestone selections from the form.
+    if hasattr(form, "getlist"):
+        module_ids = [m for m in form.getlist("module_ids") if m]
+    else:
+        module_ids = [form.get("module_ids")] if form.get("module_ids") else []
+
+    milestones: list[dict] = []
+    for key in list(form.keys()):
+        if key.startswith("milestone_") and form.get(key):
+            ms_id = key[len("milestone_"):]
+            milestones.append({
+                "milestone_id": ms_id,
+                "is_mandatory": bool(form.get(f"mandatory_{ms_id}")),
+            })
+
+    payload = {
+        "course_id": (form.get("course_id") or "").strip(),
+        "name": (form.get("name") or "").strip(),
+        "description": (form.get("description") or None),
+        "start_date": (form.get("start_date") or "").strip(),
+        "cadence_days": int(form.get("cadence_days") or 7),
+        "class_start_time": (form.get("class_start_time") or "10:00").strip(),
+        "class_duration_minutes": int(form.get("class_duration_minutes") or 90),
+        "venue": (form.get("venue") or None),
+        "module_ids": module_ids,
+        "milestones": milestones,
+        "pass_mark_percent": int(form.get("pass_mark_percent") or 50),
+        "min_attendance_percent": int(form.get("min_attendance_percent") or 80),
+        "max_exam_attempts": int(form.get("max_exam_attempts") or 0),
+        "exam_time_limit_minutes": int(form.get("exam_time_limit_minutes") or 50),
+    }
+    # assembly_id: if portal admin gave one, pass it through. Otherwise the
+    # KG service key's pinned assembly (or KG_ASSEMBLY_ID env) is used.
+    if form.get("assembly_id"):
+        payload["assembly_id"] = form.get("assembly_id")
+
+    r = kg.plan_cycle(payload=payload, db=db)
+    if not r.ok:
+        if hasattr(request, "session"):
+            request.session["flash_cycle_error"] = r.error or "Could not create cycle."
+        return RedirectResponse(url="/admin/kg/cycles/new", status_code=303)
+
+    cycle_id = (r.data or {}).get("id") if isinstance(r.data, dict) else None
+    if cycle_id:
+        return RedirectResponse(url=f"/admin/kg/cycles/{cycle_id}", status_code=303)
+    return RedirectResponse(url="/admin/kg", status_code=303)
+
+
+@router.get("/admin/kg/cycles/{cycle_id}", response_class=HTMLResponse)
+async def admin_kg_cycle_detail(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    classes_r = kg.list_classes(cycle_id, db=db)
+    cm_r = kg.list_cycle_milestones(cycle_id, db=db)
+    enr_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
+
+    cycle = cycle_r.data if cycle_r.ok else None
+    classes = classes_r.data if classes_r.ok else []
+    if isinstance(classes, dict):
+        classes = classes.get("data") or []
+    cycle_milestones = cm_r.data if cm_r.ok else []
+    if isinstance(cycle_milestones, dict):
+        cycle_milestones = cycle_milestones.get("data") or []
+    enrollments = enr_r.data if enr_r.ok else []
+    if isinstance(enrollments, dict):
+        enrollments = enrollments.get("data") or []
+
+    return templates.TemplateResponse(
+        request, "kg/admin_cycle_detail.html",
+        {
+            "cycle": cycle,
+            "classes": classes,
+            "cycle_milestones": cycle_milestones,
+            "enrollments": enrollments,
+            "error": cycle_r.error if not cycle_r.ok else None,
+        },
+    )

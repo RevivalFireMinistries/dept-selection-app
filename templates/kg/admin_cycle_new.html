@@ -1,0 +1,166 @@
+{% extends "admin/base.html" %}
+{% block title %}New cycle · Kingdom Gateway{% endblock %}
+{% block admin_content %}
+<div class="px-4 sm:px-6 lg:px-8 py-6">
+  <a href="/admin/kg" class="text-xs text-gray-500 hover:underline">← Kingdom Gateway</a>
+  <h1 class="mt-2 text-2xl font-bold text-gray-900">Create a new cycle</h1>
+  <p class="text-sm text-gray-500 mt-1">
+    A cycle is one run of the Kingdom Gateway course. Pick a start date, a cadence,
+    the topics, and which spiritual milestones members need to achieve. Class sessions are scheduled automatically.
+  </p>
+
+  {% if error %}
+    <div class="mt-4 bg-red-50 border border-red-200 text-red-800 rounded p-3 text-sm">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/admin/kg/cycles/new" class="mt-6 space-y-6">
+    <!-- Basics -->
+    <section class="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+      <h2 class="text-sm font-semibold text-gray-900">Basics</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="text-xs uppercase text-gray-500">Cycle name</label>
+          <input type="text" name="name" required placeholder="Kingdom Gateway — August 2026"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Course</label>
+          <select name="course_id" required
+                  class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+            {% for c in courses %}
+              <option value="{{ c.id }}" {% if default_course and c.id == default_course.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="md:col-span-2">
+          <label class="text-xs uppercase text-gray-500">Description (optional)</label>
+          <textarea name="description" rows="2"
+                    class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- Schedule -->
+    <section class="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+      <h2 class="text-sm font-semibold text-gray-900">Schedule</h2>
+      <p class="text-xs text-gray-500">
+        The system creates one class session per selected topic, dated <strong>start date</strong> + (i × cadence).
+        So "every Sunday for 4 weeks" = start on a Sunday + cadence 7 + pick 4 topics.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div>
+          <label class="text-xs uppercase text-gray-500">Start date</label>
+          <input type="date" name="start_date" required
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Cadence</label>
+          <select name="cadence_days" class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+            <option value="7" selected>Weekly</option>
+            <option value="14">Fortnightly</option>
+            <option value="28">Monthly</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Class start time</label>
+          <input type="time" name="class_start_time" value="10:00"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Duration (min)</label>
+          <input type="number" name="class_duration_minutes" value="90" min="15" max="600"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div class="md:col-span-2">
+          <label class="text-xs uppercase text-gray-500">Default venue (optional)</label>
+          <input type="text" name="venue" placeholder="Main hall"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+      </div>
+    </section>
+
+    <!-- Topics -->
+    <section class="bg-white border border-gray-200 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-900">Topics</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Topics come from the course book — uncheck any you're not covering in this cycle.
+      </p>
+      <ul class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {% for m in modules %}
+          <li>
+            <label class="flex items-start gap-3 p-3 rounded border border-gray-200 hover:bg-gray-50 cursor-pointer">
+              <input type="checkbox" name="module_ids" value="{{ m.id }}" checked class="mt-0.5">
+              <div>
+                <div class="text-sm font-medium text-gray-900">{{ m.sequence_no }}. {{ m.title }}</div>
+                {% if m.description %}<div class="text-xs text-gray-500 mt-0.5">{{ m.description }}</div>{% endif %}
+              </div>
+            </label>
+          </li>
+        {% else %}
+          <li class="text-sm text-gray-500">No topics available — check that the course is seeded in KG.</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <!-- Milestones -->
+    <section class="bg-white border border-gray-200 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-900">Spiritual milestones</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Mandatory milestones must be achieved before the certificate can issue.
+      </p>
+      <ul class="mt-3 space-y-2">
+        {% for ms in milestones %}
+          <li class="flex items-start justify-between gap-3 p-3 rounded border border-gray-200">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" name="milestone_{{ ms.id }}" checked class="mt-0.5">
+              <div>
+                <div class="text-sm font-medium text-gray-900">{{ ms.name }}</div>
+                {% if ms.description %}<div class="text-xs text-gray-500 mt-0.5">{{ ms.description }}</div>{% endif %}
+              </div>
+            </label>
+            <label class="flex items-center gap-2 text-xs text-gray-700">
+              <input type="checkbox" name="mandatory_{{ ms.id }}" checked>
+              Mandatory
+            </label>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <!-- Policy -->
+    <section class="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+      <h2 class="text-sm font-semibold text-gray-900">Completion policy</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <label class="text-xs uppercase text-gray-500">Pass mark %</label>
+          <input type="number" name="pass_mark_percent" value="50" min="0" max="100"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Min attendance %</label>
+          <input type="number" name="min_attendance_percent" value="80" min="0" max="100"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Exam time (min)</label>
+          <input type="number" name="exam_time_limit_minutes" value="50" min="5" max="240"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+        <div>
+          <label class="text-xs uppercase text-gray-500">Max attempts (0=∞)</label>
+          <input type="number" name="max_exam_attempts" value="0" min="0" max="20"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+        </div>
+      </div>
+    </section>
+
+    <div class="flex items-center gap-2">
+      <button type="submit"
+              class="px-5 py-2.5 rounded bg-gray-900 hover:bg-black text-white text-sm font-medium">
+        Create cycle
+      </button>
+      <a href="/admin/kg" class="text-sm text-gray-500 hover:underline">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

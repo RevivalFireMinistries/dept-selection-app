@@ -70,6 +70,13 @@ class Member(Base):
     external_assembly_id = Column(String(36), nullable=True, index=True)
     # Surveys: members granted this flag by an admin can build and share surveys.
     can_create_surveys = Column(Boolean, nullable=False, server_default="false")
+    # Kingdom Gateway: members granted this flag by a portal admin can create
+    # and manage KG cycles, mark attendance/milestones, and enter onsite
+    # exam marks from the portal's admin section. Typically set for members
+    # in the "Kingdom Gateway" department but the assignment is per-member
+    # (not per-department) so a pastor or visiting facilitator can also be
+    # granted without changing their primary department.
+    kg_manager = Column(Boolean, nullable=False, server_default="false")
 
     departments = relationship("MemberDepartment", back_populates="member", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="member", cascade="all, delete-orphan")

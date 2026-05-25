@@ -4,16 +4,26 @@
 <div class="px-4 sm:px-6 lg:px-8 py-6">
   <div class="flex items-center justify-between gap-3 flex-wrap">
     <h1 class="text-2xl font-bold text-gray-900">Kingdom Gateway</h1>
-    {% if kg_url %}
-      <a href="{{ kg_url }}/admin" target="_blank" rel="noopener"
-         class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-black">
-        Open KG admin
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+    <div class="flex flex-wrap gap-2">
+      <a href="/admin/kg/cycles/new"
+         class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700">
+        + New cycle
       </a>
-    {% endif %}
+      <a href="/admin/kg/team"
+         class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
+        Manage team
+      </a>
+      {% if kg_url %}
+        <a href="{{ kg_url }}/admin" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-black">
+          Open KG admin
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+      {% endif %}
+    </div>
   </div>
   <p class="text-sm text-gray-500 mt-1">
-    Read-only overview. Edit course content, schedule classes, and grade exams in the Kingdom Gateway admin.
+    Create cycles, assign team, and view live status. Question editing and grading happen in KG admin.
   </p>
 
   <!-- Health card -->
@@ -59,7 +69,9 @@
       <tbody class="divide-y divide-gray-100">
         {% for c in cycles %}
         <tr>
-          <td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td>
+          <td class="px-4 py-3">
+            <a href="/admin/kg/cycles/{{ c.id }}" class="font-medium text-gray-900 hover:underline">{{ c.name }}</a>
+          </td>
           <td class="px-4 py-3"><span class="text-xs bg-gray-100 rounded px-2 py-0.5">{{ c.status }}</span></td>
           <td class="px-4 py-3 text-gray-600">{{ c.start_date }}</td>
           <td class="px-4 py-3 text-gray-600">{{ c.pass_mark_percent }}%</td>

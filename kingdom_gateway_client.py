@@ -330,6 +330,29 @@ def record_onsite_mark(
 
 # ---- Milestones ----
 
+def list_courses(*, db=None) -> ApiResult:
+    """KG's course catalog (typically just "Kingdom Gateway")."""
+    return _request("GET", "/api/v1/courses", db=db)
+
+
+def list_modules(course_id: str, *, db=None) -> ApiResult:
+    """Topics from the book, in book order. Used by the cycle-creation
+    form to render the checkboxes the admin picks from."""
+    return _request("GET", f"/api/v1/courses/{course_id}/modules", db=db)
+
+
+def list_kg_milestones(*, db=None) -> ApiResult:
+    """Full milestone catalog from KG — used by the cycle-creation form."""
+    return _request("GET", "/api/v1/milestones", db=db)
+
+
+def plan_cycle(*, payload: dict, db=None) -> ApiResult:
+    """Create a cycle with class sessions + milestones auto-generated.
+    Posts to KG's POST /api/v1/cycles/plan — the form-style endpoint
+    that takes module_ids[] + milestones[] in one payload."""
+    return _request("POST", "/api/v1/cycles/plan", db=db, body=payload)
+
+
 def list_cycle_milestones(cycle_id: str, *, db=None) -> ApiResult:
     """The milestones attached to this cycle (with mandatory flag)."""
     return _request("GET", f"/api/v1/milestones/cycles/{cycle_id}", db=db)

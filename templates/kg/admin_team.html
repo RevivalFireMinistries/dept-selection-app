@@ -1,0 +1,75 @@
+{% extends "admin/base.html" %}
+{% block title %}Kingdom Gateway team · Admin{% endblock %}
+{% block admin_content %}
+<div class="px-4 sm:px-6 lg:px-8 py-6">
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Kingdom Gateway team</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Members with this flag can create &amp; manage KG cycles, mark attendance and milestones,
+        and enter onsite exam marks — without needing portal admin access.
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/admin/kg" class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">← Back to KG</a>
+      <a href="/admin/kg/team{% if not show_all %}?show=all{% endif %}"
+         class="px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
+        {% if show_all %}KG dept only{% else %}Show all members{% endif %}
+      </a>
+    </div>
+  </div>
+
+  {% if saved %}
+    <div class="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">Saved.</div>
+  {% endif %}
+
+  {% if not kg_dept and not show_all %}
+    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+      No department named "Kingdom Gateway" exists yet. Create one in
+      <a class="underline" href="/admin/departments">/admin/departments</a>
+      so you can group KG team members there, or
+      <a class="underline" href="/admin/kg/team?show=all">show all members</a> for now.
+    </div>
+  {% endif %}
+
+  <div class="mt-6 bg-white rounded-lg shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr class="text-left text-xs uppercase text-gray-500">
+          <th class="px-4 py-3">Member</th>
+          <th class="px-4 py-3">Phone</th>
+          <th class="px-4 py-3">Email</th>
+          <th class="px-4 py-3 text-right">KG manager</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for m in members %}
+        <tr>
+          <td class="px-4 py-3 font-medium text-gray-900">{{ m.full_name }}</td>
+          <td class="px-4 py-3 text-gray-600 text-xs">{{ m.phone or "—" }}</td>
+          <td class="px-4 py-3 text-gray-600 text-xs">{{ m.email or "—" }}</td>
+          <td class="px-4 py-3 text-right">
+            <form method="post" action="/admin/kg/team/toggle" class="inline">
+              <input type="hidden" name="member_id" value="{{ m.id }}">
+              <input type="hidden" name="enable" value="{% if m.kg_manager %}false{% else %}true{% endif %}">
+              {% if show_all %}<input type="hidden" name="show" value="all">{% endif %}
+              <button type="submit"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md
+                       {% if m.kg_manager %}bg-emerald-100 text-emerald-700 hover:bg-emerald-200{% else %}bg-gray-100 text-gray-600 hover:bg-gray-200{% endif %}">
+                {% if m.kg_manager %}
+                  ✓ Granted — revoke
+                {% else %}
+                  Grant
+                {% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="px-4 py-6 text-center text-gray-500">No members to show.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -572,6 +572,20 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (can_create_surveys): {e}")
 
+        # Migration: Kingdom Gateway — members.kg_manager flag.
+        # Portal admin grants this to KG team members so they can create
+        # and manage cycles + exams from /admin/kg/* without needing the
+        # admin_session cookie.
+        try:
+            conn.execute(text("""
+                ALTER TABLE members
+                ADD COLUMN IF NOT EXISTS kg_manager BOOLEAN NOT NULL DEFAULT FALSE
+            """))
+            conn.commit()
+            print("Migration: Added kg_manager flag to members")
+        except Exception as e:
+            print(f"Migration note (kg_manager): {e}")
+
         # Migration: email verification columns. Registrations now send a
         # verification email; we track when the user clicks it.
         try:
