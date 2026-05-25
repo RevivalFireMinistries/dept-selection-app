@@ -58,6 +58,34 @@
                     </div>
                 </section>
 
+                <!-- Kingdom Gateway: EXAM IS OPEN — prominent "Take exam now"
+                     card. Shows when the member has an EXAM_READY (or FAILED
+                     retake) enrollment whose exam_available_at has arrived.
+                     The link bounces through the cycle page so the same URL
+                     works whether the exam is open right now or scheduled —
+                     the cycle handler does the final hop. -->
+                <template x-if="data.kg_exam_ready">
+                    <section class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl shadow-sm p-5"
+                             x-cloak>
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl flex-shrink-0">📝</div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-[11px] uppercase tracking-[0.18em] text-emerald-800">
+                                    <span x-text="data.kg_exam_ready.status === 'FAILED' ? 'Retake your exam' : 'Exam open'"></span>
+                                </div>
+                                <div class="mt-1 font-semibold text-gray-900">Your Kingdom Gateway exam is ready</div>
+                                <div class="text-xs text-gray-600 mt-0.5">
+                                    Find somewhere quiet — once you start, the timer runs.
+                                </div>
+                                <a :href="'/portal/kg/cycle/' + data.kg_exam_ready.cycle_id + '?start_exam=1'"
+                                   class="mt-3 inline-block px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+                                    Start exam now &rarr;
+                                </a>
+                            </div>
+                        </div>
+                    </section>
+                </template>
+
                 <!-- Kingdom Gateway: ask to join (only when the member has no
                      active / accepted / completed enrollment — derived
                      server-side from KG directly so it's never stale against

@@ -206,6 +206,24 @@ async def portal_kg_cycle(
                 # Bad value — fail open so a stray format doesn't block the member.
                 exam_is_open = True
 
+    # Deep-link bounce: the EXAM_UNLOCKED email points the member at
+    # /portal/kg/cycle/{id}?start_exam=1 so they land one click from
+    # writing. When the exam is actually open and the cycle has an
+    # exam attached, jump straight into it. If the exam isn't open yet
+    # (scheduled future, or no exam at all) we just render the cycle
+    # page — the member sees the "scheduled for X" badge there.
+    want_start = (request.query_params.get("start_exam") or "").strip() in ("1", "true", "yes")
+    if (
+        want_start
+        and exam_is_open
+        and exam_id
+        and my_enrollment
+        and my_enrollment.get("status") in ("EXAM_READY", "FAILED")
+    ):
+        return RedirectResponse(
+            url=f"/portal/kg/exam/{exam_id}/start", status_code=303,
+        )
+
     return templates.TemplateResponse(
         request, "kg/portal_cycle.html",
         {

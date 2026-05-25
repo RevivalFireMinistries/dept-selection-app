@@ -252,7 +252,17 @@ async function login() {
             window.location.href = `/reset-password?${params.toString()}`;
             return;
         } else if (res.ok) {
-            window.location.href = `/portal?phone=${encodeURIComponent(data.phone)}`;
+            // Carry the original deep destination through the post-login
+            // bounce — email links (e.g. exam-unlock) drop the member on
+            // /?next=/portal/kg/cycle/.../start_exam=1 and we want them
+            // to land there, not on the generic portal home.
+            const incoming = new URLSearchParams(window.location.search);
+            const next = incoming.get('next');
+            const portalParams = new URLSearchParams({ phone: data.phone });
+            if (next && next.startsWith('/') && !next.startsWith('//')) {
+                portalParams.set('next', next);
+            }
+            window.location.href = `/portal?${portalParams.toString()}`;
         } else {
             errorDiv.textContent = data.detail || 'Login failed';
             errorDiv.classList.remove('hidden');

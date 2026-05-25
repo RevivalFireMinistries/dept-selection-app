@@ -135,9 +135,17 @@ async def offline_page(request: Request):
 
 @router.get("/")
 async def landing(request: Request, db: Session = Depends(get_db)):
-    """Login page — redirect to portal if already logged in"""
+    """Login page — redirects to portal (or to ``?next=`` if set) when
+    the member is already logged in. The ``next`` param is what lets
+    deep links in emails (e.g. the EXAM_UNLOCKED notification's
+    ``/portal/kg/cycle/{id}?start_exam=1``) survive the login bounce."""
     member = get_current_member(request, db)
     if member:
+        nxt = (request.query_params.get("next") or "").strip()
+        # Only honour same-site relative paths so an email link can't be
+        # weaponised as an open-redirect (e.g. ``?next=https://evil.example``).
+        if nxt.startswith("/") and not nxt.startswith("//"):
+            return RedirectResponse(url=nxt, status_code=302)
         return RedirectResponse(url=f"/portal?phone={member.phone}", status_code=302)
     return templates.TemplateResponse("landing.html", {"request": request})
 
@@ -639,6 +647,13 @@ async def member_portal(request: Request, db: Session = Depends(get_db)):
     phone = request.query_params.get("phone")
     if not member and not phone:
         return RedirectResponse(url="/", status_code=302)
+    # Honour ?next= for deep links surviving the post-login bounce (the
+    # landing/login flow sets ?phone=... and then this hop carries the
+    # member to the original destination — e.g. an EXAM_UNLOCKED email
+    # link to ``/portal/kg/cycle/{id}?start_exam=1``).
+    nxt = (request.query_params.get("next") or "").strip()
+    if member and nxt.startswith("/") and not nxt.startswith("//"):
+        return RedirectResponse(url=nxt, status_code=302)
     return templates.TemplateResponse("portal.html", {"request": request})
 
 

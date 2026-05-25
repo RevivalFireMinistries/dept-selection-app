@@ -9755,12 +9755,20 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
       because the central status is eventually consistent and
       momentarily-stale UI was confusingly showing the "Request to
       join" card alongside an active enrollment.
+    * ``exam_ready`` — ``{cycle_id}`` when the member has an
+      EXAM_READY (or FAILED — retake) enrollment whose
+      ``exam_available_at`` is already in the past (or unset, meaning
+      legacy attendance-only unlock). Drives the prominent "Take exam
+      now" card at the top of the dashboard.
 
-    Falls back to ``{pending_invites: [], can_request_to_join: True}``
-    when KG is disabled / unreachable / the member isn't linked —
-    same shape callers already handle.
+    Falls back to the empty/default shape when KG is disabled /
+    unreachable / the member isn't linked — callers already handle.
     """
-    out = {"pending_invites": [], "can_request_to_join": True}
+    out = {
+        "pending_invites": [],
+        "can_request_to_join": True,
+        "exam_ready": None,
+    }
     if not member.external_member_id:
         return out
     try:
@@ -9778,6 +9786,9 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
             "INVITED", "ENROLLED", "EXAM_READY",
             "FAILED", "COMPLETED", "EXEMPTED",
         }
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc)
+
         for e in rows:
             status = e.get("status")
             if status == "INVITED":
@@ -9788,6 +9799,28 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
                 })
             if status in blocking:
                 out["can_request_to_join"] = False
+
+            # Surface the most-recently-opened exam (KG sorts created_at
+            # desc so the first match wins). Honour exam_available_at:
+            # a future timestamp means the member sees "scheduled for X"
+            # — no Take-exam card yet.
+            if out["exam_ready"] is None and status in ("EXAM_READY", "FAILED"):
+                avail = (e.get("exam_available_at") or "").strip()
+                is_open = True
+                if avail:
+                    try:
+                        when = _dt.fromisoformat(avail.replace("Z", "+00:00"))
+                        if when.tzinfo is None:
+                            when = when.replace(tzinfo=_tz.utc)
+                        is_open = when <= now
+                    except ValueError:
+                        is_open = True
+                if is_open and e.get("cycle_id"):
+                    out["exam_ready"] = {
+                        "cycle_id": e.get("cycle_id"),
+                        "enrollment_id": e.get("id"),
+                        "status": status,
+                    }
     except Exception:
         # Never break the portal home over a KG hiccup — pretend the
         # member can request; the worst case is a duplicate request
@@ -9975,6 +10008,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
         "kingdom_gateway_completed_at": central.get("kingdom_gateway_completed_at"),
         "kg_pending_invites": kg_facts["pending_invites"],
         "kg_can_request_to_join": kg_facts["can_request_to_join"],
+        "kg_exam_ready": kg_facts["exam_ready"],
         "leadership": {
             "is_hc_leader": is_hc_leader,
             "led_home_churches": led_home_churches,
