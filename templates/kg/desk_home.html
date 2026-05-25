@@ -16,8 +16,8 @@
       </div>
     {% endif %}
 
-    <h2 class="text-lg font-semibold text-gray-900">Active cohorts</h2>
-    <p class="text-sm text-gray-500 mt-1">Pick a cohort to mark attendance or enter onsite exam marks.</p>
+    <h2 class="text-lg font-semibold text-gray-900">Active cycles</h2>
+    <p class="text-sm text-gray-500 mt-1">Pick a cycle to mark attendance or enter onsite exam marks.</p>
 
     <div class="mt-4 bg-white rounded-lg shadow-sm overflow-hidden">
       <table class="w-full text-sm">
@@ -31,21 +31,21 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-          {% for c in cohorts %}
+          {% for c in cycles %}
           <tr>
             <td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td>
             <td class="px-4 py-3 text-gray-600">{{ c.start_date }}</td>
             <td class="px-4 py-3 text-gray-600">{{ c.pass_mark_percent }}%</td>
             <td class="px-4 py-3 text-gray-600">{{ c.min_attendance_percent }}%</td>
             <td class="px-4 py-3 text-right">
-              <a href="/desk/kg/cohort/{{ c.id }}/attendance"
+              <a href="/desk/kg/cycle/{{ c.id }}/attendance"
                  class="inline-block px-3 py-1.5 bg-teal-600 text-white text-xs rounded-md hover:bg-teal-700">Attendance</a>
-              <a href="/desk/kg/cohort/{{ c.id }}/onsite-exam"
+              <a href="/desk/kg/cycle/{{ c.id }}/onsite-exam"
                  class="inline-block px-3 py-1.5 ml-1 bg-gray-700 text-white text-xs rounded-md hover:bg-gray-800">Onsite exam</a>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">No active cohorts.</td></tr>
+          <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">No active cycles.</td></tr>
           {% endfor %}
         </tbody>
       </table>

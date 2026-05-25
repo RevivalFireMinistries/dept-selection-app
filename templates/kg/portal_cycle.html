@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Cohort · Kingdom Gateway{% endblock %}
+{% block title %}Cycle · Kingdom Gateway{% endblock %}
 {% block content %}
 <div class="min-h-screen" style="background-color: var(--color-paper);">
   <header class="text-white px-5 py-5 sticky top-0 z-30" style="background-color: var(--color-ink);">
@@ -7,7 +7,7 @@
       <a href="/portal/kg" class="text-white/70 hover:text-white">&larr;</a>
       <div>
         <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Kingdom Gateway</div>
-        <div class="text-lg font-semibold">{{ cohort.name if cohort else "Cohort" }}</div>
+        <div class="text-lg font-semibold">{{ cycle.name if cycle else "Cycle" }}</div>
       </div>
     </div>
   </header>

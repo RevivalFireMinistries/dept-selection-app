@@ -22,19 +22,19 @@
         <div class="text-2xl">🌱</div>
         <h2 class="mt-2 font-display text-xl text-gray-900">No active enrollment</h2>
         <p class="mt-1 text-sm text-gray-600">
-          When you're invited to a Kingdom Gateway cohort you'll see it here.
+          When you're invited to a Kingdom Gateway cycle you'll see it here.
           Speak to your pastor or the church office if you'd like to join.
         </p>
       </section>
     {% else %}
       {% for e in enrollments %}
-        <a href="/portal/kg/cohort/{{ e.cohort_id }}"
+        <a href="/portal/kg/cycle/{{ e.cycle_id }}"
            class="block bg-white rounded-2xl shadow-sm p-5 hover:shadow-md transition-shadow"
            style="border: 1px solid var(--color-border);">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-[11px] uppercase tracking-[0.18em] text-gray-500">Your cohort</div>
-              <div class="font-semibold text-gray-900">{{ e.cohort_id[:8] }}…</div>
+              <div class="text-[11px] uppercase tracking-[0.18em] text-gray-500">Your cycle</div>
+              <div class="font-semibold text-gray-900">{{ e.cycle_id[:8] }}…</div>
             </div>
             <span class="text-xs px-2.5 py-1 rounded-full
               {% if e.status == 'COMPLETED' %}bg-emerald-100 text-emerald-800

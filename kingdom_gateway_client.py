@@ -1,6 +1,6 @@
 """Client for the kingdom-gateway service.
 
-KG owns the new-members course (cohorts, classes, attendance, exam,
+KG owns the new-members course (cycles, classes, attendance, exam,
 certificates). The portal is its consumer surface for members + facilitators
 — members take the exam in the portal, facilitators mark attendance from
 their phone here. KG itself only has an internal admin UI.
@@ -189,7 +189,7 @@ def health_check(db=None) -> ApiResult:
 # ---- Member-facing reads ----
 
 def list_my_enrollments(*, external_member_id: str, db=None) -> ApiResult:
-    """All cohorts the member is invited to / enrolled in. The portal home
+    """All cycles the member is invited to / enrolled in. The portal home
     uses this to decide whether to show the KG card."""
     return _request(
         "GET", "/api/v1/enrollments",
@@ -198,13 +198,13 @@ def list_my_enrollments(*, external_member_id: str, db=None) -> ApiResult:
     )
 
 
-def get_cohort(cohort_id: str, *, db=None) -> ApiResult:
-    return _request("GET", f"/api/v1/cohorts/{cohort_id}", db=db)
+def get_cycle(cycle_id: str, *, db=None) -> ApiResult:
+    return _request("GET", f"/api/v1/cycles/{cycle_id}", db=db)
 
 
-def list_classes(cohort_id: str, *, db=None) -> ApiResult:
-    """Class schedule for a cohort (ordered by sequence)."""
-    return _request("GET", "/api/v1/classes", db=db, params={"cohort_id": cohort_id})
+def list_classes(cycle_id: str, *, db=None) -> ApiResult:
+    """Class schedule for a cycle (ordered by sequence)."""
+    return _request("GET", "/api/v1/classes", db=db, params={"cycle_id": cycle_id})
 
 
 def list_exams(*, course_id: str | None = None, exam_type: str | None = None, db=None) -> ApiResult:
@@ -258,9 +258,9 @@ def submit_attempt(*, attempt_id: str, answers: list, db=None) -> ApiResult:
 
 # ---- Attendance (facilitator surface) ----
 
-def list_enrollments_for_cohort(cohort_id: str, *, db=None) -> ApiResult:
+def list_enrollments_for_cycle(cycle_id: str, *, db=None) -> ApiResult:
     return _request(
-        "GET", "/api/v1/enrollments", db=db, params={"cohort_id": cohort_id},
+        "GET", "/api/v1/enrollments", db=db, params={"cycle_id": cycle_id},
     )
 
 
@@ -314,7 +314,7 @@ def record_onsite_mark(
     db=None,
 ) -> ApiResult:
     """Record a paper-exam mark. KG auto-computes pass/fail using the
-    cohort's pass mark + triggers completion evaluation."""
+    cycle's pass mark + triggers completion evaluation."""
     return _request(
         "POST", "/api/v1/exam-attempts/onsite",
         db=db,

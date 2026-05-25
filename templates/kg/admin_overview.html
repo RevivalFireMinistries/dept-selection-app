@@ -41,10 +41,10 @@
     </dl>
   </div>
 
-  <!-- Cohorts table (read-only) -->
+  <!-- Cycles table (read-only) -->
   <div class="mt-6 bg-white rounded-lg shadow-sm overflow-hidden">
     <div class="px-5 py-4 border-b border-gray-100">
-      <h2 class="text-sm font-semibold text-gray-900">Cohorts (most recent first)</h2>
+      <h2 class="text-sm font-semibold text-gray-900">Cycles (most recent first)</h2>
     </div>
     <table class="w-full text-sm">
       <thead class="bg-gray-50">
@@ -57,7 +57,7 @@
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
-        {% for c in cohorts %}
+        {% for c in cycles %}
         <tr>
           <td class="px-4 py-3 font-medium text-gray-900">{{ c.name }}</td>
           <td class="px-4 py-3"><span class="text-xs bg-gray-100 rounded px-2 py-0.5">{{ c.status }}</span></td>
@@ -67,7 +67,7 @@
         </tr>
         {% else %}
         <tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">
-          {% if not enabled %}KG integration is disabled.{% else %}No cohorts yet — create them in the KG admin.{% endif %}
+          {% if not enabled %}KG integration is disabled.{% else %}No cycles yet — create them in the KG admin.{% endif %}
         </td></tr>
         {% endfor %}
       </tbody>

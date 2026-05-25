@@ -2,7 +2,7 @@
 
 Three audiences:
 
-* **Members** (`/portal/kg/*`) — see their cohort, attend classes, take the
+* **Members** (`/portal/kg/*`) — see their cycle, attend classes, take the
   exam, download their certificate.
 * **Facilitators** (`/desk/kg/*`) — mark attendance live during class,
   enter onsite exam marks. Uses the existing desk session cookie.
@@ -109,12 +109,12 @@ async def portal_kg_home(request: Request, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# MEMBER — cohort detail (schedule + status)
+# MEMBER — cycle detail (schedule + status)
 # ---------------------------------------------------------------------------
 
-@router.get("/portal/kg/cohort/{cohort_id}", response_class=HTMLResponse)
-async def portal_kg_cohort(
-    cohort_id: str, request: Request, db: Session = Depends(get_db),
+@router.get("/portal/kg/cycle/{cycle_id}", response_class=HTMLResponse)
+async def portal_kg_cycle(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
 ):
     member, redirect = _require_member(request, db)
     if redirect:
@@ -126,11 +126,11 @@ async def portal_kg_cohort(
     if not external_id:
         return RedirectResponse(url="/portal/kg", status_code=302)
 
-    cohort_r = kg.get_cohort(cohort_id, db=db)
-    classes_r = kg.list_classes(cohort_id, db=db)
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    classes_r = kg.list_classes(cycle_id, db=db)
     enrol_r = kg.list_my_enrollments(external_member_id=external_id, db=db)
 
-    cohort = cohort_r.data if cohort_r.ok else None
+    cycle = cycle_r.data if cycle_r.ok else None
     classes = classes_r.data if classes_r.ok else []
     if isinstance(classes, dict):
         classes = classes.get("data") or []
@@ -138,20 +138,20 @@ async def portal_kg_cohort(
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
     my_enrollment = next(
-        (e for e in enrollments if e.get("cohort_id") == cohort_id), None,
+        (e for e in enrollments if e.get("cycle_id") == cycle_id), None,
     )
 
-    exam_id = (cohort or {}).get("exam_id")
+    exam_id = (cycle or {}).get("exam_id")
 
     return templates.TemplateResponse(
-        request, "kg/portal_cohort.html",
+        request, "kg/portal_cycle.html",
         {
             "member": member,
-            "cohort": cohort,
+            "cycle": cycle,
             "classes": classes,
             "enrollment": my_enrollment,
             "exam_id": exam_id,
-            "error": (None if cohort_r.ok else cohort_r.error),
+            "error": (None if cycle_r.ok else cycle_r.error),
         },
     )
 
@@ -341,7 +341,7 @@ async def portal_kg_certificate(
 
 
 # ---------------------------------------------------------------------------
-# FACILITATOR (Info Desk) — cohort list + attendance + onsite marks
+# FACILITATOR (Info Desk) — cycle list + attendance + onsite marks
 # ---------------------------------------------------------------------------
 
 def _require_desk(request: Request) -> Optional[RedirectResponse]:
@@ -358,23 +358,23 @@ async def desk_kg_home(request: Request, db: Session = Depends(get_db)):
     if not kg.is_enabled(db):
         return _kg_disabled_page(request, audience="facilitator")
 
-    # Facilitators see active cohorts for the whole assembly the desk key
+    # Facilitators see active cycles for the whole assembly the desk key
     # is scoped to. KG enforces tenant scope server-side.
     r = kg.health_check(db=db)   # sanity probe so the page can show "KG down"
-    cohorts_resp = kg._request("GET", "/api/v1/cohorts", db=db, params={"status": "ACTIVE"})
-    cohorts = cohorts_resp.data if cohorts_resp.ok else []
-    if isinstance(cohorts, dict):
-        cohorts = cohorts.get("data") or []
+    cycles_resp = kg._request("GET", "/api/v1/cycles", db=db, params={"status": "ACTIVE"})
+    cycles = cycles_resp.data if cycles_resp.ok else []
+    if isinstance(cycles, dict):
+        cycles = cycles.get("data") or []
 
     return templates.TemplateResponse(
         request, "kg/desk_home.html",
-        {"cohorts": cohorts, "kg_health_ok": r.ok, "error": cohorts_resp.error if not cohorts_resp.ok else None},
+        {"cycles": cycles, "kg_health_ok": r.ok, "error": cycles_resp.error if not cycles_resp.ok else None},
     )
 
 
-@router.get("/desk/kg/cohort/{cohort_id}/attendance", response_class=HTMLResponse)
+@router.get("/desk/kg/cycle/{cycle_id}/attendance", response_class=HTMLResponse)
 async def desk_kg_attendance_page(
-    cohort_id: str, request: Request, class_id: str = "",
+    cycle_id: str, request: Request, class_id: str = "",
     db: Session = Depends(get_db),
 ):
     """Live attendance roster for one class. ?class_id= pre-selects the
@@ -386,9 +386,9 @@ async def desk_kg_attendance_page(
     if not kg.is_enabled(db):
         return _kg_disabled_page(request, audience="facilitator")
 
-    cohort_r = kg.get_cohort(cohort_id, db=db)
-    classes_r = kg.list_classes(cohort_id, db=db)
-    enrol_r = kg.list_enrollments_for_cohort(cohort_id, db=db)
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    classes_r = kg.list_classes(cycle_id, db=db)
+    enrol_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
 
     classes = classes_r.data if classes_r.ok else []
     if isinstance(classes, dict):
@@ -406,18 +406,18 @@ async def desk_kg_attendance_page(
     return templates.TemplateResponse(
         request, "kg/desk_attendance.html",
         {
-            "cohort": cohort_r.data if cohort_r.ok else None,
+            "cycle": cycle_r.data if cycle_r.ok else None,
             "classes": classes,
             "selected_class": selected_class,
             "enrollments": enrollments,
-            "error": (cohort_r.error if not cohort_r.ok else None),
+            "error": (cycle_r.error if not cycle_r.ok else None),
         },
     )
 
 
-@router.post("/desk/kg/cohort/{cohort_id}/attendance")
+@router.post("/desk/kg/cycle/{cycle_id}/attendance")
 async def desk_kg_attendance_submit(
-    cohort_id: str, request: Request, db: Session = Depends(get_db),
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
 ):
     redirect = _require_desk(request)
     if redirect:
@@ -428,7 +428,7 @@ async def desk_kg_attendance_submit(
     form = await request.form()
     class_id = (form.get("class_id") or "").strip()
     if not class_id:
-        return RedirectResponse(url=f"/desk/kg/cohort/{cohort_id}/attendance", status_code=303)
+        return RedirectResponse(url=f"/desk/kg/cycle/{cycle_id}/attendance", status_code=303)
 
     # Each row: status-<enrollment_id> = PRESENT|LATE|ABSENT|EXCUSED
     entries = []
@@ -445,14 +445,14 @@ async def desk_kg_attendance_submit(
         kg.bulk_mark_attendance(class_session_id=class_id, entries=entries, db=db)
 
     return RedirectResponse(
-        url=f"/desk/kg/cohort/{cohort_id}/attendance?class_id={class_id}&saved=1",
+        url=f"/desk/kg/cycle/{cycle_id}/attendance?class_id={class_id}&saved=1",
         status_code=303,
     )
 
 
-@router.get("/desk/kg/cohort/{cohort_id}/onsite-exam", response_class=HTMLResponse)
+@router.get("/desk/kg/cycle/{cycle_id}/onsite-exam", response_class=HTMLResponse)
 async def desk_kg_onsite_exam_page(
-    cohort_id: str, request: Request, db: Session = Depends(get_db),
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
 ):
     redirect = _require_desk(request)
     if redirect:
@@ -460,28 +460,28 @@ async def desk_kg_onsite_exam_page(
     if not kg.is_enabled(db):
         return _kg_disabled_page(request, audience="facilitator")
 
-    cohort_r = kg.get_cohort(cohort_id, db=db)
-    enrol_r = kg.list_enrollments_for_cohort(cohort_id, db=db)
+    cycle_r = kg.get_cycle(cycle_id, db=db)
+    enrol_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
     enrollments = enrol_r.data if enrol_r.ok else []
     if isinstance(enrollments, dict):
         enrollments = enrollments.get("data") or []
-    cohort = cohort_r.data if cohort_r.ok else None
-    exam_id = (cohort or {}).get("exam_id")
+    cycle = cycle_r.data if cycle_r.ok else None
+    exam_id = (cycle or {}).get("exam_id")
 
     return templates.TemplateResponse(
         request, "kg/desk_onsite_exam.html",
         {
-            "cohort": cohort,
+            "cycle": cycle,
             "exam_id": exam_id,
             "enrollments": enrollments,
-            "error": cohort_r.error if not cohort_r.ok else None,
+            "error": cycle_r.error if not cycle_r.ok else None,
         },
     )
 
 
-@router.post("/desk/kg/cohort/{cohort_id}/onsite-exam")
+@router.post("/desk/kg/cycle/{cycle_id}/onsite-exam")
 async def desk_kg_onsite_exam_submit(
-    cohort_id: str, request: Request,
+    cycle_id: str, request: Request,
     exam_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
@@ -524,7 +524,7 @@ async def desk_kg_onsite_exam_submit(
             errors.append(eid)
 
     return RedirectResponse(
-        url=f"/desk/kg/cohort/{cohort_id}/onsite-exam?recorded={recorded}&errors={len(errors)}",
+        url=f"/desk/kg/cycle/{cycle_id}/onsite-exam?recorded={recorded}&errors={len(errors)}",
         status_code=303,
     )
 
@@ -543,15 +543,15 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
     enabled = kg.is_enabled(db)
     health = kg.health_check(db=db) if enabled else None
 
-    cohorts: list = []
+    cycles: list = []
     if enabled and configured:
-        r = kg._request("GET", "/api/v1/cohorts", db=db, params={"size": 50})
+        r = kg._request("GET", "/api/v1/cycles", db=db, params={"size": 50})
         if r.ok:
             data = r.data
             if isinstance(data, dict):
-                cohorts = data.get("data") or []
+                cycles = data.get("data") or []
             else:
-                cohorts = data or []
+                cycles = data or []
 
     return templates.TemplateResponse(
         request, "kg/admin_overview.html",
@@ -561,6 +561,6 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
             "enabled": enabled,
             "health_ok": (health.ok if health else None),
             "health_error": (health.error if health and not health.ok else None),
-            "cohorts": cohorts,
+            "cycles": cycles,
         },
     )
