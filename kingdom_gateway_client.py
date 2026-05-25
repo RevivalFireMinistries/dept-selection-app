@@ -346,6 +346,45 @@ def list_kg_milestones(*, db=None) -> ApiResult:
     return _request("GET", "/api/v1/milestones", db=db)
 
 
+def list_exam_attempts(
+    *,
+    assembly_id: str | None = None,
+    cycle_id: str | None = None,
+    external_member_id: str | None = None,
+    status: str | None = None,
+    mode: str | None = None,
+    page: int = 1,
+    size: int = 50,
+    db=None,
+) -> ApiResult:
+    """List exam attempts across cycles. Returns the paginated envelope
+    the KG endpoint produces — each row carries enrollment + member info
+    so the portal can render the dashboard results table directly."""
+    return _request(
+        "GET", "/api/v1/exam-attempts",
+        db=db,
+        params={
+            "assembly_id": assembly_id,
+            "cycle_id": cycle_id,
+            "external_member_id": external_member_id,
+            "status": status,
+            "mode": mode,
+            "page": page,
+            "size": size,
+        },
+    )
+
+
+def list_cycles(*, assembly_id: str | None = None, status: str | None = None, db=None) -> ApiResult:
+    """All cycles in the assembly (any status, any age) — used by the
+    dashboard filter dropdown."""
+    return _request(
+        "GET", "/api/v1/cycles",
+        db=db,
+        params={"assembly_id": assembly_id, "status": status, "size": 100},
+    )
+
+
 def bulk_invite(
     *, cycle_id: str, members: list[dict], db=None,
 ) -> ApiResult:

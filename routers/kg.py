@@ -1373,3 +1373,283 @@ async def admin_kg_cycle_invite_submit(
         ),
         status_code=303,
     )
+
+
+# ===========================================================================
+# DASHBOARD — the team's at-a-glance view of who's done what
+# ===========================================================================
+
+# Map central kingdom_gateway_status values to the dashboard's UI buckets.
+# Keeping it small and explicit means we can re-colour or re-label at one
+# spot rather than search every template for the right pill style.
+_KG_STATUS_BUCKETS = {
+    "COMPLETED":   ("done",      "Completed",       "emerald"),
+    "EXEMPTED":    ("done",      "Exempted",        "emerald"),
+    "INVITED":     ("active",    "Invited",         "amber"),
+    "ENROLLED":    ("active",    "Enrolled",        "blue"),
+    "EXAM_READY":  ("active",    "Exam ready",      "blue"),
+    "FAILED":      ("failed",    "Failed",          "red"),
+    "WITHDRAWN":   ("notyet",    "Withdrew",        "gray"),
+    "NOT_STARTED": ("notyet",    "Not started",     "gray"),
+}
+
+
+def _bucket_for(status: str | None) -> tuple[str, str, str]:
+    return _KG_STATUS_BUCKETS.get(status or "NOT_STARTED", ("notyet", "Not started", "gray"))
+
+
+@router.get("/admin/kg/dashboard", response_class=HTMLResponse)
+async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
+    """One-page command-centre for the team. Three views (people /
+    results / cycles) selected via ?tab=. People view supports
+    ?status=<bucket> and ?q=<search>, both passed to rfm-database so
+    server-side filtering scales as the church grows.
+
+    Everything renders server-side — no client framework needed, fast
+    even on a slow phone connection."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return _flash_redirect("/admin/kg", asm_err or "No assembly resolved.")
+
+    assembly_name = _lookup_assembly_name(asm_id, db)
+
+    tab = (request.query_params.get("tab") or "people").lower()
+    if tab not in ("people", "results", "cycles"):
+        tab = "people"
+
+    # Pull stats. We base the buckets on the central member directory's
+    # kingdom_gateway_status — that's the canonical "what state is this
+    # member in" field, and it's set by both KG completion + legacy
+    # marking. The portal-side dashboard therefore stays consistent
+    # whether the completion came through KG or pre-dates it.
+    import rfm_api_client as rfm
+
+    # Stat-card totals — one paginated fetch per bucket to get the
+    # total count from the meta envelope, no data needed.
+    stats = {"total": 0, "done": 0, "active": 0, "notyet": 0, "failed": 0}
+    counts_query = [
+        ("total",  None),
+        ("done",   ["COMPLETED", "EXEMPTED"]),
+        ("active", ["INVITED", "ENROLLED", "EXAM_READY"]),
+        ("notyet", ["NOT_STARTED", "WITHDRAWN"]),
+        ("failed", ["FAILED"]),
+    ]
+    for key, statuses in counts_query:
+        if statuses is None:
+            r = rfm.search_members(assembly_id=asm_id, page=1, size=1, db=db)
+            if r.ok and isinstance(r.data, dict):
+                stats[key] = r.data.get("meta", {}).get("total", 0)
+            continue
+        bucket_total = 0
+        for s in statuses:
+            r = rfm._request(
+                "GET", "/api/v1/members", db=db,
+                params={
+                    "assembly_id": asm_id,
+                    "kingdom_gateway_status": s,
+                    "page": 1, "size": 1,
+                },
+            )
+            if r.ok and isinstance(r.data, dict):
+                bucket_total += r.data.get("meta", {}).get("total", 0)
+        stats[key] = bucket_total
+
+    # Tab-specific data
+    people: list[dict] = []
+    people_meta: dict = {}
+    people_status_filter = ""
+    search = ""
+    page = 1
+    results: list[dict] = []
+    results_meta: dict = {}
+    selected_cycle_id = ""
+    cycles_for_filter: list[dict] = []
+
+    if tab == "people":
+        search = (request.query_params.get("q") or "").strip()
+        people_status_filter = (request.query_params.get("status") or "").strip()
+        try:
+            page = max(1, int(request.query_params.get("page") or 1))
+        except (TypeError, ValueError):
+            page = 1
+
+        # Translate the dashboard bucket → list of central statuses.
+        bucket_to_statuses = {
+            "done": ["COMPLETED", "EXEMPTED"],
+            "active": ["INVITED", "ENROLLED", "EXAM_READY"],
+            "notyet": ["NOT_STARTED", "WITHDRAWN"],
+            "failed": ["FAILED"],
+        }
+        # rfm-database's /members endpoint accepts a single status filter
+        # at a time. When the user picks a bucket that maps to multiple
+        # central statuses we fall back to listing all members and
+        # filtering client-side. For "All" we just list paginated.
+        statuses = bucket_to_statuses.get(people_status_filter)
+        if statuses and len(statuses) == 1:
+            r = rfm._request(
+                "GET", "/api/v1/members", db=db,
+                params={
+                    "assembly_id": asm_id,
+                    "kingdom_gateway_status": statuses[0],
+                    "search": search or None,
+                    "page": page, "size": 25,
+                },
+            )
+        else:
+            r = rfm.search_members(
+                search=search or None, assembly_id=asm_id,
+                page=page, size=25, db=db,
+            )
+        if r.ok:
+            if isinstance(r.data, list):
+                people = r.data
+            elif isinstance(r.data, dict):
+                people = r.data.get("data") or []
+                people_meta = r.data.get("meta") or {}
+
+        # Multi-status buckets: filter client-side. Less efficient but
+        # honest — the totals on the stat cards are still right because
+        # we used the per-status counts above.
+        if statuses and len(statuses) > 1:
+            people = [m for m in people if (m.get("kingdom_gateway_status") or "NOT_STARTED") in statuses]
+
+        # Decorate each row with the bucket + label + colour the template
+        # uses for the pill, so the template stays readable.
+        for m in people:
+            bucket, label, colour = _bucket_for(m.get("kingdom_gateway_status"))
+            m["_bucket"] = bucket
+            m["_status_label"] = label
+            m["_status_colour"] = colour
+
+    elif tab == "results":
+        selected_cycle_id = (request.query_params.get("cycle_id") or "").strip()
+        try:
+            page = max(1, int(request.query_params.get("page") or 1))
+        except (TypeError, ValueError):
+            page = 1
+        # Cycle filter dropdown options
+        cycles_r = kg.list_cycles(assembly_id=asm_id, db=db)
+        if cycles_r.ok:
+            data = cycles_r.data
+            if isinstance(data, list):
+                cycles_for_filter = data
+            elif isinstance(data, dict):
+                cycles_for_filter = data.get("data") or []
+        # Pull attempts
+        attempts_r = kg.list_exam_attempts(
+            assembly_id=asm_id,
+            cycle_id=selected_cycle_id or None,
+            page=page, size=50, db=db,
+        )
+        if attempts_r.ok and isinstance(attempts_r.data, list):
+            results = attempts_r.data
+        elif attempts_r.ok and isinstance(attempts_r.data, dict):
+            # Some envelopes come pre-unwrapped to data, others as full envelope.
+            results = attempts_r.data.get("data") or []
+            results_meta = attempts_r.data.get("meta") or {}
+
+        # Decorate results with member names + cycle names for display —
+        # one lookup each, cached in dicts so we don't hammer rfm-db.
+        member_names: dict[str, str] = {}
+        cycle_names: dict[str, str] = {c["id"]: c.get("name") for c in cycles_for_filter}
+        for row in results:
+            ext_id = row.get("external_member_id")
+            if ext_id and ext_id not in member_names:
+                mr = rfm.get_member(ext_id, db=db)
+                if mr.ok and isinstance(mr.data, dict):
+                    member_names[ext_id] = f"{mr.data.get('first_name', '')} {mr.data.get('last_name', '')}".strip()
+                else:
+                    member_names[ext_id] = ext_id[:8] + "…"
+            row["_member_name"] = member_names.get(ext_id, "")
+            row["_cycle_name"] = cycle_names.get(row.get("cycle_id"), "")
+
+    return templates.TemplateResponse(
+        request, "kg/admin_dashboard.html",
+        {
+            "tab": tab,
+            "asm_id": asm_id,
+            "assembly_name": assembly_name,
+            "stats": stats,
+            "people": people,
+            "people_meta": people_meta,
+            "people_status_filter": people_status_filter,
+            "search": search,
+            "page": page,
+            "results": results,
+            "results_meta": results_meta,
+            "selected_cycle_id": selected_cycle_id,
+            "cycles_for_filter": cycles_for_filter,
+        },
+    )
+
+
+@router.get("/admin/kg/members/{external_member_id}", response_class=HTMLResponse)
+async def admin_kg_member_detail(
+    external_member_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """One member's KG history: enrollments, attempts, milestones,
+    completion status. Reached from the dashboard people list."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return _flash_redirect("/admin/kg", asm_err or "No assembly resolved.")
+
+    import rfm_api_client as rfm
+    mr = rfm.get_member(external_member_id, db=db)
+    central = mr.data if mr.ok and isinstance(mr.data, dict) else None
+
+    # Tenant guard — only show members in the admin's assembly.
+    if central and central.get("assembly_id") != asm_id:
+        return _flash_redirect("/admin/kg/dashboard", "Not in your assembly.")
+
+    enrollments: list[dict] = []
+    er = kg._request(
+        "GET", "/api/v1/enrollments", db=db,
+        params={"external_member_id": external_member_id},
+    )
+    if er.ok:
+        enrollments = (
+            er.data if isinstance(er.data, list)
+            else (er.data or {}).get("data") or []
+        )
+
+    # All exam attempts for this member, across all cycles.
+    attempts: list[dict] = []
+    ar = kg.list_exam_attempts(
+        assembly_id=asm_id, external_member_id=external_member_id,
+        page=1, size=100, db=db,
+    )
+    if ar.ok:
+        attempts = (
+            ar.data if isinstance(ar.data, list)
+            else (ar.data or {}).get("data") or []
+        )
+
+    # Cycle name lookup for the attempts table.
+    cycle_names: dict[str, str] = {}
+    for e in enrollments:
+        cid = e.get("cycle_id")
+        if cid:
+            cr = kg.get_cycle(cid, db=db)
+            if cr.ok and isinstance(cr.data, dict):
+                cycle_names[cid] = cr.data.get("name", "")
+    for a in attempts:
+        a["_cycle_name"] = cycle_names.get(a.get("cycle_id"), "")
+
+    return templates.TemplateResponse(
+        request, "kg/admin_member_detail.html",
+        {
+            "central": central,
+            "external_member_id": external_member_id,
+            "enrollments": enrollments,
+            "attempts": attempts,
+            "status_bucket": _bucket_for(central.get("kingdom_gateway_status") if central else None),
+        },
+    )
