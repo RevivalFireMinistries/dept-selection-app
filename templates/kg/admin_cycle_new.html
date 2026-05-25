@@ -13,6 +13,18 @@
     <div class="mt-4 bg-red-50 border border-red-200 text-red-800 rounded p-3 text-sm">{{ error }}</div>
   {% endif %}
 
+  {% if assembly_error %}
+    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded p-3 text-sm">
+      {{ assembly_error }}
+    </div>
+  {% elif assembly_id %}
+    <div class="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-50 border border-violet-200 text-violet-800 text-xs">
+      <span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+      Creating cycle for
+      <strong>{{ assembly_name or assembly_id[:8] + "…" }}</strong>
+    </div>
+  {% endif %}
+
   <form method="post" action="/admin/kg/cycles/new" class="mt-6 space-y-6">
     <!-- Basics -->
     <section class="bg-white border border-gray-200 rounded-lg p-5 space-y-4">

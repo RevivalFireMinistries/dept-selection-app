@@ -560,9 +560,17 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
     enabled = kg.is_enabled(db)
     health = kg.health_check(db=db) if enabled else None
 
+    # Portal actions run in the admin's own assembly context — never
+    # global. Surface a clear banner if the admin isn't linked to one yet.
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    assembly_name = _lookup_assembly_name(asm_id, db) if asm_id else None
+
     cycles: list = []
-    if enabled and configured:
-        r = kg._request("GET", "/api/v1/cycles", db=db, params={"size": 50})
+    if enabled and configured and asm_id:
+        r = kg._request(
+            "GET", "/api/v1/cycles", db=db,
+            params={"assembly_id": asm_id, "size": 50},
+        )
         if r.ok:
             data = r.data
             if isinstance(data, dict):
@@ -579,6 +587,9 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
             "health_ok": (health.ok if health else None),
             "health_error": (health.error if health and not health.ok else None),
             "cycles": cycles,
+            "assembly_id": asm_id,
+            "assembly_name": assembly_name,
+            "assembly_error": asm_err,
         },
     )
 
@@ -700,6 +711,67 @@ def _require_kg_manage(request: Request, db: Session) -> Optional[RedirectRespon
     return None
 
 
+def _portal_session_member(request: Request, db: Session) -> Optional[Member]:
+    """Resolve the Member behind the current portal session — works for
+    both portal-admin (admin_session + signed identity cookie pointing at
+    a Member) and kg_manager member sessions."""
+    if is_authenticated(request):
+        from routers.pages import get_admin_identity
+        identity = get_admin_identity(request)
+        if identity and identity.get("member_id"):
+            try:
+                mid = int(identity["member_id"])
+            except (TypeError, ValueError):
+                return None
+            return db.query(Member).filter(Member.id == mid).first()
+        return None
+    return get_current_member(request, db)
+
+
+def _lookup_assembly_name(assembly_id: Optional[str], db: Session) -> Optional[str]:
+    """Resolve an assembly UUID to its human name via rfm-database. Best
+    effort — returns None if the central API is disabled or unreachable.
+    We use this purely for display so the admin knows which church their
+    actions are landing on; failure is non-fatal."""
+    if not assembly_id:
+        return None
+    try:
+        import rfm_api_client as rfm
+        r = rfm.get_assembly(assembly_id, db=db)
+        if r.ok and isinstance(r.data, dict):
+            return r.data.get("name")
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_portal_assembly(
+    request: Request, db: Session,
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(assembly_id, error)`` for the current portal session.
+
+    Every portal action against KG runs in the context of the logged-in
+    user's assembly — never global. Only KG SUPERUSER (who logs into KG
+    directly, not through this portal) has cross-assembly powers.
+
+    The assembly id comes from ``Member.external_assembly_id`` — the
+    rfm-database UUID. If that's not set the user can't act yet, and we
+    return a clear error rather than silently falling through to a
+    global / default scope.
+    """
+    member = _portal_session_member(request, db)
+    if member is None:
+        return None, "Could not resolve your portal identity."
+    asm = (member.external_assembly_id or "").strip()
+    if not asm:
+        return None, (
+            "Your account isn't linked to an assembly in the central member "
+            "directory yet — ask the church office to link it before "
+            "managing Kingdom Gateway cycles."
+        )
+    return asm, None
+
+
 # ---------------------------------------------------------------------------
 # ADMIN — team management (portal admin ONLY — they decide who's KG team)
 # ---------------------------------------------------------------------------
@@ -802,6 +874,12 @@ async def admin_kg_cycle_new(
     if not kg.is_enabled(db):
         return _kg_disabled_page(request)
 
+    # Resolve which assembly this admin is acting in. If they're not
+    # linked to one yet we surface a friendly error instead of letting
+    # them fill out a form that will fail at submit time.
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    assembly_name = _lookup_assembly_name(asm_id, db) if asm_id else None
+
     # Pull the catalog from KG: courses + modules + milestones.
     courses_r = kg.list_courses(db=db)
     courses = (
@@ -831,6 +909,9 @@ async def admin_kg_cycle_new(
             "default_course": default_course,
             "modules": modules,
             "milestones": milestones,
+            "assembly_id": asm_id,
+            "assembly_name": assembly_name,
+            "assembly_error": asm_err,
             "error": request.session.pop("flash_cycle_error", None) if hasattr(request, "session") else None,
         },
     )
@@ -863,8 +944,18 @@ async def admin_kg_cycle_create(
                 "is_mandatory": bool(form.get(f"mandatory_{ms_id}")),
             })
 
+    # Force the assembly from the portal session — portal callers
+    # never set this themselves. Cross-assembly creation is a KG
+    # SUPERUSER-only operation done from KG admin directly.
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        if hasattr(request, "session"):
+            request.session["flash_cycle_error"] = asm_err
+        return RedirectResponse(url="/admin/kg/cycles/new", status_code=303)
+
     payload = {
         "course_id": (form.get("course_id") or "").strip(),
+        "assembly_id": asm_id,
         "name": (form.get("name") or "").strip(),
         "description": (form.get("description") or None),
         "start_date": (form.get("start_date") or "").strip(),
@@ -879,10 +970,6 @@ async def admin_kg_cycle_create(
         "max_exam_attempts": int(form.get("max_exam_attempts") or 0),
         "exam_time_limit_minutes": int(form.get("exam_time_limit_minutes") or 50),
     }
-    # assembly_id: if portal admin gave one, pass it through. Otherwise the
-    # KG service key's pinned assembly (or KG_ASSEMBLY_ID env) is used.
-    if form.get("assembly_id"):
-        payload["assembly_id"] = form.get("assembly_id")
 
     r = kg.plan_cycle(payload=payload, db=db)
     if not r.ok:
@@ -906,12 +993,21 @@ async def admin_kg_cycle_detail(
     if not kg.is_enabled(db):
         return _kg_disabled_page(request)
 
+    asm_id, _ = _resolve_portal_assembly(request, db)
+
     cycle_r = kg.get_cycle(cycle_id, db=db)
+    cycle = cycle_r.data if cycle_r.ok else None
+
+    # Refuse cross-assembly access — quietly redirect back to /admin/kg
+    # so URL-poking can't reveal whether a cycle in another assembly
+    # exists. KG SUPERUSER (who can see across) uses KG admin directly.
+    if cycle and asm_id and isinstance(cycle, dict) and cycle.get("assembly_id") != asm_id:
+        return RedirectResponse(url="/admin/kg", status_code=303)
+
     classes_r = kg.list_classes(cycle_id, db=db)
     cm_r = kg.list_cycle_milestones(cycle_id, db=db)
     enr_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
 
-    cycle = cycle_r.data if cycle_r.ok else None
     classes = classes_r.data if classes_r.ok else []
     if isinstance(classes, dict):
         classes = classes.get("data") or []
