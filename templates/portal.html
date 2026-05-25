@@ -58,13 +58,11 @@
                     </div>
                 </section>
 
-                <!-- Kingdom Gateway: ask to join (member hasn't completed + isn't already invited / enrolled) -->
-                <section x-show="(data.kg_pending_invites || []).length === 0
-                                 && data.kingdom_gateway_status !== 'COMPLETED'
-                                 && data.kingdom_gateway_status !== 'EXEMPTED'
-                                 && data.kingdom_gateway_status !== 'ENROLLED'
-                                 && data.kingdom_gateway_status !== 'EXAM_READY'
-                                 && data.kingdom_gateway_status !== 'INVITED'"
+                <!-- Kingdom Gateway: ask to join (only when the member has no
+                     active / accepted / completed enrollment — derived
+                     server-side from KG directly so it's never stale against
+                     the central rfm-database status). -->
+                <section x-show="data.kg_can_request_to_join"
                          x-cloak
                          class="bg-white rounded-2xl shadow-sm p-5"
                          style="border: 1px solid var(--color-border);">

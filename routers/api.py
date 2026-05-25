@@ -9741,35 +9741,66 @@ def _require_logged_in_member(request: Request, db: Session) -> Member:
     return member
 
 
-def _portal_kg_pending_invites(member: Member, db: Session) -> list[dict]:
-    """Best-effort fetch of this member's KG enrollments that are still
-    INVITED (i.e. awaiting an accept). Returns [] when KG is disabled,
-    unreachable, or the member isn't linked to the central directory.
-    Drives the "You're invited" card on the portal home — members
-    without email get an in-portal accept this way."""
+def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
+    """Single round-trip to KG that drives every member-side KG card on
+    the portal home:
+
+    * ``pending_invites`` — INVITED rows, used by the "You're invited"
+      banner so members without email can accept in-portal.
+    * ``can_request_to_join`` — True only when the member has no
+      enrollment that's already INVITED / ENROLLED / EXAM_READY /
+      FAILED / COMPLETED / EXEMPTED. WITHDRAWN doesn't block — a
+      member who pulled out should be able to ask again. We trust KG
+      directly here rather than the central rfm-database status,
+      because the central status is eventually consistent and
+      momentarily-stale UI was confusingly showing the "Request to
+      join" card alongside an active enrollment.
+
+    Falls back to ``{pending_invites: [], can_request_to_join: True}``
+    when KG is disabled / unreachable / the member isn't linked —
+    same shape callers already handle.
+    """
+    out = {"pending_invites": [], "can_request_to_join": True}
     if not member.external_member_id:
-        return []
+        return out
     try:
         import kingdom_gateway_client as _kg
         if not _kg.is_enabled(db):
-            return []
+            return out
         r = _kg.list_my_enrollments(
             external_member_id=member.external_member_id, db=db,
         )
         if not r.ok:
-            return []
+            return out
         rows = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
-        return [
-            {
-                "enrollment_id": e.get("id"),
-                "cycle_id": e.get("cycle_id"),
-                "status": e.get("status"),
-            }
-            for e in rows
-            if e.get("status") == "INVITED"
-        ]
+
+        blocking = {
+            "INVITED", "ENROLLED", "EXAM_READY",
+            "FAILED", "COMPLETED", "EXEMPTED",
+        }
+        for e in rows:
+            status = e.get("status")
+            if status == "INVITED":
+                out["pending_invites"].append({
+                    "enrollment_id": e.get("id"),
+                    "cycle_id": e.get("cycle_id"),
+                    "status": status,
+                })
+            if status in blocking:
+                out["can_request_to_join"] = False
     except Exception:
-        return []
+        # Never break the portal home over a KG hiccup — pretend the
+        # member can request; the worst case is a duplicate request
+        # that the team can reject.
+        pass
+    return out
+
+
+def _portal_kg_pending_invites(member: Member, db: Session) -> list[dict]:
+    """Back-compat shim — older call sites still expect just the list.
+    Prefer ``_portal_kg_enrollment_facts`` so we don't round-trip KG
+    twice on the same request."""
+    return _portal_kg_enrollment_facts(member, db)["pending_invites"]
 
 
 def _portal_central_lookup(member: Member, db: Session) -> dict:
@@ -9905,6 +9936,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
     ]
 
     central = _portal_central_lookup(member, db)
+    kg_facts = _portal_kg_enrollment_facts(member, db)
 
     open_change_requests = (
         db.query(MemberChangeRequest)
@@ -9941,7 +9973,8 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
         "assembly_name": central.get("assembly_name") or "",
         "kingdom_gateway_status": central.get("kingdom_gateway_status"),
         "kingdom_gateway_completed_at": central.get("kingdom_gateway_completed_at"),
-        "kg_pending_invites": _portal_kg_pending_invites(member, db),
+        "kg_pending_invites": kg_facts["pending_invites"],
+        "kg_can_request_to_join": kg_facts["can_request_to_join"],
         "leadership": {
             "is_hc_leader": is_hc_leader,
             "led_home_churches": led_home_churches,
