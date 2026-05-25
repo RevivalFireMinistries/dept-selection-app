@@ -16,7 +16,7 @@ working even if KG is down.
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import date as _date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -728,6 +728,76 @@ def _portal_session_member(request: Request, db: Session) -> Optional[Member]:
     return get_current_member(request, db)
 
 
+# ---------------------------------------------------------------------------
+# Flash messages
+#
+# The portal doesn't run SessionMiddleware, so we can't lean on
+# `request.session`. A tiny HMAC-signed cookie carries one-shot messages
+# between POST handlers (which redirect) and the next GET. Same signing
+# secret as the existing portal sessions in routers/pages.py.
+# ---------------------------------------------------------------------------
+
+_FLASH_COOKIE = "kg_flash"
+_FLASH_MAX_AGE = 60  # the next GET should consume it within seconds
+
+
+def _flash_sign(value: str) -> str:
+    import hmac, hashlib, os
+    secret = os.environ.get("SESSION_SECRET", "rfm-stellenbosch-portal-2026")
+    sig = hmac.new(secret.encode(), value.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{value}.{sig}"
+
+
+def _flash_verify(token: Optional[str]) -> Optional[str]:
+    import hmac, hashlib, os
+    if not token:
+        return None
+    try:
+        value, sig = token.rsplit(".", 1)
+    except ValueError:
+        return None
+    secret = os.environ.get("SESSION_SECRET", "rfm-stellenbosch-portal-2026")
+    expected = hmac.new(secret.encode(), value.encode(), hashlib.sha256).hexdigest()[:16]
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return value
+
+
+def _set_flash(response, message: str) -> None:
+    """Stash a one-shot message on the response cookie."""
+    import urllib.parse
+    encoded = urllib.parse.quote(message)[:500]  # cap to keep cookies small
+    response.set_cookie(
+        key=_FLASH_COOKIE, value=_flash_sign(encoded),
+        max_age=_FLASH_MAX_AGE, httponly=True, samesite="lax",
+    )
+
+
+def _consume_flash(request: Request) -> tuple[Optional[str], bool]:
+    """Return (message, was_present). Caller is responsible for clearing
+    the cookie on the response (helpers below)."""
+    import urllib.parse
+    raw = _flash_verify(request.cookies.get(_FLASH_COOKIE))
+    if not raw:
+        return None, False
+    try:
+        return urllib.parse.unquote(raw), True
+    except Exception:
+        return None, True  # was present but garbled — still clear it
+
+
+def _clear_flash(response) -> None:
+    response.delete_cookie(_FLASH_COOKIE)
+
+
+def _flash_redirect(url: str, message: Optional[str] = None) -> RedirectResponse:
+    """Build a redirect response with a flash cookie attached."""
+    resp = RedirectResponse(url=url, status_code=303)
+    if message:
+        _set_flash(resp, message)
+    return resp
+
+
 def _lookup_assembly_name(assembly_id: Optional[str], db: Session) -> Optional[str]:
     """Resolve an assembly UUID to its human name via rfm-database. Best
     effort — returns None if the central API is disabled or unreachable.
@@ -902,7 +972,8 @@ async def admin_kg_cycle_new(
         else (ms_r.data or {}).get("data") or []
     ) if ms_r.ok else []
 
-    return templates.TemplateResponse(
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
         request, "kg/admin_cycle_new.html",
         {
             "courses": courses,
@@ -912,9 +983,12 @@ async def admin_kg_cycle_new(
             "assembly_id": asm_id,
             "assembly_name": assembly_name,
             "assembly_error": asm_err,
-            "error": request.session.pop("flash_cycle_error", None) if hasattr(request, "session") else None,
+            "error": flash,
         },
     )
+    if had_flash:
+        _clear_flash(response)
+    return response
 
 
 @router.post("/admin/kg/cycles/new")
@@ -949,9 +1023,7 @@ async def admin_kg_cycle_create(
     # SUPERUSER-only operation done from KG admin directly.
     asm_id, asm_err = _resolve_portal_assembly(request, db)
     if not asm_id:
-        if hasattr(request, "session"):
-            request.session["flash_cycle_error"] = asm_err
-        return RedirectResponse(url="/admin/kg/cycles/new", status_code=303)
+        return _flash_redirect("/admin/kg/cycles/new", asm_err)
 
     payload = {
         "course_id": (form.get("course_id") or "").strip(),
@@ -973,9 +1045,10 @@ async def admin_kg_cycle_create(
 
     r = kg.plan_cycle(payload=payload, db=db)
     if not r.ok:
-        if hasattr(request, "session"):
-            request.session["flash_cycle_error"] = r.error or "Could not create cycle."
-        return RedirectResponse(url="/admin/kg/cycles/new", status_code=303)
+        return _flash_redirect(
+            "/admin/kg/cycles/new",
+            r.error or "Could not create cycle.",
+        )
 
     cycle_id = (r.data or {}).get("id") if isinstance(r.data, dict) else None
     if cycle_id:
@@ -1027,6 +1100,134 @@ async def admin_kg_cycle_detail(
             "enrollments": enrollments,
             "error": cycle_r.error if not cycle_r.ok else None,
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — legacy completions (mark members who finished KG before this system)
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/kg/legacy", response_class=HTMLResponse)
+async def admin_kg_legacy_page(request: Request, db: Session = Depends(get_db)):
+    """Searchable picker for marking members who finished Kingdom Gateway
+    before this system existed. Writes `kingdom_gateway_status=COMPLETED`
+    + the completion date back to rfm-database — they then carry a badge
+    everywhere their profile renders."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return _flash_redirect("/admin/kg", asm_err or "No assembly resolved.")
+
+    search = (request.query_params.get("q") or "").strip()
+    try:
+        page = max(1, int(request.query_params.get("page") or 1))
+    except (TypeError, ValueError):
+        page = 1
+
+    import rfm_api_client as rfm
+    r = rfm.search_members(
+        search=search or None, assembly_id=asm_id,
+        page=page, size=25, db=db,
+    )
+    members: list[dict] = []
+    meta: dict = {}
+    if r.ok:
+        if isinstance(r.data, list):
+            members = r.data
+        elif isinstance(r.data, dict):
+            members = r.data.get("data") or []
+            meta = r.data.get("meta") or {}
+
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
+        request, "kg/admin_legacy.html",
+        {
+            "members": members,
+            "meta": meta,
+            "search": search,
+            "page": page,
+            "flash": flash,
+            "rfm_error": r.error if not r.ok else None,
+            "today": _date.today().isoformat(),
+        },
+    )
+    if had_flash:
+        _clear_flash(response)
+    return response
+
+
+@router.post("/admin/kg/legacy/mark")
+async def admin_kg_legacy_mark(request: Request, db: Session = Depends(get_db)):
+    """Mark one member as having completed Kingdom Gateway pre-system.
+    Form fields: external_member_id, completed_at (YYYY-MM-DD, optional —
+    defaults to today)."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return _flash_redirect("/admin/kg", asm_err or "No assembly resolved.")
+
+    form = await request.form()
+    member_id = (form.get("external_member_id") or "").strip()
+    if not member_id:
+        return _flash_redirect("/admin/kg/legacy", "Missing member id.")
+
+    completed_at = (form.get("completed_at") or "").strip()
+    if not completed_at:
+        completed_at = _date.today().isoformat()
+
+    import rfm_api_client as rfm
+    payload = {
+        "kingdom_gateway_status": "COMPLETED",
+        "kingdom_gateway_completed_at": completed_at,
+    }
+    r = rfm.update_member(member_id, payload, db=db)
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/legacy?q={form.get('q') or ''}",
+            r.error or "Could not update member.",
+        )
+
+    return _flash_redirect(
+        f"/admin/kg/legacy?q={form.get('q') or ''}",
+        f"Marked complete (effective {completed_at}).",
+    )
+
+
+@router.post("/admin/kg/legacy/clear")
+async def admin_kg_legacy_clear(request: Request, db: Session = Depends(get_db)):
+    """Undo a legacy completion (admin recorded by mistake)."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    form = await request.form()
+    member_id = (form.get("external_member_id") or "").strip()
+    if not member_id:
+        return _flash_redirect("/admin/kg/legacy", "Missing member id.")
+
+    import rfm_api_client as rfm
+    r = rfm.update_member(
+        member_id,
+        {
+            "kingdom_gateway_status": "NOT_STARTED",
+            "kingdom_gateway_completed_at": None,
+        },
+        db=db,
+    )
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/legacy?q={form.get('q') or ''}",
+            r.error or "Could not revert.",
+        )
+    return _flash_redirect(
+        f"/admin/kg/legacy?q={form.get('q') or ''}",
+        "Reverted.",
     )
 
 

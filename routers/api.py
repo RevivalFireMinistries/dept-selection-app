@@ -9744,7 +9744,17 @@ def _require_logged_in_member(request: Request, db: Session) -> Member:
 def _portal_central_lookup(member: Member, db: Session) -> dict:
     """Best-effort fetch of ministries + home church + assembly from the central
     API. Returns {} on any failure — never raises so the portal always loads."""
-    out: dict = {"ministries": [], "home_church": None, "central_synced": False, "assembly_name": None}
+    out: dict = {
+        "ministries": [], "home_church": None,
+        "central_synced": False, "assembly_name": None,
+        # Kingdom Gateway badge — surfaced on portal home + profile +
+        # admin member profile so anyone reviewing a member's record can
+        # see at a glance whether they've completed the new-members
+        # course (either through this system or marked as a legacy
+        # completion).
+        "kingdom_gateway_status": None,
+        "kingdom_gateway_completed_at": None,
+    }
     if not member.external_member_id:
         return out
     if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
@@ -9755,6 +9765,8 @@ def _portal_central_lookup(member: Member, db: Session) -> dict:
             return out
         api_member = r.data
         out["central_synced"] = True
+        out["kingdom_gateway_status"] = api_member.get("kingdom_gateway_status")
+        out["kingdom_gateway_completed_at"] = api_member.get("kingdom_gateway_completed_at")
         # Resolve assembly name. The central member API carries assembly_id
         # (a UUID) but no assembly_name, so we look it up against list_assemblies.
         # We match by the member's OWN assembly_id rather than just taking the
@@ -9879,6 +9891,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "leadership_roles": leadership_roles,
             "external_synced": bool(member.external_member_id),
             "email_verified": bool(getattr(member, "email_verified_at", None)),
+            "kg_manager": bool(getattr(member, "kg_manager", False)),
             # The central rfm-database UUID. The template uses this to
             # tell "your pledge" apart from "spouse's pledge" on the
             # family-pledges card and the pay modal — previously not
@@ -9894,6 +9907,8 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
         "home_church": central.get("home_church"),
         "central_synced": central.get("central_synced", False),
         "assembly_name": central.get("assembly_name") or "",
+        "kingdom_gateway_status": central.get("kingdom_gateway_status"),
+        "kingdom_gateway_completed_at": central.get("kingdom_gateway_completed_at"),
         "leadership": {
             "is_hc_leader": is_hc_leader,
             "led_home_churches": led_home_churches,

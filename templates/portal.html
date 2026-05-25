@@ -848,6 +848,19 @@
                 <span class="text-gray-300">›</span>
             </a>
 
+            <!-- Kingdom Gateway — manage (shown only to KG team members) -->
+            <a x-show="data?.member?.kg_manager"
+               x-cloak
+               href="/admin/kg"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-violet-100 text-violet-700 flex items-center justify-center text-sm">⚙️</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Manage Kingdom Gateway</div>
+                    <div class="text-[11px] text-gray-500">Create cycles, mark attendance, send invites</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+
             <!-- My profile -->
             <a href="/portal/profile" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-stone-100 text-stone-700 flex items-center justify-center text-sm">👤</div>

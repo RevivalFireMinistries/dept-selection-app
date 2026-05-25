@@ -30,6 +30,10 @@
                     <template x-for="r in (data?.leadership_roles || [])" :key="r">
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full" style="background-color: rgba(245, 165, 36, 0.12); color: var(--color-ember);" x-text="r"></span>
                     </template>
+                    <span x-show="data?.kingdom_gateway_status === 'COMPLETED'"
+                          class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded-full bg-violet-100 text-violet-800">
+                        🎓 Kingdom Gateway
+                    </span>
                 </div>
             </div>
         </section>

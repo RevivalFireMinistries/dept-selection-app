@@ -1,0 +1,109 @@
+{% extends "admin/base.html" %}
+{% block title %}Legacy completions · Kingdom Gateway{% endblock %}
+{% block admin_content %}
+<div class="px-4 sm:px-6 lg:px-8 py-6">
+  <a href="/admin/kg" class="text-xs text-gray-500 hover:underline">← Kingdom Gateway</a>
+  <h1 class="mt-2 text-2xl font-bold text-gray-900">Legacy completions</h1>
+  <p class="text-sm text-gray-500 mt-1">
+    Mark members who finished Kingdom Gateway <strong>before</strong> this system was set up.
+    Their profile will show a Kingdom Gateway badge everywhere, and they'll be excluded
+    from new-member follow-ups that target uncompleted members.
+  </p>
+
+  {% if flash %}
+    <div class="mt-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">{{ flash }}</div>
+  {% endif %}
+  {% if rfm_error %}
+    <div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+      Couldn't reach the central member directory ({{ rfm_error }}).
+    </div>
+  {% endif %}
+
+  <form method="get" action="/admin/kg/legacy" class="mt-6 flex gap-2">
+    <input type="text" name="q" value="{{ search }}"
+           placeholder="Search by name, phone or email…"
+           class="flex-1 rounded-lg border-gray-300 text-sm px-3 py-2">
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-gray-900 hover:bg-black text-white text-sm font-medium">
+      Search
+    </button>
+    {% if search %}
+      <a href="/admin/kg/legacy" class="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Clear</a>
+    {% endif %}
+  </form>
+
+  <div class="mt-4 bg-white rounded-lg shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr class="text-left text-xs uppercase text-gray-500">
+          <th class="px-4 py-3">Member</th>
+          <th class="px-4 py-3">Phone</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3 text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for m in members %}
+          {% set already = m.kingdom_gateway_status == "COMPLETED" %}
+          <tr>
+            <td class="px-4 py-3 font-medium text-gray-900">{{ m.first_name }} {{ m.last_name }}</td>
+            <td class="px-4 py-3 text-xs text-gray-600">{{ m.phone or "—" }}</td>
+            <td class="px-4 py-3 text-xs">
+              {% if already %}
+                <span class="bg-emerald-100 text-emerald-800 rounded px-2 py-0.5">
+                  ✓ Completed{% if m.kingdom_gateway_completed_at %} · {{ m.kingdom_gateway_completed_at }}{% endif %}
+                </span>
+              {% else %}
+                <span class="bg-gray-100 text-gray-700 rounded px-2 py-0.5">{{ m.kingdom_gateway_status or "NOT_STARTED" }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-right">
+              {% if already %}
+                <form method="post" action="/admin/kg/legacy/clear" class="inline">
+                  <input type="hidden" name="external_member_id" value="{{ m.id }}">
+                  <input type="hidden" name="q" value="{{ search }}">
+                  <button type="submit"
+                          class="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs rounded-md hover:bg-gray-200">
+                    Undo
+                  </button>
+                </form>
+              {% else %}
+                <form method="post" action="/admin/kg/legacy/mark" class="inline flex items-center gap-2 justify-end">
+                  <input type="hidden" name="external_member_id" value="{{ m.id }}">
+                  <input type="hidden" name="q" value="{{ search }}">
+                  <input type="date" name="completed_at" value="{{ today }}"
+                         class="text-xs rounded border-gray-300 px-2 py-1 w-36">
+                  <button type="submit"
+                          class="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs rounded-md">
+                    Mark complete
+                  </button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="px-4 py-6 text-center text-gray-500">
+            {% if search %}No members match "{{ search }}".{% else %}No members in this assembly yet.{% endif %}
+          </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if meta and meta.pages and meta.pages > 1 %}
+    <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
+      <div class="text-xs text-gray-500">Page {{ page }} of {{ meta.pages }}</div>
+      <div class="flex gap-1">
+        {% if page > 1 %}
+          <a href="?q={{ search }}&page={{ page - 1 }}"
+             class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50">← Prev</a>
+        {% endif %}
+        {% if page < meta.pages %}
+          <a href="?q={{ search }}&page={{ page + 1 }}"
+             class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50">Next →</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
