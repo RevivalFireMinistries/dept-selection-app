@@ -419,6 +419,29 @@ async def portal_kg_exam_start(
     )
 
 
+@router.post("/admin/kg/attempts/{attempt_id}/regrade")
+async def admin_kg_regrade_attempt(
+    attempt_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Re-run KG's auto-grader against an existing attempt. Surfaced as
+    a button on the results detail page for KG team / portal admins —
+    useful after we tighten the lenient rules (e.g. "breathe" should
+    now match "breath" via stem-aware comparison)."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    form = await request.form()
+    back = (form.get("back") or f"/portal/kg/results/{attempt_id}").strip()
+    r = kg.regrade_exam_attempt(attempt_id, db=db)
+    if not r.ok:
+        return _flash_redirect(back, r.error or "Could not regrade.")
+    new_pct = None
+    if isinstance(r.data, dict):
+        new_pct = r.data.get("percent")
+    msg = f"Attempt regraded — new score: {new_pct}%." if new_pct is not None else "Attempt regraded."
+    return _flash_redirect(back, msg)
+
+
 @router.get("/portal/kg/results/{attempt_id}", response_class=HTMLResponse)
 async def portal_kg_results_detail(
     attempt_id: str, request: Request, db: Session = Depends(get_db),
@@ -444,14 +467,24 @@ async def portal_kg_results_detail(
             status_code=404,
         )
     data = r.data or {}
-    return templates.TemplateResponse(
+    # Only the KG team / portal admins see the "Regrade" button — used
+    # after grading-rule improvements (e.g. stem-aware fill-in-blank
+    # matching) to refresh a member's score without forcing a retake.
+    can_regrade, _ = _kg_can_manage(request, db)
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
         request, "kg/portal_results_detail.html",
         {
             "member": member,
             "attempt": data.get("attempt") or {},
             "answers": data.get("answers") or [],
+            "can_regrade": can_regrade,
+            "flash": flash,
         },
     )
+    if had_flash:
+        _clear_flash(response)
+    return response
 
 
 @router.post("/portal/kg/exam/submit")

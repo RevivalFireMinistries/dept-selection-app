@@ -336,6 +336,15 @@ def get_exam_attempt_detail(attempt_id: str, *, db=None) -> ApiResult:
     )
 
 
+def regrade_exam_attempt(attempt_id: str, *, db=None) -> ApiResult:
+    """Re-run the auto-grader against an attempt's stored answers — used
+    after grading-rule improvements so previously-strict marks pick up
+    the new lenient matches without forcing a retake."""
+    return _request(
+        "POST", f"/api/v1/exam-attempts/{attempt_id}/regrade", db=db,
+    )
+
+
 def unlock_exam_for_cycle(
     cycle_id: str,
     *,
