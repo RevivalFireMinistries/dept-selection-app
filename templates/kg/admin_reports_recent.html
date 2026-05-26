@@ -1,0 +1,211 @@
+{% extends "admin/base.html" %}
+{% set active_section = "reports" %}
+{% block title %}Recent exams · KG Reports{% endblock %}
+{% block admin_content %}
+<div class="px-3 sm:px-6 lg:px-8 py-4">
+  <div class="flex items-baseline justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Reports — recent exams</h1>
+      <p class="text-xs sm:text-sm text-gray-500 mt-0.5">
+        Newest first. Click a row for the per-question breakdown — the same
+        view the member sees but with the team's regrade button.
+      </p>
+    </div>
+    <a href="/admin/kg/reports/exports"
+       class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
+      ⬇ Exports
+    </a>
+  </div>
+
+  {% include "kg/_admin_subnav.html" %}
+
+  <!-- Reports sub-tabs -->
+  <div class="inline-flex bg-gray-100 rounded-lg p-1 text-sm font-medium mb-4">
+    {% set rtabs = [
+      ("/admin/kg/reports/recent",  "Recent exams", "recent"),
+      ("/admin/kg/reports/cycles",  "Cycles",       "cycles"),
+      ("/admin/kg/reports/exports", "Exports",      "exports"),
+    ] %}
+    {% for href, label, key in rtabs %}
+      <a href="{{ href }}"
+         class="px-4 py-1.5 rounded-md
+                {% if key == 'recent' %}bg-white shadow-sm text-gray-900
+                {% else %}text-gray-600 hover:text-gray-900{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <!-- Filter row: outcome chips + cycle dropdown -->
+  <form method="get" action="/admin/kg/reports/recent"
+        class="flex flex-wrap items-center gap-3 mb-3">
+    {# Outcome chips — we re-submit the form via tiny anchor links so
+       a click instantly applies without a Submit button. #}
+    <div class="flex gap-1.5 overflow-x-auto pb-1 -mx-3 sm:mx-0 px-3 sm:px-0">
+      {% set chips = [
+        ("",        "All",              "gray"),
+        ("passed",  "Passed",           "emerald"),
+        ("failed",  "Failed",           "red"),
+        ("pending", "Pending grading",  "amber"),
+      ] %}
+      {% for key, label, colour in chips %}
+        <a href="/admin/kg/reports/recent?outcome={{ key }}{% if selected_cycle_id %}&cycle_id={{ selected_cycle_id }}{% endif %}"
+           class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium border
+                  {% if outcome == key %}
+                    bg-{{ colour }}-100 text-{{ colour }}-800 border-{{ colour }}-200
+                  {% else %}
+                    bg-white text-gray-700 border-gray-200 hover:bg-gray-50
+                  {% endif %}">
+          {{ label }}
+        </a>
+      {% endfor %}
+    </div>
+
+    <div class="flex items-center gap-2 ml-auto">
+      {% if outcome %}<input type="hidden" name="outcome" value="{{ outcome }}">{% endif %}
+      <label class="text-xs text-gray-500 whitespace-nowrap">Cycle:</label>
+      <select name="cycle_id" onchange="this.form.submit()"
+              class="rounded-lg border-gray-300 text-sm px-3 py-1.5">
+        <option value="">All cycles</option>
+        {% for c in cycles %}
+          <option value="{{ c.id }}" {% if c.id == selected_cycle_id %}selected{% endif %}>
+            {{ c.name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+
+  <!-- Mobile: card list -->
+  <ul class="space-y-2 sm:hidden">
+    {% for r in rows %}
+      <li>
+        <a href="/portal/kg/results/{{ r.id }}"
+           class="block bg-white rounded-xl border border-gray-200 p-3 hover:shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="font-medium text-gray-900 truncate">
+                {{ r._member_name or (r.external_member_id[:8] + "…") }}
+              </div>
+              <div class="text-[11px] text-gray-500 mt-0.5 truncate">
+                {{ r._cycle_name or "—" }}
+                {% if r.submitted_at %} · {{ r.submitted_at[:16].replace("T", " ") }}{% endif %}
+              </div>
+              <div class="text-[10px] uppercase tracking-wider text-gray-400 mt-0.5">
+                {{ r.mode|lower }}{% if r.status == 'SUBMITTED' %} · awaiting review{% endif %}
+              </div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              {% if r.percent is not none %}
+                <div class="text-lg font-bold
+                  {% if r.passed %}text-emerald-700
+                  {% elif r.passed is false %}text-red-700
+                  {% else %}text-gray-700{% endif %}">{{ r.percent }}%</div>
+                <div class="text-[10px] uppercase tracking-wider
+                  {% if r.passed %}text-emerald-600
+                  {% elif r.passed is false %}text-red-600
+                  {% else %}text-gray-500{% endif %}">
+                  {% if r.passed %}Pass
+                  {% elif r.passed is false %}Fail
+                  {% else %}{{ r.status|lower }}{% endif %}
+                </div>
+              {% else %}
+                <span class="text-xs text-gray-400">{{ r.status|lower }}</span>
+              {% endif %}
+            </div>
+          </div>
+        </a>
+      </li>
+    {% else %}
+      <li class="bg-white rounded-xl border border-gray-200 p-6 text-center text-sm text-gray-500">
+        {% if outcome or selected_cycle_id %}
+          No attempts match this filter.
+        {% else %}
+          No exam attempts yet.
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+
+  <!-- Desktop: full table -->
+  <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left text-xs uppercase text-gray-500">
+            <th class="px-4 py-3">Member</th>
+            <th class="px-4 py-3">Cycle</th>
+            <th class="px-4 py-3">Submitted</th>
+            <th class="px-4 py-3">Mode</th>
+            <th class="px-4 py-3 text-right">Score</th>
+            <th class="px-4 py-3">Result</th>
+            <th class="px-4 py-3 sr-only">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for r in rows %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3 text-gray-900 font-medium">
+                {{ r._member_name or (r.external_member_id[:8] + "…") }}
+              </td>
+              <td class="px-4 py-3 text-gray-600">{{ r._cycle_name or "—" }}</td>
+              <td class="px-4 py-3 text-gray-600 whitespace-nowrap">
+                {% if r.submitted_at %}{{ r.submitted_at[:16].replace("T", " ") }}{% else %}—{% endif %}
+              </td>
+              <td class="px-4 py-3 text-[11px] uppercase tracking-wider text-gray-500">{{ r.mode|lower }}</td>
+              <td class="px-4 py-3 text-right">
+                {% if r.percent is not none %}
+                  <span class="font-semibold
+                    {% if r.passed %}text-emerald-700
+                    {% elif r.passed is false %}text-red-700
+                    {% else %}text-gray-700{% endif %}">{{ r.percent }}%</span>
+                  <span class="text-[11px] text-gray-400 ml-1">{{ r.raw_score }}/{{ r.max_score }}</span>
+                {% else %}
+                  <span class="text-xs text-gray-400">—</span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-3">
+                {% if r.status == 'SUBMITTED' %}
+                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span>
+                {% elif r.passed %}
+                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Passed</span>
+                {% elif r.passed is false %}
+                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-700">Failed</span>
+                {% else %}
+                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{{ r.status|lower }}</span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-3 text-right">
+                <a href="/portal/kg/results/{{ r.id }}"
+                   class="text-xs text-violet-700 hover:text-violet-900 font-medium">View →</a>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="px-4 py-10 text-center text-sm text-gray-500">
+              {% if outcome or selected_cycle_id %}
+                No attempts match this filter.
+              {% else %}
+                No exam attempts yet.
+              {% endif %}
+            </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if meta and meta.pages and meta.pages > 1 %}
+    <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-sm">
+      <div class="text-xs text-gray-500">Page {{ page }} of {{ meta.pages }}</div>
+      <div class="flex gap-1">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}{% if outcome %}&outcome={{ outcome }}{% endif %}{% if selected_cycle_id %}&cycle_id={{ selected_cycle_id }}{% endif %}"
+           class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50">← Prev</a>
+        {% endif %}
+        {% if page < meta.pages %}
+        <a href="?page={{ page + 1 }}{% if outcome %}&outcome={{ outcome }}{% endif %}{% if selected_cycle_id %}&cycle_id={{ selected_cycle_id }}{% endif %}"
+           class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-gray-50">Next →</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

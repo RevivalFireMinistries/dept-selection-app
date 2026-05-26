@@ -899,9 +899,92 @@ async def admin_kg_people_alias(request: Request):
 
 @router.get("/admin/kg/reports", response_class=HTMLResponse)
 async def admin_kg_reports_home(request: Request):
-    """Reports landing — bounces to the cycle-comparison view since
-    that's the most-used report by far."""
-    return RedirectResponse(url="/admin/kg/reports/cycles", status_code=302)
+    """Reports landing — bounces to the recent-exams view since that's
+    what the KG team checks most often (real-time pulse: who just
+    finished, who needs grading)."""
+    return RedirectResponse(url="/admin/kg/reports/recent", status_code=302)
+
+
+@router.get("/admin/kg/reports/recent", response_class=HTMLResponse)
+async def admin_kg_reports_recent(
+    request: Request, db: Session = Depends(get_db),
+    cycle_id: str = "", outcome: str = "", page: int = 1,
+):
+    """Recent exam attempts — newest first. Tenant-scoped via the
+    portal's KG API key. Optional ``cycle_id`` and ``outcome`` filters
+    (passed | failed | pending). Each row links into the member's
+    per-question results page so the team can dive straight to the
+    detail without hopping through a member profile."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, _ = _resolve_portal_assembly(request, db)
+    rows: list = []
+    cycles_for_filter: list = []
+    meta: dict = {}
+
+    if kg.is_enabled(db) and asm_id:
+        # Cycle dropdown — same query the exports view uses.
+        cr = kg._request(
+            "GET", "/api/v1/cycles", db=db,
+            params={"assembly_id": asm_id, "size": 100},
+        )
+        if cr.ok:
+            cycles_for_filter = (
+                cr.data if isinstance(cr.data, list)
+                else (cr.data or {}).get("data") or []
+            )
+
+        # KG status mapping for the outcome filter chips.
+        kg_status = None
+        if outcome == "pending":
+            kg_status = "SUBMITTED"   # auto-graded portion done, awaiting manual review
+        elif outcome in ("passed", "failed"):
+            kg_status = "GRADED"      # fully graded — we filter passed/failed in template
+
+        ar = kg.list_exam_attempts(
+            assembly_id=asm_id,
+            cycle_id=(cycle_id or None),
+            status=kg_status,
+            page=page, size=50, db=db,
+        )
+        if ar.ok:
+            data = ar.data
+            if isinstance(data, list):
+                rows = data
+            else:
+                rows = (data or {}).get("data") or []
+                meta = (data or {}).get("meta") or {}
+
+        # Resolve member names for the rows we'll render — single
+        # local DB query, no rfm-database round trip per attempt.
+        if rows:
+            ext_ids = [r.get("external_member_id") for r in rows]
+            names = _member_name_map(db, ext_ids)
+            cycle_names = {c.get("id"): c.get("name") for c in cycles_for_filter}
+            for r in rows:
+                r["_member_name"] = names.get(r.get("external_member_id"), "")
+                r["_cycle_name"] = cycle_names.get(r.get("cycle_id"), "")
+
+            # Client-side passed/failed split inside GRADED — easier
+            # than another KG query, lists are small (page size 50).
+            if outcome == "passed":
+                rows = [r for r in rows if r.get("passed")]
+            elif outcome == "failed":
+                rows = [r for r in rows if r.get("passed") is False]
+
+    return templates.TemplateResponse(
+        request, "kg/admin_reports_recent.html",
+        {
+            "rows": rows,
+            "cycles": cycles_for_filter,
+            "selected_cycle_id": cycle_id,
+            "outcome": outcome,
+            "page": page,
+            "meta": meta,
+        },
+    )
 
 
 @router.get("/admin/kg/reports/cycles", response_class=HTMLResponse)

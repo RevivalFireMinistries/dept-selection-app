@@ -22,8 +22,9 @@
   <!-- Reports sub-tabs -->
   <div class="inline-flex bg-gray-100 rounded-lg p-1 text-sm font-medium mb-4">
     {% set rtabs = [
-      ("/admin/kg/reports/cycles",  "Cycles",  "cycles"),
-      ("/admin/kg/reports/exports", "Exports", "exports"),
+      ("/admin/kg/reports/recent",  "Recent exams", "recent"),
+      ("/admin/kg/reports/cycles",  "Cycles",       "cycles"),
+      ("/admin/kg/reports/exports", "Exports",      "exports"),
     ] %}
     {% for href, label, key in rtabs %}
       <a href="{{ href }}"
