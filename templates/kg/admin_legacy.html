@@ -1,9 +1,10 @@
 {% extends "admin/base.html" %}
+{% set active_section = "legacy" %}
 {% block title %}Legacy completions · Kingdom Gateway{% endblock %}
 {% block admin_content %}
 <div class="px-4 sm:px-6 lg:px-8 py-6">
-  <a href="/admin/kg" class="text-xs text-gray-500 hover:underline">← Kingdom Gateway</a>
-  <h1 class="mt-2 text-2xl font-bold text-gray-900">Legacy completions</h1>
+  {% include "kg/_admin_subnav.html" %}
+  <h1 class="text-2xl font-bold text-gray-900">Legacy completions</h1>
   <p class="text-sm text-gray-500 mt-1">
     Mark members who finished Kingdom Gateway <strong>before</strong> this system was set up.
     Their profile will show a Kingdom Gateway badge everywhere, and they'll be excluded

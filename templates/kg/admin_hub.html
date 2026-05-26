@@ -1,0 +1,118 @@
+{% extends "admin/base.html" %}
+{% set active_section = "home" %}
+{% block title %}Kingdom Gateway · Admin{% endblock %}
+{% block admin_content %}
+<div class="px-3 sm:px-6 lg:px-8 py-4">
+
+  <!-- Header -->
+  <div class="flex items-baseline justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Kingdom Gateway</h1>
+      <p class="text-xs sm:text-sm text-gray-500 mt-0.5">
+        {{ assembly_name or "Your assembly" }}
+        {% if not enabled %}<span class="ml-2 text-amber-700">· integration disabled</span>{% endif %}
+      </p>
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      <a href="/admin/kg/cycles/new"
+         class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700">
+        + Cycle
+      </a>
+    </div>
+  </div>
+
+  {% include "kg/_admin_subnav.html" %}
+
+  {% if assembly_error %}
+    <div class="mb-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm">
+      {{ assembly_error }}
+    </div>
+  {% endif %}
+
+  <!-- KPI strip: 2x2 on phones → 5-across on desktop. Cheap on the eye,
+       dense enough for a daily glance. -->
+  <div class="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
+    {% set kpi_cards = [
+      {"label": "Active cycles",   "value": stats.active_cycles  or 0, "tone": "violet"},
+      {"label": "Enrolled",        "value": stats.total_enrolled or 0, "tone": "gray"},
+      {"label": "Completed",       "value": stats.completed      or 0, "tone": "emerald"},
+      {"label": "Pass rate",       "value": (stats.pass_rate_percent ~ "%") if stats.pass_rate_percent is not none else "—", "tone": "blue"},
+      {"label": "Pending grading", "value": stats.pending_grading or 0, "tone": "amber"},
+    ] %}
+    {% for c in kpi_cards %}
+    <div class="bg-white rounded-xl border border-gray-200 p-3 sm:p-4">
+      <div class="text-[10px] sm:text-xs uppercase tracking-wider text-gray-500">{{ c.label }}</div>
+      <div class="mt-1 text-2xl sm:text-3xl font-bold text-{{ c.tone }}-700">{{ c.value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Function cards: the six places the KG team actually works. -->
+  <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    {% set tiles = [
+      {
+        "href": "/admin/kg/cycles", "icon": "📅",
+        "title": "Cycles & sessions",
+        "desc": "Schedule sessions, mark attendance, send exams, track milestones.",
+        "tone": "violet",
+      },
+      {
+        "href": "/admin/kg/dashboard?tab=people", "icon": "👥",
+        "title": "People",
+        "desc": "Search every member, filter by status, drill into individual records.",
+        "tone": "blue",
+      },
+      {
+        "href": "/admin/kg/reports/cycles", "icon": "📊",
+        "title": "Reports & insights",
+        "desc": "Pass rates per cycle, member outcomes, CSV exports for leadership.",
+        "tone": "emerald",
+      },
+      {
+        "href": "/admin/kg/team", "icon": "🎓",
+        "title": "Team & teacher pool",
+        "desc": "Grant KG manager rights; curate the pool of teachers per assembly.",
+        "tone": "amber",
+      },
+      {
+        "href": "/admin/kg/legacy", "icon": "🏷️",
+        "title": "Legacy completions",
+        "desc": "Mark members who finished KG before this system existed.",
+        "tone": "gray",
+      },
+      {
+        "href": "/desk/kg", "icon": "📝",
+        "title": "Class desk",
+        "desc": "Roster, milestone check-off, onsite exam marks — quick mobile flow.",
+        "tone": "indigo",
+      },
+    ] %}
+    {% for t in tiles %}
+    <a href="{{ t.href }}"
+       class="group bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md hover:border-{{ t.tone }}-200 transition-all">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded-lg bg-{{ t.tone }}-50 text-{{ t.tone }}-700 flex items-center justify-center text-xl flex-shrink-0">
+          {{ t.icon }}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-gray-900 flex items-center gap-1">
+            {{ t.title }}
+            <span class="opacity-0 group-hover:opacity-100 transition text-gray-400">→</span>
+          </div>
+          <p class="mt-0.5 text-xs text-gray-600 leading-snug">{{ t.desc }}</p>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if not enabled or not configured %}
+  <!-- Dev-mode hint — only visible to whoever first wires the integration. -->
+  <div class="mt-6 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
+    KG integration isn't live. Set <code>KG_API_URL</code>, <code>KG_API_KEY</code>
+    and <code>KG_INTEGRATION_ENABLED=true</code> on the portal service to enable
+    cycles, attendance and exam delivery.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

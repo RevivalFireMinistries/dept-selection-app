@@ -1,0 +1,28 @@
+{# Unified KG admin sub-nav. Pages set `active_section` to one of:
+   home / cycles / people / reports / team / legacy.
+   Mobile: horizontal scroll; desktop: inline pills. #}
+<nav class="-mx-3 sm:mx-0 mt-3 mb-4 overflow-x-auto" aria-label="KG admin sections">
+  <ul class="inline-flex gap-1 px-3 sm:px-0 text-sm font-medium">
+    {% set sections = [
+      ("home",    "/admin/kg",                "Home"),
+      ("cycles",  "/admin/kg/cycles",         "Cycles"),
+      ("people",  "/admin/kg/dashboard?tab=people",  "People"),
+      ("reports", "/admin/kg/reports/cycles", "Reports"),
+      ("team",    "/admin/kg/team",           "Team"),
+      ("legacy",  "/admin/kg/legacy",         "Legacy"),
+    ] %}
+    {% for key, href, label in sections %}
+      <li>
+        <a href="{{ href }}"
+           class="inline-flex items-center px-3 py-1.5 rounded-lg whitespace-nowrap
+                  {% if active_section == key %}
+                    bg-violet-100 text-violet-800
+                  {% else %}
+                    text-gray-600 hover:bg-gray-100
+                  {% endif %}">
+          {{ label }}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+</nav>

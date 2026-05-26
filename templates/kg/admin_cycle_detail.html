@@ -1,8 +1,10 @@
 {% extends "admin/base.html" %}
+{% set active_section = "cycles" %}
 {% block title %}{{ cycle.name if cycle else "Cycle" }} · Kingdom Gateway{% endblock %}
 {% block admin_content %}
 <div class="px-4 sm:px-6 lg:px-8 py-6">
-  <a href="/admin/kg" class="text-xs text-gray-500 hover:underline">← Kingdom Gateway</a>
+  {% include "kg/_admin_subnav.html" %}
+  <a href="/admin/kg/cycles" class="text-xs text-gray-500 hover:underline">← All cycles</a>
 
   {% if error %}
     <div class="mt-3 bg-red-50 border border-red-200 text-red-800 rounded p-3 text-sm">{{ error }}</div>

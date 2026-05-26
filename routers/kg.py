@@ -818,45 +818,179 @@ async def desk_kg_onsite_exam_submit(
 
 @router.get("/admin/kg", response_class=HTMLResponse)
 async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
-    if not is_authenticated(request):
-        return RedirectResponse(url="/admin/login?next=/admin/kg", status_code=302)
+    """KG admin hub — a mobile-first landing page with a KPI strip + 6
+    function cards. Each card lands on a focused sub-page (cycles,
+    people, reports, team, legacy, exam-team workflow on /desk). The
+    old overview table moved to /admin/kg/cycles where it has room to
+    grow filters."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
 
-    kg_url = kg.get_api_url(db)
-    configured = kg.is_configured(db)
-    enabled = kg.is_enabled(db)
-    health = kg.health_check(db=db) if enabled else None
-
-    # Portal actions run in the admin's own assembly context — never
-    # global. Surface a clear banner if the admin isn't linked to one yet.
     asm_id, asm_err = _resolve_portal_assembly(request, db)
     assembly_name = _lookup_assembly_name(asm_id, db) if asm_id else None
 
-    cycles: list = []
-    if enabled and configured and asm_id:
-        r = kg._request(
-            "GET", "/api/v1/cycles", db=db,
-            params={"assembly_id": asm_id, "size": 50},
-        )
-        if r.ok:
-            data = r.data
-            if isinstance(data, dict):
-                cycles = data.get("data") or []
-            else:
-                cycles = data or []
+    # Snapshot KPIs from KG — tenant-scoped via the assembly-bound API
+    # key. Fail-soft: integration outage shows zeros, not a 500.
+    stats: dict = {}
+    if kg.is_enabled(db):
+        r = kg.report_overview(db=db)
+        if r.ok and isinstance(r.data, dict):
+            stats = r.data
 
     return templates.TemplateResponse(
-        request, "kg/admin_overview.html",
+        request, "kg/admin_hub.html",
         {
-            "kg_url": kg_url,
-            "configured": configured,
-            "enabled": enabled,
-            "health_ok": (health.ok if health else None),
-            "health_error": (health.error if health and not health.ok else None),
-            "cycles": cycles,
+            "stats": stats,
             "assembly_id": asm_id,
             "assembly_name": assembly_name,
             "assembly_error": asm_err,
+            "configured": kg.is_configured(db),
+            "enabled": kg.is_enabled(db),
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# ADMIN — cycle list, people redirect, reports
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/kg/cycles", response_class=HTMLResponse)
+async def admin_kg_cycles_list(
+    request: Request, db: Session = Depends(get_db),
+    status: str = "",
+):
+    """Dedicated cycle list with a status filter chip strip — replaces
+    the legacy cycle table on the old admin overview. Click a row to
+    drill into the cycle detail page where day-to-day work happens."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, _ = _resolve_portal_assembly(request, db)
+    cycles: list = []
+    if asm_id and kg.is_enabled(db):
+        params = {"assembly_id": asm_id, "size": 100}
+        if status:
+            params["status"] = status
+        r = kg._request("GET", "/api/v1/cycles", db=db, params=params)
+        if r.ok:
+            data = r.data
+            cycles = data.get("data") if isinstance(data, dict) else (data or [])
+
+    return templates.TemplateResponse(
+        request, "kg/admin_cycles_list.html",
+        {
+            "cycles": cycles,
+            "status_filter": status,
+        },
+    )
+
+
+@router.get("/admin/kg/people", response_class=HTMLResponse)
+async def admin_kg_people_alias(request: Request):
+    """Clean URL for the People view — the existing dashboard renders
+    it; just forward query params through. Keeps the hub link tidy
+    without forking the dashboard handler."""
+    qs = request.url.query
+    target = f"/admin/kg/dashboard?tab=people&{qs}" if qs else "/admin/kg/dashboard?tab=people"
+    return RedirectResponse(url=target, status_code=302)
+
+
+@router.get("/admin/kg/reports", response_class=HTMLResponse)
+async def admin_kg_reports_home(request: Request):
+    """Reports landing — bounces to the cycle-comparison view since
+    that's the most-used report by far."""
+    return RedirectResponse(url="/admin/kg/reports/cycles", status_code=302)
+
+
+@router.get("/admin/kg/reports/cycles", response_class=HTMLResponse)
+async def admin_kg_reports_cycles(
+    request: Request, db: Session = Depends(get_db),
+    status: str = "",
+):
+    """Cycle comparison table: one row per cycle with enrolled, completed,
+    failed, in-progress counts, pass rate, avg score, avg attendance.
+    The leadership-meeting report — answers 'how did the August cycle
+    compare to June?' in one screen."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    rows: list = []
+    if kg.is_enabled(db):
+        r = kg.report_cycles(status=status or None, db=db)
+        if r.ok:
+            rows = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+
+    return templates.TemplateResponse(
+        request, "kg/admin_reports_cycles.html",
+        {
+            "rows": rows,
+            "status_filter": status,
+        },
+    )
+
+
+@router.get("/admin/kg/reports/exports", response_class=HTMLResponse)
+async def admin_kg_reports_exports(
+    request: Request, db: Session = Depends(get_db),
+):
+    """CSV-export landing page. Two downloads — attempts (raw exam
+    rows) and enrollments (where everyone stands). The KG service does
+    the aggregation; the portal just proxies the bytes back so the
+    download honours the same session-auth surface as the rest of the
+    admin UI."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    asm_id, _ = _resolve_portal_assembly(request, db)
+    cycles_for_filter: list = []
+    if asm_id and kg.is_enabled(db):
+        r = kg._request(
+            "GET", "/api/v1/cycles", db=db,
+            params={"assembly_id": asm_id, "size": 100},
+        )
+        if r.ok:
+            cycles_for_filter = (
+                r.data if isinstance(r.data, list)
+                else (r.data or {}).get("data") or []
+            )
+
+    return templates.TemplateResponse(
+        request, "kg/admin_reports_exports.html",
+        {"cycles": cycles_for_filter},
+    )
+
+
+@router.get("/admin/kg/reports/exports/{kind}.csv")
+async def admin_kg_reports_exports_download(
+    kind: str, request: Request,
+    cycle_id: str = "", db: Session = Depends(get_db),
+):
+    """CSV download proxy — fetches from KG and streams back with the
+    same filename. Supported kinds: attempts, enrollments."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if kind not in ("attempts", "enrollments"):
+        return _flash_redirect("/admin/kg/reports/exports", "Unknown export.")
+
+    raw, err = kg.fetch_report_csv(kind, cycle_id=(cycle_id or None), db=db)
+    if err:
+        return _flash_redirect(
+            "/admin/kg/reports/exports",
+            err or "Could not pull the export.",
+        )
+
+    from fastapi.responses import Response
+    from datetime import date as _date
+    filename = f"kg-{kind}-{_date.today().isoformat()}.csv"
+    return Response(
+        content=raw,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

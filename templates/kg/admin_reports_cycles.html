@@ -1,0 +1,137 @@
+{% extends "admin/base.html" %}
+{% set active_section = "reports" %}
+{% block title %}Cycle comparison · KG Reports{% endblock %}
+{% block admin_content %}
+<div class="px-3 sm:px-6 lg:px-8 py-4">
+  <div class="flex items-baseline justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Reports — cycle comparison</h1>
+      <p class="text-xs sm:text-sm text-gray-500 mt-0.5">
+        One row per cycle. Pass rate is over members who finished the
+        journey (completed + failed) — pending members aren't counted.
+      </p>
+    </div>
+    <a href="/admin/kg/reports/exports"
+       class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50">
+      ⬇ Exports
+    </a>
+  </div>
+
+  {% include "kg/_admin_subnav.html" %}
+
+  <!-- Reports sub-tabs -->
+  <div class="inline-flex bg-gray-100 rounded-lg p-1 text-sm font-medium mb-4">
+    {% set rtabs = [
+      ("/admin/kg/reports/cycles",  "Cycles",  "cycles"),
+      ("/admin/kg/reports/exports", "Exports", "exports"),
+    ] %}
+    {% for href, label, key in rtabs %}
+      <a href="{{ href }}"
+         class="px-4 py-1.5 rounded-md
+                {% if key == 'cycles' %}bg-white shadow-sm text-gray-900
+                {% else %}text-gray-600 hover:text-gray-900{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <!-- Mobile: cards -->
+  <ul class="space-y-3 sm:hidden">
+    {% for r in rows %}
+      <li class="bg-white rounded-xl border border-gray-200 p-3">
+        <div class="flex items-start justify-between gap-2">
+          <a href="/admin/kg/cycles/{{ r.id }}" class="font-semibold text-gray-900 hover:underline truncate min-w-0">
+            {{ r.name }}
+          </a>
+          <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full whitespace-nowrap
+            {% if r.status == 'ACTIVE' %}bg-emerald-100 text-emerald-800
+            {% elif r.status == 'DRAFT' %}bg-amber-100 text-amber-800
+            {% else %}bg-gray-100 text-gray-700{% endif %}">{{ r.status }}</span>
+        </div>
+        <div class="text-[11px] text-gray-500 mt-0.5">
+          {{ r.start_date }}{% if r.end_date %} → {{ r.end_date }}{% endif %}
+        </div>
+        <div class="mt-2 grid grid-cols-4 gap-2 text-center">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-gray-500">Enrolled</div>
+            <div class="text-base font-semibold text-gray-900">{{ r.enrolled }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-gray-500">Done</div>
+            <div class="text-base font-semibold text-emerald-700">{{ r.completed }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-gray-500">Pass</div>
+            <div class="text-base font-semibold text-blue-700">
+              {% if r.pass_rate_percent is not none %}{{ r.pass_rate_percent }}%{% else %}—{% endif %}
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-gray-500">Att</div>
+            <div class="text-base font-semibold text-violet-700">
+              {% if r.avg_attendance_percent is not none %}{{ r.avg_attendance_percent }}%{% else %}—{% endif %}
+            </div>
+          </div>
+        </div>
+      </li>
+    {% else %}
+      <li class="bg-white rounded-xl border border-gray-200 p-6 text-center text-sm text-gray-500">
+        No cycles yet.
+      </li>
+    {% endfor %}
+  </ul>
+
+  <!-- Desktop: full table -->
+  <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="text-left text-xs uppercase text-gray-500">
+            <th class="px-4 py-3">Cycle</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3">Period</th>
+            <th class="px-4 py-3 text-right">Enrolled</th>
+            <th class="px-4 py-3 text-right">Completed</th>
+            <th class="px-4 py-3 text-right">Failed</th>
+            <th class="px-4 py-3 text-right">In&nbsp;progress</th>
+            <th class="px-4 py-3 text-right">Pass&nbsp;rate</th>
+            <th class="px-4 py-3 text-right">Avg&nbsp;score</th>
+            <th class="px-4 py-3 text-right">Avg&nbsp;att.</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          {% for r in rows %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-4 py-3">
+                <a href="/admin/kg/cycles/{{ r.id }}" class="font-medium text-gray-900 hover:underline">{{ r.name }}</a>
+              </td>
+              <td class="px-4 py-3">
+                <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full
+                  {% if r.status == 'ACTIVE' %}bg-emerald-100 text-emerald-800
+                  {% elif r.status == 'DRAFT' %}bg-amber-100 text-amber-800
+                  {% else %}bg-gray-100 text-gray-700{% endif %}">{{ r.status }}</span>
+              </td>
+              <td class="px-4 py-3 text-gray-600 whitespace-nowrap">
+                {{ r.start_date }}{% if r.end_date %}<br><span class="text-gray-400">→ {{ r.end_date }}</span>{% endif %}
+              </td>
+              <td class="px-4 py-3 text-right text-gray-900">{{ r.enrolled }}</td>
+              <td class="px-4 py-3 text-right text-emerald-700 font-medium">{{ r.completed }}</td>
+              <td class="px-4 py-3 text-right text-red-700">{{ r.failed }}</td>
+              <td class="px-4 py-3 text-right text-gray-700">{{ r.in_progress }}</td>
+              <td class="px-4 py-3 text-right font-semibold text-blue-700">
+                {% if r.pass_rate_percent is not none %}{{ r.pass_rate_percent }}%{% else %}—{% endif %}
+              </td>
+              <td class="px-4 py-3 text-right text-gray-700">
+                {% if r.avg_score_percent is not none %}{{ r.avg_score_percent }}%{% else %}—{% endif %}
+              </td>
+              <td class="px-4 py-3 text-right text-violet-700">
+                {% if r.avg_attendance_percent is not none %}{{ r.avg_attendance_percent }}%{% else %}—{% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="10" class="px-4 py-10 text-center text-sm text-gray-500">No cycles yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

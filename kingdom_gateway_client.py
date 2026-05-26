@@ -336,6 +336,50 @@ def get_exam_attempt_detail(attempt_id: str, *, db=None) -> ApiResult:
     )
 
 
+def report_overview(*, db=None) -> ApiResult:
+    """Tenant-scoped KPI snapshot for the hub home + reports overview."""
+    return _request("GET", "/api/v1/reports/overview", db=db)
+
+
+def report_cycles(*, status: str | None = None, db=None) -> ApiResult:
+    """Per-cycle aggregates for the Reports → Cycles comparison table."""
+    return _request("GET", "/api/v1/reports/cycles", db=db, params={"status": status})
+
+
+def fetch_report_csv(
+    kind: str, *, cycle_id: str | None = None, db=None,
+) -> tuple[bytes, str | None]:
+    """Pull a CSV export straight from KG. ``kind`` is 'attempts' or
+    'enrollments' — these correspond to the GET endpoints on KG. Returns
+    ``(bytes, error)`` — error is None on success, a string otherwise.
+
+    Bypasses ``_request`` because that wrapper assumes JSON; CSV is
+    text/plain-ish bytes that the portal will proxy back to the browser
+    with the same Content-Disposition so the file downloads with the
+    KG-supplied filename."""
+    if not is_enabled(db):
+        return b"", "kg integration disabled"
+    url = get_api_url(db)
+    key = get_api_key(db)
+    if not url or not key:
+        return b"", "kg not configured"
+    full = f"{url}/api/v1/reports/exports/{kind}"
+    if cycle_id:
+        full = f"{full}?{urllib.parse.urlencode({'cycle_id': cycle_id})}"
+    req = urllib.request.Request(
+        full,
+        headers={"X-API-Key": key, "Accept": "text/csv"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=get_timeout(db)) as resp:
+            return resp.read(), None
+    except urllib.error.HTTPError as e:
+        return b"", f"kg returned {e.code}"
+    except urllib.error.URLError as e:
+        return b"", f"network error: {e.reason}"
+
+
 def regrade_exam_attempt(attempt_id: str, *, db=None) -> ApiResult:
     """Re-run the auto-grader against an attempt's stored answers — used
     after grading-rule improvements so previously-strict marks pick up

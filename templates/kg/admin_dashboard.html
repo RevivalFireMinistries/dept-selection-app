@@ -1,4 +1,5 @@
 {% extends "admin/base.html" %}
+{% set active_section = "people" %}
 {% block title %}Kingdom Gateway · Dashboard{% endblock %}
 {% block admin_content %}
 {# ----------------------------------------------------------------------
@@ -7,6 +8,7 @@
    server-rendered so it works on slow connections.
 ----------------------------------------------------------------------- #}
 <div class="px-3 sm:px-6 lg:px-8 py-4">
+  {% include "kg/_admin_subnav.html" %}
 
   <!-- Header -->
   <div class="flex items-baseline justify-between gap-3 flex-wrap">

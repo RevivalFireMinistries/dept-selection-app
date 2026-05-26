@@ -1,0 +1,83 @@
+{% extends "admin/base.html" %}
+{% set active_section = "reports" %}
+{% block title %}Exports · KG Reports{% endblock %}
+{% block admin_content %}
+<div class="px-3 sm:px-6 lg:px-8 py-4">
+  <div>
+    <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Reports — exports</h1>
+    <p class="text-xs sm:text-sm text-gray-500 mt-0.5">
+      CSV downloads for offline analysis or leadership meetings.
+      Optionally filter by cycle.
+    </p>
+  </div>
+
+  {% include "kg/_admin_subnav.html" %}
+
+  <!-- Reports sub-tabs -->
+  <div class="inline-flex bg-gray-100 rounded-lg p-1 text-sm font-medium mb-4">
+    {% set rtabs = [
+      ("/admin/kg/reports/cycles",  "Cycles",  "cycles"),
+      ("/admin/kg/reports/exports", "Exports", "exports"),
+    ] %}
+    {% for href, label, key in rtabs %}
+      <a href="{{ href }}"
+         class="px-4 py-1.5 rounded-md
+                {% if key == 'exports' %}bg-white shadow-sm text-gray-900
+                {% else %}text-gray-600 hover:text-gray-900{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <!-- Two cards: attempts + enrollments -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    {% set exports = [
+      {
+        "kind": "attempts",
+        "icon": "📝",
+        "title": "Exam attempts",
+        "desc": "Every attempt (online + onsite) with score, %, pass/fail, mode and timestamps. The detail-grained file for any per-question or per-attempt analysis.",
+        "tone": "violet",
+      },
+      {
+        "kind": "enrollments",
+        "icon": "👥",
+        "title": "Enrollments",
+        "desc": "Where everyone stands — status, attendance %, final score, certificate number, key dates. The 'who's done, who's still in' snapshot.",
+        "tone": "emerald",
+      },
+    ] %}
+    {% for ex in exports %}
+      <form method="get" action="/admin/kg/reports/exports/{{ ex.kind }}.csv"
+            class="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-3">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-lg bg-{{ ex.tone }}-50 text-{{ ex.tone }}-700 flex items-center justify-center text-xl flex-shrink-0">
+            {{ ex.icon }}
+          </div>
+          <div class="min-w-0">
+            <div class="font-semibold text-gray-900">{{ ex.title }}</div>
+            <p class="mt-0.5 text-xs text-gray-600 leading-snug">{{ ex.desc }}</p>
+          </div>
+        </div>
+        <div>
+          <label class="text-[11px] uppercase text-gray-500">Cycle (optional)</label>
+          <select name="cycle_id"
+                  class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+            <option value="">All cycles</option>
+            {% for c in cycles %}
+              <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit"
+                class="w-full px-3 py-2 rounded bg-{{ ex.tone }}-600 hover:bg-{{ ex.tone }}-700 text-white text-sm font-medium">
+          Download CSV
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+
+  <p class="mt-4 text-[11px] text-gray-500">
+    Exports include every row in the KG service for your assembly. Open in Excel,
+    Google Sheets or Numbers — no sign-in required for the file itself.
+  </p>
+</div>
+{% endblock %}
