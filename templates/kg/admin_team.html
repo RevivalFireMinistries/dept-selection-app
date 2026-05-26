@@ -50,6 +50,7 @@
           <td class="px-4 py-3 text-gray-600 text-xs">{{ m.phone or "—" }}</td>
           <td class="px-4 py-3 text-gray-600 text-xs">{{ m.email or "—" }}</td>
           <td class="px-4 py-3 text-center">
+            {% if is_portal_admin %}
             <form method="post" action="/admin/kg/team/toggle" class="inline">
               <input type="hidden" name="member_id" value="{{ m.id }}">
               <input type="hidden" name="role" value="manager">
@@ -61,6 +62,15 @@
                 {% if m.kg_manager %}✓{% else %}—{% endif %}
               </button>
             </form>
+            {% else %}
+            {# Read-only for KG managers — they can curate the teacher
+               pool but only a portal admin grants manager rights. #}
+            <span class="inline-flex items-center justify-center w-9 h-9 rounded-full text-base
+                         {% if m.kg_manager %}bg-emerald-100 text-emerald-700{% else %}bg-gray-50 text-gray-300{% endif %}"
+                  title="Manager rights are granted by a portal admin">
+              {% if m.kg_manager %}✓{% else %}—{% endif %}
+            </span>
+            {% endif %}
           </td>
           <td class="px-4 py-3 text-center">
             <form method="post" action="/admin/kg/team/toggle" class="inline">

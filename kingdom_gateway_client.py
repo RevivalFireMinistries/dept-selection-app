@@ -433,6 +433,25 @@ def replace_class_session_milestones(
     )
 
 
+def list_class_session_modules(class_session_id: str, *, db=None) -> ApiResult:
+    """Topics attached to one class session. A session can cover 1+."""
+    return _request(
+        "GET", f"/api/v1/courses/class-sessions/{class_session_id}/modules",
+        db=db,
+    )
+
+
+def replace_class_session_modules(
+    class_session_id: str, module_ids: list[str], *, db=None,
+) -> ApiResult:
+    """Replace the topic list for a session. KG also syncs the legacy
+    ``class_session.module_id`` pointer to the first of the new list."""
+    return _request(
+        "PUT", f"/api/v1/courses/class-sessions/{class_session_id}/modules",
+        db=db, body={"module_ids": module_ids},
+    )
+
+
 def list_kg_milestones(*, db=None) -> ApiResult:
     """Full milestone catalog from KG — used by the cycle-creation form."""
     return _request("GET", "/api/v1/milestones", db=db)

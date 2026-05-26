@@ -102,14 +102,20 @@
             </div>
           </div>
           <div>
-            <label class="text-[11px] uppercase text-gray-500">Topic</label>
-            <select name="module_id"
-                    class="mt-0.5 block w-full rounded border-gray-300 text-sm px-2.5 py-1.5">
-              <option value="">— None (milestone-only) —</option>
+            <label class="text-[11px] uppercase text-gray-500">Topics</label>
+            <p class="text-[10px] text-gray-400 mt-0.5">Tick one or more — sessions can combine topics.</p>
+            <ul class="mt-1 max-h-40 overflow-auto border border-gray-200 rounded p-2 space-y-1">
               {% for m in modules %}
-                <option value="{{ m.id }}">{{ m.sequence_no }}. {{ m.title }}</option>
+                <li>
+                  <label class="flex items-start gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" name="module_ids" value="{{ m.id }}" class="mt-0.5">
+                    <span>{{ m.sequence_no }}. {{ m.title }}</span>
+                  </label>
+                </li>
+              {% else %}
+                <li class="text-[11px] text-gray-400">No topics seeded for this course yet.</li>
               {% endfor %}
-            </select>
+            </ul>
           </div>
           <div>
             <label class="text-[11px] uppercase text-gray-500">Teacher</label>

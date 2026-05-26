@@ -1115,12 +1115,20 @@ def _resolve_portal_assembly(
 
 @router.get("/admin/kg/team", response_class=HTMLResponse)
 async def admin_kg_team(request: Request, db: Session = Depends(get_db)):
-    """Lists members in the 'Kingdom Gateway' department by default so
-    the portal admin can flip the kg_manager flag on/off. There's also
-    a `?show=all` query to list every member when the admin needs to
-    grant access to someone not in that department (e.g., a visiting
-    facilitator)."""
-    if not is_authenticated(request):
+    """Lists members the team can promote to KG roles. The teacher pool
+    is curated here — KG managers update it on demand, drawing from
+    every active member in the central church database. There's a
+    ``?show=all`` toggle to see every member when granting a teacher
+    flag to someone outside the Kingdom Gateway department (visiting
+    facilitator, guest preacher, etc.).
+
+    Auth: portal admin OR KG manager. The manager-toggle is gated to
+    portal admin in the template (privilege escalation guard) — KG
+    managers can curate the teacher pool but can't grant themselves
+    or anyone else manager rights."""
+    is_portal_admin = is_authenticated(request)
+    can_manage_kg, _ = _kg_can_manage(request, db)
+    if not (is_portal_admin or can_manage_kg):
         return RedirectResponse(url="/admin/login?next=/admin/kg/team", status_code=302)
 
     from models import Department, MemberDepartment
@@ -1163,6 +1171,7 @@ async def admin_kg_team(request: Request, db: Session = Depends(get_db)):
             "kg_dept": kg_dept,
             "show_all": show_all,
             "saved": request.query_params.get("saved") == "1",
+            "is_portal_admin": is_portal_admin,
         },
     )
 
@@ -1173,8 +1182,19 @@ async def admin_kg_team_toggle(
 ):
     """Single-cell toggle from the team page. Supports two roles:
     ``role=manager`` flips kg_manager, ``role=teacher`` flips kg_teacher.
-    Idempotent — re-posting with the same enable value is a no-op."""
-    if not is_authenticated(request):
+    Idempotent — re-posting with the same enable value is a no-op.
+
+    Auth split:
+      * Manager toggle — portal admin only (privilege-escalation guard:
+        a KG manager flipping the bit on themselves or a peer would
+        let them grant arbitrary portal admin-equivalent access).
+      * Teacher toggle — portal admin OR KG manager. The teacher pool
+        is operational housekeeping (who's teaching this cycle's
+        classes), not a security boundary.
+    """
+    is_portal_admin = is_authenticated(request)
+    can_manage_kg, _ = _kg_can_manage(request, db)
+    if not (is_portal_admin or can_manage_kg):
         return RedirectResponse(url="/admin/login?next=/admin/kg/team", status_code=302)
 
     form = await request.form()
@@ -1192,8 +1212,9 @@ async def admin_kg_team_toggle(
     if member:
         if role == "teacher":
             member.kg_teacher = enable
-        else:
+        elif role == "manager" and is_portal_admin:
             member.kg_manager = enable
+        # else: silently ignore — KG manager trying to grant manager.
         db.commit()
 
     show_all = (form.get("show") == "all")
@@ -1433,6 +1454,21 @@ async def admin_kg_class_edit(
         rows = attached_r.data if isinstance(attached_r.data, list) else (attached_r.data or {}).get("data") or []
         attached_ids = {r.get("milestone_id") for r in rows}
 
+    # Topics the session already covers — drives the checkboxes on the
+    # edit form. Falls back to the legacy single module_id pointer if
+    # the join hasn't been backfilled yet (defensive — startup backfill
+    # handles this on each KG boot).
+    attached_modules_r = kg.list_class_session_modules(class_id, db=db)
+    attached_module_ids: set = set()
+    if attached_modules_r.ok:
+        rows = (
+            attached_modules_r.data if isinstance(attached_modules_r.data, list)
+            else (attached_modules_r.data or {}).get("data") or []
+        )
+        attached_module_ids = {r.get("module_id") for r in rows if r.get("module_id")}
+    if not attached_module_ids and cls.get("module_id"):
+        attached_module_ids = {cls["module_id"]}
+
     teachers = _teacher_pool(db, asm_id)
     flash, had = _consume_flash(request)
     response = templates.TemplateResponse(
@@ -1441,6 +1477,7 @@ async def admin_kg_class_edit(
             "cycle": cycle, "cls": cls,
             "modules": modules, "milestones": milestones,
             "attached_milestone_ids": attached_ids,
+            "attached_module_ids": attached_module_ids,
             "teachers": teachers, "flash": flash,
         },
     )
@@ -1472,7 +1509,14 @@ async def admin_kg_class_edit_submit(
     venue = form.get("venue")
     if venue is not None:
         payload["venue"] = venue or None
-    payload["module_id"] = (form.get("module_id") or "").strip() or None
+    # module_ids[] checkboxes — a session can cover 1+ topics. The KG
+    # service's replace endpoint also syncs the back-compat single
+    # module_id pointer to the first checked item, so we don't send
+    # module_id directly any more (would just race the join write).
+    try:
+        module_ids = [m for m in form.getlist("module_ids") if m]
+    except AttributeError:
+        module_ids = [form.get("module_ids")] if form.get("module_ids") else []
     payload["facilitator_external_member_id"] = (
         (form.get("facilitator_external_member_id") or "").strip() or None
     )
@@ -1483,6 +1527,9 @@ async def admin_kg_class_edit_submit(
             f"/admin/kg/cycles/{cycle_id}/classes/{class_id}/edit",
             r.error or "Could not update class.",
         )
+
+    # Replace topic list (idempotent; empty list clears all)
+    kg.replace_class_session_modules(class_id, module_ids, db=db)
 
     milestone_ids = [
         key[len("milestone_"):]
@@ -1529,6 +1576,13 @@ async def admin_kg_class_add(
         existing = classes_r.data if isinstance(classes_r.data, list) else (classes_r.data or {}).get("data") or []
     next_seq = (max((c.get("sequence_no") or 0) for c in existing) + 1) if existing else 1
 
+    # module_ids[] checkboxes — back-compat with the single-select form
+    # (one option ticked = one-topic session). Empty = milestone-only.
+    try:
+        module_ids = [m for m in form.getlist("module_ids") if m]
+    except AttributeError:
+        module_ids = [form.get("module_ids")] if form.get("module_ids") else []
+
     payload = {
         "cycle_id": cycle_id,
         "sequence_no": next_seq,
@@ -1536,7 +1590,9 @@ async def admin_kg_class_add(
         "starts_at": starts_at,
         "ends_at": ends_at,
         "venue": (form.get("venue") or None),
-        "module_id": (form.get("module_id") or "").strip() or None,
+        # Send the first as the primary module_id for the existing
+        # create endpoint; the join below covers the full list.
+        "module_id": module_ids[0] if module_ids else None,
         "facilitator_external_member_id": (form.get("facilitator_external_member_id") or "").strip() or None,
     }
     r = kg.create_class_session(payload, db=db)
@@ -1545,6 +1601,13 @@ async def admin_kg_class_add(
             f"/admin/kg/cycles/{cycle_id}",
             r.error or "Could not add class.",
         )
+    # Write the full topic list after the session exists (the create
+    # endpoint only accepts a single module_id; the new join carries
+    # any additional topics covered in the same sitting).
+    if module_ids:
+        new_id = (r.data or {}).get("id") if isinstance(r.data, dict) else None
+        if new_id:
+            kg.replace_class_session_modules(new_id, module_ids, db=db)
     return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class added.")
 
 
