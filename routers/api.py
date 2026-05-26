@@ -662,7 +662,11 @@ def _send_portal_invite_email(
         if not ch.is_configured():
             return False, "rfm-notify not configured"
         link = f"{_portal_base_url(request)}/setup-password?token={token}"
-        login_link = f"{_portal_base_url(request)}/login"
+        # Portal's login form is on the landing page ("/"), not "/login"
+        # — the latter would 404. The trailing slash on the URL is
+        # important because some email clients drop bare-host links;
+        # keeping it explicit avoids surprises.
+        login_link = f"{_portal_base_url(request)}/"
         first = (member.full_name or "there").split()[0]
 
         if has_password:
