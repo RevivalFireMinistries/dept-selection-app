@@ -175,6 +175,20 @@ async def reset_password_page(request: Request):
     return templates.TemplateResponse("reset_password.html", {"request": request})
 
 
+@router.get("/setup-password")
+async def setup_password_page(request: Request):
+    """Landing page for admin-issued portal invites. Same form + same
+    underlying /auth/reset-password endpoint as the reset flow — the
+    template just reads ?setup=1 / a flag to swap the headline so a
+    member who has never had a password isn't confused by the word
+    "Reset". Reuses reset_password.html with an `is_setup` context flag.
+    """
+    return templates.TemplateResponse(
+        "reset_password.html",
+        {"request": request, "is_setup": True},
+    )
+
+
 @router.get("/logout")
 async def member_logout():
     """Log out member"""

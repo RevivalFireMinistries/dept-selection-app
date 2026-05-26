@@ -597,6 +597,227 @@ def login_member(
     return response
 
 
+# ---------------------------------------------------------------------------
+# Portal invite (admin-driven)
+# ---------------------------------------------------------------------------
+#
+# Admin in church-manager clicks "Invite to portal" on a member's profile —
+# we land here. The endpoint:
+#
+#   1. Authenticates the caller via PORTAL_INVITE_API_KEY (shared secret
+#      with church-manager). Members never hit this directly.
+#   2. Finds-or-creates the portal Member row, linked to the central
+#      member by external_member_id (so the eventual login resolves to
+#      one identity across both systems).
+#   3. Issues a 7-day setup-password token (same reset_token column the
+#      forgot-password flow uses — no extra schema needed) and emails
+#      the member a welcome message with the setup link.
+#
+# Idempotent: re-inviting an already-invited member just refreshes the
+# token + expiry and re-fires the email, so the admin can resend if
+# the member didn't get the first one.
+
+
+def _require_portal_invite_key(request: Request) -> None:
+    """Service-to-service auth: church-manager presents the shared secret
+    via X-Portal-Invite-Key. We don't reuse the rfm-notify or rfm-db
+    keys to keep credential blast radius tight — leak of either of
+    those shouldn't grant invite-creation here.
+    """
+    expected = os.getenv("PORTAL_INVITE_API_KEY", "").strip()
+    if not expected:
+        # Unconfigured = feature disabled (fail-closed); reduces the
+        # risk of an unexpected production deploy without the secret
+        # set silently letting through anonymous calls.
+        raise HTTPException(
+            status_code=503,
+            detail="Portal invites are not configured on this deployment.",
+        )
+    provided = (request.headers.get("x-portal-invite-key") or "").strip()
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid invite key")
+
+
+def _send_portal_invite_email(
+    request: Request, member: Member, token: str, *, is_resend: bool
+) -> tuple[bool, str | None]:
+    """Welcome / set-password email. Same channel pipeline as the
+    password-reset email; different copy because the recipient
+    probably doesn't have a password yet — "Reset Password" wording
+    would be confusing.
+    """
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        ch = RfmNotifyChannel()
+        if not ch.is_configured():
+            return False, "rfm-notify not configured"
+        link = f"{_portal_base_url(request)}/setup-password?token={token}"
+        first = (member.full_name or "there").split()[0]
+        subject = (
+            "Reminder: set up your RFM portal account"
+            if is_resend
+            else "Welcome to the RFM portal — set up your account"
+        )
+        FONT = (
+            "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+            "'Helvetica Neue', Arial, sans-serif"
+        )
+        html = f"""
+        <div style="max-width:480px;margin:0 auto;font-family:{FONT};color:#111827;">
+          <div style="border-top:3px solid #2E7D32;padding:32px 0 16px;">
+            <h1 style="font-size:20px;margin:0 0 12px;">Welcome to the RFM portal</h1>
+            <p style="color:#374151;font-size:14px;margin:0 0 16px;">
+              Hi {first}, an administrator has invited you to access the RFM
+              portal — where you can see your giving history, pledges, family
+              info, attendance, and more.
+            </p>
+            <p style="color:#374151;font-size:14px;margin:0 0 24px;">
+              Tap the button below to set your password and log in. The link
+              is valid for 7 days.
+            </p>
+            <p style="margin:0 0 24px;">
+              <a href="{link}" style="display:inline-block;padding:12px 32px;
+                background:#2E7D32;color:#ffffff;text-decoration:none;
+                border-radius:8px;font-weight:600;font-size:14px;">
+                Set up my account →
+              </a>
+            </p>
+            <p style="color:#9ca3af;font-size:12px;margin:0 0 0;">
+              Button not working? Paste this URL into your browser:<br>
+              <a href="{link}" style="color:#6b7280;">{link}</a>
+            </p>
+          </div>
+          <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
+            <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+          </div>
+        </div>
+        """.strip()
+        ok, err = ch.send(
+            recipient=member.email,
+            subject=subject,
+            body=html,
+            event_code="portal.invite",
+            recipient_id=member.id,
+            recipient_name=member.full_name,
+            # Idempotency keyed off the token so re-sending the SAME
+            # invite (which would only happen on a webhook retry) is a
+            # no-op upstream. Admin clicking "Resend" generates a new
+            # token, which gets its own idempotency key.
+            idempotency_key=f"portal-invite:{member.id}:{token[:10]}",
+            priority="high",
+        )
+        return ok, err
+    except Exception as e:
+        return False, str(e)
+
+
+@router.post("/api/portal/invite-member")
+def portal_invite_member(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Admin-driven invite: church-manager calls this with a member's
+    central UUID + contact details, we issue a setup-password token and
+    email the welcome message.
+    """
+    _require_portal_invite_key(request)
+
+    external_member_id = (data.get("external_member_id") or "").strip() or None
+    full_name = (data.get("full_name") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip()
+
+    if not full_name:
+        raise HTTPException(status_code=400, detail="full_name is required")
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required — member has no email on file")
+
+    # Lookup: prefer external_member_id (rock-solid match), fall back to
+    # email then phone. We don't want to create duplicates when the
+    # member already self-registered.
+    member: Member | None = None
+    if external_member_id:
+        member = (
+            db.query(Member)
+            .filter(Member.external_member_id == external_member_id)
+            .first()
+        )
+    if member is None and email:
+        member = (
+            db.query(Member)
+            .filter(Member.email == email)
+            .first()
+        )
+
+    is_resend = bool(member and member.password_hash)
+
+    if member is None:
+        # Brand new portal record. Mirror the field shape from /register
+        # so downstream attendance/giving sync logic finds what it
+        # expects — name, phone, email, external link.
+        first, last = _split_full_name(full_name)
+        member = Member(
+            full_name=full_name,
+            first_name=first,
+            last_name=last,
+            phone=phone,
+            email=email,
+            password_hash=None,         # set when they hit /setup-password
+            external_member_id=external_member_id,
+            external_match_status="matched" if external_member_id else "unmatched",
+            external_synced_at=datetime.utcnow() if external_member_id else None,
+        )
+        db.add(member)
+        db.flush()  # populate member.id before token assignment
+    else:
+        # Update the record so any field drift since the last sync is
+        # reconciled — particularly the external link, which is the
+        # anchor we'd use on subsequent lookups.
+        if full_name and member.full_name != full_name:
+            member.full_name = full_name
+            first, last = _split_full_name(full_name)
+            member.first_name, member.last_name = first, last
+        if phone and not member.phone:
+            member.phone = phone
+        if email and not member.email:
+            member.email = email
+        if external_member_id and not member.external_member_id:
+            member.external_member_id = external_member_id
+            member.external_match_status = "matched"
+            member.external_synced_at = datetime.utcnow()
+
+    # Mint a fresh setup-password token. 7-day expiry — comfortable for
+    # someone who doesn't check email daily, short enough that a leaked
+    # link from a stale inbox isn't a permanent backdoor.
+    token = secrets.token_urlsafe(32)
+    member.reset_token = token
+    member.reset_token_expires = datetime.utcnow() + timedelta(days=7)
+    db.commit()
+    db.refresh(member)
+
+    ok, err = _send_portal_invite_email(request, member, token, is_resend=is_resend)
+    if not ok:
+        # Don't roll back the token — admin can retry sending without
+        # re-issuing. Surface the error so church-manager logs it.
+        return {
+            "status": "token_created_email_failed",
+            "member_id": member.id,
+            "error": err,
+        }
+
+    return {
+        "status": "resent" if is_resend else "invited",
+        "member_id": member.id,
+        "expires_at": member.reset_token_expires.isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Self-service auth endpoints (existing)
+# ---------------------------------------------------------------------------
+
+
 @router.post("/auth/forgot-password")
 def forgot_password(
     data: dict = Body(...),
