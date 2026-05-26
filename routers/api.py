@@ -753,7 +753,10 @@ def _send_portal_invite_email(
         return False, str(e)
 
 
-@router.post("/api/portal/invite-member")
+# Note: this router is mounted with prefix="/api" in main.py, so the
+# path here is "/portal/..." (NOT "/api/portal/..."). Using
+# "/api/portal/..." would resolve to "/api/api/portal/..." and 404.
+@router.post("/portal/invite-member")
 def portal_invite_member(
     request: Request,
     data: dict = Body(...),
@@ -886,7 +889,7 @@ def portal_invite_member(
     }
 
 
-@router.get("/api/portal/invite/info")
+@router.get("/portal/invite/info")
 def portal_invite_info(
     token: str,
     db: Session = Depends(get_db),
