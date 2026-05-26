@@ -639,12 +639,22 @@ def _require_portal_invite_key(request: Request) -> None:
 
 
 def _send_portal_invite_email(
-    request: Request, member: Member, token: str, *, is_resend: bool
+    request: Request, member: Member, token: str, *, has_password: bool
 ) -> tuple[bool, str | None]:
-    """Welcome / set-password email. Same channel pipeline as the
-    password-reset email; different copy because the recipient
-    probably doesn't have a password yet — "Reset Password" wording
-    would be confusing.
+    """Welcome / set-password email.
+
+    Adapts to whether the member already has a portal account
+    (``has_password=True`` — matched via phone or email from a prior
+    self-registration):
+
+      - **No password yet**: standard welcome. Button reads
+        "Set up my account →" and points at /setup-password.
+      - **Already has a password**: friendlier copy that surfaces both
+        options. The link is the same — the landing page itself
+        switches between "set" and "reset" UX based on the same flag.
+        This avoids the awkward "Welcome to the portal — set up your
+        password" email landing on someone who's been logging in for
+        months.
     """
     try:
         from notifications.channels.rfm_notify import RfmNotifyChannel
@@ -652,12 +662,50 @@ def _send_portal_invite_email(
         if not ch.is_configured():
             return False, "rfm-notify not configured"
         link = f"{_portal_base_url(request)}/setup-password?token={token}"
+        login_link = f"{_portal_base_url(request)}/login"
         first = (member.full_name or "there").split()[0]
-        subject = (
-            "Reminder: set up your RFM portal account"
-            if is_resend
-            else "Welcome to the RFM portal — set up your account"
-        )
+
+        if has_password:
+            subject = "Your RFM portal account — log in or reset password"
+            heading = "You already have a portal account"
+            intro = (
+                f"Hi {first}, an administrator has linked your RFM portal "
+                "account to your latest profile. You can log in with your "
+                "existing password, or reset it via the link below."
+            )
+            cta_line = (
+                "If you've forgotten your password, the link below lets "
+                "you reset it. Otherwise, just log in as usual — the link "
+                "is valid for 7 days."
+            )
+            button_text = "Reset my password"
+            login_block = f"""
+            <p style="margin:0 0 12px;">
+              <a href="{login_link}" style="display:inline-block;padding:12px 32px;
+                background:#2E7D32;color:#ffffff;text-decoration:none;
+                border-radius:8px;font-weight:600;font-size:14px;">
+                Log in →
+              </a>
+            </p>
+            <p style="color:#6b7280;font-size:12px;margin:0 0 16px;text-align:center;">
+              — or —
+            </p>
+            """
+        else:
+            subject = "Welcome to the RFM portal — set up your account"
+            heading = "Welcome to the RFM portal"
+            intro = (
+                f"Hi {first}, an administrator has invited you to access "
+                "the RFM portal — where you can see your giving history, "
+                "pledges, family info, attendance, and more."
+            )
+            cta_line = (
+                "Tap the button below to set your password and log in. "
+                "The link is valid for 7 days."
+            )
+            button_text = "Set up my account →"
+            login_block = ""
+
         FONT = (
             "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
             "'Helvetica Neue', Arial, sans-serif"
@@ -665,21 +713,15 @@ def _send_portal_invite_email(
         html = f"""
         <div style="max-width:480px;margin:0 auto;font-family:{FONT};color:#111827;">
           <div style="border-top:3px solid #2E7D32;padding:32px 0 16px;">
-            <h1 style="font-size:20px;margin:0 0 12px;">Welcome to the RFM portal</h1>
-            <p style="color:#374151;font-size:14px;margin:0 0 16px;">
-              Hi {first}, an administrator has invited you to access the RFM
-              portal — where you can see your giving history, pledges, family
-              info, attendance, and more.
-            </p>
-            <p style="color:#374151;font-size:14px;margin:0 0 24px;">
-              Tap the button below to set your password and log in. The link
-              is valid for 7 days.
-            </p>
+            <h1 style="font-size:20px;margin:0 0 12px;">{heading}</h1>
+            <p style="color:#374151;font-size:14px;margin:0 0 16px;">{intro}</p>
+            <p style="color:#374151;font-size:14px;margin:0 0 24px;">{cta_line}</p>
+            {login_block}
             <p style="margin:0 0 24px;">
               <a href="{link}" style="display:inline-block;padding:12px 32px;
                 background:#2E7D32;color:#ffffff;text-decoration:none;
                 border-radius:8px;font-weight:600;font-size:14px;">
-                Set up my account →
+                {button_text}
               </a>
             </p>
             <p style="color:#9ca3af;font-size:12px;margin:0 0 0;">
@@ -733,9 +775,19 @@ def portal_invite_member(
     if not email:
         raise HTTPException(status_code=400, detail="email is required — member has no email on file")
 
-    # Lookup: prefer external_member_id (rock-solid match), fall back to
-    # email then phone. We don't want to create duplicates when the
-    # member already self-registered.
+    # Lookup priority — pick the strongest match and stop, so we never
+    # create a duplicate when the member previously self-registered
+    # (the common case: members register with their phone before an
+    # admin invites them, leaving the email + external link unset).
+    #
+    #   1. external_member_id — anchored to the central UUID, rock-solid.
+    #   2. email              — usually unique, good when the admin has
+    #                            an email on the central record.
+    #   3. phone              — covers the self-registered case where
+    #                            email may not have been provided yet.
+    #
+    # We compare phone as a digit-only suffix because users type it
+    # half a dozen ways (082 123 4567, +27 82 ..., 0821234567).
     member: Member | None = None
     if external_member_id:
         member = (
@@ -749,8 +801,25 @@ def portal_invite_member(
             .filter(Member.email == email)
             .first()
         )
+    if member is None and phone:
+        # Match on the last 9 digits — covers SA mobile + landline +
+        # international suffix, ignoring formatting noise. We don't
+        # use phonenumbers here because the local Member.phone column
+        # isn't strictly E.164 yet; the suffix compare is forgiving.
+        import re as _re
+        target = _re.sub(r"\D", "", phone)[-9:]
+        if target:
+            for m in db.query(Member).all():
+                if _re.sub(r"\D", "", m.phone or "")[-9:] == target:
+                    member = m
+                    break
 
-    is_resend = bool(member and member.password_hash)
+    # Distinguish three states for the email copy:
+    #   - has_password=True  → existing portal user; offer login + reset
+    #   - has_password=False → new invite, no password yet — set one up
+    # (We previously called this "is_resend" but it conflated "admin
+    # clicked the button twice" with "member self-registered ages ago".)
+    has_password = bool(member and member.password_hash)
 
     if member is None:
         # Brand new portal record. Mirror the field shape from /register
@@ -796,7 +865,7 @@ def portal_invite_member(
     db.commit()
     db.refresh(member)
 
-    ok, err = _send_portal_invite_email(request, member, token, is_resend=is_resend)
+    ok, err = _send_portal_invite_email(request, member, token, has_password=has_password)
     if not ok:
         # Don't roll back the token — admin can retry sending without
         # re-issuing. Surface the error so church-manager logs it.
@@ -807,10 +876,81 @@ def portal_invite_member(
         }
 
     return {
-        "status": "resent" if is_resend else "invited",
+        # "linked" = matched an existing portal account that already has
+        # a password; the email tells them they can log in OR reset.
+        # "invited" = brand-new portal record, must set a password.
+        "status": "linked" if has_password else "invited",
         "member_id": member.id,
+        "has_existing_password": has_password,
         "expires_at": member.reset_token_expires.isoformat(),
     }
+
+
+@router.get("/api/portal/invite/info")
+def portal_invite_info(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Read-only token introspection for the /setup-password page.
+
+    The page calls this on load to decide whether to render the
+    set-password form (no password yet) or the choose-your-path panel
+    ("log in with existing password OR reset it"). No PII beyond the
+    member's first name is returned — enough to personalise the
+    greeting without leaking anything to a stranger who guessed a
+    token URL.
+
+    Failure modes are explicit so the page can render the right
+    message rather than a generic error:
+      - 404 ``token_not_found``   → bad / consumed / unknown token
+      - 410 ``token_expired``     → past the 7-day window
+    """
+    if not token or len(token) < 16:
+        raise HTTPException(status_code=404, detail="token_not_found")
+
+    member = (
+        db.query(Member).filter(Member.reset_token == token).first()
+    )
+    if not member:
+        raise HTTPException(status_code=404, detail="token_not_found")
+
+    expires = member.reset_token_expires
+    if expires:
+        # reset_token_expires is a tz-aware DateTime; utcnow() is naive.
+        # Coerce both to naive UTC before comparing so we don't trip
+        # over the Python "can't compare offset-naive and offset-aware"
+        # quirk that's bitten us in this codebase before.
+        try:
+            cutoff = expires.replace(tzinfo=None) if expires.tzinfo else expires
+        except AttributeError:
+            cutoff = expires
+        if datetime.utcnow() > cutoff:
+            raise HTTPException(status_code=410, detail="token_expired")
+
+    first = (member.first_name or member.full_name or "there").split()[0]
+    has_password = bool(member.password_hash)
+    return {
+        "first_name": first,
+        "has_existing_password": has_password,
+        # Useful so the page can pre-fill the login form's phone field
+        # if the member wants to log in instead of reset. We mask all
+        # but the last 4 digits so a token leak doesn't reveal the
+        # full number to a malicious peeker.
+        "phone_hint": _mask_phone(member.phone) if has_password else None,
+    }
+
+
+def _mask_phone(phone: str | None) -> str | None:
+    """Show only the last 4 digits, the rest as bullets. Used as a
+    hint on the choose-your-path panel so the member recognises the
+    account without exposing the full number to whoever opened the link.
+    """
+    if not phone:
+        return None
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) < 4:
+        return None
+    return "•••• " + digits[-4:]
 
 
 # ---------------------------------------------------------------------------
