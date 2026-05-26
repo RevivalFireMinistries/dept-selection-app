@@ -346,6 +346,37 @@ def report_cycles(*, status: str | None = None, db=None) -> ApiResult:
     return _request("GET", "/api/v1/reports/cycles", db=db, params={"status": status})
 
 
+def report_pending_approval(*, db=None) -> ApiResult:
+    """Enrollments waiting for KG team sign-off on a passed exam."""
+    return _request("GET", "/api/v1/reports/pending-approval", db=db)
+
+
+def approve_enrollment(
+    enrollment_id: str, *,
+    approved_by_external_member_id: str | None = None,
+    db=None,
+) -> ApiResult:
+    """Sign off a passed exam — KG re-runs completion + cert + rfm-db sync."""
+    return _request(
+        "POST", f"/api/v1/enrollments/{enrollment_id}/approve",
+        db=db,
+        body={"approved_by_external_member_id": approved_by_external_member_id},
+    )
+
+
+def reject_enrollment(
+    enrollment_id: str, *,
+    approved_by_external_member_id: str | None = None,
+    db=None,
+) -> ApiResult:
+    """Reject a passed exam — member reverts to EXAM_READY for retake."""
+    return _request(
+        "POST", f"/api/v1/enrollments/{enrollment_id}/reject",
+        db=db,
+        body={"approved_by_external_member_id": approved_by_external_member_id},
+    )
+
+
 def fetch_report_csv(
     kind: str, *, cycle_id: str | None = None, db=None,
 ) -> tuple[bytes, str | None]:

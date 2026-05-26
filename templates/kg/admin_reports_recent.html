@@ -23,6 +23,7 @@
   <div class="inline-flex bg-gray-100 rounded-lg p-1 text-sm font-medium mb-4">
     {% set rtabs = [
       ("/admin/kg/reports/recent",  "Recent exams", "recent"),
+      ("/admin/kg/reports/pending", "Pending",      "pending"),
       ("/admin/kg/reports/cycles",  "Cycles",       "cycles"),
       ("/admin/kg/reports/exports", "Exports",      "exports"),
     ] %}
@@ -33,6 +34,28 @@
                 {% else %}text-gray-600 hover:text-gray-900{% endif %}">{{ label }}</a>
     {% endfor %}
   </div>
+
+  <!-- Search by member name -->
+  <form method="get" action="/admin/kg/reports/recent" class="mb-3 flex gap-2">
+    {% if outcome %}<input type="hidden" name="outcome" value="{{ outcome }}">{% endif %}
+    {% if selected_cycle_id %}<input type="hidden" name="cycle_id" value="{{ selected_cycle_id }}">{% endif %}
+    <div class="flex-1 relative">
+      <input type="text" name="q" value="{{ search }}"
+             placeholder="Search by member name…"
+             class="w-full rounded-lg border-gray-300 text-sm pl-9 pr-3 py-2">
+      <svg class="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+    </div>
+    <button type="submit"
+            class="px-4 py-2 rounded-lg bg-gray-900 hover:bg-black text-white text-sm font-medium">
+      Search
+    </button>
+    {% if search %}
+      <a href="/admin/kg/reports/recent{% if outcome or selected_cycle_id %}?{% endif %}{% if outcome %}outcome={{ outcome }}{% endif %}{% if outcome and selected_cycle_id %}&{% endif %}{% if selected_cycle_id %}cycle_id={{ selected_cycle_id }}{% endif %}"
+         class="px-3 py-2 rounded-lg bg-white border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">Clear</a>
+    {% endif %}
+  </form>
 
   <!-- Filter row: outcome chips + cycle dropdown -->
   <form method="get" action="/admin/kg/reports/recent"

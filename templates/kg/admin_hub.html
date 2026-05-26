@@ -29,8 +29,23 @@
     </div>
   {% endif %}
 
-  <!-- KPI strip: 2x2 on phones → 5-across on desktop. Cheap on the eye,
-       dense enough for a daily glance. -->
+  <!-- KPI strip — Pending approval is the team's most-actionable metric
+       so it leads. Mobile: 2 cols → desktop: 5 cols. -->
+  {% if pending_approval_count and pending_approval_count > 0 %}
+    <a href="/admin/kg/reports/pending"
+       class="block mb-3 bg-amber-50 border-2 border-amber-300 rounded-xl p-3 sm:p-4 hover:bg-amber-100 transition">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-amber-200 text-amber-800 flex items-center justify-center text-xl">⏳</div>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-amber-700">Action needed</div>
+          <div class="text-lg font-semibold text-amber-900">
+            {{ pending_approval_count }} exam{% if pending_approval_count != 1 %}s{% endif %} waiting for your approval →
+          </div>
+        </div>
+      </div>
+    </a>
+  {% endif %}
+
   <div class="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
     {% set kpi_cards = [
       {"label": "Active cycles",   "value": stats.active_cycles  or 0, "tone": "violet"},

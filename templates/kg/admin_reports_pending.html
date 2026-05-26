@@ -1,0 +1,97 @@
+{% extends "admin/base.html" %}
+{% set active_section = "reports" %}
+{% block title %}Pending approval · KG Reports{% endblock %}
+{% block admin_content %}
+<div class="px-3 sm:px-6 lg:px-8 py-4">
+  <div>
+    <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Reports — pending approval</h1>
+    <p class="text-xs sm:text-sm text-gray-500 mt-0.5">
+      Members who just passed their exam. Approve to issue the certificate
+      and update the central directory. Reject to send them back for a retake.
+    </p>
+  </div>
+
+  {% include "kg/_admin_subnav.html" %}
+
+  <!-- Reports sub-tabs -->
+  <div class="inline-flex bg-gray-100 rounded-lg p-1 text-sm font-medium mb-4">
+    {% set rtabs = [
+      ("/admin/kg/reports/recent",  "Recent exams", "recent"),
+      ("/admin/kg/reports/pending", "Pending",      "pending"),
+      ("/admin/kg/reports/cycles",  "Cycles",       "cycles"),
+      ("/admin/kg/reports/exports", "Exports",      "exports"),
+    ] %}
+    {% for href, label, key in rtabs %}
+      <a href="{{ href }}"
+         class="px-4 py-1.5 rounded-md
+                {% if key == 'pending' %}bg-white shadow-sm text-gray-900
+                {% else %}text-gray-600 hover:text-gray-900{% endif %}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  {% if flash %}
+    <div class="mb-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">{{ flash }}</div>
+  {% endif %}
+
+  {% if not rows %}
+    <div class="bg-white rounded-xl border border-gray-200 p-8 text-center">
+      <div class="text-3xl">✅</div>
+      <p class="mt-2 text-sm text-gray-600">
+        Nothing pending — every passed exam in your assembly has been reviewed.
+      </p>
+    </div>
+  {% else %}
+    <ul class="space-y-3">
+      {% for r in rows %}
+        <li class="bg-white rounded-xl border border-amber-200 p-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-gray-900 truncate">
+                {{ r._member_name or (r.external_member_id[:8] + "…") }}
+              </div>
+              <div class="text-xs text-gray-500 mt-0.5">
+                {{ r.cycle_name or "—" }}
+                {% if r.submitted_at %} · Submitted {{ r.submitted_at[:16].replace("T", " ") }}{% endif %}
+              </div>
+              <div class="mt-2 flex flex-wrap gap-3 text-xs">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">
+                  ✓ Passed {% if r.percent is not none %}· {{ r.percent }}%{% endif %}
+                </span>
+                {% if r.attendance_percent is not none %}
+                  <span class="inline-flex items-center gap-1 text-gray-600">
+                    Attendance {{ r.attendance_percent }}%
+                  </span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {% if r.attempt_id %}
+                <a href="/portal/kg/results/{{ r.attempt_id }}"
+                   class="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50">
+                  Review
+                </a>
+              {% endif %}
+              <form method="post" action="/admin/kg/enrollments/{{ r.enrollment_id }}/approve"
+                    class="inline"
+                    onsubmit="return confirm('Approve this exam? A certificate will be issued and the central directory updated.');">
+                <button type="submit"
+                        class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">
+                  Approve ✓
+                </button>
+              </form>
+              <form method="post" action="/admin/kg/enrollments/{{ r.enrollment_id }}/reject"
+                    class="inline"
+                    onsubmit="return confirm('Reject this exam? The member will need to retake it.');">
+                <button type="submit"
+                        class="px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-700 text-sm font-medium hover:bg-red-50">
+                  Reject
+                </button>
+              </form>
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>
+{% endblock %}

@@ -16,6 +16,7 @@ working even if KG is down.
 from __future__ import annotations
 
 import io
+import os
 from datetime import date as _date, datetime, timezone
 from typing import Optional
 
@@ -519,17 +520,92 @@ async def portal_kg_exam_submit(
             {"member": member, "error": r.error},
             status_code=400,
         )
+
+    result = r.data if isinstance(r.data, dict) else {}
+    result_attempt_id = result.get("attempt_id")
+
+    # If the member just passed, alert the KG team so they approve and
+    # the central directory gets updated. The portal knows the team
+    # (kg_manager=true Members in this assembly) — KG itself doesn't.
+    if result.get("passed") is True:
+        try:
+            _notify_kg_team_approval_required(
+                request, db, member=member, result=result,
+            )
+        except Exception:
+            # Notification failures never block the member's redirect.
+            pass
+
     # Land the member straight on their per-question breakdown — score,
     # what they got wrong, the correct answers, any facilitator notes.
     # The summary-only page used to live here but the user-research
     # signal was clear: the moment after submitting is exactly when
     # they want to see the detail.
-    result_attempt_id = (r.data or {}).get("attempt_id") if isinstance(r.data, dict) else None
     target = (
         f"/portal/kg/results/{result_attempt_id}" if result_attempt_id
         else "/portal/kg"
     )
     return RedirectResponse(url=target, status_code=303)
+
+
+def _notify_kg_team_approval_required(
+    request: Request, db: Session, *, member: Member, result: dict,
+) -> None:
+    """Fire EXAM_APPROVAL_REQUIRED to every kg_manager in this assembly.
+
+    Lives in the portal (not KG) because the team list is portal-local —
+    Member.kg_manager + Member.external_assembly_id. We send a small,
+    deep-linkable notification: "X passed their exam, review and
+    approve." Best-effort, idempotent on attempt id.
+    """
+    from notifications.channels.rfm_notify import RfmNotifyChannel
+
+    channel = RfmNotifyChannel()
+    if not channel.is_configured():
+        return
+
+    asm_id = (member.external_assembly_id or "").strip()
+    if not asm_id:
+        return
+
+    team = (
+        db.query(Member)
+        .filter(
+            Member.external_assembly_id == asm_id,
+            Member.kg_manager == True,  # noqa: E712
+            Member.is_active == True,   # noqa: E712
+            Member.email != None,        # noqa: E711
+            Member.email != "",
+        )
+        .all()
+    )
+    if not team:
+        return
+
+    base = (os.getenv("PORTAL_URL") or "").rstrip("/")
+    deep_link = (
+        f"{base}/admin/kg/reports/pending" if base
+        else "/admin/kg/reports/pending"
+    )
+    percent = result.get("percent")
+    attempt_id = result.get("attempt_id") or "exam"
+
+    subject = f"KG exam pass — review needed for {member.full_name}"
+    body_html = (
+        f"<p>{member.full_name} just passed their Kingdom Gateway exam "
+        f"({percent}%). Their certificate will only issue once the "
+        f"team approves the result.</p>"
+        f"<p><a href=\"{deep_link}\">Review the pending list</a></p>"
+    )
+    for t in team:
+        try:
+            channel.send(
+                t.email, subject, body_html,
+                event_code="kg.exam_approval_required",
+                idempotency_key=f"kg-approval:{attempt_id}:{t.id}",
+            )
+        except Exception:
+            continue
 
 
 def _build_answers_from_form(form) -> list[dict]:
@@ -833,15 +909,23 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
     # Snapshot KPIs from KG — tenant-scoped via the assembly-bound API
     # key. Fail-soft: integration outage shows zeros, not a 500.
     stats: dict = {}
+    pending_approval_count = 0
     if kg.is_enabled(db):
         r = kg.report_overview(db=db)
         if r.ok and isinstance(r.data, dict):
             stats = r.data
+        # Pending approval — separate count so the hub can highlight it
+        # in amber when there's work waiting on the team.
+        pr = kg.report_pending_approval(db=db)
+        if pr.ok:
+            rows = pr.data if isinstance(pr.data, list) else (pr.data or {}).get("data") or []
+            pending_approval_count = len(rows)
 
     return templates.TemplateResponse(
         request, "kg/admin_hub.html",
         {
             "stats": stats,
+            "pending_approval_count": pending_approval_count,
             "assembly_id": asm_id,
             "assembly_name": assembly_name,
             "assembly_error": asm_err,
@@ -908,13 +992,14 @@ async def admin_kg_reports_home(request: Request):
 @router.get("/admin/kg/reports/recent", response_class=HTMLResponse)
 async def admin_kg_reports_recent(
     request: Request, db: Session = Depends(get_db),
-    cycle_id: str = "", outcome: str = "", page: int = 1,
+    cycle_id: str = "", outcome: str = "", q: str = "", page: int = 1,
 ):
     """Recent exam attempts — newest first. Tenant-scoped via the
-    portal's KG API key. Optional ``cycle_id`` and ``outcome`` filters
-    (passed | failed | pending). Each row links into the member's
-    per-question results page so the team can dive straight to the
-    detail without hopping through a member profile."""
+    portal's KG API key. Filters: ``cycle_id``, ``outcome`` (passed |
+    failed | pending), and ``q`` for searching by member name. Each row
+    links into the member's per-question results page so the team can
+    dive straight to the detail without hopping through a member
+    profile."""
     redirect = _require_kg_manage(request, db)
     if redirect:
         return redirect
@@ -923,6 +1008,7 @@ async def admin_kg_reports_recent(
     rows: list = []
     cycles_for_filter: list = []
     meta: dict = {}
+    search = (q or "").strip()
 
     if kg.is_enabled(db) and asm_id:
         # Cycle dropdown — same query the exports view uses.
@@ -974,6 +1060,16 @@ async def admin_kg_reports_recent(
             elif outcome == "failed":
                 rows = [r for r in rows if r.get("passed") is False]
 
+            # Search by member name (case-insensitive substring) —
+            # we resolve names locally so the search runs in-process
+            # without another KG round-trip.
+            if search:
+                needle = search.lower()
+                rows = [
+                    r for r in rows
+                    if needle in (r.get("_member_name") or "").lower()
+                ]
+
     return templates.TemplateResponse(
         request, "kg/admin_reports_recent.html",
         {
@@ -981,6 +1077,7 @@ async def admin_kg_reports_recent(
             "cycles": cycles_for_filter,
             "selected_cycle_id": cycle_id,
             "outcome": outcome,
+            "search": search,
             "page": page,
             "meta": meta,
         },
@@ -1012,6 +1109,98 @@ async def admin_kg_reports_cycles(
             "rows": rows,
             "status_filter": status,
         },
+    )
+
+
+@router.get("/admin/kg/reports/pending", response_class=HTMLResponse)
+async def admin_kg_reports_pending(
+    request: Request, db: Session = Depends(get_db),
+):
+    """Pending-approval queue — every passed exam awaiting team sign-off.
+    Approve → certificate issues + rfm-database sync.
+    Reject  → member reverts to EXAM_READY for retake."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    rows: list = []
+    if kg.is_enabled(db):
+        r = kg.report_pending_approval(db=db)
+        if r.ok:
+            rows = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+
+    if rows:
+        names = _member_name_map(
+            db, (r.get("external_member_id") for r in rows),
+        )
+        for r in rows:
+            r["_member_name"] = names.get(r.get("external_member_id"), "")
+
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
+        request, "kg/admin_reports_pending.html",
+        {"rows": rows, "flash": flash},
+    )
+    if had_flash:
+        _clear_flash(response)
+    return response
+
+
+@router.post("/admin/kg/enrollments/{enrollment_id}/approve")
+async def admin_kg_approve_enrollment(
+    enrollment_id: str, request: Request,
+    db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    # Pass the approver's external_member_id when we can identify them
+    # so the audit trail records who signed off.
+    approver = _portal_session_member(request, db)
+    approver_ext = (approver.external_member_id or "") if approver else ""
+
+    r = kg.approve_enrollment(
+        enrollment_id,
+        approved_by_external_member_id=(approver_ext or None),
+        db=db,
+    )
+    if not r.ok:
+        return _flash_redirect(
+            "/admin/kg/reports/pending",
+            r.error or "Could not approve.",
+        )
+    return _flash_redirect(
+        "/admin/kg/reports/pending",
+        "Approved — certificate issued and central directory updated.",
+    )
+
+
+@router.post("/admin/kg/enrollments/{enrollment_id}/reject")
+async def admin_kg_reject_enrollment(
+    enrollment_id: str, request: Request,
+    db: Session = Depends(get_db),
+):
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+
+    approver = _portal_session_member(request, db)
+    approver_ext = (approver.external_member_id or "") if approver else ""
+
+    r = kg.reject_enrollment(
+        enrollment_id,
+        approved_by_external_member_id=(approver_ext or None),
+        db=db,
+    )
+    if not r.ok:
+        return _flash_redirect(
+            "/admin/kg/reports/pending",
+            r.error or "Could not reject.",
+        )
+    return _flash_redirect(
+        "/admin/kg/reports/pending",
+        "Rejected — member can retake the exam.",
     )
 
 
