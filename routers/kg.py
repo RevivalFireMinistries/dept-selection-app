@@ -98,12 +98,34 @@ async def portal_kg_home(request: Request, db: Session = Depends(get_db)):
         else:
             error = r.error or "Could not reach Kingdom Gateway right now."
 
-    # If the member has already accepted an invite (status moved past
-    # INVITED) take them straight to their cycle page — that's the
-    # screen they actually want to see. The portal_home listing is only
-    # useful when they have a pending invite to accept or no
-    # enrollments at all. KG returns enrollments ordered by created_at
-    # desc, so the first non-INVITED row is their most recent cycle.
+    # Where to land them depends on how far they've got:
+    #
+    #   - Already attempted an exam? → /portal/kg/results/{id}. Once
+    #     they've written, the score and what-they-got-wrong is the
+    #     thing they actually want to see; the cycle's class schedule
+    #     is one click away on that page if they need it.
+    #   - Accepted an invite (any non-INVITED status) → cycle page.
+    #   - Only INVITED / no enrollments → stay on the listing so the
+    #     accept-invite UI is reachable.
+    if external_id:
+        try:
+            ar = kg.list_exam_attempts(
+                external_member_id=external_id, page=1, size=1, db=db,
+            )
+            if ar.ok:
+                arows = (
+                    ar.data if isinstance(ar.data, list)
+                    else (ar.data or {}).get("data") or []
+                )
+                if arows and arows[0].get("id"):
+                    return RedirectResponse(
+                        url=f"/portal/kg/results/{arows[0]['id']}",
+                        status_code=303,
+                    )
+        except Exception:
+            # Best effort — fall through to the cycle redirect below.
+            pass
+
     accepted = next(
         (e for e in enrollments if e.get("status") and e.get("status") != "INVITED"),
         None,
@@ -464,10 +486,17 @@ async def portal_kg_exam_submit(
             {"member": member, "error": r.error},
             status_code=400,
         )
-    return templates.TemplateResponse(
-        request, "kg/portal_results.html",
-        {"member": member, "result": r.data},
+    # Land the member straight on their per-question breakdown — score,
+    # what they got wrong, the correct answers, any facilitator notes.
+    # The summary-only page used to live here but the user-research
+    # signal was clear: the moment after submitting is exactly when
+    # they want to see the detail.
+    result_attempt_id = (r.data or {}).get("attempt_id") if isinstance(r.data, dict) else None
+    target = (
+        f"/portal/kg/results/{result_attempt_id}" if result_attempt_id
+        else "/portal/kg"
     )
+    return RedirectResponse(url=target, status_code=303)
 
 
 def _build_answers_from_form(form) -> list[dict]:

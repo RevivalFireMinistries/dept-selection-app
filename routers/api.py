@@ -9768,6 +9768,7 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
         "pending_invites": [],
         "can_request_to_join": True,
         "exam_ready": None,
+        "exam_result": None,
     }
     if not member.external_member_id:
         return out
@@ -9789,6 +9790,27 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
         from datetime import datetime as _dt, timezone as _tz
         now = _dt.now(_tz.utc)
 
+        # Look up the member's most recent attempt up-front — drives both
+        # the "Take exam now" card (hide if attempted) and the new
+        # "View results" card (show if attempted).
+        latest_attempt: dict | None = None
+        try:
+            ar = _kg.list_exam_attempts(
+                external_member_id=member.external_member_id,
+                page=1, size=1, db=db,
+            )
+            if ar.ok:
+                arows = (
+                    ar.data if isinstance(ar.data, list)
+                    else (ar.data or {}).get("data") or []
+                )
+                if arows:
+                    latest_attempt = arows[0]
+        except Exception:
+            latest_attempt = None
+
+        has_attempt = latest_attempt is not None
+
         for e in rows:
             status = e.get("status")
             if status == "INVITED":
@@ -9803,8 +9825,14 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
             # Surface the most-recently-opened exam (KG sorts created_at
             # desc so the first match wins). Honour exam_available_at:
             # a future timestamp means the member sees "scheduled for X"
-            # — no Take-exam card yet.
-            if out["exam_ready"] is None and status in ("EXAM_READY", "FAILED"):
+            # — no Take-exam card yet. And once they've attempted, we
+            # no longer pester them to take it — the dashboard pivots to
+            # showing the result instead.
+            if (
+                out["exam_ready"] is None
+                and not has_attempt
+                and status in ("EXAM_READY", "FAILED")
+            ):
                 avail = (e.get("exam_available_at") or "").strip()
                 is_open = True
                 if avail:
@@ -9821,6 +9849,15 @@ def _portal_kg_enrollment_facts(member: Member, db: Session) -> dict:
                         "enrollment_id": e.get("id"),
                         "status": status,
                     }
+
+        if has_attempt:
+            out["exam_result"] = {
+                "attempt_id": latest_attempt.get("id"),
+                "status": latest_attempt.get("status"),
+                "percent": latest_attempt.get("percent"),
+                "passed": latest_attempt.get("passed"),
+                "cycle_id": latest_attempt.get("cycle_id"),
+            }
     except Exception:
         # Never break the portal home over a KG hiccup — pretend the
         # member can request; the worst case is a duplicate request
@@ -10009,6 +10046,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
         "kg_pending_invites": kg_facts["pending_invites"],
         "kg_can_request_to_join": kg_facts["can_request_to_join"],
         "kg_exam_ready": kg_facts["exam_ready"],
+        "kg_exam_result": kg_facts["exam_result"],
         "leadership": {
             "is_hc_leader": is_hc_leader,
             "led_home_churches": led_home_churches,
