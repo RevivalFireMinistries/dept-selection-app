@@ -612,15 +612,28 @@ async def portal_kg_certificate(
 # FACILITATOR (Info Desk) — cycle list + attendance + onsite marks
 # ---------------------------------------------------------------------------
 
-def _require_desk(request: Request) -> Optional[RedirectResponse]:
-    if not is_desk_authenticated(request):
-        return RedirectResponse(url="/desk/login?next=/desk/kg", status_code=302)
-    return None
+def _require_desk(request: Request, db: Session | None = None) -> Optional[RedirectResponse]:
+    """Allow either info-desk login OR a logged-in KG team / portal admin.
+
+    The KG team is responsible for running their own sessions — marking
+    the register, ticking milestones, recording on-site exam marks —
+    and shouldn't have to round-trip through info-desk staff to get it
+    done. Info desk still works (back-compat with any reception
+    workflow already wired to /desk/...). When a portal-side caller is
+    authenticated we let them through without needing the desk cookie.
+    """
+    if is_desk_authenticated(request):
+        return None
+    if db is not None:
+        ok, _ = _kg_can_manage(request, db)
+        if ok:
+            return None
+    return RedirectResponse(url="/desk/login?next=/desk/kg", status_code=302)
 
 
 @router.get("/desk/kg", response_class=HTMLResponse)
 async def desk_kg_home(request: Request, db: Session = Depends(get_db)):
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
@@ -648,7 +661,7 @@ async def desk_kg_attendance_page(
     """Live attendance roster for one class. ?class_id= pre-selects the
     class — we keep it as a query param so the facilitator can switch
     classes without losing their place."""
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
@@ -688,7 +701,7 @@ async def desk_kg_attendance_page(
 async def desk_kg_attendance_submit(
     cycle_id: str, request: Request, db: Session = Depends(get_db),
 ):
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
@@ -723,7 +736,7 @@ async def desk_kg_attendance_submit(
 async def desk_kg_onsite_exam_page(
     cycle_id: str, request: Request, db: Session = Depends(get_db),
 ):
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
@@ -755,7 +768,7 @@ async def desk_kg_onsite_exam_submit(
     exam_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
@@ -855,7 +868,7 @@ async def admin_kg_overview(request: Request, db: Session = Depends(get_db)):
 async def desk_kg_milestones_page(
     cycle_id: str, request: Request, db: Session = Depends(get_db),
 ):
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
@@ -905,7 +918,7 @@ async def desk_kg_milestones_mark(
 ):
     """Toggle one (enrollment, milestone) achievement. Form fields:
     enrollment_id, milestone_id, action (achieve|revoke)."""
-    redirect = _require_desk(request)
+    redirect = _require_desk(request, db)
     if redirect:
         return redirect
     if not kg.is_enabled(db):
