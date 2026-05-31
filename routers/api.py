@@ -5974,6 +5974,48 @@ def get_my_programs(phone: str, db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/programs/for-date")
+def get_programs_for_date(
+    request: Request,
+    date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Member-accessible: return programs for a given date so the projector
+    submission form can show which program section a media item belongs to."""
+    member = _require_logged_in_member(request, db)
+
+    from datetime import date as _date
+    try:
+        target = _date.fromisoformat(date) if date else _date.today()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    programs = (
+        db.query(ServiceProgram)
+        .filter(ServiceProgram.service_date == target)
+        .order_by(ServiceProgram.id)
+        .all()
+    )
+
+    result = []
+    for p in programs:
+        items = json.loads(p.program_items or "[]") if isinstance(p.program_items, str) else (p.program_items or [])
+        result.append({
+            "id": p.id,
+            "title": p.title or "Service Program",
+            "location_type": p.location_type or "onsite",
+            "status": getattr(p, "status", "draft") or "draft",
+            # Return every named item so the user can pick the right slot.
+            # Filter out unnamed / 'Close' housekeeping markers.
+            "sections": [
+                {"time": it.get("time", ""), "label": it.get("item", "")}
+                for it in items
+                if it.get("item") and it.get("item", "").lower() not in ("close", "end")
+            ],
+        })
+    return result
+
+
 @router.get("/programs/today")
 def get_todays_programs(db: Session = Depends(get_db)):
     """Public endpoint: get today's service program(s). Auto-cleans past programs."""

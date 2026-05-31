@@ -29,9 +29,12 @@
         <div id="panelMedia">
             <!-- Service Date -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date</label>
-                <input type="date" id="mediaDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date <span class="text-red-500">*</span></label>
+                <input type="date" id="mediaDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                       onchange="onDateChange('media')">
             </div>
+            <!-- Program section picker (revealed when a program exists for the date) -->
+            <div id="mediaProgramSection" class="hidden mb-4"></div>
 
             <!-- Upload Area -->
             <div class="mb-4">
@@ -62,8 +65,9 @@
 
             <!-- Title -->
             <div class="mb-5">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Caption <span class="text-gray-400 font-normal">(optional)</span></label>
-                <input type="text" id="mediaTitle" placeholder="Brief description of this item" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Name / Caption <span class="text-red-500">*</span></label>
+                <input type="text" id="mediaTitle" placeholder="e.g. Youth Camp Poster, Sunday Promo" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                <p class="text-xs text-gray-400 mt-1">Give this file a name so the operator knows what it is.</p>
             </div>
 
             <!-- Submit -->
@@ -85,9 +89,12 @@
         <div id="panelSongs" class="hidden">
             <!-- Service Date -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date</label>
-                <input type="date" id="songDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date <span class="text-red-500">*</span></label>
+                <input type="date" id="songDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                       onchange="onDateChange('songs')">
             </div>
+            <!-- Program section picker -->
+            <div id="songsProgramSection" class="hidden mb-4"></div>
 
             <!-- Song Search -->
             <div class="mb-4 relative">
@@ -139,9 +146,12 @@
         <div id="panelVerses" class="hidden">
             <!-- Service Date -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date</label>
-                <input type="date" id="verseDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Service Date <span class="text-red-500">*</span></label>
+                <input type="date" id="verseDate" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                       onchange="onDateChange('verses')">
             </div>
+            <!-- Program section picker -->
+            <div id="versesProgramSection" class="hidden mb-4"></div>
 
             <!-- Translation -->
             <div class="mb-4">
@@ -221,15 +231,11 @@ async function init() {
         return;
     }
 
-    // Set default date to next Sunday
-    const today = new Date();
-    const daysUntilSunday = (7 - today.getDay()) % 7 || 7;
-    const nextSunday = new Date(today);
-    nextSunday.setDate(today.getDate() + daysUntilSunday);
-    const dateStr = nextSunday.toISOString().split('T')[0];
-    document.getElementById('mediaDate').value = dateStr;
-    document.getElementById('songDate').value = dateStr;
-    document.getElementById('verseDate').value = dateStr;
+    // No date defaults on any tab — users must pick explicitly.
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('mediaDate').min = today;
+    document.getElementById('songDate').min = today;
+    document.getElementById('verseDate').min = today;
 
     // Load song catalog
     try {
@@ -274,6 +280,108 @@ function switchTab(tab) {
     if (isVerses) loadRecentVerses();
 }
 
+// ==================== PROGRAM SECTION PICKER ====================
+
+// Cache: dateStr → array of program objects (from /api/programs/for-date)
+const _programCache = {};
+
+async function onDateChange(tab) {
+    const dateIds = { media: 'mediaDate', songs: 'songDate', verses: 'verseDate' };
+    const sectionIds = { media: 'mediaProgramSection', songs: 'songsProgramSection', verses: 'versesProgramSection' };
+    const dateStr = document.getElementById(dateIds[tab]).value;
+
+    // Clear the picker immediately on date clear
+    if (!dateStr) {
+        _renderProgramPicker(sectionIds[tab], [], tab);
+        if (tab === 'songs') loadPrevSongs();
+        if (tab === 'verses') loadRecentVerses();
+        return;
+    }
+
+    if (tab === 'songs') loadPrevSongs();
+    if (tab === 'verses') loadRecentVerses();
+
+    // Use cache to avoid redundant fetches
+    if (_programCache[dateStr] !== undefined) {
+        _renderProgramPicker(sectionIds[tab], _programCache[dateStr], tab);
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/programs/for-date?date=${dateStr}`);
+        if (!res.ok) { _programCache[dateStr] = []; return; }
+        const data = await res.json();
+        _programCache[dateStr] = data;
+        _renderProgramPicker(sectionIds[tab], data, tab);
+    } catch (e) {
+        _programCache[dateStr] = [];
+    }
+}
+
+function _renderProgramPicker(containerId, programs, tab) {
+    const container = document.getElementById(containerId);
+    if (!programs || programs.length === 0) {
+        container.classList.add('hidden');
+        container.innerHTML = '';
+        return;
+    }
+
+    // Collect all sections across programs (label each with program title if more than one)
+    const multiProgram = programs.length > 1;
+    let options = '<option value="">— No specific section —</option>';
+    programs.forEach(prog => {
+        if (prog.sections && prog.sections.length > 0) {
+            const groupLabel = multiProgram ? prog.title : null;
+            if (groupLabel) options += `<optgroup label="${escHtml(groupLabel)}">`;
+            prog.sections.forEach(sec => {
+                const label = sec.time ? `${sec.time} — ${sec.label}` : sec.label;
+                const val = JSON.stringify({ programId: prog.id, programTitle: prog.title, label: sec.label });
+                options += `<option value='${val.replace(/'/g, "&apos;")}'>${escHtml(label)}</option>`;
+            });
+            if (groupLabel) options += '</optgroup>';
+        }
+    });
+
+    const accentClasses = {
+        media: 'border-orange-200 text-orange-800 bg-orange-50',
+        songs: 'border-purple-200 text-purple-800 bg-purple-50',
+        verses: 'border-amber-200 text-amber-800 bg-amber-50',
+    };
+    const focusClasses = {
+        media: 'focus:ring-orange-500 focus:border-orange-500',
+        songs: 'focus:ring-purple-500 focus:border-purple-500',
+        verses: 'focus:ring-amber-500 focus:border-amber-500',
+    };
+
+    container.innerHTML = `
+        <div class="rounded-xl border p-3 ${accentClasses[tab]}">
+            <div class="flex items-center gap-2 mb-2">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                <span class="text-xs font-semibold">Program found for this date</span>
+            </div>
+            <label class="block text-xs font-medium mb-1 opacity-80">Which part of the service is this for?</label>
+            <select id="${containerId}Select"
+                    class="w-full px-3 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:outline-none ${focusClasses[tab]}">
+                ${options}
+            </select>
+        </div>`;
+    container.classList.remove('hidden');
+}
+
+function _getSelectedSection(tab) {
+    const sectionIds = { media: 'mediaProgramSection', songs: 'songsProgramSection', verses: 'versesProgramSection' };
+    const sel = document.getElementById(sectionIds[tab] + 'Select');
+    if (!sel || !sel.value) return null;
+    try { return JSON.parse(sel.value); } catch { return null; }
+}
+
+function escHtml(t) {
+    const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
+}
+
 // ==================== MEDIA ====================
 
 function handleFileSelect(input) {
@@ -293,6 +401,14 @@ function handleFileSelect(input) {
     document.getElementById('dropZone').classList.add('hidden');
     document.getElementById('fileName').textContent = file.name;
     document.getElementById('fileSize').textContent = formatFileSize(file.size);
+
+    // Pre-fill the name/caption with the filename (extension stripped) so
+    // the user can see what they're submitting and edit it if needed.
+    const titleField = document.getElementById('mediaTitle');
+    if (!titleField.value) {
+        titleField.value = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+        titleField.select();
+    }
 
     if (isVideo) {
         document.getElementById('thumbImg').classList.add('hidden');
@@ -329,17 +445,21 @@ async function submitMedia() {
     successDiv.classList.add('hidden');
 
     if (!file) { errorDiv.textContent = 'Please select a file to upload'; errorDiv.classList.remove('hidden'); return; }
-    if (!serviceDate) { errorDiv.textContent = 'Please select a service date'; errorDiv.classList.remove('hidden'); return; }
+    if (!title) { errorDiv.textContent = 'Please enter a name or caption for this file'; errorDiv.classList.remove('hidden'); document.getElementById('mediaTitle').focus(); return; }
+    if (!serviceDate) { errorDiv.textContent = 'Please pick the service date this is for'; errorDiv.classList.remove('hidden'); document.getElementById('mediaDate').focus(); return; }
 
     const isVideo = file.type.startsWith('video/');
     const contentType = isVideo ? 'video' : 'image';
 
+    const section = _getSelectedSection('media');
+
     const formData = new FormData();
     formData.append('submitter_name', currentUser.full_name);
     formData.append('content_type', contentType);
-    formData.append('title', title || file.name);
+    formData.append('title', title);
     formData.append('service_date', serviceDate);
     formData.append('display_slot', 'any');
+    if (section) formData.append('comments', `Program section: ${section.label}`);
     formData.append('file', file);
 
     btn.disabled = true;
@@ -524,6 +644,7 @@ async function submitSongs() {
     btn.textContent = 'Submitting...';
 
     try {
+        const songSection = _getSelectedSection('songs');
         const payload = {
             submitter_name: currentUser.full_name,
             service_date: serviceDate,
@@ -532,7 +653,8 @@ async function submitSongs() {
                 song_title: s.song_title,
                 notes: s.notes || '',
                 song_order: i + 1
-            }))
+            })),
+            ...(songSection ? { program_section: songSection.label } : {})
         };
 
         const res = await fetch('/api/songlist/submit', {
@@ -947,6 +1069,8 @@ async function submitVerse() {
     btn.disabled = true;
     btn.textContent = 'Submitting…';
 
+    const verseSection = _getSelectedSection('verses');
+
     const formData = new FormData();
     formData.append('submitter_name', currentUser.full_name);
     formData.append('content_type', 'scripture');
@@ -954,6 +1078,7 @@ async function submitVerse() {
     formData.append('subtitle', translation);
     formData.append('service_date', serviceDate);
     formData.append('display_slot', 'any');
+    if (verseSection) formData.append('comments', `Program section: ${verseSection.label}`);
 
     try {
         const res = await fetch('/api/display/submit', { method: 'POST', body: formData });
