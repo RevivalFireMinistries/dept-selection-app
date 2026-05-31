@@ -243,6 +243,43 @@
     ).join('');
   }
 
+  /**
+   * Title-quality check — mirrors _title_quality_error in routers/display.py.
+   * Catches the common case of submitters pasting their phone-camera
+   * filename ("IMG_20240501_103245.jpg", UUID-named photos, etc.) into the
+   * title field. Returns a friendly error string, or null if the title is OK.
+   * The file argument lets us reject "title == uploaded filename" too.
+   */
+  function validateTitleQuality(title, type) {
+    const t = (title || '').trim();
+    if (t.length < 3) {
+      return 'Title is too short — describe what this is in a few words.';
+    }
+    const uuidRe = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(\.\w+)?$/i;
+    if (uuidRe.test(t)) {
+      return 'That looks like the filename of your photo, not a title. ' +
+             'Please describe what it is — e.g. "Youth camp poster", "Praise team welcome".';
+    }
+    // Title matches the uploaded file's name?
+    const fileInput = document.getElementById('itemFile');
+    if (fileInput && fileInput.files && fileInput.files.length > 0) {
+      const fn = fileInput.files[0].name;
+      const fnNoExt = fn.replace(/\.[^.]+$/, '');
+      if (t === fn || t === fnNoExt) {
+        return 'Your title is the same as the uploaded filename. ' +
+               'Please describe what the content is — e.g. "Membership class poster".';
+      }
+    }
+    // Mostly a long hex blob? Catches non-UUID camera names with hex strings.
+    const bare = t.replace(/\.(jpe?g|png|webp|gif|bmp|mp4|webm|mov|avi|mkv|pptx?)$/i, '');
+    if (/[a-f0-9]{12,}/i.test(bare)
+        && bare.replace(/[a-f0-9.\-_\s]/gi, '').length < 3) {
+      return 'That title looks like a generated filename. ' +
+             'Please write a short description so the media team can label it.';
+    }
+    return null;
+  }
+
   function showForm(type) {
     const form = document.getElementById('itemForm');
     const fileRow = document.getElementById('fileRow');
@@ -323,7 +360,21 @@
 
     const type = document.getElementById('formType').value;
     const title = document.getElementById('itemTitle').value.trim();
-    if (!title) { document.getElementById('itemTitle').focus(); return; }
+    if (!title) {
+      alert('Please give your submission a short title so the media team knows what it is.');
+      document.getElementById('itemTitle').focus();
+      return;
+    }
+    // Mirror the server-side title-quality check so the submitter gets
+    // an instant error rather than a 400 response after the upload.
+    // Same regex semantics as _title_quality_error() in display.py.
+    const titleErr = validateTitleQuality(title, type);
+    if (titleErr) {
+      alert(titleErr);
+      document.getElementById('itemTitle').focus();
+      document.getElementById('itemTitle').select();
+      return;
+    }
 
     // Force the submitter to choose a service date — no implicit default.
     // The date field lives inside the collapsed "Your Info & Service

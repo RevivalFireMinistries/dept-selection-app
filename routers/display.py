@@ -16,11 +16,67 @@ from sqlalchemy import desc
 from typing import Optional
 from datetime import date, datetime
 import os
+import re
 import uuid
 import json
 
 from database import get_db
 from models import DisplaySubmission
+
+
+# ─── Title quality validation ──────────────────────────────────────────
+#
+# Submitters on phones often paste the photo's filename into the title
+# field — and phone-camera filenames are usually UUIDs or hex blobs that
+# tell the FirePresenter operator nothing useful. We enforce a basic
+# "is this human-readable" check at the submission boundary so the
+# garbage never lands in the schedule downstream.
+
+_UUID_RE = re.compile(
+    r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}(\.\w+)?$",
+    re.IGNORECASE,
+)
+_LONG_HEX_RE = re.compile(r"[a-f0-9]{12,}", re.IGNORECASE)
+_MEDIA_EXT_RE = re.compile(
+    r"\.(jpe?g|png|webp|gif|bmp|mp4|webm|mov|avi|mkv|pptx?)$",
+    re.IGNORECASE,
+)
+
+
+def _title_quality_error(title: str, file_name: str | None) -> str | None:
+    """Return a user-friendly error string if the title is unfit for
+    display, else None. Keep the checks tight and the error messages
+    actionable — submitters fix what they understand."""
+    t = (title or "").strip()
+    if not t:
+        return "Please give your submission a short title so the media team knows what it is."
+    if len(t) < 3:
+        return "Title is too short — describe what this is in a few words."
+    if _UUID_RE.match(t):
+        return (
+            "That looks like the filename of your photo, not a title. "
+            "Please describe what it is — e.g. \"Youth camp poster\", \"Praise team welcome\"."
+        )
+    # Title is exactly the uploaded file's name, OR a name-with-extension
+    # variant of it. Same root cause as UUID — submitter pasted the file
+    # name instead of describing the content.
+    if file_name:
+        fn = file_name.strip()
+        if t == fn or t == os.path.splitext(fn)[0]:
+            return (
+                "Your title is the same as the uploaded filename. "
+                "Please describe what the content is — e.g. \"Membership class poster\"."
+            )
+    # A title that's mostly a long hex blob with an optional extension —
+    # catches camera roll names that aren't strict UUIDs but still
+    # tell the operator nothing.
+    bare = _MEDIA_EXT_RE.sub("", t)
+    if _LONG_HEX_RE.search(bare) and len(re.sub(r"[a-f0-9.\-_\s]", "", bare, flags=re.IGNORECASE)) < 3:
+        return (
+            "That title looks like a generated filename. "
+            "Please write a short description so the media team can label it."
+        )
+    return None
 
 router = APIRouter()
 
@@ -150,6 +206,15 @@ async def submit_display_content(
     valid_slots = ["before_service", "during_worship", "announcements", "during_sermon", "after_service", "any"]
     if display_slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid display_slot. Must be one of: {valid_slots}")
+
+    # Validate the title's readability. We check this BEFORE writing the
+    # uploaded file to disk so a rejected submission doesn't leave
+    # orphaned files behind. The file-name comparison uses the
+    # uploaded file's original name (file.filename) if there is one.
+    incoming_file_name = file.filename if (file and file.filename) else None
+    title_err = _title_quality_error(title, incoming_file_name)
+    if title_err:
+        raise HTTPException(status_code=400, detail=title_err)
 
     # Handle file upload
     file_path = None
