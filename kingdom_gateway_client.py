@@ -139,7 +139,7 @@ def _request(
     headers = {
         "X-API-Key": key,
         "Accept": "application/json",
-        "User-Agent": "RFM-Stellenbosch-Portal/1.0 (kg-client)",
+        "User-Agent": "RFM-Portal/1.0 (kg-client)",
     }
     if body is not None:
         data_bytes = json.dumps(body).encode("utf-8")
@@ -683,7 +683,7 @@ def get_certificate_pdf_bytes(enrollment_id: str, *, db=None) -> tuple[bool, byt
     req = urllib.request.Request(
         full,
         headers={"X-API-Key": key, "Accept": "application/pdf",
-                 "User-Agent": "RFM-Stellenbosch-Portal/1.0 (kg-client)"},
+                 "User-Agent": "RFM-Portal/1.0 (kg-client)"},
     )
     try:
         with urllib.request.urlopen(req, timeout=get_timeout(db)) as resp:

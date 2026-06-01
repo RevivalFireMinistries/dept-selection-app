@@ -474,7 +474,7 @@ def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manage
     {button_html}
 
     <hr style="border:none;border-top:1px solid {BORDER};margin:24px 0 16px 0;">
-    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries &middot; Stellenbosch</p>
+    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries</p>
   </td></tr>
 </table>
 </td></tr></table>

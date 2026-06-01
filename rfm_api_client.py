@@ -150,7 +150,7 @@ def _request(
     headers = {
         "X-API-Key": key,
         "Accept": "application/json",
-        "User-Agent": "RFM-Stellenbosch-Portal/1.0",
+        "User-Agent": "RFM-Portal/1.0",
     }
     if body is not None:
         data_bytes = json.dumps(body).encode("utf-8")
@@ -1002,7 +1002,7 @@ def create_manual_contribution(
                 headers={
                     "X-API-Key": key,
                     "Accept": "application/json",
-                    "User-Agent": "RFM-Stellenbosch-Portal/1.0",
+                    "User-Agent": "RFM-Portal/1.0",
                 },
                 data=data,
                 files=files,

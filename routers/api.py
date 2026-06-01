@@ -97,7 +97,7 @@ def _send_password_setup_email(db, member, token: str):
                     Hi {member.full_name},
                 </p>
                 <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
-                    The RFM Stellenbosch Portal now requires a password to sign in. Click below to set up your password.
+                    The Revival Fire Ministries Portal now requires a password to sign in. Click below to set up your password.
                 </p>
                 <a href="{reset_url}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
                     Set My Password
@@ -107,14 +107,14 @@ def _send_password_setup_email(db, member, token: str):
                 </p>
             </div>
             <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
-                <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+                <p style="color:#9ca3af;font-size:11px;margin:0;">Revival Fire Ministries Portal</p>
             </div>
         </div>
         """
 
         success, error = channel.send(
             member.email,
-            "Set Up Your Password - RFM Stellenbosch Portal",
+            "Set Up Your Password - Revival Fire Ministries Portal",
             html,
             event_code="member.password_setup",
             recipient_id=getattr(member, "id", None),
@@ -167,13 +167,13 @@ def _send_verification_email(request: Request, member: Member, token: str) -> No
         subject = "Confirm your RFM portal account"
         html = f"""
         <p>Hi {member.full_name.split(' ')[0] or 'there'},</p>
-        <p>Thanks for signing up to the RFM Stellenbosch portal. Please confirm
+        <p>Thanks for signing up to the Revival Fire Ministries portal. Please confirm
         your email address by clicking the button below — the link is valid
         for 24 hours.</p>
         <p><a href="{link}" style="display:inline-block;padding:10px 18px;background:#b8541c;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Confirm email</a></p>
         <p>If the button doesn't work, paste this into your browser:<br>
         <a href="{link}">{link}</a></p>
-        <p>— RFM Stellenbosch</p>
+        <p>— Revival Fire Ministries</p>
         """.strip()
         ok, err = ch.send(
             recipient=member.email,
@@ -734,7 +734,7 @@ def _send_portal_invite_email(
             </p>
           </div>
           <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
-            <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+            <p style="color:#9ca3af;font-size:11px;margin:0;">Revival Fire Ministries Portal</p>
           </div>
         </div>
         """.strip()
@@ -1028,7 +1028,7 @@ def forgot_password(
             <div style="border-top:3px solid #6366f1;padding:32px 0 16px;">
                 <h1 style="font-size:20px;margin:0 0 8px;">Reset Your Password</h1>
                 <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
-                    We received a request to reset your password for the RFM Stellenbosch Portal.
+                    We received a request to reset your password for the Revival Fire Ministries Portal.
                 </p>
                 <a href="{reset_url}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
                     Reset Password
@@ -1038,14 +1038,14 @@ def forgot_password(
                 </p>
             </div>
             <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
-                <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+                <p style="color:#9ca3af;font-size:11px;margin:0;">Revival Fire Ministries Portal</p>
             </div>
         </div>
         """
 
         success, error = channel.send(
             member.email,
-            "Reset Your Password - RFM Stellenbosch Portal",
+            "Reset Your Password - Revival Fire Ministries Portal",
             html,
             event_code="member.password_reset",
             recipient_id=getattr(member, "id", None),
@@ -1319,20 +1319,20 @@ def approve_member(member_id: int, request: Request = None, db: Session = Depend
                 <div style="border-top:3px solid #059669;padding:32px 0 16px;">
                     <h1 style="font-size:20px;margin:0 0 8px;">Account Approved!</h1>
                     <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">
-                        Hi {member.full_name}, your RFM Stellenbosch Portal account has been approved. You can now log in.
+                        Hi {member.full_name}, your Revival Fire Ministries Portal account has been approved. You can now log in.
                     </p>
                     <a href="{base_url}" style="display:inline-block;padding:12px 32px;background:#059669;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
                         Log In Now
                     </a>
                 </div>
                 <div style="border-top:1px solid #e5e7eb;padding:16px 0;margin-top:24px;">
-                    <p style="color:#9ca3af;font-size:11px;margin:0;">RFM Stellenbosch Portal</p>
+                    <p style="color:#9ca3af;font-size:11px;margin:0;">Revival Fire Ministries Portal</p>
                 </div>
             </div>
             """
             channel.send(
                 member.email,
-                "Account Approved - RFM Stellenbosch Portal",
+                "Account Approved - Revival Fire Ministries Portal",
                 html,
                 event_code="member.account_approved",
                 recipient_id=getattr(member, "id", None),
@@ -5569,13 +5569,13 @@ def send_test_email(data: TestEmailRequest, db: Session = Depends(get_db)):
 
     html = (
         "<div style='font-family:system-ui,sans-serif;padding:24px'>"
-        "<h2 style='color:#5b21b6'>Test email from RFM Stellenbosch Portal</h2>"
+        "<h2 style='color:#5b21b6'>Test email from Revival Fire Ministries Portal</h2>"
         "<p>If you received this, the portal is correctly routing email through rfm-notify.</p>"
         "</div>"
     )
     success, error = channel.send(
         data.to_email,
-        "Test email from RFM Stellenbosch Portal",
+        "Test email from Revival Fire Ministries Portal",
         html,
         event_code="portal.test_email",
         idempotency_key=f"test_email:{data.to_email}:{int(__import__('time').time())}",
@@ -6519,7 +6519,7 @@ def _send_published_copy_to_manager(db: Session, program: ServiceProgram):
     {prayer_html}
 
     <hr style="border:none;border-top:1px solid {BORDER};margin:20px 0 16px 0;">
-    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries &middot; Stellenbosch</p>
+    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries</p>
   </td></tr>
 </table>
 </td></tr></table>
@@ -8222,7 +8222,7 @@ Heads up that <strong>{r['hc_name']}</strong> on <strong>{nice_date}</strong> wo
 </p>
 {reason_html}
 <p style="margin:0 0 14px 0;color:#4b5563;font-size:14px;line-height:1.6;">No action needed on your side — this is just a heads-up so you can let your group know.</p>
-<p style="margin:24px 0 0 0;color:#9ca3af;font-size:12px;">Revival Fire Ministries · Stellenbosch</p>
+<p style="margin:24px 0 0 0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
 </td></tr>
 </table>
 </td></tr>

@@ -1,4 +1,4 @@
-/* RFM Stellenbosch Portal — Service Worker */
+/* Revival Fire Ministries Portal — Service Worker */
 // Bump the VERSION any time HTML / cached assets need to be force-refreshed
 // on every client. The activate handler below wipes any cache that doesn't
 // match the current VERSION, which is the only reliable way to evict stale

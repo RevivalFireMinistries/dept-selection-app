@@ -162,12 +162,12 @@ def run_migrations():
             ('smtp_port', os.getenv('SMTP_PORT', '587')),
             ('smtp_username', os.getenv('SMTP_USERNAME', '')),
             ('smtp_password', os.getenv('SMTP_PASSWORD', '')),
-            ('smtp_from_name', os.getenv('SMTP_FROM_NAME', 'RFM Stellenbosch')),
+            ('smtp_from_name', os.getenv('SMTP_FROM_NAME', 'Revival Fire Ministries')),
             ('smtp_from_email', os.getenv('SMTP_FROM_EMAIL', '')),
             # Resend settings (preferred for cloud platforms like Railway)
             ('resend_enabled', os.getenv('RESEND_ENABLED', 'false')),
             ('resend_api_key', os.getenv('RESEND_API_KEY', '')),
-            ('resend_from_name', os.getenv('RESEND_FROM_NAME', 'RFM Stellenbosch')),
+            ('resend_from_name', os.getenv('RESEND_FROM_NAME', 'Revival Fire Ministries')),
             ('resend_from_email', os.getenv('RESEND_FROM_EMAIL', '')),
             # Poster request settings
             ('poster_request_department_id', ''),  # Department ID that handles poster requests
@@ -789,7 +789,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="RFM Stellenbosch Portal", lifespan=lifespan)
+app = FastAPI(title="Revival Fire Ministries Portal", lifespan=lifespan)
 
 # ─── Verbose request/response logging ───────────────────────────────
 import time as _time, logging as _logging
