@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Portal Not Configured{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center px-5" style="background-color: var(--color-paper);">
+    <div class="max-w-md w-full text-center">
+
+        <!-- Icon -->
+        <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6"
+             style="background-color: rgba(184,84,28,0.10);">
+            <svg class="w-8 h-8" style="color: var(--color-ember);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                      d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+        </div>
+
+        <h1 class="font-display text-2xl font-semibold mb-2" style="color: var(--color-ink);">
+            Portal Not Configured
+        </h1>
+        <p class="text-sm leading-relaxed mb-8" style="color: var(--color-mute);">
+            This portal deployment has not been linked to an assembly yet.
+            An administrator needs to set the assembly ID before members can
+            use the portal.
+        </p>
+
+        <!-- Instructions card -->
+        <div class="rounded-2xl p-5 text-left mb-6"
+             style="background-color: #fff; border: 1px solid var(--color-border);">
+            <h2 class="text-sm font-semibold mb-3" style="color: var(--color-ink);">
+                For the administrator
+            </h2>
+            <ol class="space-y-3 text-sm" style="color: var(--color-mute);">
+                <li class="flex gap-3">
+                    <span class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5"
+                          style="background-color: var(--color-ember); color: white;">1</span>
+                    <span>Log in to the admin panel at
+                        <a href="/admin/login" class="font-medium hover:underline"
+                           style="color: var(--color-ember);">/admin/login</a>
+                    </span>
+                </li>
+                <li class="flex gap-3">
+                    <span class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5"
+                          style="background-color: var(--color-ember); color: white;">2</span>
+                    <span>Go to <strong>Settings</strong> and set the
+                        <code class="px-1.5 py-0.5 rounded text-xs"
+                              style="background-color: var(--color-paper); border: 1px solid var(--color-border);">rfm_assembly_id</code>
+                        to your assembly's UUID from church-manager.
+                    </span>
+                </li>
+                <li class="flex gap-3">
+                    <span class="w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5"
+                          style="background-color: var(--color-ember); color: white;">3</span>
+                    <span>Alternatively, set the
+                        <code class="px-1.5 py-0.5 rounded text-xs"
+                              style="background-color: var(--color-paper); border: 1px solid var(--color-border);">CHURCH_MANAGER_ASSEMBLY_ID</code>
+                        environment variable in your Railway deployment settings.
+                    </span>
+                </li>
+            </ol>
+        </div>
+
+        <a href="/admin/login"
+           class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm hover:shadow"
+           style="background-color: var(--color-ink); color: white;">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Go to Admin Settings
+        </a>
+    </div>
+</div>
+{% endblock %}

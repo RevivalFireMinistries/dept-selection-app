@@ -1,25 +1,21 @@
 """
-Assembly feature flags.
+Assembly feature flags — single source of truth for what the portal exposes.
 
-Each key maps to a toggleable feature. Flags are stored in the Settings
-table as  feature_<key> = "true" | "false"  and fall back to the defaults
-defined here when no row exists.
+Every feature the portal contains is listed here.  The SuperAdmin in
+church-manager controls which flags are on/off per assembly via the
+PortalConfig model.  The portal fetches that config on every request
+(cached 60 s) and injects `features` into every Jinja2 template and
+`window.FEATURES` in the base template so both server-side and
+client-side code can gate accordingly.
 
-Usage
------
-    from features import get_features
-    flags = get_features(db)        # dict[str, bool]
-    if flags["kg"]:
-        ...
+Resolution order (highest-priority last wins):
+  1. Compiled defaults below
+  2. Local Settings rows  feature_<key> = "true"/"false"
+     (useful as dev overrides or when church-manager is not connected)
+  3. church-manager PortalConfig.features  ← authoritative in production
 
-Middleware (main.py) calls get_features(db) on every request and stores
-the result in request.state.features.  The RFMTemplates subclass in
-routers/pages.py auto-injects it into every TemplateResponse context,
-so templates can always reference  {{ features.kg }},  {{ features.giving }},
-etc. without any individual route handler needing to pass it.
-
-Admin can toggle flags via  PUT /api/admin/features  or the
-/admin/features  page.  Call invalidate_cache() after any write.
+Call invalidate_cache() after writing any feature_* Settings row or
+after church-manager config is expected to have changed.
 """
 
 from __future__ import annotations
@@ -29,147 +25,330 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
-# ── Canonical feature list ────────────────────────────────────────────────────
-# "default" is what the app behaves like when no Settings row exists for the key.
-# "label"   is shown in the admin Features UI.
-# "group"   is used to organise the toggle grid.
 
+# ── Canonical feature registry ────────────────────────────────────────────────
 FEATURES: dict[str, dict] = {
-    # ── Core member workflow ───────────────────────────────────────────────────
+
+    # ── Member Portal — Core ─────────────────────────────────────────────────
     "department_selection": {
         "label": "Department Selection",
-        "group": "Core",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Members choose departments to serve in; admin approves/rejects.",
+        "description": "Members choose departments to serve in; submit, edit, view results, and appeal.",
     },
-    "meetings": {
-        "label": "Meetings",
-        "group": "Core",
+    "change_requests": {
+        "label": "Change Requests",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Department and leadership meetings with RSVP.",
+        "description": "Members submit profile change requests; admin reviews and approves/rejects.",
     },
-    "connect_form": {
-        "label": "Connect Card",
-        "group": "Core",
+    "profile_enrichment": {
+        "label": "Profile Enrichment Prompts",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Public visitor registration / first-time connect form.",
+        "description": "One-at-a-time prompts on the portal home to fill in missing personal data.",
     },
-    # ── Service & media ───────────────────────────────────────────────────────
-    "programs": {
-        "label": "Service Programs",
-        "group": "Service & Media",
+    "spouse_linking": {
+        "label": "Spouse Linking",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Order-of-service programs, templates, participant scheduling.",
+        "description": "Members can search and link a spouse to form a family unit.",
     },
-    "projector": {
-        "label": "Projector / Display",
-        "group": "Service & Media",
+    "push_notifications": {
+        "label": "Push Notifications",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Members submit media, verses, and songs for the projector.",
+        "description": "Opt-in banner and subscription management for browser push alerts.",
     },
-    "songs": {
-        "label": "Song List",
-        "group": "Service & Media",
+    "calendar": {
+        "label": "Calendar (What's Coming Up)",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Song catalog and worship set-list submission.",
+        "description": "Google Calendar events section on the portal home.",
     },
-    "poster_requests": {
-        "label": "Poster / Design Requests",
-        "group": "Service & Media",
+    "attendance": {
+        "label": "Attendance Summary",
+        "group": "Member Portal — Core",
         "default": True,
-        "description": "Members request event posters from the design team.",
+        "description": "Monthly and yearly view of personal service attendance.",
     },
-    # ── Content & discipleship ────────────────────────────────────────────────
+
+    # ── Member Portal — Content ──────────────────────────────────────────────
     "devotionals": {
         "label": "Devotionals",
-        "group": "Content & Discipleship",
+        "group": "Member Portal — Content",
         "default": True,
-        "description": "Daily devotionals authored by leaders, shown on the portal home.",
+        "description": "Daily devotional card on portal home and full reading page.",
+    },
+    "verse_of_the_day": {
+        "label": "Verse of the Day",
+        "group": "Member Portal — Content",
+        "default": True,
+        "description": "Fallback scripture card shown when no devotional is scheduled.",
     },
     "reading_plans": {
         "label": "Reading Plans",
-        "group": "Content & Discipleship",
+        "group": "Member Portal — Content",
         "default": True,
-        "description": "Bible reading plans members can follow and track.",
+        "description": "Enrol in and track Bible reading plans with streaks and progress.",
+    },
+    "announcements": {
+        "label": "Announcements",
+        "group": "Member Portal — Content",
+        "default": True,
+        "description": "Pinned and time-windowed notice cards on the portal home.",
+    },
+
+    # ── Member Portal — Giving & Finance ─────────────────────────────────────
+    "giving": {
+        "label": "Online Giving",
+        "group": "Member Portal — Giving & Finance",
+        "default": True,
+        "description": "Online giving form via Yoco (card / Apple Pay).",
+    },
+    "banking_details": {
+        "label": "Banking Details",
+        "group": "Member Portal — Giving & Finance",
+        "default": True,
+        "description": "Church bank account details card with copy and share buttons.",
+    },
+    "pledges": {
+        "label": "Pledges",
+        "group": "Member Portal — Giving & Finance",
+        "default": True,
+        "description": "Active pledge display and payment against projects.",
+    },
+    "contribution_history": {
+        "label": "Contribution History",
+        "group": "Member Portal — Giving & Finance",
+        "default": True,
+        "description": "Past giving grouped by month with project filter.",
+    },
+
+    # ── Member Portal — Community ────────────────────────────────────────────
+    "meetings": {
+        "label": "Meetings",
+        "group": "Member Portal — Community",
+        "default": True,
+        "description": "Upcoming department and leadership meetings with RSVP.",
+    },
+    "home_church": {
+        "label": "Home Church",
+        "group": "Member Portal — Community",
+        "default": True,
+        "description": "Home church membership display on the portal.",
     },
     "surveys": {
         "label": "Surveys",
-        "group": "Content & Discipleship",
+        "group": "Member Portal — Community",
         "default": True,
-        "description": "Create and distribute surveys to members.",
+        "description": "Survey list, responses, and builder (for authorised members).",
     },
-    # ── Finance ───────────────────────────────────────────────────────────────
-    "giving": {
-        "label": "Giving / Contributions",
-        "group": "Finance",
+
+    # ── Member Portal — Services & Media ────────────────────────────────────
+    "programs": {
+        "label": "Service Programs",
+        "group": "Member Portal — Services & Media",
         "default": True,
-        "description": "Online giving via Yoco, contribution history, pledge tracking.",
+        "description": "Service order-of-service programs visible to members.",
     },
-    # ── Structure ─────────────────────────────────────────────────────────────
-    "home_church": {
-        "label": "Home Churches",
-        "group": "Structure",
+    "poster_requests": {
+        "label": "Poster / Design Requests",
+        "group": "Member Portal — Services & Media",
         "default": True,
-        "description": "Home church groups, rosters, attendance, and preacher assignment.",
+        "description": "Members request event posters from the design team.",
     },
+    "projector_submit": {
+        "label": "Projector / Display Submission",
+        "group": "Member Portal — Services & Media",
+        "default": True,
+        "description": "Members submit media, verses, and announcements for the projector.",
+    },
+    "songs": {
+        "label": "Song List",
+        "group": "Member Portal — Services & Media",
+        "default": True,
+        "description": "Worship song set-list submission and song catalog.",
+    },
+
+    # ── Kingdom Gateway ──────────────────────────────────────────────────────
     "kg": {
-        "label": "Kingdom Gateway",
-        "group": "Structure",
+        "label": "Kingdom Gateway (Discipleship)",
+        "group": "Kingdom Gateway",
         "default": False,
-        "description": "Discipleship training cycles, exams, milestones, and teacher pool.",
+        "description": "Full KG module — member enrolment, exams, cycles, milestones, and all admin/desk KG screens.",
+    },
+
+    # ── Public (No Login) ────────────────────────────────────────────────────
+    "connect_form": {
+        "label": "Connect Card (Visitor Form)",
+        "group": "Public",
+        "default": True,
+        "description": "Public visitor registration form at /connect. Includes admin submissions view.",
+    },
+    "public_giving": {
+        "label": "Public Giving Page",
+        "group": "Public",
+        "default": True,
+        "description": "Anyone can donate at /give without creating an account.",
+    },
+    "public_surveys": {
+        "label": "Public Surveys",
+        "group": "Public",
+        "default": True,
+        "description": "Anonymous survey responses via shareable /s/{slug} links.",
+    },
+
+    # ── Admin — Service Management ───────────────────────────────────────────
+    "admin_programs": {
+        "label": "Programs (Admin)",
+        "group": "Admin — Service Management",
+        "default": True,
+        "description": "Service programs, templates, and schedules in the admin panel.",
+    },
+    "admin_meetings": {
+        "label": "Meetings (Admin)",
+        "group": "Admin — Service Management",
+        "default": True,
+        "description": "Meeting creation, RSVP tracking, and reminder management.",
+    },
+    "admin_poster_requests": {
+        "label": "Poster Requests (Admin)",
+        "group": "Admin — Service Management",
+        "default": True,
+        "description": "Poster design request management in the admin panel.",
+    },
+    "admin_projector_submissions": {
+        "label": "Display Submissions (Admin)",
+        "group": "Admin — Service Management",
+        "default": True,
+        "description": "Approve, reject, and delete projector media submissions.",
+    },
+    "admin_songs": {
+        "label": "Song Catalog (Admin)",
+        "group": "Admin — Service Management",
+        "default": True,
+        "description": "Song catalog and set-list management in the admin panel.",
+    },
+
+    # ── Admin — Content Management ───────────────────────────────────────────
+    "admin_devotionals": {
+        "label": "Devotionals (Admin)",
+        "group": "Admin — Content Management",
+        "default": True,
+        "description": "Devotional builder, scheduling, and publishing.",
+    },
+    "admin_reading_plans": {
+        "label": "Reading Plans (Admin)",
+        "group": "Admin — Content Management",
+        "default": True,
+        "description": "Reading plan builder and member completion metrics.",
+    },
+    "admin_announcements": {
+        "label": "Announcements (Admin)",
+        "group": "Admin — Content Management",
+        "default": True,
+        "description": "Announcement creation, pinning, and scheduling.",
+    },
+    "admin_surveys": {
+        "label": "Surveys (Admin)",
+        "group": "Admin — Content Management",
+        "default": True,
+        "description": "Survey creation, distribution, and response analysis.",
+    },
+
+    # ── Admin — Structure ────────────────────────────────────────────────────
+    "admin_home_churches": {
+        "label": "Home Churches (Admin)",
+        "group": "Admin — Structure",
+        "default": True,
+        "description": "Home church cells, rosters, preacher assignment, and attendance.",
+    },
+    "admin_connect_submissions": {
+        "label": "Connect Submissions (Admin)",
+        "group": "Admin — Structure",
+        "default": True,
+        "description": "Review visitor registration submissions.",
+    },
+    "admin_rfm_sync": {
+        "label": "Member Sync (Admin)",
+        "group": "Admin — Structure",
+        "default": True,
+        "description": "Sync members to/from the central rfm-database.",
+    },
+
+    # ── Admin — Finance ──────────────────────────────────────────────────────
+    "admin_giving": {
+        "label": "Giving / Payments (Admin)",
+        "group": "Admin — Finance",
+        "default": True,
+        "description": "Yoco configuration, transaction history, and payment webhooks.",
+    },
+
+    # ── Admin — Kingdom Gateway ──────────────────────────────────────────────
+    "admin_kg": {
+        "label": "Kingdom Gateway (Admin)",
+        "group": "Admin — Kingdom Gateway",
+        "default": False,
+        "description": "Cycle management, enrolment, exam administration, team, and reports.",
+    },
+
+    # ── Admin — AI ──────────────────────────────────────────────────────────
+    "admin_ai": {
+        "label": "AI Features (Admin)",
+        "group": "Admin — AI",
+        "default": False,
+        "description": "AI provider configuration and AI-powered member tools.",
+    },
+
+    # ── Operator Tools ───────────────────────────────────────────────────────
+    "info_desk": {
+        "label": "Info Desk",
+        "group": "Operator Tools",
+        "default": True,
+        "description": "Info desk login and all desk screens for member lookup and registration.",
+    },
+    "projector_operator": {
+        "label": "Projector Operator Screen",
+        "group": "Operator Tools",
+        "default": True,
+        "description": "Full projector operator screen at /projector with media, verses, and songs tabs.",
     },
 }
 
-# ── In-memory cache (per-process) ────────────────────────────────────────────
-# Avoids a DB hit on every request. Invalidated by invalidate_cache() which
-# is called after any Settings write that touches a feature_* key.
 
+# ── In-memory cache ───────────────────────────────────────────────────────────
 _cache: dict[str, bool] = {}
 _cache_ts: float = 0.0
 _CACHE_TTL = 60  # seconds
 
 
 def get_features(db: "Session") -> dict[str, bool]:
-    """Return the resolved feature flags for the current assembly deployment.
-
-    Resolution order (first source that returns data wins):
-
-    1. **Church Manager** — fetches PortalConfig from the church-manager
-       backend via church_manager_client.  This is the authoritative source
-       when CHURCH_MANAGER_URL / CHURCH_MANAGER_API_KEY /
-       CHURCH_MANAGER_ASSEMBLY_ID are all set.
-
-    2. **Local Settings table** — feature_<key> rows written by the
-       /admin/features page.  Used as an override layer or standalone
-       fallback when church-manager is not configured.
-
-    3. **Compiled defaults** — the "default" values in FEATURES above.
-
-    The result is cached for _CACHE_TTL seconds (the church-manager client
-    has its own identical TTL so the effective combined cache is ~60 s).
+    """Return resolved feature flags.  Resolution order (last wins):
+      1. Compiled defaults
+      2. Local Settings rows  feature_<key>
+      3. church-manager PortalConfig.features  (highest priority)
+    Result cached for _CACHE_TTL seconds.
     """
     global _cache, _cache_ts
     now = time.monotonic()
     if _cache and now - _cache_ts < _CACHE_TTL:
         return dict(_cache)
 
-    # Start from compiled defaults
     flags: dict[str, bool] = {k: meta["default"] for k, meta in FEATURES.items()}
 
-    # Layer 1: local Settings overrides (so admins can override church-manager
-    # values locally during development or when church-manager is unreachable)
+    # Layer 1 — local Settings overrides
     try:
-        from models import Settings  # avoid circular import at module load
+        from models import Settings
         rows = db.query(Settings).filter(Settings.key.like("feature_%")).all()
         for row in rows:
             key = row.key[len("feature_"):]
             if key in flags:
                 flags[key] = (row.value or "").strip().lower() in ("true", "1", "yes", "on")
     except Exception:
-        pass  # DB unavailable during startup — continue with defaults
+        pass
 
-    # Layer 2 (highest priority): church-manager PortalConfig
-    # Overrides both compiled defaults and local Settings rows.
+    # Layer 2 — church-manager PortalConfig (authoritative)
     try:
         from church_manager_client import get_portal_config
         remote = get_portal_config()
@@ -178,7 +357,7 @@ def get_features(db: "Session") -> dict[str, bool]:
                 if key in flags:
                     flags[key] = bool(val)
     except Exception:
-        pass  # client not installed or misconfigured — degrade gracefully
+        pass
 
     _cache = flags
     _cache_ts = now
@@ -186,19 +365,16 @@ def get_features(db: "Session") -> dict[str, bool]:
 
 
 def default_features() -> dict[str, bool]:
-    """Return the compiled defaults without touching the DB — safe to call
-    before a DB session is available (e.g. during startup or in tests)."""
+    """Compiled defaults only — safe to call without a DB session."""
     return {k: meta["default"] for k, meta in FEATURES.items()}
 
 
 def invalidate_cache() -> None:
-    """Force the next get_features() call to re-read from the DB and
-    re-fetch from church-manager.  Call this after writing any feature_*
-    Settings row or after church-manager config is expected to have changed."""
+    """Force next get_features() to re-read from DB and church-manager."""
     global _cache_ts
     _cache_ts = 0.0
     try:
-        from church_manager_client import invalidate_cache as _cm_invalidate
-        _cm_invalidate()
+        from church_manager_client import invalidate_cache as _cm
+        _cm()
     except Exception:
         pass

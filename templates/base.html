@@ -69,6 +69,13 @@
         [x-cloak] { display: none !important; }
     </style>
     {% block head %}{% endblock %}
+    {# Expose assembly context and feature flags to client-side JS.
+       Alpine.js components and vanilla JS can read window.FEATURES.kg etc.
+       to conditionally show/hide elements without an extra API call. #}
+    <script>
+    window.ASSEMBLY = {{ assembly | tojson }};
+    window.FEATURES = {{ features | tojson }};
+    </script>
 </head>
 <body class="min-h-screen" style="background-color: var(--color-paper);">
     {% block content %}{% endblock %}

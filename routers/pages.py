@@ -23,16 +23,22 @@ class RFMTemplates(Jinja2Templates):
     def TemplateResponse(self, name, context, status_code=200, headers=None,
                          media_type=None, background=None):
         req = context.get("request")
-        if req is not None and "features" not in context:
+        if req is not None:
             try:
-                f = req.state.features
-                if f is not None:
-                    context["features"] = f
+                if "features" not in context and req.state.features:
+                    context["features"] = req.state.features
+            except AttributeError:
+                pass
+            try:
+                if "assembly" not in context and req.state.assembly:
+                    context["assembly"] = req.state.assembly
             except AttributeError:
                 pass
         if "features" not in context:
             from features import default_features
             context["features"] = default_features()
+        if "assembly" not in context:
+            context["assembly"] = {"id": None, "name": "Revival Fire Ministries", "configured": False}
         return super().TemplateResponse(
             name, context,
             status_code=status_code,
@@ -162,6 +168,24 @@ async def manifest():
 @router.get("/offline", include_in_schema=False)
 async def offline_page(request: Request):
     return templates.TemplateResponse("offline.html", {"request": request})
+
+
+@router.get("/not-configured", include_in_schema=False)
+async def not_configured_page(request: Request):
+    """Shown when the portal has no assembly UUID configured."""
+    return templates.TemplateResponse("not_configured.html", {"request": request})
+
+
+# ── Feature-gate helper ───────────────────────────────────────────────────────
+
+def _require_feature(request: Request, flag: str):
+    """Raise 404 if a feature flag is disabled for this assembly.
+    Call at the top of any page route that should be inaccessible when
+    the flag is off — returns None on success, raises HTTPException on fail."""
+    from fastapi import HTTPException
+    features = getattr(request.state, "features", {})
+    if not features.get(flag, True):
+        raise HTTPException(status_code=404, detail="This feature is not enabled for your assembly.")
 
 
 # ============ PUBLIC ROUTES ============
@@ -446,8 +470,8 @@ async def admin_members(request: Request):
 
 @router.get("/give")
 async def public_give_page(request: Request):
-    """Public Yoco giving page. No login required — guests can give and
-    optionally sign in for a smoother experience."""
+    """Public Yoco giving page. No login required."""
+    _require_feature(request, "public_giving")
     return templates.TemplateResponse("give.html", {"request": request})
 
 
@@ -469,6 +493,7 @@ async def public_give_failure_page(request: Request):
 @router.get("/connect")
 async def public_connect_form(request: Request):
     """Public visitor connect card. No login required."""
+    _require_feature(request, "connect_form")
     return templates.TemplateResponse("connect.html", {"request": request})
 
 
@@ -476,6 +501,7 @@ async def public_connect_form(request: Request):
 async def admin_connect_submissions_page(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_connect_submissions")
     return templates.TemplateResponse("admin/connect_submissions.html", {"request": request})
 
 
@@ -483,6 +509,7 @@ async def admin_connect_submissions_page(request: Request):
 async def admin_devotionals_page(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_devotionals")
     return templates.TemplateResponse("admin/devotionals/list.html", {"request": request})
 
 
@@ -490,6 +517,7 @@ async def admin_devotionals_page(request: Request):
 async def admin_devotionals_builder(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_devotionals")
     return templates.TemplateResponse("admin/devotionals/builder.html", {"request": request})
 
 
@@ -512,6 +540,7 @@ async def admin_surveys_page(request: Request):
     """Admin: list all surveys + manage who can create them."""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_surveys")
     return templates.TemplateResponse("admin/surveys.html", {"request": request})
 
 
@@ -520,6 +549,7 @@ async def admin_surveys_builder(request: Request):
     """Admin: create or edit a survey (?id=N for edit)."""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_surveys")
     return templates.TemplateResponse("admin/survey_builder.html", {"request": request})
 
 
@@ -528,12 +558,14 @@ async def admin_survey_responses_page(request: Request, survey_id: int):
     """Admin: view responses for a survey."""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_surveys")
     return templates.TemplateResponse("admin/survey_responses.html", {"request": request})
 
 
 @router.get("/surveys")
 async def member_surveys_page(request: Request, db: Session = Depends(get_db)):
     """Authorised member's survey list."""
+    _require_feature(request, "surveys")
     member = get_current_member(request, db)
     if not member:
         return RedirectResponse(url="/?next=/surveys", status_code=302)
@@ -572,6 +604,8 @@ async def member_survey_responses_page(request: Request, survey_id: int, db: Ses
 
 @router.get("/s/{slug}")
 async def public_survey_page(request: Request, slug: str, db: Session = Depends(get_db)):
+    _require_feature(request, "public_surveys")
+    """Public response page — no auth required."""
     """Public response page — no auth required. Server-rendered meta so link
     previews (WhatsApp / FB / Twitter) show the survey title."""
     from models import Survey
@@ -610,6 +644,7 @@ async def admin_member_profile(request: Request, member_id: int):
 @router.get("/desk/login")
 async def desk_login_page(request: Request):
     """Desk login page"""
+    _require_feature(request, "info_desk")
     if is_desk_authenticated(request):
         return RedirectResponse(url="/desk", status_code=302)
     return templates.TemplateResponse("desk/login.html", {"request": request, "error": None})
@@ -871,6 +906,7 @@ async def desk_member_profile(request: Request, member_id: int):
 @router.get("/hod/meetings")
 async def hod_meetings(request: Request):
     """HOD meeting management with calendar"""
+    _require_feature(request, "meetings")
     return templates.TemplateResponse("hod/meetings.html", {"request": request})
 
 
@@ -879,6 +915,7 @@ async def admin_meetings(request: Request):
     """Admin meeting management"""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_meetings")
     return templates.TemplateResponse("admin/meetings.html", {"request": request})
 
 
@@ -887,6 +924,7 @@ async def admin_meetings(request: Request):
 @router.get("/poster-request")
 async def poster_request_form(request: Request):
     """Poster request form - requires phone login"""
+    _require_feature(request, "poster_requests")
     return templates.TemplateResponse("poster_request.html", {"request": request})
 
 
@@ -895,6 +933,7 @@ async def admin_poster_requests(request: Request):
     """Admin poster requests management"""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_poster_requests")
     return templates.TemplateResponse("admin/poster_requests.html", {"request": request})
 
 
@@ -903,6 +942,7 @@ async def admin_programs(request: Request):
     """Admin service programs management"""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_programs")
     return templates.TemplateResponse("admin/programs.html", {"request": request})
 
 
@@ -911,6 +951,7 @@ async def admin_program_templates(request: Request):
     """Admin program templates management"""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_programs")
     return templates.TemplateResponse("admin/program_templates.html", {"request": request})
 
 
@@ -919,6 +960,7 @@ async def admin_schedules(request: Request):
     """Admin service schedule management"""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_programs")
     return templates.TemplateResponse("admin/schedules.html", {"request": request})
 
 
@@ -928,11 +970,13 @@ async def admin_rfm_sync(request: Request):
     the central rfm-database directory."""
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "admin_rfm_sync")
     return templates.TemplateResponse("admin/rfm_sync.html", {"request": request})
 
 
 @router.get("/admin/home-churches")
 async def admin_home_churches(request: Request, phone: Optional[str] = None):
+    _require_feature(request, "admin_home_churches")
     """Home Church Committee: manage home churches and preacher roster.
 
     Admins get the full admin chrome. Committee members (by member_session OR
@@ -1031,15 +1075,17 @@ async def admin_home_churches(request: Request, phone: Optional[str] = None):
 
 @router.get("/display/submit")
 async def display_submit_page(request: Request, db: Session = Depends(get_db)):
-    """Projector submission page — requires login"""
+    """Display submission page — requires login and projector_submit feature."""
+    _require_feature(request, "projector_submit")
     member = get_current_member(request, db)
     if not member:
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("projector.html", {"request": request})
+    return templates.TemplateResponse("display_submit.html", {"request": request})
 
 @router.get("/projector")
 async def projector_page(request: Request, db: Session = Depends(get_db)):
-    """Projector submission page — requires login"""
+    """Projector operator screen — requires login and projector_operator feature."""
+    _require_feature(request, "projector_operator")
     member = get_current_member(request, db)
     if not member:
         return RedirectResponse(url="/", status_code=302)
@@ -1048,4 +1094,5 @@ async def projector_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/songlist")
 async def songlist_page(request: Request):
     """Legacy songlist page — redirects to projector"""
+    _require_feature(request, "songs")
     return RedirectResponse(url="/projector", status_code=302)
