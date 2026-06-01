@@ -30,7 +30,7 @@
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-sm font-semibold font-display" x-text="initials(data.member.full_name)"></div>
                     <div class="min-w-0">
-                        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60 truncate" x-text="data.assembly_name || 'Revival Fire Ministries'"></div>
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60 truncate">Revival Fire Ministries</div>
                         <div class="text-base font-semibold truncate" x-text="data.member.full_name"></div>
                     </div>
                 </div>
@@ -1651,10 +1651,10 @@ function memberPortal() {
         menuOpen: false,
         hcInfoOpen: false,
         tabs: [
-            { id: 'home',          icon: '🏠', label: 'Home'          },
-            { id: 'departments',   icon: '🛠', label: 'Departments'   },
-            { id: 'contributions', icon: '🤲', label: 'Contributions' },
-            { id: 'attendance',    icon: '📅', label: 'Attendance'    },
+            { id: 'home', icon: '🏠', label: 'Home' },
+            {% if features.department_selection %}{ id: 'departments',   icon: '🛠', label: 'Departments'   },{% endif %}
+            {% if features.giving or features.banking_details or features.pledges or features.contribution_history %}{ id: 'contributions', icon: '🤲', label: 'Contributions' },{% endif %}
+            {% if features.attendance %}{ id: 'attendance',    icon: '📅', label: 'Attendance'    },{% endif %}
         ],
 
         // Email verification banner
