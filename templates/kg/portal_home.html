@@ -4,7 +4,14 @@
 <div class="min-h-screen" style="background-color: var(--color-paper);">
   <header class="text-white px-5 py-5 sticky top-0 z-30" style="background-color: var(--color-ink);">
     <div class="max-w-3xl mx-auto flex items-center gap-3">
-      <a href="/portal" class="text-white/70 hover:text-white">&larr;</a>
+      <a href="/portal" class="flex items-center gap-2 min-w-0 group">
+        <span class="w-8 h-8 rounded-full flex items-center justify-center transition-colors" style="background-color: rgba(255,255,255,0.15);">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </span>
+        <span class="text-sm font-medium text-white/80">Portal home</span>
+      </a>
       <div>
         <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Course</div>
         <div class="text-lg font-semibold">Kingdom Gateway</div>
@@ -93,5 +100,17 @@
       {% endfor %}
     {% endif %}
   </main>
+  <!-- Sticky bottom nav — mirrors the portal home tab bar so members always have a way back -->
+  <nav class="fixed bottom-0 inset-x-0 bg-white z-30" style="border-top: 1px solid var(--color-border);">
+    <div class="max-w-3xl mx-auto">
+      <a href="/portal" class="flex items-center justify-center gap-2 py-3 hover:bg-stone-50 transition">
+        <svg class="w-4 h-4" style="color: var(--color-mute);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        <span class="text-sm font-semibold" style="color: var(--color-mute);">Back to Portal</span>
+      </a>
+    </div>
+  </nav>
+  <div class="pb-16"></div>
 </div>
 {% endblock %}
