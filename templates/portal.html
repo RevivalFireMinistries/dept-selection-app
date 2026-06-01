@@ -993,8 +993,7 @@
                 <div class="text-xs text-gray-500" x-text="data?.member?.address || ''"></div>
             </div>
 
-            {% if features.push_notifications %}
-            <!-- Notifications -->
+            <!-- Notifications — always shown (core account feature) -->
             <a href="#" @click.prevent="openPush(); menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-sm">🔔</div>
@@ -1004,7 +1003,6 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
-            {% endif %}
 
             {% if features.reading_plans %}
             <!-- Reading plans -->
@@ -1065,8 +1063,7 @@
             </a>
             {% endif %}
 
-            {% if features.change_requests %}
-            <!-- One change request entry -->
+            <!-- Request a change — always shown (core account feature) -->
             <a href="#" @click.prevent="changeOpen = true; menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">✏️</div>
@@ -1076,7 +1073,7 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
-            <!-- My change requests -->
+            <!-- My change requests — shown when there are pending ones -->
             <a href="#" @click.prevent="setTab('change_requests'); menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100"
                x-show="changeRequests.length">
@@ -1087,7 +1084,6 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
-            {% endif %}
 
             <!-- Leadership tools — only when applicable -->
             <div x-show="hasLeadership()" class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Leadership tools</div>
