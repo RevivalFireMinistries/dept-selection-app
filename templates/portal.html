@@ -64,6 +64,7 @@
                      even one attempt, this card hides and the "View results"
                      card below takes over — no more nagging them to take an
                      exam they've already written. -->
+                {% if features.kg %}
                 <template x-if="data.kg_exam_ready">
                     <section class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl shadow-sm p-5"
                              x-cloak>
@@ -85,6 +86,7 @@
                         </div>
                     </section>
                 </template>
+                {% endif %}
 
                 <!-- Kingdom Gateway: ATTEMPT EXISTS — compact "View results"
                      card. Shown when the member has at least one attempt
@@ -92,6 +94,7 @@
                      attendance moves to a secondary surface — once you've
                      written the exam, what you actually want to see is your
                      mark and what you got right / wrong. -->
+                {% if features.kg %}
                 <template x-if="data.kg_exam_result">
                     <section class="bg-white rounded-2xl shadow-sm p-5"
                              style="border: 1px solid var(--color-border);"
@@ -134,11 +137,13 @@
                         </div>
                     </section>
                 </template>
+                {% endif %}
 
                 <!-- Kingdom Gateway: ask to join (only when the member has no
                      active / accepted / completed enrollment — derived
                      server-side from KG directly so it's never stale against
                      the central rfm-database status). -->
+                {% if features.kg %}
                 <section x-show="data.kg_can_request_to_join"
                          x-cloak
                          class="bg-white rounded-2xl shadow-sm p-5"
@@ -174,8 +179,10 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- Kingdom Gateway invite — pending acceptance -->
+                {% if features.kg %}
                 <template x-for="inv in (data.kg_pending_invites || [])" :key="inv.enrollment_id">
                     <section class="bg-amber-50 border-2 border-amber-300 rounded-2xl p-5">
                         <div class="flex items-start justify-between gap-3">
@@ -201,6 +208,7 @@
                         </form>
                     </section>
                 </template>
+                {% endif %}
 
                 <!-- Email verification nudge — shown until they click the link -->
                 <section x-show="data.member.email_verified === false" class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
@@ -215,6 +223,7 @@
                 </section>
 
                 <!-- Profile enrichment nudge — one missing field at a time -->
+                {% if features.profile_enrichment %}
                 <section x-show="enrichField && !enrichDismissed(enrichField)"
                          class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
                     <div class="flex items-start gap-3">
@@ -319,8 +328,10 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- Today's devotional (falls back to verse if none scheduled) -->
+                {% if features.devotionals %}
                 <a x-show="devotional" href="/portal/devotional"
                    class="block bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition"
                    style="border: 1px solid var(--color-border);">
@@ -335,8 +346,10 @@
                         </div>
                     </div>
                 </a>
+                {% endif %}
 
                 <!-- Verse of the day (fallback when no devotional is scheduled) -->
+                {% if features.verse_of_the_day %}
                 <section x-show="!devotional && verse" class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border: 1px solid var(--color-border);">
                     <div class="p-5">
                         <div class="text-[10px] uppercase tracking-[0.2em]" style="color: var(--color-ember);">Verse of the day</div>
@@ -358,8 +371,10 @@
                         </button>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- Push prompt — only when notifications aren't enabled yet -->
+                {% if features.push_notifications %}
                 <section x-show="shouldShowPushPrompt()"
                          class="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4">
                     <div class="flex items-start gap-3">
@@ -379,8 +394,10 @@
                         </div>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- Announcements (only when there are some) -->
+                {% if features.announcements %}
                 <section x-show="announcements.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
                         <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Announcements</h2>
@@ -400,8 +417,10 @@
                         </template>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- Today's reading -->
+                {% if features.reading_plans %}
                 <section x-show="readingPlans.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
                         <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Today's reading</h2>
@@ -429,8 +448,10 @@
                         </template>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- What's coming up (from Google Calendar) -->
+                {% if features.calendar %}
                 <section x-show="calendarConfigured" class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
                     <div class="flex items-center justify-between mb-3 gap-2">
                         <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">What's coming up</h2>
@@ -468,8 +489,10 @@
                         </template>
                     </div>
                 </section>
+                {% endif %}
 
                 <!-- Upcoming meetings -->
+                {% if features.meetings %}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
                         <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Upcoming meetings</h2>
@@ -490,6 +513,7 @@
                         </template>
                     </div>
                 </section>
+                {% endif %}
 
             </div>
 
@@ -540,6 +564,7 @@
                 </section>
 
                 <!-- Online giving -->
+                {% if features.giving %}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">Give online</h2>
                     <button @click="openPay()" :disabled="!data.member.external_synced"
@@ -563,8 +588,10 @@
                     </button>
                     <p x-show="!data.member.external_synced" class="text-[11px] text-amber-700 mt-2 text-center">Available once your record is linked to the central database.</p>
                 </section>
+                {% endif %}
 
                 <!-- Banking details -->
+                {% if features.banking_details %}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3 gap-2">
                         <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">Banking details</h2>
@@ -619,6 +646,7 @@
                         <div x-show="banking?.reference_hint" class="pt-2 mt-2 border-t border-gray-100 text-[11px] text-gray-500" x-text="banking?.reference_hint"></div>
                     </dl>
                 </section>
+                {% endif %}
 
                 <!--
                     Pledges card. Shows the member's open commitments
@@ -629,6 +657,7 @@
                     opens a modal where they can self-pledge against any
                     active project.
                 -->
+                {% if features.pledges %}
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3 gap-2">
                         <!--
@@ -709,7 +738,9 @@
                         </template>
                     </div>
                 </section>
+                {% endif %}
 
+                {% if features.contribution_history %}
                 <section x-show="data.member.external_synced" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
                         <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute">Recent</h2>
@@ -815,6 +846,7 @@
                         </template>
                     </div>
                 </section>
+                {% endif %}
             </div>
 
             <!-- ==================== MY ATTENDANCE ==================== -->
@@ -1598,9 +1630,9 @@ function memberPortal() {
         hcInfoOpen: false,
         tabs: [
             { id: 'home', icon: '🏠', label: 'Home' },
-            { id: 'departments', icon: '🛠', label: 'Departments' },
-            { id: 'contributions', icon: '🤲', label: 'Contributions' },
-            { id: 'attendance', icon: '📅', label: 'Attendance' },
+            {% if features.department_selection %}{ id: 'departments', icon: '🛠', label: 'Departments' },{% endif %}
+            {% if features.giving or features.banking_details or features.pledges or features.contribution_history %}{ id: 'contributions', icon: '🤲', label: 'Contributions' },{% endif %}
+            {% if features.attendance %}{ id: 'attendance', icon: '📅', label: 'Attendance' },{% endif %}
         ],
 
         // Email verification banner

@@ -47,6 +47,7 @@
             <div class="px-4 pt-3 pb-1.5">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Publishing</p>
             </div>
+            {% if features.department_selection %}
             <a href="/admin/publish" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/publish' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-green-100 text-green-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Publish Results</span>
@@ -55,13 +56,14 @@
                 <span class="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Appeals</span>
             </a>
+            {% endif %}
 
             <div class="border-t border-gray-100 my-1 mx-4"></div>
 
             <div class="px-4 pt-2 pb-1.5">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Services</p>
             </div>
-            {% if features.programs %}
+            {% if features.admin_programs %}
             <a href="/admin/programs" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/programs' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Programs</span>
@@ -75,19 +77,19 @@
                 <span class="text-sm font-medium text-gray-700">Service Management</span>
             </a>
             {% endif %}
-            {% if features.meetings %}
+            {% if features.admin_meetings %}
             <a href="/admin/meetings" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/meetings' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Meetings</span>
             </a>
             {% endif %}
-            {% if features.poster_requests %}
+            {% if features.admin_poster_requests %}
             <a href="/admin/poster-requests" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/poster-requests' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Posters</span>
             </a>
             {% endif %}
-            {% if features.home_church %}
+            {% if features.admin_home_churches %}
             <a href="/admin/home-churches" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/home-churches' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center flex-shrink-0 text-sm">🏠</span>
                 <span class="text-sm font-medium text-gray-700">Home Churches</span>
@@ -115,13 +117,13 @@
                 <span class="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Settings</span>
             </a>
-            {% if features.connect_form %}
+            {% if features.admin_connect_submissions %}
             <a href="/admin/connect-submissions" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/connect-submissions' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center flex-shrink-0 text-sm">🤝</span>
                 <span class="text-sm font-medium text-gray-700">Connect submissions</span>
             </a>
             {% endif %}
-            {% if features.devotionals %}
+            {% if features.admin_devotionals %}
             <a href="/admin/devotionals" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/devotionals' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center flex-shrink-0 text-sm">📖</span>
                 <span class="text-sm font-medium text-gray-700">Devotionals</span>
@@ -131,23 +133,25 @@
                 <span class="w-7 h-7 rounded-lg bg-yellow-50 text-yellow-600 flex items-center justify-center flex-shrink-0 text-sm">📣</span>
                 <span class="text-sm font-medium text-gray-700">Announcements</span>
             </a>
-            {% if features.reading_plans %}
+            {% if features.admin_reading_plans %}
             <a href="/admin/reading-plans" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/reading-plans' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0 text-sm">📖</span>
                 <span class="text-sm font-medium text-gray-700">Reading plans</span>
             </a>
             {% endif %}
-            {% if features.kg %}
+            {% if features.admin_kg %}
             <a href="/admin/kg" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/kg' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center flex-shrink-0 text-sm">🎓</span>
                 <span class="text-sm font-medium text-gray-700">Kingdom Gateway</span>
             </a>
             {% endif %}
+            {% if features.change_requests %}
             <a href="/admin/change-requests" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/change-requests' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0 text-sm">✏️</span>
                 <span class="text-sm font-medium text-gray-700">Change requests</span>
             </a>
-            {% if features.surveys %}
+            {% endif %}
+            {% if features.admin_surveys %}
             <a href="/admin/surveys" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if '/admin/surveys' in request.url.path %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-pink-50 text-pink-600 flex items-center justify-center flex-shrink-0 text-sm">📋</span>
                 <span class="text-sm font-medium text-gray-700">Surveys</span>
@@ -157,10 +161,12 @@
                 <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center flex-shrink-0 text-sm">⚙️</span>
                 <span class="text-sm font-medium text-gray-700">Features</span>
             </a>
+            {% if features.admin_rfm_sync %}
             <a href="/admin/rfm-sync" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/rfm-sync' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center flex-shrink-0 text-sm">🔗</span>
                 <span class="text-sm font-medium text-gray-700">Member Sync</span>
             </a>
+            {% endif %}
             <a href="/admin/audit-log" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/audit-log' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-red-50 text-red-500 flex items-center justify-center flex-shrink-0"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></span>
                 <span class="text-sm font-medium text-gray-700">Audit Log</span>
