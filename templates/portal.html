@@ -1651,10 +1651,10 @@ function memberPortal() {
         menuOpen: false,
         hcInfoOpen: false,
         tabs: [
-            { id: 'home', icon: '🏠', label: 'Home' },
-            {% if features.department_selection %}{ id: 'departments', icon: '🛠', label: 'Departments' },{% endif %}
-            {% if features.giving or features.banking_details or features.pledges or features.contribution_history %}{ id: 'contributions', icon: '🤲', label: 'Contributions' },{% endif %}
-            {% if features.attendance %}{ id: 'attendance', icon: '📅', label: 'Attendance' },{% endif %}
+            { id: 'home',          icon: '🏠', label: 'Home'          },
+            { id: 'departments',   icon: '🛠', label: 'Departments'   },
+            { id: 'contributions', icon: '🤲', label: 'Contributions' },
+            { id: 'attendance',    icon: '📅', label: 'Attendance'    },
         ],
 
         // Email verification banner
