@@ -81,6 +81,48 @@
     {% block content %}{% endblock %}
     {% block scripts %}{% endblock %}
 
+    <!--
+        Universal portal home button.
+        Shown on every member-facing page that is NOT /portal itself.
+        Gives members a one-tap escape back to the portal home from any
+        sub-page (KG, reading plans, projector, etc.) without needing to
+        hunt for a back arrow or use the browser back button.
+        Hidden via JS on /portal (which has its own tab bar), on all
+        /admin/* and /desk/* routes, and on public pages where the
+        member is not logged in (ASSEMBLY.configured = false).
+    -->
+    <div id="universal-home-btn"
+         class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-40">
+        <a href="/portal"
+           class="flex items-center gap-2 px-5 py-2.5 rounded-full shadow-lg text-sm font-semibold transition-all active:scale-95"
+           style="background-color: var(--color-ink); color: white; box-shadow: 0 4px 16px rgba(31,27,22,0.35);">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+            </svg>
+            Home
+        </a>
+    </div>
+    <script>
+    (function () {
+        var btn = document.getElementById('universal-home-btn');
+        if (!btn) return;
+        var path = window.location.pathname;
+        var assembly = window.ASSEMBLY || {};
+        // Only show for logged-in members on non-portal, non-admin, non-desk paths
+        var isPortalHome   = path === '/portal';
+        var isAdminOrDesk  = path.startsWith('/admin') || path.startsWith('/desk');
+        var isPublicPage   = ['/', '/register', '/forgot-password',
+                              '/reset-password', '/setup-password',
+                              '/verify-email', '/not-configured',
+                              '/offline'].includes(path);
+        var memberLoggedIn = assembly.configured === true;
+        if (memberLoggedIn && !isPortalHome && !isAdminOrDesk && !isPublicPage) {
+            btn.classList.remove('hidden');
+        }
+    })();
+    </script>
+
     <!-- PWA install prompt (Chrome/Edge/Android) -->
     <div id="pwa-install-banner" class="hidden fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:max-w-sm bg-white border border-indigo-200 shadow-lg rounded-xl p-4 z-50">
         <div class="flex items-start gap-3">
