@@ -12,6 +12,40 @@
         </p>
     </div>
 
+    <!-- Church Manager integration status -->
+    <div id="cmStatus" class="mb-6 rounded-xl border px-4 py-3 text-sm hidden"></div>
+    <script>
+    (async () => {
+        const box = document.getElementById('cmStatus');
+        try {
+            const r = await fetch('/api/admin/features/source');
+            if (!r.ok) return;
+            const d = await r.json();
+            if (d.source === 'church_manager') {
+                box.className = 'mb-6 rounded-xl border px-4 py-3 text-sm flex items-start gap-3 bg-blue-50 border-blue-200 text-blue-800';
+                box.innerHTML = `
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                    <div>
+                        <p class="font-semibold">Managed by Church Manager</p>
+                        <p class="text-blue-700 mt-0.5">
+                            Feature flags are controlled by the SuperAdmin in
+                            <a href="${d.church_manager_url || '#'}" target="_blank" class="underline font-medium">Church Manager</a>.
+                            Changes made here are local overrides and will be superseded by Church Manager on the next refresh (≤ 60 s).
+                        </p>
+                    </div>`;
+                box.classList.remove('hidden');
+            } else if (d.source === 'local') {
+                box.className = 'mb-6 rounded-xl border px-4 py-3 text-sm bg-amber-50 border-amber-200 text-amber-800';
+                box.textContent = 'Church Manager is not connected. Changes here are stored locally.';
+                box.classList.remove('hidden');
+            }
+        } catch (e) { /* ignore */ }
+    })();
+    </script>
+
     <!-- Save banner -->
     <div id="saveBanner" class="hidden mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium">
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

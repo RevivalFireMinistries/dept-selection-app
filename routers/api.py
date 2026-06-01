@@ -5412,6 +5412,21 @@ def set_poster_request_department(
 
 # ============ FEATURE FLAGS ============
 
+@router.get("/admin/features/source")
+def get_features_source():
+    """Return whether features are driven by church-manager or local settings."""
+    import os
+    cm_url = os.environ.get("CHURCH_MANAGER_URL", "")
+    cm_key = os.environ.get("CHURCH_MANAGER_API_KEY", "")
+    cm_id  = os.environ.get("CHURCH_MANAGER_ASSEMBLY_ID", "")
+    connected = bool(cm_url and cm_key and cm_id)
+    return {
+        "source": "church_manager" if connected else "local",
+        "church_manager_url": cm_url if connected else None,
+        "assembly_id": cm_id if connected else None,
+    }
+
+
 @router.get("/admin/features")
 def get_feature_flags(db: Session = Depends(get_db)):
     """Return current feature flags merged with their metadata."""

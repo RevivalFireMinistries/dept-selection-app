@@ -132,22 +132,53 @@ _CACHE_TTL = 60  # seconds
 def get_features(db: "Session") -> dict[str, bool]:
     """Return the resolved feature flags for the current assembly deployment.
 
-    Reads  feature_<key>  rows from Settings, falls back to each feature's
-    default.  Result is cached for _CACHE_TTL seconds.
+    Resolution order (first source that returns data wins):
+
+    1. **Church Manager** — fetches PortalConfig from the church-manager
+       backend via church_manager_client.  This is the authoritative source
+       when CHURCH_MANAGER_URL / CHURCH_MANAGER_API_KEY /
+       CHURCH_MANAGER_ASSEMBLY_ID are all set.
+
+    2. **Local Settings table** — feature_<key> rows written by the
+       /admin/features page.  Used as an override layer or standalone
+       fallback when church-manager is not configured.
+
+    3. **Compiled defaults** — the "default" values in FEATURES above.
+
+    The result is cached for _CACHE_TTL seconds (the church-manager client
+    has its own identical TTL so the effective combined cache is ~60 s).
     """
     global _cache, _cache_ts
     now = time.monotonic()
     if _cache and now - _cache_ts < _CACHE_TTL:
         return dict(_cache)
 
-    from models import Settings  # avoid circular import at module load
-
-    rows = db.query(Settings).filter(Settings.key.like("feature_%")).all()
+    # Start from compiled defaults
     flags: dict[str, bool] = {k: meta["default"] for k, meta in FEATURES.items()}
-    for row in rows:
-        key = row.key[len("feature_"):]
-        if key in flags:
-            flags[key] = (row.value or "").strip().lower() in ("true", "1", "yes", "on")
+
+    # Layer 1: local Settings overrides (so admins can override church-manager
+    # values locally during development or when church-manager is unreachable)
+    try:
+        from models import Settings  # avoid circular import at module load
+        rows = db.query(Settings).filter(Settings.key.like("feature_%")).all()
+        for row in rows:
+            key = row.key[len("feature_"):]
+            if key in flags:
+                flags[key] = (row.value or "").strip().lower() in ("true", "1", "yes", "on")
+    except Exception:
+        pass  # DB unavailable during startup — continue with defaults
+
+    # Layer 2 (highest priority): church-manager PortalConfig
+    # Overrides both compiled defaults and local Settings rows.
+    try:
+        from church_manager_client import get_portal_config
+        remote = get_portal_config()
+        if remote and isinstance(remote.get("features"), dict):
+            for key, val in remote["features"].items():
+                if key in flags:
+                    flags[key] = bool(val)
+    except Exception:
+        pass  # client not installed or misconfigured — degrade gracefully
 
     _cache = flags
     _cache_ts = now
@@ -161,7 +192,13 @@ def default_features() -> dict[str, bool]:
 
 
 def invalidate_cache() -> None:
-    """Force the next get_features() call to re-read from the DB.
-    Call this after writing any feature_* Settings row."""
+    """Force the next get_features() call to re-read from the DB and
+    re-fetch from church-manager.  Call this after writing any feature_*
+    Settings row or after church-manager config is expected to have changed."""
     global _cache_ts
     _cache_ts = 0.0
+    try:
+        from church_manager_client import invalidate_cache as _cm_invalidate
+        _cm_invalidate()
+    except Exception:
+        pass
