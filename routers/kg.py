@@ -36,7 +36,8 @@ from routers.pages import (
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+from routers.pages import RFMTemplates
+templates = RFMTemplates(directory="templates")
 
 
 # ---------------------------------------------------------------------------

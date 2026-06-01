@@ -5410,6 +5410,67 @@ def set_poster_request_department(
     return {"success": True, "department_id": department_id, "department_name": dept.name}
 
 
+# ============ FEATURE FLAGS ============
+
+@router.get("/admin/features")
+def get_feature_flags(db: Session = Depends(get_db)):
+    """Return current feature flags merged with their metadata."""
+    from features import FEATURES, get_features
+    resolved = get_features(db)
+    return [
+        {
+            "key": key,
+            "label": meta["label"],
+            "group": meta["group"],
+            "description": meta["description"],
+            "default": meta["default"],
+            "enabled": resolved[key],
+        }
+        for key, meta in FEATURES.items()
+    ]
+
+
+@router.put("/admin/features")
+def save_feature_flags(
+    flags: dict = Body(...),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Save feature flag overrides.
+
+    Body: { "kg": true, "giving": false, ... }
+    Only keys present in FEATURES are accepted; unknown keys are ignored.
+    """
+    from features import FEATURES, invalidate_cache
+
+    if request and not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from features import FEATURES as _F
+    updated = []
+    for key, value in flags.items():
+        if key not in _F:
+            continue
+        db_key = f"feature_{key}"
+        setting = db.query(Settings).filter(Settings.key == db_key).first()
+        str_val = "true" if bool(value) else "false"
+        if setting:
+            setting.value = str_val
+        else:
+            db.add(Settings(key=db_key, value=str_val))
+        updated.append(key)
+
+    db.commit()
+    invalidate_cache()
+
+    if request:
+        _log_admin_action(request, db, "update_features", "settings", None,
+                          f"Updated feature flags: {', '.join(updated)}")
+        db.commit()
+
+    return {"updated": updated}
+
+
 # ============ NOTIFICATION ENDPOINTS ============
 
 @router.get("/admin/notifications/email-settings")

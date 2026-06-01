@@ -1,0 +1,136 @@
+{% extends "admin/base.html" %}
+{% block title %}Features — Admin{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-8">
+
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Assembly Features</h1>
+        <p class="text-sm text-gray-500 mt-1">
+            Enable or disable features for this assembly. Changes take effect immediately — disabled
+            features are hidden from members and removed from the admin navigation.
+        </p>
+    </div>
+
+    <!-- Save banner -->
+    <div id="saveBanner" class="hidden mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-medium">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        Features saved. Changes are live.
+    </div>
+    <div id="errorBanner" class="hidden mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm"></div>
+
+    <!-- Group the features by their "group" key -->
+    {% set groups = {} %}
+    {% for key, meta in FEATURES.items() %}
+        {% if meta.group not in groups %}
+            {% set _ = groups.update({meta.group: []}) %}
+        {% endif %}
+        {% set _ = groups[meta.group].append((key, meta)) %}
+    {% endfor %}
+
+    <form id="featuresForm" class="space-y-6">
+        {% for group_name, items in groups.items() %}
+        <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100 bg-gray-50">
+                <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ group_name }}</h2>
+            </div>
+            <div class="divide-y divide-gray-100">
+                {% for key, meta in items %}
+                <label class="flex items-start gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors">
+                    <div class="flex-1 min-w-0 pt-0.5">
+                        <span class="text-sm font-semibold text-gray-900">{{ meta.label }}</span>
+                        <p class="text-xs text-gray-500 mt-0.5 leading-relaxed">{{ meta.description }}</p>
+                        {% if not meta.default %}
+                        <span class="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Off by default</span>
+                        {% endif %}
+                    </div>
+                    <!-- Toggle switch -->
+                    <div class="flex-shrink-0 mt-0.5">
+                        <input type="checkbox" name="{{ key }}" id="feat_{{ key }}"
+                               class="sr-only peer"
+                               {% if features[key] %}checked{% endif %}>
+                        <div onclick="toggleFeature('{{ key }}')"
+                             class="relative w-11 h-6 rounded-full cursor-pointer transition-colors duration-200
+                                    {% if features[key] %}bg-blue-600{% else %}bg-gray-300{% endif %}"
+                             id="toggle_{{ key }}">
+                            <div id="knob_{{ key }}"
+                                 class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200
+                                        {% if features[key] %}translate-x-5{% endif %}">
+                            </div>
+                        </div>
+                    </div>
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="flex items-center gap-3 pt-2">
+            <button type="button" onclick="saveFeatures()"
+                    id="saveBtn"
+                    class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm transition-colors">
+                Save Changes
+            </button>
+            <p class="text-xs text-gray-400">
+                Feature cache refreshes within 60 seconds on all instances.
+            </p>
+        </div>
+    </form>
+</div>
+
+<script>
+// Track state client-side
+const state = {};
+{% for key, meta in FEATURES.items() %}
+state['{{ key }}'] = {{ 'true' if features[key] else 'false' }};
+{% endfor %}
+
+function toggleFeature(key) {
+    state[key] = !state[key];
+    const toggle = document.getElementById('toggle_' + key);
+    const knob   = document.getElementById('knob_' + key);
+    if (state[key]) {
+        toggle.classList.replace('bg-gray-300', 'bg-blue-600');
+        knob.classList.add('translate-x-5');
+    } else {
+        toggle.classList.replace('bg-blue-600', 'bg-gray-300');
+        knob.classList.remove('translate-x-5');
+    }
+    document.getElementById('saveBanner').classList.add('hidden');
+    document.getElementById('errorBanner').classList.add('hidden');
+}
+
+async function saveFeatures() {
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    document.getElementById('saveBanner').classList.add('hidden');
+    document.getElementById('errorBanner').classList.add('hidden');
+
+    try {
+        const res = await fetch('/api/admin/features', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(state),
+        });
+        if (res.ok) {
+            document.getElementById('saveBanner').classList.remove('hidden');
+        } else {
+            const d = await res.json().catch(() => ({}));
+            const err = document.getElementById('errorBanner');
+            err.textContent = d.detail || 'Failed to save. Please try again.';
+            err.classList.remove('hidden');
+        }
+    } catch (e) {
+        const err = document.getElementById('errorBanner');
+        err.textContent = 'Network error. Please try again.';
+        err.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Changes';
+    }
+}
+</script>
+{% endblock %}

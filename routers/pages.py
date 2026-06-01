@@ -9,7 +9,40 @@ from database import get_db
 from models import Settings, Member
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
+
+
+class RFMTemplates(Jinja2Templates):
+    """Jinja2Templates subclass that automatically injects the assembly's
+    resolved feature flags into every TemplateResponse context.
+
+    The flags are placed on request.state.features by inject_features_middleware
+    (main.py) so every template can use {{ features.kg }}, {{ features.giving }},
+    etc. without any individual route handler needing to pass them explicitly.
+    """
+
+    def TemplateResponse(self, name, context, status_code=200, headers=None,
+                         media_type=None, background=None):
+        req = context.get("request")
+        if req is not None and "features" not in context:
+            try:
+                f = req.state.features
+                if f is not None:
+                    context["features"] = f
+            except AttributeError:
+                pass
+        if "features" not in context:
+            from features import default_features
+            context["features"] = default_features()
+        return super().TemplateResponse(
+            name, context,
+            status_code=status_code,
+            headers=headers,
+            media_type=media_type,
+            background=background,
+        )
+
+
+templates = RFMTemplates(directory="templates")
 
 ADMIN_COOKIE_NAME = "admin_session"
 ADMIN_IDENTITY_COOKIE = "admin_identity"
@@ -381,6 +414,18 @@ async def admin_settings(request: Request):
     if not is_authenticated(request):
         return RedirectResponse(url="/admin/login", status_code=302)
     return templates.TemplateResponse("admin/settings.html", {"request": request})
+
+
+@router.get("/admin/features")
+async def admin_features_page(request: Request):
+    """Admin: enable / disable features for this assembly deployment."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    from features import FEATURES
+    return templates.TemplateResponse(
+        "admin/features.html",
+        {"request": request, "FEATURES": FEATURES},
+    )
 
 
 @router.get("/admin/notifications")

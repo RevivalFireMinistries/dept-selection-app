@@ -798,6 +798,23 @@ _logging.basicConfig(level=_logging.INFO)
 _logger = _logging.getLogger("rfm")
 
 @app.middleware("http")
+async def inject_features_middleware(request, call_next):
+    """Attach the resolved feature flags to request.state so every
+    Jinja2 template can access {{ features.kg }}, {{ features.giving }}, etc.
+    Uses the cached loader in features.py — only hits the DB once per minute."""
+    from database import SessionLocal
+    from features import get_features, default_features
+    db = SessionLocal()
+    try:
+        request.state.features = get_features(db)
+    except Exception:
+        request.state.features = default_features()
+    finally:
+        db.close()
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def verbose_logging_middleware(request, call_next):
     start = _time.time()
     method = request.method
