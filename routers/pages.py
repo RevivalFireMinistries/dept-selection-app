@@ -20,32 +20,60 @@ class RFMTemplates(Jinja2Templates):
     etc. without any individual route handler needing to pass them explicitly.
     """
 
-    def TemplateResponse(self, name, context, status_code=200, headers=None,
-                         media_type=None, background=None):
-        req = context.get("request")
-        if req is not None:
-            try:
-                if "features" not in context and req.state.features:
-                    context["features"] = req.state.features
-            except AttributeError:
-                pass
-            try:
-                if "assembly" not in context and req.state.assembly:
-                    context["assembly"] = req.state.assembly
-            except AttributeError:
-                pass
-        if "features" not in context:
-            from features import default_features
-            context["features"] = default_features()
-        if "assembly" not in context:
-            context["assembly"] = {"id": None, "name": "Revival Fire Ministries", "configured": False}
-        return super().TemplateResponse(
-            name, context,
-            status_code=status_code,
-            headers=headers,
-            media_type=media_type,
-            background=background,
-        )
+    def TemplateResponse(self, *args, **kwargs):
+        """Inject features + assembly into every template context.
+
+        Handles both Starlette calling conventions:
+          Old: TemplateResponse(name: str, context: dict, ...)
+          New: TemplateResponse(request: Request, name: str, context: dict, ...)
+
+        We detect which convention is in use by checking whether the first
+        positional arg is a string (old) or a Request object (new).
+        """
+        # ── Find the context dict regardless of calling convention ───────────
+        # Pull context from kwargs first; fall back to scanning positional args.
+        context = kwargs.get("context")
+        if not isinstance(context, dict):
+            for arg in args:
+                if isinstance(arg, dict):
+                    context = arg
+                    break
+
+        # ── Find the request object ──────────────────────────────────────────
+        # It may be in context["request"] or passed as a positional arg.
+        req = None
+        if isinstance(context, dict):
+            req = context.get("request")
+        if req is None:
+            for arg in args:
+                if hasattr(arg, "state"):   # duck-type: Request has .state
+                    req = arg
+                    break
+
+        # ── Inject features and assembly ─────────────────────────────────────
+        if isinstance(context, dict):
+            if req is not None:
+                try:
+                    if "features" not in context:
+                        context["features"] = req.state.features
+                except AttributeError:
+                    pass
+                try:
+                    if "assembly" not in context:
+                        context["assembly"] = req.state.assembly
+                except AttributeError:
+                    pass
+            if "features" not in context:
+                from features import default_features
+                context["features"] = default_features()
+            if "assembly" not in context:
+                context["assembly"] = {
+                    "id": None,
+                    "name": "Revival Fire Ministries",
+                    "configured": False,
+                }
+
+        return super().TemplateResponse(*args, **kwargs)
 
 
 templates = RFMTemplates(directory="templates")
