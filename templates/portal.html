@@ -993,6 +993,7 @@
                 <div class="text-xs text-gray-500" x-text="data?.member?.address || ''"></div>
             </div>
 
+            {% if features.push_notifications %}
             <!-- Notifications -->
             <a href="#" @click.prevent="openPush(); menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
@@ -1003,7 +1004,9 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
 
+            {% if features.reading_plans %}
             <!-- Reading plans -->
             <a href="/reading-plans" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">📖</div>
@@ -1013,7 +1016,9 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
 
+            {% if features.kg %}
             <!-- Kingdom Gateway course -->
             <a href="/portal/kg" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center text-sm">🎓</div>
@@ -1023,7 +1028,6 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
-
             <!-- Kingdom Gateway — manage (shown only to KG team members) -->
             <a x-show="data?.member?.kg_manager"
                x-cloak
@@ -1036,8 +1040,9 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
 
-            <!-- My profile -->
+            <!-- My profile — always visible -->
             <a href="/portal/profile" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
                 <div class="w-8 h-8 rounded-lg bg-stone-100 text-stone-700 flex items-center justify-center text-sm">👤</div>
                 <div class="flex-1 min-w-0">
@@ -1047,6 +1052,7 @@
                 <span class="text-gray-300">›</span>
             </a>
 
+            {% if features.home_church %}
             <!-- My home church (read-only quick view) -->
             <a href="#" @click.prevent="hcInfoOpen = true; menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
@@ -1057,7 +1063,9 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
 
+            {% if features.change_requests %}
             <!-- One change request entry -->
             <a href="#" @click.prevent="changeOpen = true; menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
@@ -1068,7 +1076,6 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
-
             <!-- My change requests -->
             <a href="#" @click.prevent="setTab('change_requests'); menuOpen = false"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100"
@@ -1080,9 +1087,11 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
 
             <!-- Leadership tools — only when applicable -->
             <div x-show="hasLeadership()" class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Leadership tools</div>
+            {% if features.admin_home_churches %}
             <a x-show="data?.leadership?.is_hc_committee || data?.leadership?.is_hc_leader"
                :href="`/admin/home-churches?phone=${encodeURIComponent(data.member.phone)}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
@@ -1093,6 +1102,8 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% if features.department_selection %}
             <a x-show="data?.leadership?.is_hod"
                :href="`/portal/classic?phone=${encodeURIComponent(data.member.phone)}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
@@ -1103,6 +1114,8 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% if features.surveys %}
             <a x-show="data?.leadership?.can_create_surveys" href="/surveys"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center text-sm">📋</div>
@@ -1112,9 +1125,12 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
 
             <!-- Services -->
+            {% if features.programs or features.projector_submit or features.poster_requests or features.department_selection or features.meetings %}
             <div class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Services</div>
+            {% if features.programs %}
             <a :href="`/programs?phone=${encodeURIComponent(data?.member?.phone || '')}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm">🗓</div>
@@ -1124,6 +1140,8 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% if features.projector_submit %}
             <a href="/display/submit" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center text-sm">📺</div>
                 <div class="flex-1">
@@ -1132,6 +1150,8 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% if features.poster_requests %}
             <a :href="`/poster-request?phone=${encodeURIComponent(data?.member?.phone || '')}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center text-sm">🎨</div>
@@ -1141,6 +1161,8 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% if features.department_selection %}
             <a :href="`/update?phone=${encodeURIComponent(data?.member?.phone || '')}&member_id=${data?.member?.id || ''}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm">✏️</div>
@@ -1150,6 +1172,8 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% if features.meetings %}
             <a x-show="data?.leadership?.is_hod" :href="`/hod/meetings?phone=${encodeURIComponent(data?.member?.phone || '')}`"
                class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50">
                 <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center text-sm">📅</div>
@@ -1159,13 +1183,15 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+            {% endif %}
+            {% endif %}
 
             <div class="border-t border-gray-100 mt-3"></div>
             <a href="/logout" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 text-red-600">
                 <div class="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-sm">↩</div>
                 <div class="flex-1 text-sm font-medium">Log out</div>
             </a>
-            <div class="px-5 py-3 text-[10px] text-gray-400 text-center">RFM Stellenbosch Portal</div>
+            <div class="px-5 py-3 text-[10px] text-gray-400 text-center">Revival Fire Ministries Portal</div>
         </aside>
     </div>
 
