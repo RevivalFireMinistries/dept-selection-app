@@ -95,7 +95,7 @@
                      written the exam, what you actually want to see is your
                      mark and what you got right / wrong. -->
                 {% if features.kg %}
-                <template x-if="data.kg_exam_result">
+                <template x-if="data.kg_exam_result && !kgResultViewed(data.kg_exam_result.attempt_id)">
                     <section class="bg-white rounded-2xl shadow-sm p-5"
                              style="border: 1px solid var(--color-border);"
                              x-cloak>
@@ -3163,6 +3163,13 @@ function memberPortal() {
         // ---- Helpers ----
         initials(name) { return (name || '').split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase(); },
         firstName(name) { return (name || '').split(' ')[0] || ''; },
+        kgResultViewed(attemptId) {
+            if (!attemptId) return false;
+            try {
+                const viewed = JSON.parse(localStorage.getItem('kg_viewed_results') || '[]');
+                return viewed.includes(String(attemptId));
+            } catch (_) { return false; }
+        },
         greeting() {
             const h = new Date().getHours();
             if (h < 12) return 'Good morning,';

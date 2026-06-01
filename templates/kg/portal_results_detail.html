@@ -277,5 +277,20 @@
     const empty = document.getElementById('qa-empty');
     empty.classList.toggle('hidden', visible !== 0);
   }
+
+  // Mark this attempt as viewed so the "results ready" card on the portal
+  // home no longer shows for this attempt.
+  (function markResultViewed() {
+    const id = '{{ attempt.id }}';
+    if (!id) return;
+    try {
+      const viewed = JSON.parse(localStorage.getItem('kg_viewed_results') || '[]');
+      if (!viewed.includes(id)) {
+        viewed.push(id);
+        // Keep list bounded — only remember last 20 attempts
+        localStorage.setItem('kg_viewed_results', JSON.stringify(viewed.slice(-20)));
+      }
+    } catch (_) {}
+  })();
 </script>
 {% endblock %}
