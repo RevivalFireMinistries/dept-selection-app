@@ -43,3 +43,22 @@
   </div>
 </div>
 {% endblock %}
+{% block scripts %}
+<script>
+// Mark this attempt as viewed so the portal home hides the KG result card.
+// Done here (immediate post-exam screen) AND on the detail page so the card
+// disappears as soon as the member returns to the portal — regardless of
+// whether they click through to the full breakdown.
+(function markResultViewed() {
+    const id = '{{ result.attempt_id }}';
+    if (!id) return;
+    try {
+        const viewed = JSON.parse(localStorage.getItem('kg_viewed_results') || '[]');
+        if (!viewed.includes(id)) {
+            viewed.push(id);
+            localStorage.setItem('kg_viewed_results', JSON.stringify(viewed.slice(-20)));
+        }
+    } catch (_) {}
+})();
+</script>
+{% endblock %}

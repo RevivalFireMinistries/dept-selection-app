@@ -65,7 +65,7 @@
                      card below takes over — no more nagging them to take an
                      exam they've already written. -->
                 {% if features.kg %}
-                <template x-if="data.kg_exam_ready">
+                <template x-if="data.kg_exam_ready && !kgDone()">
                     <section class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl shadow-sm p-5"
                              x-cloak>
                         <div class="flex items-start gap-3">
@@ -144,7 +144,7 @@
                      server-side from KG directly so it's never stale against
                      the central rfm-database status). -->
                 {% if features.kg %}
-                <section x-show="data.kg_can_request_to_join"
+                <section x-show="data.kg_can_request_to_join && !kgDone()"
                          x-cloak
                          class="bg-white rounded-2xl shadow-sm p-5"
                          style="border: 1px solid var(--color-border);">
@@ -3169,6 +3169,14 @@ function memberPortal() {
                 const viewed = JSON.parse(localStorage.getItem('kg_viewed_results') || '[]');
                 return viewed.includes(String(attemptId));
             } catch (_) { return false; }
+        },
+        // True when the member has passed their exam and already seen the result.
+        // When this returns true, ALL KG cards on the home tab are hidden — there
+        // is nothing actionable left for them to do in the KG flow from here.
+        kgDone() {
+            const result = this.data?.kg_exam_result;
+            if (!result?.passed) return false;
+            return this.kgResultViewed(result.attempt_id);
         },
         greeting() {
             const h = new Date().getHours();
