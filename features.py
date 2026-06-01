@@ -317,50 +317,67 @@ FEATURES: dict[str, dict] = {
 }
 
 
-# ── In-memory cache ───────────────────────────────────────────────────────────
-_cache: dict[str, bool] = {}
-_cache_ts: float = 0.0
+# ── Per-assembly in-memory cache ─────────────────────────────────────────────
+# Keyed by assembly UUID (or "" for unauthenticated / no-assembly requests).
+# Each assembly gets its own independent 60-second TTL so switching between
+# assemblies never serves stale flags from a different one.
+from threading import Lock as _Lock
+
+_cache:    dict[str, dict[str, bool]] = {}   # assembly_id → flags
+_cache_ts: dict[str, float]           = {}   # assembly_id → monotonic timestamp
+_cache_lock = _Lock()
 _CACHE_TTL = 60  # seconds
 
 
-def get_features(db: "Session") -> dict[str, bool]:
-    """Return resolved feature flags.  Resolution order (last wins):
+def get_features(db: "Session", assembly_id: "str | None" = None) -> dict[str, bool]:
+    """Return resolved feature flags for  assembly_id.
+
+    assembly_id — the member's external_assembly_id (UUID string) from
+                  assembly_context.resolve_assembly().  Pass None (or "")
+                  for unauthenticated requests — they get compiled defaults
+                  only (all features on) so public pages are unaffected.
+
+    Resolution order (last wins):
       1. Compiled defaults
-      2. Local Settings rows  feature_<key>
-      3. church-manager PortalConfig.features  (highest priority)
-    Result cached for _CACHE_TTL seconds.
+      2. Local Settings rows  feature_<key>  (deployment-wide overrides)
+      3. church-manager PortalConfig.features  for this assembly (authoritative)
     """
-    global _cache, _cache_ts
+    key = assembly_id or ""
     now = time.monotonic()
-    if _cache and now - _cache_ts < _CACHE_TTL:
-        return dict(_cache)
+
+    with _cache_lock:
+        if key in _cache and now - _cache_ts.get(key, 0) < _CACHE_TTL:
+            return dict(_cache[key])
 
     flags: dict[str, bool] = {k: meta["default"] for k, meta in FEATURES.items()}
 
-    # Layer 1 — local Settings overrides
+    # Layer 1 — local Settings overrides (deployment-wide, all assemblies)
     try:
         from models import Settings
         rows = db.query(Settings).filter(Settings.key.like("feature_%")).all()
         for row in rows:
-            key = row.key[len("feature_"):]
-            if key in flags:
-                flags[key] = (row.value or "").strip().lower() in ("true", "1", "yes", "on")
+            k = row.key[len("feature_"):]
+            if k in flags:
+                flags[k] = (row.value or "").strip().lower() in ("true", "1", "yes", "on")
     except Exception:
         pass
 
-    # Layer 2 — church-manager PortalConfig (authoritative)
-    try:
-        from church_manager_client import get_portal_config
-        remote = get_portal_config()
-        if remote and isinstance(remote.get("features"), dict):
-            for key, val in remote["features"].items():
-                if key in flags:
-                    flags[key] = bool(val)
-    except Exception:
-        pass
+    # Layer 2 — church-manager PortalConfig for this specific assembly
+    if assembly_id:
+        try:
+            from church_manager_client import get_portal_config
+            remote = get_portal_config(assembly_id)
+            if remote and isinstance(remote.get("features"), dict):
+                for k, val in remote["features"].items():
+                    if k in flags:
+                        flags[k] = bool(val)
+        except Exception:
+            pass
 
-    _cache = flags
-    _cache_ts = now
+    with _cache_lock:
+        _cache[key]    = flags
+        _cache_ts[key] = now
+
     return dict(flags)
 
 
@@ -369,12 +386,19 @@ def default_features() -> dict[str, bool]:
     return {k: meta["default"] for k, meta in FEATURES.items()}
 
 
-def invalidate_cache() -> None:
-    """Force next get_features() to re-read from DB and church-manager."""
-    global _cache_ts
-    _cache_ts = 0.0
+def invalidate_cache(assembly_id: "str | None" = None) -> None:
+    """Force the next get_features() call to re-resolve.
+
+    assembly_id — clear only that assembly's cache entry.
+                  Pass None to clear all assemblies.
+    """
+    with _cache_lock:
+        if assembly_id:
+            _cache_ts.pop(assembly_id or "", None)
+        else:
+            _cache_ts.clear()
     try:
         from church_manager_client import invalidate_cache as _cm
-        _cm()
+        _cm(assembly_id)
     except Exception:
         pass

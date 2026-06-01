@@ -799,29 +799,26 @@ _logger = _logging.getLogger("rfm")
 
 @app.middleware("http")
 async def inject_assembly_and_features(request, call_next):
-    """Resolve assembly context and feature flags on every request.
+    """Resolve per-request assembly context and feature flags.
+
+    The portal is multi-tenant: every member carries their own assembly.
+    Assembly context is resolved from whoever is logged in (member or
+    admin session cookie).  Unauthenticated requests receive compiled
+    defaults so public pages are never blocked.
 
     Attaches to request.state:
       .assembly  — {id, name, configured}
-      .features  — {flag: bool, ...}  (43 flags)
-
-    If the assembly is not configured AND the path is not exempt,
-    redirects to /not-configured so the admin knows to set it up.
+      .features  — {flag: bool, ...}  (43 flags, per-assembly)
     """
     from database import SessionLocal
     from features import get_features, default_features
-    from assembly_context import get_assembly_context, is_exempt
-    from fastapi.responses import RedirectResponse
+    from assembly_context import resolve_assembly
 
     db = SessionLocal()
     try:
-        assembly = get_assembly_context(db)
+        assembly = resolve_assembly(request, db)
         request.state.assembly = assembly
-
-        if not assembly["configured"] and not is_exempt(request.url.path):
-            return RedirectResponse(url="/not-configured", status_code=302)
-
-        request.state.features = get_features(db)
+        request.state.features = get_features(db, assembly.get("id"))
     except Exception:
         request.state.assembly = {"id": None, "name": "Revival Fire Ministries", "configured": False}
         request.state.features = default_features()

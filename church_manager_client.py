@@ -1,26 +1,21 @@
 """
-Church Manager client — fetches this assembly's portal configuration.
+Church Manager client — fetches per-assembly portal configuration.
 
-The portal uses church-manager as the authoritative source for feature
-flags.  On each request (via inject_features_middleware) features.py
-calls get_portal_config() which either returns the cached result or
-fetches a fresh copy from church-manager.
+The portal is multi-tenant: one deployment serves all assemblies.
+Features are fetched from church-manager keyed by assembly UUID,
+so each assembly gets exactly the set of features the SuperAdmin
+configured for it.
 
 Required environment variables
 -------------------------------
-CHURCH_MANAGER_URL          Base URL of the church-manager backend API,
-                             e.g. https://church-manager-api.rfm.org.za
-                             Must NOT have a trailing slash.
+CHURCH_MANAGER_URL      Base URL of the church-manager backend API,
+                        e.g. https://church-manager-api.rfm.org.za
+                        Must NOT have a trailing slash.
 
-CHURCH_MANAGER_API_KEY      Shared secret that matches  portal_api_key
-                             in church-manager's .env.  Both sides must
-                             hold the same value.
+CHURCH_MANAGER_API_KEY  Shared secret that matches  portal_api_key
+                        in church-manager's .env.
 
-CHURCH_MANAGER_ASSEMBLY_ID  UUID of this deployment's assembly in
-                             church-manager, e.g. the value from the
-                             church-manager admin /assemblies list.
-
-If any of the three vars is unset the client silently returns None and
+If either var is unset the client returns None for every assembly and
 features.py falls back to the local Settings table / compiled defaults.
 """
 
@@ -32,53 +27,52 @@ import logging
 import urllib.request
 import urllib.error
 import json
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
-_CHURCH_MANAGER_URL        = (os.environ.get("CHURCH_MANAGER_URL") or "").rstrip("/")
-_CHURCH_MANAGER_API_KEY    = os.environ.get("CHURCH_MANAGER_API_KEY") or ""
-_CHURCH_MANAGER_ASSEMBLY_ID = os.environ.get("CHURCH_MANAGER_ASSEMBLY_ID") or ""
+_CHURCH_MANAGER_URL    = (os.environ.get("CHURCH_MANAGER_URL") or "").rstrip("/")
+_CHURCH_MANAGER_API_KEY = os.environ.get("CHURCH_MANAGER_API_KEY") or ""
 
-# ── In-memory cache ───────────────────────────────────────────────────────────
-_cache: dict | None = None
-_cache_ts: float = 0.0
-_CACHE_TTL = 60  # seconds — same cadence as features.py local cache
-
-# Exponential back-off: after a failed fetch don't hammer the remote.
-_backoff_until: float = 0.0
-_failure_count: int = 0
+_CACHE_TTL  = 60   # seconds per assembly
 _MAX_BACKOFF = 300  # 5 minutes
+
+# ── Per-assembly cache ────────────────────────────────────────────────────────
+# Keyed by assembly UUID string so each assembly gets its own independent TTL.
+_cache:          dict[str, dict | None] = {}   # assembly_id → payload or None
+_cache_ts:       dict[str, float]       = {}   # assembly_id → monotonic timestamp
+_backoff_until:  dict[str, float]       = {}   # assembly_id → back-off expires
+_failure_count:  dict[str, int]         = {}   # assembly_id → consecutive failures
+_lock = Lock()
 
 
 def _is_configured() -> bool:
-    return bool(_CHURCH_MANAGER_URL and _CHURCH_MANAGER_API_KEY and _CHURCH_MANAGER_ASSEMBLY_ID)
+    return bool(_CHURCH_MANAGER_URL and _CHURCH_MANAGER_API_KEY)
 
 
-def get_portal_config() -> dict | None:
-    """Return the PortalConfigPublic payload from church-manager, or None.
+def get_portal_config(assembly_id: str) -> dict | None:
+    """Return the PortalConfigPublic payload for  assembly_id, or None.
 
-    None means "not available" — callers should fall back to local config.
-    The result is cached for _CACHE_TTL seconds to avoid per-request HTTP.
+    None means "not available" — callers fall back to local Settings /
+    compiled defaults.  Result is cached per assembly for _CACHE_TTL seconds
+    with exponential back-off on repeated failures so transient network
+    blips don't flip features off for members.
     """
-    global _cache, _cache_ts, _backoff_until, _failure_count
-
-    if not _is_configured():
+    if not _is_configured() or not assembly_id:
         return None
 
     now = time.monotonic()
 
-    # Honour back-off after repeated failures
-    if now < _backoff_until:
-        return _cache  # return stale cache rather than None during back-off
+    with _lock:
+        # Honour per-assembly back-off
+        if now < _backoff_until.get(assembly_id, 0):
+            return _cache.get(assembly_id)  # stale is better than nothing
 
-    # Serve from cache while fresh
-    if _cache is not None and now - _cache_ts < _CACHE_TTL:
-        return _cache
+        # Serve from per-assembly cache while fresh
+        if assembly_id in _cache and now - _cache_ts.get(assembly_id, 0) < _CACHE_TTL:
+            return _cache[assembly_id]
 
-    url = (
-        f"{_CHURCH_MANAGER_URL}/api/portal-configs/by-assembly"
-        f"/{_CHURCH_MANAGER_ASSEMBLY_ID}"
-    )
+    url = f"{_CHURCH_MANAGER_URL}/api/portal-configs/by-assembly/{assembly_id}"
     req = urllib.request.Request(
         url,
         headers={
@@ -90,44 +84,52 @@ def get_portal_config() -> dict | None:
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode())
-        _cache = data
-        _cache_ts = now
-        _failure_count = 0
-        _backoff_until = 0.0
-        logger.debug("portal config refreshed from church-manager")
-        return _cache
+        with _lock:
+            _cache[assembly_id]         = data
+            _cache_ts[assembly_id]      = time.monotonic()
+            _failure_count[assembly_id] = 0
+            _backoff_until[assembly_id] = 0.0
+        logger.debug("portal config refreshed for assembly %s", assembly_id)
+        return data
+
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            # Assembly not configured in church-manager yet — not an error,
-            # just means the portal should use its local defaults.
-            logger.info(
-                "No portal config in church-manager for assembly %s — using local defaults",
-                _CHURCH_MANAGER_ASSEMBLY_ID,
-            )
-            _cache = None
-            _cache_ts = now  # don't retry immediately
+            # Assembly not yet configured in church-manager — use defaults.
+            logger.info("No portal config for assembly %s — using defaults", assembly_id)
+            with _lock:
+                _cache[assembly_id]    = None
+                _cache_ts[assembly_id] = time.monotonic()
         else:
-            _failure_count += 1
-            backoff = min(10 * (2 ** _failure_count), _MAX_BACKOFF)
-            _backoff_until = now + backoff
+            with _lock:
+                count = _failure_count.get(assembly_id, 0) + 1
+                _failure_count[assembly_id] = count
+                backoff = min(10 * (2 ** count), _MAX_BACKOFF)
+                _backoff_until[assembly_id] = time.monotonic() + backoff
             logger.warning(
-                "church-manager returned HTTP %s — backing off %ss (attempt %s)",
-                exc.code, backoff, _failure_count,
+                "church-manager HTTP %s for assembly %s — back-off %ss",
+                exc.code, assembly_id, backoff,
             )
-        return _cache
+        return _cache.get(assembly_id)
+
     except Exception as exc:
-        _failure_count += 1
-        backoff = min(10 * (2 ** _failure_count), _MAX_BACKOFF)
-        _backoff_until = now + backoff
+        with _lock:
+            count = _failure_count.get(assembly_id, 0) + 1
+            _failure_count[assembly_id] = count
+            backoff = min(10 * (2 ** count), _MAX_BACKOFF)
+            _backoff_until[assembly_id] = time.monotonic() + backoff
         logger.warning(
-            "Failed to fetch portal config from church-manager: %s — backing off %ss",
-            exc, backoff,
+            "Failed to fetch portal config for assembly %s: %s — back-off %ss",
+            assembly_id, exc, backoff,
         )
-        return _cache  # return stale if available
+        return _cache.get(assembly_id)
 
 
-def invalidate_cache() -> None:
-    """Force the next get_portal_config() call to re-fetch."""
-    global _cache_ts, _backoff_until
-    _cache_ts = 0.0
-    _backoff_until = 0.0
+def invalidate_cache(assembly_id: str | None = None) -> None:
+    """Force the next fetch for  assembly_id  (or all assemblies) to re-fetch."""
+    with _lock:
+        if assembly_id:
+            _cache_ts.pop(assembly_id, None)
+            _backoff_until.pop(assembly_id, None)
+        else:
+            _cache_ts.clear()
+            _backoff_until.clear()

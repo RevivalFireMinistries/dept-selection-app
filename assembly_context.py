@@ -1,112 +1,73 @@
 """
-Assembly context resolver.
+Assembly context resolver — multi-tenant.
 
-Every portal deployment belongs to exactly one assembly.  This module
-resolves that identity so the portal can:
+The portal serves multiple assemblies from one deployment.  Assembly
+context is determined per-request from whoever is logged in:
 
-  - Display the assembly name in the UI
-  - Fetch the right PortalConfig from church-manager
-  - Gate all access behind "is this portal configured?"
+  1. Member session cookie  → member.external_assembly_id
+  2. Admin identity cookie  → admin member's external_assembly_id
+  3. No session             → no assembly context (use default features)
 
-Resolution order for the assembly UUID
----------------------------------------
-1. CHURCH_MANAGER_ASSEMBLY_ID  env var  (set in Railway per-deployment)
-2. rfm_assembly_id             Settings row  (set in admin → Settings)
-
-Resolution for the assembly name
----------------------------------
-1. assembly_name               Settings row  (set in admin → Settings)
-2. "Revival Fire Ministries"   fallback
-
-If neither source provides a UUID the portal is **unconfigured**.
-inject_features_middleware (main.py) redirects every non-exempt
-request to /not-configured in that case.
-
-Exempt paths (never redirected):
-  /admin/login          — admin must be able to log in to fix config
-  /admin/settings       — admin sets rfm_assembly_id here
-  /not-configured       — the page itself
-  /static/*             — assets
-  /api/*                — API responses handle their own errors
-  /sw.js                — PWA service worker
-  /manifest.webmanifest
-  /offline
-  /health
+There is no deployment-level assembly pin.  Every member carries their
+own assembly with them.  Feature flags are then fetched from church-manager
+for that specific assembly and cached per-assembly-id.
 """
 
 from __future__ import annotations
-import os
-import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fastapi import Request
     from sqlalchemy.orm import Session
 
-_CACHE_TTL = 300  # 5 minutes — assembly rarely changes
 
-_cache: dict | None = None
-_cache_ts: float = 0.0
-
-# Paths the middleware never redirects even when unconfigured.
-EXEMPT_PREFIXES = (
-    "/admin/login",
-    "/admin/settings",
-    "/not-configured",
-    "/static/",
-    "/api/",
-    "/sw.js",
-    "/manifest.webmanifest",
-    "/offline",
-    "/health",
-    "/favicon",
-)
+_FALLBACK = {"id": None, "name": "Revival Fire Ministries", "configured": False}
 
 
-def get_assembly_context(db: "Session | None" = None) -> dict:
-    """Return  {id, name, configured}  for this deployment.
+def resolve_assembly(request: "Request", db: "Session") -> dict:
+    """Return  {id, name, configured}  for the current request.
 
-    id         — UUID string used to fetch PortalConfig from church-manager
-    name       — display name shown in the portal header
-    configured — False when no assembly UUID is available anywhere
+    Reads the signed session cookies that pages.py already sets — no
+    extra cookies or headers needed.  Returns the fallback dict when the
+    user is not logged in or their member record has no assembly UUID.
     """
-    global _cache, _cache_ts
-    now = time.monotonic()
-    if _cache is not None and now - _cache_ts < _CACHE_TTL:
-        return dict(_cache)
+    from routers.pages import (
+        MEMBER_COOKIE_NAME,
+        _verify_member_session,
+        get_admin_identity,
+    )
 
-    assembly_id   = os.environ.get("CHURCH_MANAGER_ASSEMBLY_ID", "").strip() or None
-    assembly_name = None
+    member_id: int | None = None
 
-    if db is not None:
-        try:
-            from models import Settings
-            rows = {
-                r.key: r.value
-                for r in db.query(Settings).filter(
-                    Settings.key.in_(["rfm_assembly_id", "assembly_name"])
-                ).all()
-            }
-            if not assembly_id:
-                assembly_id = rows.get("rfm_assembly_id", "").strip() or None
-            assembly_name = rows.get("assembly_name", "").strip() or None
-        except Exception:
-            pass
+    # ── 1. Member session ─────────────────────────────────────────────────────
+    token = request.cookies.get(MEMBER_COOKIE_NAME)
+    if token:
+        member_id = _verify_member_session(token)
 
-    ctx = {
-        "id":         assembly_id,
-        "name":       assembly_name or "Revival Fire Ministries",
-        "configured": bool(assembly_id),
-    }
-    _cache = ctx
-    _cache_ts = now
-    return dict(ctx)
+    # ── 2. Admin identity session (admins are members too) ───────────────────
+    if not member_id:
+        identity = get_admin_identity(request)
+        if identity:
+            member_id = identity.get("member_id")
 
+    if not member_id:
+        return dict(_FALLBACK)
 
-def is_exempt(path: str) -> bool:
-    """Return True for paths that bypass the assembly-context check."""
-    return any(path.startswith(p) for p in EXEMPT_PREFIXES)
+    # ── 3. Resolve member's assembly ─────────────────────────────────────────
+    try:
+        from models import Member
+        member = db.query(Member).filter(Member.id == member_id).first()
+        if not member:
+            return dict(_FALLBACK)
 
+        assembly_id = getattr(member, "external_assembly_id", None)
+        if not assembly_id:
+            return dict(_FALLBACK)
 
-def invalidate_cache() -> None:
-    global _cache_ts
-    _cache_ts = 0.0
+        return {
+            "id":         str(assembly_id),
+            "name":       "Revival Fire Ministries",   # display name — could be
+            "configured": True,                         # enriched later if needed
+        }
+    except Exception:
+        return dict(_FALLBACK)

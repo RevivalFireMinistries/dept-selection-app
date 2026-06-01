@@ -5413,17 +5413,18 @@ def set_poster_request_department(
 # ============ FEATURE FLAGS ============
 
 @router.get("/admin/features/source")
-def get_features_source():
+def get_features_source(request: Request):
     """Return whether features are driven by church-manager or local settings."""
     import os
     cm_url = os.environ.get("CHURCH_MANAGER_URL", "")
     cm_key = os.environ.get("CHURCH_MANAGER_API_KEY", "")
-    cm_id  = os.environ.get("CHURCH_MANAGER_ASSEMBLY_ID", "")
-    connected = bool(cm_url and cm_key and cm_id)
+    connected = bool(cm_url and cm_key)
+    assembly = getattr(request.state, "assembly", {})
     return {
-        "source": "church_manager" if connected else "local",
+        "source": "church_manager" if (connected and assembly.get("id")) else "local",
         "church_manager_url": cm_url if connected else None,
-        "assembly_id": cm_id if connected else None,
+        "assembly_id": assembly.get("id"),
+        "multi_tenant": True,
     }
 
 
