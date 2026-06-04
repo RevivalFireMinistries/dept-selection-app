@@ -126,7 +126,8 @@ async def clerk_exchange(
         "[clerk-exchange] member %s (%s) signed in via Clerk",
         member.id, member.email,
     )
-    return {"ok": True, "redirect": "/dashboard", "member_id": member.id}
+    # Portal's home is at /, not /dashboard (that path is church-manager's).
+    return {"ok": True, "redirect": "/", "member_id": member.id}
 
 
 @router.get("/api/auth/me")

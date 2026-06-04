@@ -98,7 +98,7 @@
 					return;
 				}
 				const data = await r.json();
-				window.location.href = data.redirect || '/dashboard';
+				window.location.href = data.redirect || '/';
 			}
 
 			function redirectToSignIn() {
