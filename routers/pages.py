@@ -311,8 +311,83 @@ async def setup_password_page(request: Request):
 
 @router.get("/logout")
 async def member_logout():
-    """Log out member"""
-    response = RedirectResponse(url="/", status_code=302)
+    """Log out the member from BOTH the legacy session AND Clerk.
+
+    Two-step: clear the portal session cookie (server-side, via the
+    response headers), then return a small HTML page that loads the
+    Clerk SDK and calls Clerk.signOut() before redirecting to /. Until
+    we kill the Clerk session, the user can sign right back in via
+    /login-clerk because Clerk's session cookies on .rfm.org.za still
+    point at an active session.
+
+    The HTML page is intentionally minimal — no styling, no chrome —
+    because users see it for ~1 second tops while Clerk does its work.
+    """
+    from fastapi.responses import HTMLResponse
+
+    pub_key = os.getenv("CLERK_PUBLISHABLE_KEY") or ""
+    frontend_api = (os.getenv("CLERK_FRONTEND_API") or "").rstrip("/")
+
+    if not pub_key or not frontend_api:
+        # No Clerk configured — just the legacy logout.
+        response = RedirectResponse(url="/", status_code=302)
+        response.delete_cookie(key=MEMBER_COOKIE_NAME)
+        return response
+
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Signing out…</title>
+  <style>
+    body {{ font-family: -apple-system, "Segoe UI", sans-serif;
+           display: flex; align-items: center; justify-content: center;
+           min-height: 100vh; margin: 0; background: #f5f5f7; color: #555; }}
+    .box {{ text-align: center; }}
+    .spinner {{ display: inline-block; width: 28px; height: 28px;
+               border: 3px solid #ddd; border-top-color: #0d9488;
+               border-radius: 50%; animation: spin .8s linear infinite;
+               margin-bottom: 1rem; }}
+    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="spinner"></div>
+    <p>Signing out…</p>
+  </div>
+  <script
+    async
+    crossorigin="anonymous"
+    data-clerk-publishable-key="{pub_key}"
+    src="{frontend_api}/npm/@clerk/clerk-js@latest/dist/clerk.browser.js"
+  ></script>
+  <script>
+    (async function () {{
+      const startedAt = Date.now();
+      while (!window.Clerk || typeof window.Clerk.load !== 'function') {{
+        if (Date.now() - startedAt > 5000) break;
+        await new Promise(function (r) {{ setTimeout(r, 50); }});
+      }}
+      try {{
+        if (window.Clerk) {{
+          await window.Clerk.load();
+          if (window.Clerk.session) {{
+            await window.Clerk.signOut();
+          }}
+        }}
+      }} catch (e) {{
+        console.warn('Clerk signOut failed', e);
+      }}
+      // Belt-and-suspenders: also clear any in-tab JS state we manage
+      try {{ localStorage.removeItem('auth'); }} catch (e) {{}}
+      window.location.replace('/');
+    }})();
+  </script>
+</body>
+</html>"""
+
+    response = HTMLResponse(content=html, status_code=200)
     response.delete_cookie(key=MEMBER_COOKIE_NAME)
     return response
 
