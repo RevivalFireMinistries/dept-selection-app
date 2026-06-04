@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Sign in — RFM Portal</title>
+	<style>
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			background: #f5f5f7;
+			margin: 0;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 1rem;
+			color: #1a1a1a;
+		}
+		.card {
+			background: white;
+			border-radius: 16px;
+			box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+			padding: 2rem;
+			max-width: 420px;
+			width: 100%;
+			text-align: center;
+		}
+		h1 { margin: 0 0 .5rem; font-size: 1.4rem; }
+		p.muted { color: #666; font-size: .9rem; margin: .5rem 0 1.5rem; }
+		.spinner {
+			display: inline-block;
+			width: 36px;
+			height: 36px;
+			border: 3px solid #e0e0e0;
+			border-top-color: #0d9488;
+			border-radius: 50%;
+			animation: spin .8s linear infinite;
+			margin: 1rem 0;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+		.error {
+			background: #fef2f2;
+			border: 1px solid #fecaca;
+			color: #991b1b;
+			border-radius: 8px;
+			padding: .75rem 1rem;
+			font-size: .9rem;
+			text-align: left;
+			margin: 1rem 0;
+		}
+		a { color: #0d9488; text-decoration: none; }
+		a:hover { text-decoration: underline; }
+	</style>
+</head>
+<body>
+	<div class="card">
+		<h1>Signing you in…</h1>
+		<p class="muted" id="status-text">Checking your session</p>
+		<div class="spinner" id="spinner"></div>
+		<div id="error-box" class="error" style="display:none"></div>
+		<p style="margin-top: 1.5rem;">
+			<a href="/login">← Back to phone+password login</a>
+		</p>
+	</div>
+
+	<script>
+		(function () {
+			const PUBLISHABLE_KEY = "{{ clerk_publishable_key }}";
+			const FRONTEND_API = "{{ clerk_frontend_api }}";
+			const JWT_TEMPLATE = "{{ clerk_jwt_template }}";
+			const ACCOUNT_PORTAL = "{{ clerk_account_portal }}";
+
+			const statusEl = document.getElementById('status-text');
+			const errorBox = document.getElementById('error-box');
+			const spinner = document.getElementById('spinner');
+
+			function showError(msg) {
+				errorBox.textContent = msg;
+				errorBox.style.display = 'block';
+				spinner.style.display = 'none';
+				statusEl.textContent = 'Sign-in failed';
+			}
+
+			function setStatus(msg) {
+				statusEl.textContent = msg;
+			}
+
+			async function exchangeAndRedirect(token) {
+				setStatus('Linking your portal account…');
+				const r = await fetch('/api/auth/clerk-exchange', {
+					method: 'POST',
+					headers: { 'Authorization': 'Bearer ' + token },
+					credentials: 'include',
+				});
+				if (!r.ok) {
+					const data = await r.json().catch(() => ({}));
+					showError(data.detail || ('HTTP ' + r.status));
+					return;
+				}
+				const data = await r.json();
+				window.location.href = data.redirect || '/dashboard';
+			}
+
+			function redirectToSignIn() {
+				const params = new URLSearchParams(window.location.search);
+				const ticket = params.get('__clerk_ticket');
+				const target = ticket ? '/sign-up' : '/sign-in';
+				const returnUrl = window.location.origin + '/login-clerk';
+				const qs = new URLSearchParams();
+				if (ticket) qs.set('__clerk_ticket', ticket);
+				qs.set('redirect_url', returnUrl);
+				const url = ACCOUNT_PORTAL + target + '?' + qs.toString();
+				setStatus(ticket ? 'Redirecting to sign-up…' : 'Redirecting to sign-in…');
+				window.location.href = url;
+			}
+
+			// Inject Clerk SDK from the CDN-hosted bundle for the configured
+			// Frontend API host. The script self-registers window.Clerk.
+			const script = document.createElement('script');
+			script.async = true;
+			script.crossOrigin = 'anonymous';
+			script.setAttribute('data-clerk-publishable-key', PUBLISHABLE_KEY);
+			script.src = FRONTEND_API + '/npm/@clerk/clerk-js@latest/dist/clerk.browser.js';
+			script.onerror = () => showError('Failed to load Clerk SDK from ' + FRONTEND_API);
+			document.head.appendChild(script);
+
+			async function waitForClerk(timeoutMs) {
+				const start = Date.now();
+				while (!window.Clerk || typeof window.Clerk.load !== 'function') {
+					if (Date.now() - start > timeoutMs) {
+						throw new Error('Timed out waiting for Clerk SDK');
+					}
+					await new Promise(r => setTimeout(r, 50));
+				}
+			}
+
+			window.addEventListener('load', async () => {
+				try {
+					await waitForClerk(15000);
+					await window.Clerk.load({
+						afterSignInUrl: '/login-clerk',
+						afterSignUpUrl: '/login-clerk',
+					});
+
+					if (window.Clerk.session) {
+						setStatus('Authenticating with Clerk…');
+						const token = await window.Clerk.session.getToken({ template: JWT_TEMPLATE });
+						if (!token) {
+							showError('Could not mint a token. Check that the "' + JWT_TEMPLATE + '" JWT template exists in Clerk dashboard.');
+							return;
+						}
+						await exchangeAndRedirect(token);
+					} else {
+						redirectToSignIn();
+					}
+				} catch (e) {
+					showError(e.message || String(e));
+				}
+			});
+		})();
+	</script>
+</body>
+</html>

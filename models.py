@@ -57,6 +57,12 @@ class Member(Base):
     email_verified_at = Column(DateTime(timezone=True), nullable=True)
     email_verification_token = Column(String, nullable=True)
     email_verification_expires = Column(DateTime(timezone=True), nullable=True)
+    # Clerk identity mirror key. Populated either at invite time (Phase 5b
+    # bulk import) or lazily on first sign-in via clerk_auth.get_clerk_member.
+    # Nullable while we're dual-mode with the legacy phone+password session.
+    # Unique on the DB side so a single Clerk identity can't accidentally
+    # link to two portal rows.
+    clerk_user_id = Column(String(64), nullable=True, unique=True, index=True)
     # Link to the central rfm-database (the source of truth for member info).
     # external_member_id holds the API's UUID once matched; null means we
     # haven't matched this local member to the API yet (legacy or orphan).

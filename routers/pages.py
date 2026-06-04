@@ -155,7 +155,42 @@ def _verify_member_session(token: str) -> Optional[int]:
 
 
 def get_current_member(request: Request, db: Session) -> Optional[Member]:
-    """Get the currently logged-in member from session cookie"""
+    """Get the currently logged-in member.
+
+    Dual-mode (Phase 5a — see church-manager/docs/AUTH_CENTRALIZATION.md):
+      1. Authorization: Bearer <Clerk JWT>  → resolve via clerk_auth
+      2. session cookie (legacy)             → existing path, unchanged
+
+    The Clerk path runs via asyncio.run() because this helper is called
+    from sync FastAPI routes. Most portal routes are sync; running an
+    async resolver from a sync caller is the smallest-diff way to wire
+    Clerk in without rewriting every dependency.
+    """
+    import asyncio
+    import os
+
+    # 1. Clerk path (only when configured)
+    if os.getenv("CLERK_FRONTEND_API"):
+        auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            try:
+                from clerk_auth import get_clerk_member
+                # If we're already inside a running event loop (async route),
+                # asyncio.run would crash — but get_current_member is always
+                # called from sync handlers in this codebase. Use new loop.
+                clerk_member = asyncio.run(get_clerk_member(request, db))
+                if clerk_member:
+                    return clerk_member
+                # Clerk JWT present but member not resolvable — fall through
+                # to legacy session check (rare, but defensive).
+            except Exception:
+                # Never let a Clerk hiccup break legacy auth.
+                import logging
+                logging.getLogger(__name__).exception(
+                    "[auth] Clerk member resolution failed, falling back to session"
+                )
+
+    # 2. Legacy session-cookie path (unchanged)
     token = request.cookies.get(MEMBER_COOKIE_NAME)
     member_id = _verify_member_session(token)
     if member_id:

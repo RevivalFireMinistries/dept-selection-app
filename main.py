@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals, kg
+from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals, kg, clerk
 
 
 def run_migrations():
@@ -771,6 +771,26 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (home church program types): {e}")
 
+        # Phase 5a — Clerk auth: add clerk_user_id to members
+        try:
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'members' AND column_name = 'clerk_user_id'
+            """))
+            if not result.fetchone():
+                conn.execute(text("""
+                    ALTER TABLE members
+                    ADD COLUMN IF NOT EXISTS clerk_user_id VARCHAR(64)
+                """))
+                conn.execute(text("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_members_clerk_user_id
+                    ON members (clerk_user_id)
+                """))
+                conn.commit()
+                print("Migration: Added clerk_user_id column to members")
+        except Exception as e:
+            print(f"Migration note (clerk_user_id): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -868,6 +888,9 @@ app.mount("/static/display_uploads", StaticFiles(directory=_DISPLAY_UPLOAD_DIR),
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
+# Phase 5a — Clerk routes (/login-clerk, /api/auth/clerk-exchange, /api/auth/me).
+# Registered BEFORE api.router so /api/auth/me doesn't collide with anything.
+app.include_router(clerk.router, tags=["clerk-auth"])
 app.include_router(api.router, prefix="/api", tags=["api"])
 app.include_router(payments.router, prefix="/api", tags=["payments"])
 app.include_router(reading_plans.router, prefix="/api", tags=["reading-plans"])
