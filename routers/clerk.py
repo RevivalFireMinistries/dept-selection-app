@@ -130,6 +130,85 @@ async def clerk_exchange(
     return {"ok": True, "redirect": "/", "member_id": member.id}
 
 
+PORTAL_ADMIN_KEY = os.getenv("PORTAL_ADMIN_KEY") or ""
+
+
+def _require_admin_key(request: Request) -> None:
+    """Header check for operator-only endpoints (the bulk member import).
+
+    Uses X-Portal-Admin-Key matched against the PORTAL_ADMIN_KEY env var.
+    Kept separate from the regular session/JWT auth because this is a
+    one-shot operational endpoint the operator curls from their laptop,
+    not something a logged-in member ever calls.
+    """
+    if not PORTAL_ADMIN_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Admin endpoint not configured. "
+                "Set PORTAL_ADMIN_KEY on the portal service in Railway."
+            ),
+        )
+    supplied = request.headers.get("x-portal-admin-key") or request.headers.get("X-Portal-Admin-Key")
+    if supplied != PORTAL_ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="Bad or missing X-Portal-Admin-Key")
+
+
+@router.post("/api/admin/clerk-import-members")
+async def clerk_import_members(
+    request: Request,
+    dry_run: bool = True,
+    limit: int | None = None,
+    reset_existing: bool = False,
+    db: Session = Depends(get_db),
+):
+    """One-shot bulk import portal members → Clerk (Phase 5b).
+
+    Auth: X-Portal-Admin-Key header must match PORTAL_ADMIN_KEY env var.
+    Operator-only; not exposed via the regular session/JWT auth path.
+
+    Eligibility: members with is_active=true, non-empty email, and a
+    password_hash set. Phone-only and never-registered members are
+    skipped (deferred to a follow-up).
+
+    Params:
+      dry_run         (default True) — preview only, no API calls beyond
+                                       the row count.
+      limit           Optional cap on number processed (use for batches).
+      reset_existing  (default False) — DESTRUCTIVE: clear clerk_user_id
+                                        on every active row first.
+
+    Response: counts (created, linked, skipped, failed) + up to 20
+    per-member samples for spot-checking.
+    """
+    _require_admin_key(request)
+
+    from clerk_member_import import run_member_import
+
+    try:
+        summary = await run_member_import(
+            db=db,
+            dry_run=dry_run,
+            limit=limit,
+            reset_existing=reset_existing,
+        )
+    except RuntimeError as e:
+        # Surface "CLERK_SECRET_KEY not set" as 400 — config error,
+        # operator-actionable.
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.exception("[clerk-import-members] crashed")
+        raise HTTPException(500, f"Import failed: {e}")
+
+    logger.info(
+        "[clerk-import-members] %s: seen=%d created=%d linked=%d skipped=%d failed=%d",
+        "DRY-RUN" if dry_run else "EXECUTED",
+        summary["total_seen"], summary["created"], summary["linked"],
+        summary["skipped"], summary["failed"],
+    )
+    return summary
+
+
 @router.get("/api/auth/me")
 async def auth_me(request: Request, db: Session = Depends(get_db)):
     """Unified member identity. Works for both legacy session cookie and
