@@ -10541,6 +10541,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "is_hod": len(hod_departments) > 0,
             "hod_departments": hod_departments,
             "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
+            "is_elder": _is_elder(member),
         },
         "open_change_requests": open_change_requests,
     }
@@ -11080,6 +11081,218 @@ def portal_attendance(year: Optional[int] = Query(None), request: Request = None
     return {
         "year": year,
         "data": r.data,
+    }
+
+
+# ── Elder Attendance Report ───────────────────────────────────────────────────
+#
+# Two-step UI:
+#   1. Pick a month → GET /portal/elder/attendance/service-types returns
+#      the distinct service types recorded in that month so the Elder can
+#      choose one without guessing.
+#   2. Pick a service type → GET /portal/elder/attendance/report returns
+#      every member with their attendance count for that month + type.
+#
+# Data comes from rfm-database via member_attendance_dashboard().  Because
+# that endpoint is per-member we fan out with a thread pool (max 10 workers)
+# and cache yearly results for 5 minutes so repeat loads are instant.
+#
+# Access: member must have "elder" in leadership_roles JSON array.
+
+import threading as _threading
+from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor, as_completed as _as_completed
+
+_elder_att_cache: dict = {}                   # (external_member_id, year) → (ts, data)
+_elder_att_lock = _threading.Lock()
+_ELDER_ATT_TTL = 300                          # 5 minutes
+
+
+def _fetch_member_attendance_cached(external_id: str, year: int, db) -> list:
+    """Fetch yearly attendance rows for one member, with 5-minute cache."""
+    import time
+    key = (external_id, year)
+    with _elder_att_lock:
+        cached = _elder_att_cache.get(key)
+        if cached and time.monotonic() - cached[0] < _ELDER_ATT_TTL:
+            return cached[1]
+
+    r = _rfm.member_attendance_dashboard(external_id, year=year, db=db)
+    rows = []
+    if r.ok and r.data:
+        rows = r.data if isinstance(r.data, list) else r.data.get("services", r.data.get("attendance", []))
+        if not isinstance(rows, list):
+            rows = []
+
+    with _elder_att_lock:
+        _elder_att_cache[key] = (time.monotonic(), rows)
+    return rows
+
+
+def _is_elder(member) -> bool:
+    import json as _json
+    try:
+        roles = member.leadership_roles
+        if isinstance(roles, str):
+            roles = _json.loads(roles)
+        return "elder" in [str(r).lower() for r in (roles or [])]
+    except Exception:
+        return False
+
+
+def _row_service_type(row: dict) -> str:
+    """Extract service type label from an attendance row."""
+    for field in ("service_type", "service_name", "service_title",
+                  "service_label", "service", "event_name", "name"):
+        val = row.get(field)
+        if val and isinstance(val, str):
+            return val.strip()
+    return "Service"
+
+
+def _row_month(row: dict) -> str:
+    """Return YYYY-MM from a row's date field."""
+    for field in ("service_date", "date", "service_day"):
+        val = row.get(field)
+        if val and isinstance(val, str) and len(val) >= 7:
+            return val[:7]
+    return ""
+
+
+def _row_attended(row: dict) -> bool:
+    """True when the member attended this service."""
+    for field in ("attended", "present", "checked_in"):
+        val = row.get(field)
+        if val is not None:
+            return bool(val)
+    count = row.get("count") or row.get("attendance_count")
+    if count is not None:
+        return int(count) > 0
+    return False
+
+
+@router.get("/portal/elder/attendance/service-types")
+def elder_attendance_service_types(
+    month: str = Query(..., description="YYYY-MM"),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Return distinct service types recorded in the given month.
+
+    Requires Elder role.  Fetches attendance for up to 30 local members
+    (enough to discover the set of service types) and returns the unique
+    labels.
+    """
+    member = _require_logged_in_member(request, db)
+    if not _is_elder(member):
+        raise HTTPException(status_code=403, detail="Elder access required")
+
+    try:
+        year = int(month[:4])
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+
+    # Sample up to 30 members to discover service types
+    sample_members = (
+        db.query(Member)
+        .filter(Member.external_member_id.isnot(None))
+        .limit(30)
+        .all()
+    )
+
+    service_types: set[str] = set()
+    with _ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_fetch_member_attendance_cached, m.external_member_id, year, db): m
+            for m in sample_members
+        }
+        for fut in _as_completed(futures):
+            try:
+                rows = fut.result()
+                for row in rows:
+                    if _row_month(row) == month:
+                        service_types.add(_row_service_type(row))
+            except Exception:
+                pass
+
+    return sorted(service_types)
+
+
+@router.get("/portal/elder/attendance/report")
+def elder_attendance_report(
+    month: str = Query(..., description="YYYY-MM"),
+    service_type: str = Query(..., description="Service type label"),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    """Monthly attendance report for all members, filtered by service type.
+
+    Returns a list of members with their attended / total service counts
+    for the given month, sorted by attended count ascending (0 first) so
+    Elders see the most-absent members at the top.
+
+    Requires Elder role.
+    """
+    member = _require_logged_in_member(request, db)
+    if not _is_elder(member):
+        raise HTTPException(status_code=403, detail="Elder access required")
+
+    try:
+        year = int(month[:4])
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+
+    # All local members with a central link
+    all_members = (
+        db.query(Member)
+        .filter(Member.external_member_id.isnot(None))
+        .order_by(Member.full_name)
+        .all()
+    )
+
+    results = []
+    service_type_lower = service_type.lower().strip()
+
+    def process_member(m):
+        rows = _fetch_member_attendance_cached(m.external_member_id, year, db)
+        month_rows = [
+            r for r in rows
+            if _row_month(r) == month
+            and _row_service_type(r).lower().strip() == service_type_lower
+        ]
+        total = len(month_rows)
+        attended = sum(1 for r in month_rows if _row_attended(r))
+        return {
+            "member_id":  m.id,
+            "name":       m.full_name or "",
+            "phone":      m.phone or "",
+            "attended":   attended,
+            "total":      total,
+        }
+
+    with _ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(process_member, m): m for m in all_members}
+        for fut in _as_completed(futures):
+            try:
+                results.append(fut.result())
+            except Exception:
+                pass
+
+    # Sort: 0 attended first, then by name within each group
+    results.sort(key=lambda r: (r["attended"], r["name"].lower()))
+
+    # Summary counts
+    total_members = len(results)
+    buckets: dict[str, int] = {}
+    for r in results:
+        key = f"{r['attended']}/{r['total']}"
+        buckets[key] = buckets.get(key, 0) + 1
+
+    return {
+        "month":        month,
+        "service_type": service_type,
+        "total_members": total_members,
+        "buckets":      buckets,
+        "members":      results,
     }
 
 

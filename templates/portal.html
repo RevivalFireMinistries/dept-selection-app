@@ -1087,6 +1087,17 @@
 
             <!-- Leadership tools — only when applicable -->
             <div x-show="hasLeadership()" class="px-5 pt-4 pb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Leadership tools</div>
+            {% if features.elder_attendance_report %}
+            <a x-show="data?.leadership?.is_elder" href="/portal/elder-report"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm">📊</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Attendance report</div>
+                    <div class="text-[11px] text-gray-500">Monthly member attendance by service</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            {% endif %}
             {% if features.admin_home_churches %}
             <a x-show="data?.leadership?.is_hc_committee || data?.leadership?.is_hc_leader"
                :href="`/admin/home-churches?phone=${encodeURIComponent(data.member.phone)}`"

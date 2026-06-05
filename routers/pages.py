@@ -889,6 +889,25 @@ async def member_portal(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("portal.html", {"request": request})
 
 
+@router.get("/portal/elder-report")
+async def elder_attendance_report_page(request: Request, db: Session = Depends(get_db)):
+    """Elder attendance report page — requires Elder role."""
+    _require_feature(request, "elder_attendance_report")
+    from fastapi import HTTPException as _HTTPException
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/portal/elder-report", status_code=302)
+    import json as _json
+    roles = []
+    try:
+        roles = _json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else (member.leadership_roles or [])
+    except Exception:
+        pass
+    if "elder" not in [str(r).lower() for r in roles]:
+        raise _HTTPException(status_code=403, detail="Elder access required")
+    return templates.TemplateResponse("elder_attendance_report.html", {"request": request})
+
+
 @router.get("/reading-plans")
 async def member_reading_plans(request: Request, db: Session = Depends(get_db)):
     member = get_current_member(request, db)

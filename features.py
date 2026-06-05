@@ -301,6 +301,14 @@ FEATURES: dict[str, dict] = {
         "description": "AI provider configuration and AI-powered member tools.",
     },
 
+    # ── Elder Tools ──────────────────────────────────────────────────────────
+    "elder_attendance_report": {
+        "label": "Elder Attendance Report",
+        "group": "Elder Tools",
+        "default": True,
+        "description": "Elders can view monthly attendance per service type for all members, with PDF export.",
+    },
+
     # ── Operator Tools ───────────────────────────────────────────────────────
     "info_desk": {
         "label": "Info Desk",
