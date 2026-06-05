@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import time
 import logging
+import urllib.parse
 import urllib.request
 import urllib.error
 import json
@@ -122,6 +123,52 @@ def get_portal_config(assembly_id: str) -> dict | None:
             assembly_id, exc, backoff,
         )
         return _cache.get(assembly_id)
+
+
+def get_attendance_service_types(assembly_id: str, month: str) -> list:
+    """Return distinct service types for the assembly in the given YYYY-MM month.
+    Returns [] when church-manager is not configured or returns no data."""
+    if not _is_configured() or not assembly_id:
+        return []
+
+    url = (
+        f"{_CHURCH_MANAGER_URL}/api/portal-configs"
+        f"/by-assembly/{assembly_id}/attendance/service-types"
+        f"?month={month}"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={"X-Portal-API-Key": _CHURCH_MANAGER_API_KEY, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as exc:
+        logger.warning("Failed to fetch service types from church-manager: %s", exc)
+        return []
+
+
+def get_attendance_report(assembly_id: str, month: str, service_type: str) -> dict | None:
+    """Return the full attendance report for the assembly / month / service_type.
+    Returns None when church-manager is not configured or the call fails."""
+    if not _is_configured() or not assembly_id:
+        return None
+
+    url = (
+        f"{_CHURCH_MANAGER_URL}/api/portal-configs"
+        f"/by-assembly/{assembly_id}/attendance/report"
+        f"?month={month}&service_type={urllib.parse.quote(service_type)}"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={"X-Portal-API-Key": _CHURCH_MANAGER_API_KEY, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as exc:
+        logger.warning("Failed to fetch attendance report from church-manager: %s", exc)
+        return None
 
 
 def invalidate_cache(assembly_id: str | None = None) -> None:

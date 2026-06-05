@@ -891,8 +891,12 @@ async def member_portal(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/portal/elder-report")
 async def elder_attendance_report_page(request: Request, db: Session = Depends(get_db)):
-    """Elder attendance report page — requires Elder role."""
+    """Attendance report page — accessible to Elders and Admins."""
     _require_feature(request, "elder_attendance_report")
+    # Admins always have access
+    if is_authenticated(request):
+        return templates.TemplateResponse("elder_attendance_report.html", {"request": request})
+    # Members must be logged in and have Elder role
     from fastapi import HTTPException as _HTTPException
     member = get_current_member(request, db)
     if not member:
@@ -904,7 +908,7 @@ async def elder_attendance_report_page(request: Request, db: Session = Depends(g
     except Exception:
         pass
     if "elder" not in [str(r).lower() for r in roles]:
-        raise _HTTPException(status_code=403, detail="Elder access required")
+        raise _HTTPException(status_code=403, detail="Elder or admin access required")
     return templates.TemplateResponse("elder_attendance_report.html", {"request": request})
 
 

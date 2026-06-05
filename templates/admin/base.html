@@ -157,6 +157,12 @@
                 <span class="text-sm font-medium text-gray-700">Surveys</span>
             </a>
             {% endif %}
+            {% if features.elder_attendance_report %}
+            <a href="/portal/elder-report" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/portal/elder-report' %}bg-blue-50{% endif %}">
+                <span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 text-sm">📊</span>
+                <span class="text-sm font-medium text-gray-700">Attendance Report</span>
+            </a>
+            {% endif %}
             <a href="/admin/features" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/features' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center flex-shrink-0 text-sm">⚙️</span>
                 <span class="text-sm font-medium text-gray-700">Features</span>

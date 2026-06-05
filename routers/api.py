@@ -11176,124 +11176,56 @@ def elder_attendance_service_types(
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-    """Return distinct service types recorded in the given month.
+    """Return distinct service types recorded for this assembly in the given month.
 
-    Requires Elder role.  Fetches attendance for up to 30 local members
-    (enough to discover the set of service types) and returns the unique
-    labels.
+    Requires Elder role or admin session.  Data sourced from church-manager.
     """
+    from routers.pages import is_authenticated
     member = _require_logged_in_member(request, db)
-    if not _is_elder(member):
-        raise HTTPException(status_code=403, detail="Elder access required")
+    if not _is_elder(member) and not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Elder or admin access required")
 
-    try:
-        year = int(month[:4])
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+    assembly = getattr(request.state, "assembly", {})
+    assembly_id = assembly.get("id") if assembly else None
+    if not assembly_id:
+        raise HTTPException(status_code=422, detail="No assembly context found. Please log in.")
 
-    # Sample up to 30 members to discover service types
-    sample_members = (
-        db.query(Member)
-        .filter(Member.external_member_id.isnot(None))
-        .limit(30)
-        .all()
-    )
-
-    service_types: set[str] = set()
-    with _ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {
-            pool.submit(_fetch_member_attendance_cached, m.external_member_id, year, db): m
-            for m in sample_members
-        }
-        for fut in _as_completed(futures):
-            try:
-                rows = fut.result()
-                for row in rows:
-                    if _row_month(row) == month:
-                        service_types.add(_row_service_type(row))
-            except Exception:
-                pass
-
-    return sorted(service_types)
+    from church_manager_client import get_attendance_service_types
+    types = get_attendance_service_types(assembly_id, month)
+    if types is None:
+        raise HTTPException(status_code=503, detail="Church Manager is not connected. Contact your system administrator.")
+    return types
 
 
 @router.get("/portal/elder/attendance/report")
 def elder_attendance_report(
     month: str = Query(..., description="YYYY-MM"),
-    service_type: str = Query(..., description="Service type label"),
+    service_type: str = Query(..., description="Service type e.g. SUNDAY_MAIN"),
     request: Request = None,
     db: Session = Depends(get_db),
 ):
     """Monthly attendance report for all members, filtered by service type.
 
-    Returns a list of members with their attended / total service counts
-    for the given month, sorted by attended count ascending (0 first) so
-    Elders see the most-absent members at the top.
+    Returns members sorted by attended count ascending (0 first) so
+    Elders see who to follow up with first.
 
-    Requires Elder role.
+    Requires Elder role or admin session.  Data sourced from church-manager.
     """
+    from routers.pages import is_authenticated
     member = _require_logged_in_member(request, db)
-    if not _is_elder(member):
-        raise HTTPException(status_code=403, detail="Elder access required")
+    if not _is_elder(member) and not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Elder or admin access required")
 
-    try:
-        year = int(month[:4])
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
+    assembly = getattr(request.state, "assembly", {})
+    assembly_id = assembly.get("id") if assembly else None
+    if not assembly_id:
+        raise HTTPException(status_code=422, detail="No assembly context found. Please log in.")
 
-    # All local members with a central link
-    all_members = (
-        db.query(Member)
-        .filter(Member.external_member_id.isnot(None))
-        .order_by(Member.full_name)
-        .all()
-    )
-
-    results = []
-    service_type_lower = service_type.lower().strip()
-
-    def process_member(m):
-        rows = _fetch_member_attendance_cached(m.external_member_id, year, db)
-        month_rows = [
-            r for r in rows
-            if _row_month(r) == month
-            and _row_service_type(r).lower().strip() == service_type_lower
-        ]
-        total = len(month_rows)
-        attended = sum(1 for r in month_rows if _row_attended(r))
-        return {
-            "member_id":  m.id,
-            "name":       m.full_name or "",
-            "phone":      m.phone or "",
-            "attended":   attended,
-            "total":      total,
-        }
-
-    with _ThreadPoolExecutor(max_workers=10) as pool:
-        futures = {pool.submit(process_member, m): m for m in all_members}
-        for fut in _as_completed(futures):
-            try:
-                results.append(fut.result())
-            except Exception:
-                pass
-
-    # Sort: 0 attended first, then by name within each group
-    results.sort(key=lambda r: (r["attended"], r["name"].lower()))
-
-    # Summary counts
-    total_members = len(results)
-    buckets: dict[str, int] = {}
-    for r in results:
-        key = f"{r['attended']}/{r['total']}"
-        buckets[key] = buckets.get(key, 0) + 1
-
-    return {
-        "month":        month,
-        "service_type": service_type,
-        "total_members": total_members,
-        "buckets":      buckets,
-        "members":      results,
-    }
+    from church_manager_client import get_attendance_report
+    data = get_attendance_report(assembly_id, month, service_type)
+    if data is None:
+        raise HTTPException(status_code=503, detail="Could not fetch attendance from Church Manager. Please try again.")
+    return data
 
 
 @router.get("/portal/giving/banking")
