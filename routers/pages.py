@@ -907,7 +907,8 @@ async def elder_attendance_report_page(request: Request, db: Session = Depends(g
         roles = _json.loads(member.leadership_roles) if isinstance(member.leadership_roles, str) else (member.leadership_roles or [])
     except Exception:
         pass
-    if "elder" not in [str(r).lower() for r in roles]:
+    roles_lower = [str(r).lower() for r in roles]
+    if "elder" not in roles_lower and "pastor" not in roles_lower:
         raise _HTTPException(status_code=403, detail="Elder or admin access required")
     return templates.TemplateResponse("elder_attendance_report.html", {"request": request})
 

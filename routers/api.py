@@ -3389,9 +3389,20 @@ def _find_member_by_phone(db: Session, phone: str):
 
 
 def _is_elder(member: "Member") -> bool:
-    """Check if a member has the elder or pastor leadership role"""
+    """Check if a member has the elder or pastor leadership role.
+
+    leadership_roles may be stored as a JSON string or a Python list, and
+    casing is inconsistent — normalise both before checking. Pastors count
+    as elders for access purposes (they are senior to elders)."""
+    import json as _json
     roles = member.leadership_roles or []
-    return "elder" in roles or "pastor" in roles
+    if isinstance(roles, str):
+        try:
+            roles = _json.loads(roles)
+        except (ValueError, TypeError):
+            roles = []
+    roles_lower = [str(r).lower() for r in (roles or [])]
+    return "elder" in roles_lower or "pastor" in roles_lower
 
 
 def _get_accessible_departments(db: Session, member: "Member"):
@@ -11127,16 +11138,6 @@ def _fetch_member_attendance_cached(external_id: str, year: int, db) -> list:
         _elder_att_cache[key] = (time.monotonic(), rows)
     return rows
 
-
-def _is_elder(member) -> bool:
-    import json as _json
-    try:
-        roles = member.leadership_roles
-        if isinstance(roles, str):
-            roles = _json.loads(roles)
-        return "elder" in [str(r).lower() for r in (roles or [])]
-    except Exception:
-        return False
 
 
 def _row_service_type(row: dict) -> str:

@@ -3253,7 +3253,7 @@ function memberPortal() {
         },
         hasLeadership() {
             const l = this.data?.leadership || {};
-            return l.is_hc_leader || l.is_hc_committee || l.is_hod || l.can_create_surveys;
+            return l.is_hc_leader || l.is_hc_committee || l.is_hod || l.can_create_surveys || l.is_elder;
         },
         summaryPlaceholder() {
             const t = this.changeForm.change_type;
