@@ -1237,12 +1237,13 @@ async def admin_home_churches(request: Request, phone: Optional[str] = None):
 
 @router.get("/display/submit")
 async def display_submit_page(request: Request, db: Session = Depends(get_db)):
-    """Display submission page — requires login and projector_submit feature."""
+    """Member 'Submit to projector' page — the redesigned projector.html
+    (Media / Verses / Songs tabs). Requires login + projector_submit feature."""
     _require_feature(request, "projector_submit")
     member = get_current_member(request, db)
     if not member:
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("display_submit.html", {"request": request})
+    return templates.TemplateResponse("projector.html", {"request": request})
 
 @router.get("/projector")
 async def projector_page(request: Request, db: Session = Depends(get_db)):
