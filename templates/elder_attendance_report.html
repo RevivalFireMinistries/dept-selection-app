@@ -21,36 +21,49 @@
 
   <main class="max-w-2xl mx-auto px-4 py-5 space-y-4" id="app">
 
-    <!-- ── Step 1: Month + service type ──────────────────────────────── -->
+    <!-- ── Filter card ────────────────────────────────────────────────── -->
     <div class="bg-white rounded-2xl shadow-sm p-5 space-y-4" style="border:1px solid var(--color-border);">
-      <h2 class="text-xs font-bold uppercase tracking-widest" style="color:var(--color-mute);">Filter</h2>
 
       <!-- Month -->
       <div>
-        <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">
-          Month <span style="color:#ef4444">*</span>
-        </label>
+        <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">Month</label>
         <input type="month" id="monthPicker"
-               class="w-full px-4 py-3 rounded-xl text-sm focus:ring-2 focus:outline-none"
+               class="w-full px-4 py-3 rounded-xl text-base focus:ring-2 focus:outline-none"
                style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);"
                onchange="onMonthChange()">
-        <p class="text-xs mt-1" style="color:var(--color-mute);">Select a month to load available service types.</p>
       </div>
 
-      <!-- Service type — revealed after month is picked -->
-      <div id="serviceTypeRow" class="hidden">
-        <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">
-          Service Type <span style="color:#ef4444">*</span>
-        </label>
-        <div id="serviceTypesLoading" class="hidden text-xs italic py-1" style="color:var(--color-mute);">Loading service types…</div>
-        <div id="serviceTypeError" class="hidden text-xs py-1" style="color:#ef4444;"></div>
-        <div id="serviceTypeButtons" class="flex flex-wrap gap-2"></div>
-        <p class="text-xs mt-1.5" style="color:var(--color-mute);">Choose which service to report on.</p>
+      <!-- Service type dropdown -->
+      <div>
+        <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">Service</label>
+        <select id="serviceTypeSelect" onchange="onServiceTypeChange()" disabled
+                class="w-full px-4 py-3 rounded-xl text-base appearance-none focus:ring-2 focus:outline-none"
+                style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 24 24%22 stroke=%22%236E6457%22><path stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%222%22 d=%22M19 9l-7 7-7-7%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:18px;padding-right:44px;">
+          <option value="">Loading…</option>
+        </select>
+        <p id="serviceTypeError" class="hidden text-xs mt-1" style="color:#ef4444;"></p>
+      </div>
+
+      <!-- Max attendance dropdown -->
+      <div>
+        <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">Bring members who attended</label>
+        <select id="maxAttendanceSelect" onchange="onMaxAttendanceChange()"
+                class="w-full px-4 py-3 rounded-xl text-base appearance-none focus:ring-2 focus:outline-none"
+                style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 24 24%22 stroke=%22%236E6457%22><path stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%222%22 d=%22M19 9l-7 7-7-7%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:18px;padding-right:44px;">
+          <option value="">Any number — everyone</option>
+          <option value="0">Missed every service</option>
+          <option value="1">1 time or fewer</option>
+          <option value="2">2 times or fewer</option>
+          <option value="3">3 times or fewer</option>
+          <option value="4">4 times or fewer</option>
+          <option value="5">5 times or fewer</option>
+        </select>
+        <p class="text-xs mt-1" style="color:var(--color-mute);">Brings everyone up to and including that number.</p>
       </div>
 
       <!-- Generate button -->
-      <button id="generateBtn" onclick="generateReport()" disabled
-              class="w-full py-3 rounded-xl text-sm font-semibold transition-all opacity-40 cursor-not-allowed"
+      <button id="generateBtn" onclick="generateReport()"
+              class="w-full py-3.5 rounded-xl text-base font-semibold transition-all"
               style="background-color:var(--color-ink);color:white;">
         Generate Report
       </button>
@@ -88,8 +101,7 @@
             Export / Share
           </button>
         </div>
-        <!-- Attendance-number filter -->
-        <p class="text-[11px] uppercase tracking-wider font-semibold mt-3 mb-1.5" style="color:var(--color-mute);">Filter by attendance</p>
+        <!-- At-a-glance breakdown chips (read-only) -->
         <div id="bucketRow" class="flex flex-wrap gap-2"></div>
       </div>
 
@@ -127,30 +139,31 @@
 let selectedMonth = '';
 let selectedServiceType = '';
 let reportData = null;
+// Max-attendance filter: '' = everyone; otherwise a number string — bring
+// members who attended AT MOST that many services (cumulative, includes 0).
+let maxAttendance = '';
 
-// Default to current month
-(function() {
+const $ = (id) => document.getElementById(id);
+
+// Default to current month and load its service types
+(function init() {
     const now = new Date();
-    const m = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    document.getElementById('monthPicker').value = m;
+    $('monthPicker').value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     onMonthChange();
 })();
 
 async function onMonthChange() {
-    selectedMonth = document.getElementById('monthPicker').value;
+    selectedMonth = $('monthPicker').value;
     selectedServiceType = '';
-    document.getElementById('serviceTypeRow').classList.add('hidden');
-    document.getElementById('serviceTypeButtons').innerHTML = '';
-    document.getElementById('generateBtn').disabled = true;
-    document.getElementById('generateBtn').classList.add('opacity-40', 'cursor-not-allowed');
-    document.getElementById('results').classList.add('hidden');
-    document.getElementById('errorState').classList.add('hidden');
+    $('results').classList.add('hidden');
+    $('errorState').classList.add('hidden');
+
+    const sel = $('serviceTypeSelect');
+    sel.disabled = true;
+    sel.innerHTML = '<option value="">Loading…</option>';
+    $('serviceTypeError').classList.add('hidden');
 
     if (!selectedMonth) return;
-
-    document.getElementById('serviceTypeRow').classList.remove('hidden');
-    document.getElementById('serviceTypesLoading').classList.remove('hidden');
-    document.getElementById('serviceTypeError').classList.add('hidden');
 
     try {
         const res = await fetch(`/api/portal/elder/attendance/service-types?month=${selectedMonth}`);
@@ -159,60 +172,55 @@ async function onMonthChange() {
             throw new Error(d.detail || `HTTP ${res.status}`);
         }
         const types = await res.json();
-        document.getElementById('serviceTypesLoading').classList.add('hidden');
-        renderServiceTypeButtons(types);
+        populateServiceTypes(types);
     } catch (e) {
-        document.getElementById('serviceTypesLoading').classList.add('hidden');
-        const err = document.getElementById('serviceTypeError');
-        err.textContent = 'Could not load service types: ' + e.message;
+        sel.innerHTML = '<option value="">—</option>';
+        const err = $('serviceTypeError');
+        err.textContent = 'Could not load services: ' + e.message;
         err.classList.remove('hidden');
     }
 }
 
-function renderServiceTypeButtons(types) {
-    const container = document.getElementById('serviceTypeButtons');
+function populateServiceTypes(types) {
+    const sel = $('serviceTypeSelect');
     if (!types.length) {
-        container.innerHTML = '<p class="text-xs italic" style="color:var(--color-mute);">No service data found for this month.</p>';
-        document.getElementById('generateBtn').disabled = true;
-        document.getElementById('generateBtn').classList.add('opacity-40', 'cursor-not-allowed');
+        sel.innerHTML = '<option value="">No services found this month</option>';
+        sel.disabled = true;
+        selectedServiceType = '';
         return;
     }
-    // Use data attributes + event listeners (NOT inline onclick — service
-    // type labels can contain spaces/quotes which break inline handlers).
-    container.innerHTML = types.map(t => `
-        <button type="button" data-stype="${escAttr(t)}"
-                class="stype-btn px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
-                style="border-color:var(--color-border);color:var(--color-ink);background:white;">
-            ${escHtml(t)}
-        </button>
-    `).join('');
-    container.querySelectorAll('.stype-btn').forEach(btn => {
-        btn.addEventListener('click', () => selectServiceType(btn.getAttribute('data-stype')));
-    });
-    // Default to Sunday when available (it's returned first by the API),
-    // otherwise the first option — so Generate is immediately usable.
-    selectServiceType(types.includes('Sunday') ? 'Sunday' : types[0]);
+    sel.innerHTML = types.map(t => `<option value="${escAttr(t)}">${escHtml(t)}</option>`).join('');
+    sel.disabled = false;
+    // Default to Sunday (API returns it first when present)
+    selectedServiceType = types.includes('Sunday') ? 'Sunday' : types[0];
+    sel.value = selectedServiceType;
 }
 
-function selectServiceType(type) {
-    selectedServiceType = type;
-    document.querySelectorAll('.stype-btn').forEach(btn => {
-        const active = btn.getAttribute('data-stype') === type;
-        btn.style.background  = active ? 'var(--color-ink)' : 'white';
-        btn.style.borderColor = active ? 'var(--color-ink)' : 'var(--color-border)';
-        btn.style.color       = active ? 'white' : 'var(--color-ink)';
-    });
-    const btn = document.getElementById('generateBtn');
-    btn.disabled = false;
-    btn.classList.remove('opacity-40', 'cursor-not-allowed');
+function onServiceTypeChange() {
+    selectedServiceType = $('serviceTypeSelect').value;
+}
+
+function onMaxAttendanceChange() {
+    maxAttendance = $('maxAttendanceSelect').value;
+    // Re-filter instantly if a report is already on screen (no refetch needed)
+    if (reportData) {
+        updateSubtitle();
+        renderMemberList();
+    }
 }
 
 async function generateReport() {
-    if (!selectedMonth || !selectedServiceType) return;
-    document.getElementById('results').classList.add('hidden');
-    document.getElementById('errorState').classList.add('hidden');
-    document.getElementById('loadingState').classList.remove('hidden');
-    document.getElementById('generateBtn').disabled = true;
+    if (!selectedMonth) { return; }
+    if (!selectedServiceType) {
+        const err = $('serviceTypeError');
+        err.textContent = 'Please choose a service.';
+        err.classList.remove('hidden');
+        return;
+    }
+    $('results').classList.add('hidden');
+    $('errorState').classList.add('hidden');
+    $('loadingState').classList.remove('hidden');
+    $('generateBtn').disabled = true;
 
     try {
         const url = `/api/portal/elder/attendance/report?month=${encodeURIComponent(selectedMonth)}&service_type=${encodeURIComponent(selectedServiceType)}`;
@@ -224,27 +232,20 @@ async function generateReport() {
         reportData = await res.json();
         renderReport(reportData);
     } catch (e) {
-        document.getElementById('errorState').textContent = 'Could not load report: ' + e.message;
-        document.getElementById('errorState').classList.remove('hidden');
+        $('errorState').textContent = 'Could not load report: ' + e.message;
+        $('errorState').classList.remove('hidden');
     } finally {
-        document.getElementById('loadingState').classList.add('hidden');
-        document.getElementById('generateBtn').disabled = false;
+        $('loadingState').classList.add('hidden');
+        $('generateBtn').disabled = false;
     }
 }
 
-// Active attendance-count filter: null = show everyone; otherwise an
-// "attended/total" key like "0/4" that limits the list (and PDF) to that bucket.
-let attendanceFilter = null;
-
 function renderReport(data) {
-    attendanceFilter = null;
-
     const [year, mo] = data.month.split('-');
     const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
     document.getElementById('reportTitle').textContent = `${data.service_type} — ${monthName} ${year}`;
-    document.getElementById('reportSubtitle').textContent =
-        `${data.total_members} members · ${data.total_services} service${data.total_services !== 1 ? 's' : ''} · most absent first`;
 
+    updateSubtitle();
     renderBuckets(data);
     renderMemberList();
 
@@ -252,51 +253,38 @@ function renderReport(data) {
     document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Clickable attendance-number filter chips. Tap a chip to show only members
-// with that exact attendance count; tap "All" to clear.
+function updateSubtitle() {
+    if (!reportData) return;
+    const shown = filteredMembers().length;
+    const tot = reportData.total_services;
+    let txt = `${shown} of ${reportData.total_members} members · ${tot} service${tot !== 1 ? 's' : ''} this month`;
+    if (maxAttendance !== '') {
+        txt += ` · attended ${maxAttendance} or fewer`;
+    }
+    document.getElementById('reportSubtitle').textContent = txt;
+}
+
+// Read-only at-a-glance breakdown chips (the dropdown does the filtering).
 function renderBuckets(data) {
     const bucketRow = document.getElementById('bucketRow');
     const entries = Object.entries(data.buckets).sort(([a], [b]) => parseInt(a) - parseInt(b));
-
-    let html = `<button type="button" data-bucket="" class="bucket-chip inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-        style="background:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);">
-        All · ${data.total_members}
-    </button>`;
-
-    html += entries.map(([k, count]) => {
+    bucketRow.innerHTML = entries.map(([k, count]) => {
         const [att, tot] = k.split('/').map(Number);
         const pct = tot > 0 ? Math.round((att / tot) * 100) : 0;
         const color = pct === 0 ? '#EF4444' : pct < 50 ? '#F59E0B' : '#10B981';
-        return `<button type="button" data-bucket="${k}"
-            class="bucket-chip inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-white"
-            style="background:${color};">
+        return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-white" style="background:${color};">
             ${k} · ${count}
-        </button>`;
+        </span>`;
     }).join('');
-
-    bucketRow.innerHTML = html;
-    bucketRow.querySelectorAll('.bucket-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            attendanceFilter = chip.getAttribute('data-bucket') || null;
-            updateBucketActiveStates();
-            renderMemberList();
-        });
-    });
-    updateBucketActiveStates();
 }
 
-function updateBucketActiveStates() {
-    document.querySelectorAll('.bucket-chip').forEach(chip => {
-        const isActive = (chip.getAttribute('data-bucket') || null) === attendanceFilter;
-        chip.style.boxShadow = isActive ? '0 0 0 2px var(--color-ink)' : 'none';
-        chip.style.opacity = (attendanceFilter && !isActive) ? '0.45' : '1';
-    });
-}
-
+// Apply the max-attendance filter: members who attended AT MOST maxAttendance
+// services (cumulative — selecting 2 brings those with 0, 1 and 2).
 function filteredMembers() {
     if (!reportData) return [];
-    if (!attendanceFilter) return reportData.members;
-    return reportData.members.filter(m => `${m.attended}/${m.total}` === attendanceFilter);
+    if (maxAttendance === '') return reportData.members;
+    const max = parseInt(maxAttendance, 10);
+    return reportData.members.filter(m => m.attended <= max);
 }
 
 function renderMemberList() {
@@ -314,7 +302,10 @@ function renderMemberList() {
 
     const keys = Object.keys(groups).sort((a, b) => parseInt(a) - parseInt(b));
     if (!keys.length) {
-        list.innerHTML = '<div class="bg-white rounded-2xl shadow-sm text-center text-sm italic py-8" style="border:1px solid var(--color-border);color:var(--color-mute);">No members in this group.</div>';
+        const msg = maxAttendance !== ''
+            ? `No members attended ${maxAttendance} or fewer services.`
+            : 'No members to show.';
+        list.innerHTML = `<div class="bg-white rounded-2xl shadow-sm text-center text-sm italic py-8" style="border:1px solid var(--color-border);color:var(--color-mute);">${msg}</div>`;
         return;
     }
 
@@ -374,7 +365,7 @@ async function exportPDF() {
 
         const [year, mo] = reportData.month.split('-');
         const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
-        const filterLabel = attendanceFilter ? ` (attended ${attendanceFilter})` : '';
+        const filterLabel = maxAttendance !== '' ? ` (attended ${maxAttendance} or fewer)` : '';
         const title = `${reportData.service_type} — ${monthName} ${year}${filterLabel}`;
         const subtitle = `Revival Fire Ministries · Attendance Report · ${new Date().toLocaleDateString('en-ZA')}`;
 
