@@ -21,7 +21,9 @@
         <!-- Tabs -->
         <div id="tabBar" class="flex bg-gray-100 rounded-xl p-1 mb-5">
             <button onclick="switchTab('media')" id="tabMedia" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Media</button>
-            <button onclick="switchTab('songs')" id="tabSongs" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors hidden">Songs</button>
+            {% if features.songs %}
+            <button onclick="switchTab('songs')" id="tabSongs" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Songs</button>
+            {% endif %}
             <button onclick="switchTab('verses')" id="tabVerses" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Verses</button>
         </div>
 
@@ -221,10 +223,10 @@ async function init() {
             return;
         }
 
-        document.getElementById('userName').textContent = currentUser.full_name;
-
-        // Songs tab visible to all logged-in members
-        document.getElementById('tabSongs').classList.remove('hidden');
+        const nameEl = document.getElementById('userName');
+        if (nameEl) nameEl.textContent = currentUser.full_name;
+        // Songs tab visibility is controlled server-side by the `songs`
+        // feature flag (Jinja). Nothing to toggle here.
     } catch (e) {
         console.error('Failed to get user info:', e);
         window.location.href = '/';
@@ -272,7 +274,7 @@ function switchTab(tab) {
     document.getElementById('tabMedia').className  = baseCls + (isMedia  ? active : inactive);
     document.getElementById('tabVerses').className = baseCls + (isVerses ? active : inactive);
     const tabSongs = document.getElementById('tabSongs');
-    if (!tabSongs.classList.contains('hidden')) {
+    if (tabSongs) {
         tabSongs.className = baseCls + (isSongs ? active : inactive);
     }
 
