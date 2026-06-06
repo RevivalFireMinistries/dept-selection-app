@@ -213,12 +213,31 @@ async def clerk_import_members(
 async def auth_me(request: Request, db: Session = Depends(get_db)):
     """Unified member identity. Works for both legacy session cookie and
     Clerk JWT — get_current_member already handles both paths.
+
+    Returns the legacy-compatible envelope (200 with logged_in flag) so the
+    portal pages that predate the Clerk migration keep working. Several
+    templates (projector.html, portal_classic.html) check `logged_in` and
+    `needs_password_setup` and break if this endpoint 401s or omits them.
     """
+    import json as _json
     from routers.pages import get_current_member
 
     member = get_current_member(request, db)
     if not member:
-        raise HTTPException(401, "Not authenticated")
+        # Legacy contract: 200 with a flag, NOT a 401. Clients branch on
+        # `logged_in` and redirect themselves.
+        return {"logged_in": False}
+
+    roles = []
+    if member.leadership_roles:
+        try:
+            roles = (
+                _json.loads(member.leadership_roles)
+                if isinstance(member.leadership_roles, str)
+                else member.leadership_roles
+            )
+        except (ValueError, TypeError):
+            roles = []
 
     has_clerk = bool(getattr(member, "clerk_user_id", None))
     auth_header = (
@@ -227,10 +246,16 @@ async def auth_me(request: Request, db: Session = Depends(get_db)):
     auth_mode = "clerk" if auth_header.lower().startswith("bearer ") else "legacy"
 
     return {
-        "id": member.id,
+        # Legacy fields the portal templates rely on
+        "logged_in": True,
+        "member_id": member.id,
         "full_name": member.full_name,
         "email": member.email,
         "phone": member.phone,
+        "leadership_roles": roles,
+        "needs_password_setup": not member.password_hash,
+        # Identity / Clerk fields
+        "id": member.id,
         "external_member_id": member.external_member_id,
         "external_assembly_id": member.external_assembly_id,
         "clerk_user_id": getattr(member, "clerk_user_id", None),
