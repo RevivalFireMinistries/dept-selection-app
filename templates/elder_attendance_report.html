@@ -88,8 +88,9 @@
             Export / Share
           </button>
         </div>
-        <!-- Bucket breakdown -->
-        <div id="bucketRow" class="flex flex-wrap gap-2 mt-2"></div>
+        <!-- Attendance-number filter -->
+        <p class="text-[11px] uppercase tracking-wider font-semibold mt-3 mb-1.5" style="color:var(--color-mute);">Filter by attendance</p>
+        <div id="bucketRow" class="flex flex-wrap gap-2"></div>
       </div>
 
       <!-- Member list (grouped by attendance count) -->
@@ -172,33 +173,35 @@ function renderServiceTypeButtons(types) {
     const container = document.getElementById('serviceTypeButtons');
     if (!types.length) {
         container.innerHTML = '<p class="text-xs italic" style="color:var(--color-mute);">No service data found for this month.</p>';
+        document.getElementById('generateBtn').disabled = true;
+        document.getElementById('generateBtn').classList.add('opacity-40', 'cursor-not-allowed');
         return;
     }
+    // Use data attributes + event listeners (NOT inline onclick — service
+    // type labels can contain spaces/quotes which break inline handlers).
     container.innerHTML = types.map(t => `
-        <button onclick="selectServiceType(${JSON.stringify(t)})"
-                id="stype_${CSS.escape(t)}"
-                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+        <button type="button" data-stype="${escAttr(t)}"
+                class="stype-btn px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
                 style="border-color:var(--color-border);color:var(--color-ink);background:white;">
             ${escHtml(t)}
         </button>
     `).join('');
+    container.querySelectorAll('.stype-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectServiceType(btn.getAttribute('data-stype')));
+    });
+    // Default to Sunday when available (it's returned first by the API),
+    // otherwise the first option — so Generate is immediately usable.
+    selectServiceType(types.includes('Sunday') ? 'Sunday' : types[0]);
 }
 
 function selectServiceType(type) {
     selectedServiceType = type;
-    // Visual feedback on buttons
-    document.querySelectorAll('[id^="stype_"]').forEach(btn => {
-        btn.style.background = 'white';
-        btn.style.borderColor = 'var(--color-border)';
-        btn.style.color = 'var(--color-ink)';
+    document.querySelectorAll('.stype-btn').forEach(btn => {
+        const active = btn.getAttribute('data-stype') === type;
+        btn.style.background  = active ? 'var(--color-ink)' : 'white';
+        btn.style.borderColor = active ? 'var(--color-ink)' : 'var(--color-border)';
+        btn.style.color       = active ? 'white' : 'var(--color-ink)';
     });
-    const active = document.getElementById('stype_' + CSS.escape(type));
-    if (active) {
-        active.style.background = 'var(--color-ink)';
-        active.style.borderColor = 'var(--color-ink)';
-        active.style.color = 'white';
-    }
-    // Enable button
     const btn = document.getElementById('generateBtn');
     btn.disabled = false;
     btn.classList.remove('opacity-40', 'cursor-not-allowed');
@@ -229,42 +232,98 @@ async function generateReport() {
     }
 }
 
+// Active attendance-count filter: null = show everyone; otherwise an
+// "attended/total" key like "0/4" that limits the list (and PDF) to that bucket.
+let attendanceFilter = null;
+
 function renderReport(data) {
-    // Title
+    attendanceFilter = null;
+
     const [year, mo] = data.month.split('-');
     const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
     document.getElementById('reportTitle').textContent = `${data.service_type} — ${monthName} ${year}`;
     document.getElementById('reportSubtitle').textContent =
-        `${data.total_members} members · sorted by attendance (lowest first)`;
+        `${data.total_members} members · ${data.total_services} service${data.total_services !== 1 ? 's' : ''} · most absent first`;
 
-    // Buckets
+    renderBuckets(data);
+    renderMemberList();
+
+    document.getElementById('results').classList.remove('hidden');
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Clickable attendance-number filter chips. Tap a chip to show only members
+// with that exact attendance count; tap "All" to clear.
+function renderBuckets(data) {
     const bucketRow = document.getElementById('bucketRow');
-    bucketRow.innerHTML = Object.entries(data.buckets)
-        .sort(([a], [b]) => parseInt(a) - parseInt(b))
-        .map(([k, count]) => {
-            const [att, tot] = k.split('/').map(Number);
-            const pct = tot > 0 ? Math.round((att / tot) * 100) : 0;
-            const color = pct === 0 ? '#EF4444' : pct < 50 ? '#F59E0B' : '#10B981';
-            return `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-white" style="background:${color};">
-                ${k} &nbsp;·&nbsp; ${count} member${count !== 1 ? 's' : ''}
-            </span>`;
-        }).join('');
+    const entries = Object.entries(data.buckets).sort(([a], [b]) => parseInt(a) - parseInt(b));
 
-    // Group members by attended count
+    let html = `<button type="button" data-bucket="" class="bucket-chip inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+        style="background:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);">
+        All · ${data.total_members}
+    </button>`;
+
+    html += entries.map(([k, count]) => {
+        const [att, tot] = k.split('/').map(Number);
+        const pct = tot > 0 ? Math.round((att / tot) * 100) : 0;
+        const color = pct === 0 ? '#EF4444' : pct < 50 ? '#F59E0B' : '#10B981';
+        return `<button type="button" data-bucket="${k}"
+            class="bucket-chip inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold text-white"
+            style="background:${color};">
+            ${k} · ${count}
+        </button>`;
+    }).join('');
+
+    bucketRow.innerHTML = html;
+    bucketRow.querySelectorAll('.bucket-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            attendanceFilter = chip.getAttribute('data-bucket') || null;
+            updateBucketActiveStates();
+            renderMemberList();
+        });
+    });
+    updateBucketActiveStates();
+}
+
+function updateBucketActiveStates() {
+    document.querySelectorAll('.bucket-chip').forEach(chip => {
+        const isActive = (chip.getAttribute('data-bucket') || null) === attendanceFilter;
+        chip.style.boxShadow = isActive ? '0 0 0 2px var(--color-ink)' : 'none';
+        chip.style.opacity = (attendanceFilter && !isActive) ? '0.45' : '1';
+    });
+}
+
+function filteredMembers() {
+    if (!reportData) return [];
+    if (!attendanceFilter) return reportData.members;
+    return reportData.members.filter(m => `${m.attended}/${m.total}` === attendanceFilter);
+}
+
+function renderMemberList() {
+    const members = filteredMembers();
+
+    // Group by attendance count
     const groups = {};
-    for (const m of data.members) {
+    for (const m of members) {
         const key = `${m.attended}/${m.total}`;
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(m);
+        (groups[key] = groups[key] || []).push(m);
     }
 
     const list = document.getElementById('memberList');
     list.innerHTML = '';
-    for (const [key, members] of Object.entries(groups).sort(([a], [b]) => parseInt(a) - parseInt(b))) {
+
+    const keys = Object.keys(groups).sort((a, b) => parseInt(a) - parseInt(b));
+    if (!keys.length) {
+        list.innerHTML = '<div class="bg-white rounded-2xl shadow-sm text-center text-sm italic py-8" style="border:1px solid var(--color-border);color:var(--color-mute);">No members in this group.</div>';
+        return;
+    }
+
+    for (const key of keys) {
+        const groupMembers = groups[key];
         const [att, tot] = key.split('/').map(Number);
         const pct = tot > 0 ? Math.round((att / tot) * 100) : 0;
         const headerColor = pct === 0 ? '#FEF2F2' : pct < 50 ? '#FFFBEB' : '#ECFDF5';
-        const textColor = pct === 0 ? '#B91C1C' : pct < 50 ? '#92400E' : '#065F46';
+        const textColor   = pct === 0 ? '#B91C1C' : pct < 50 ? '#92400E' : '#065F46';
 
         const section = document.createElement('div');
         section.className = 'bg-white rounded-2xl shadow-sm overflow-hidden';
@@ -273,11 +332,11 @@ function renderReport(data) {
         const header = document.createElement('div');
         header.style.cssText = `background:${headerColor};padding:10px 16px;border-bottom:1px solid var(--color-border);`;
         header.innerHTML = `<span class="text-sm font-bold" style="color:${textColor};">
-            ${att}/${tot} attended &nbsp;·&nbsp; ${members.length} member${members.length !== 1 ? 's' : ''}
+            ${att}/${tot} attended &nbsp;·&nbsp; ${groupMembers.length} member${groupMembers.length !== 1 ? 's' : ''}
         </span>`;
         section.appendChild(header);
 
-        for (const m of members) {
+        for (const m of groupMembers) {
             const row = document.createElement('div');
             row.className = 'flex items-center justify-between px-4 py-3 border-b last:border-0';
             row.style.borderColor = 'var(--color-border)';
@@ -286,22 +345,19 @@ function renderReport(data) {
                     <div class="text-sm font-medium truncate" style="color:var(--color-ink);">${escHtml(m.name)}</div>
                     <div class="text-xs" style="color:var(--color-mute);">${escHtml(m.phone)}</div>
                 </div>
-                <a href="tel:${escHtml(m.phone)}"
+                ${m.phone ? `<a href="tel:${escAttr(m.phone)}"
                    class="ml-3 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
                    style="background:rgba(245,165,36,0.12);">
                     <svg class="w-4 h-4" style="color:var(--color-ember);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
                     </svg>
-                </a>
+                </a>` : ''}
             `;
             section.appendChild(row);
         }
         list.appendChild(section);
     }
-
-    document.getElementById('results').classList.remove('hidden');
-    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function exportPDF() {
@@ -314,9 +370,12 @@ async function exportPDF() {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
+        const exportRows = filteredMembers();
+
         const [year, mo] = reportData.month.split('-');
         const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
-        const title = `${reportData.service_type} — ${monthName} ${year}`;
+        const filterLabel = attendanceFilter ? ` (attended ${attendanceFilter})` : '';
+        const title = `${reportData.service_type} — ${monthName} ${year}${filterLabel}`;
         const subtitle = `Revival Fire Ministries · Attendance Report · ${new Date().toLocaleDateString('en-ZA')}`;
 
         // Header
@@ -335,11 +394,11 @@ async function exportPDF() {
             .map(([k, c]) => `${k}: ${c}`).join('  ·  ');
         doc.setFontSize(9);
         doc.setTextColor(80, 80, 80);
-        doc.text(`Total: ${reportData.total_members} members    ${summaryParts}`, 14, 31);
+        doc.text(`Showing: ${exportRows.length} of ${reportData.total_members} members    ${summaryParts}`, 14, 31);
         doc.setTextColor(0, 0, 0);
 
         // Table
-        const rows = reportData.members.map((m, i) => [
+        const rows = exportRows.map((m, i) => [
             String(i + 1),
             m.name,
             m.phone,
@@ -390,6 +449,15 @@ function escHtml(t) {
     const d = document.createElement('div');
     d.textContent = t || '';
     return d.innerHTML;
+}
+
+// Escape a value for safe use inside a double-quoted HTML attribute.
+function escAttr(t) {
+    return String(t == null ? '' : t)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 </script>
 {% endblock %}
