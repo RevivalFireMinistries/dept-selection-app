@@ -90,6 +90,7 @@
           <div>
             <h2 class="font-semibold text-base" style="color:var(--color-ink);" id="reportTitle"></h2>
             <p class="text-xs mt-0.5" style="color:var(--color-mute);" id="reportSubtitle"></p>
+            <p class="text-[11px] mt-1 hidden" style="color:var(--color-mute);" id="serviceDates"></p>
           </div>
           <button onclick="exportPDF()" id="pdfBtn"
                   class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
@@ -277,6 +278,22 @@ function updateSubtitle() {
         txt += ` · attended ${maxAttendance} or fewer`;
     }
     document.getElementById('reportSubtitle').textContent = txt;
+
+    // Show the actual service dates so Elders can verify the count is right.
+    const datesEl = document.getElementById('serviceDates');
+    if (datesEl) {
+        const dates = reportData.service_dates || [];
+        if (dates.length) {
+            const fmt = dates.map(d => {
+                const dt = new Date(d + 'T00:00:00');
+                return dt.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+            }).join(' · ');
+            datesEl.textContent = 'Services counted: ' + fmt;
+            datesEl.classList.remove('hidden');
+        } else {
+            datesEl.classList.add('hidden');
+        }
+    }
 }
 
 // Read-only at-a-glance breakdown chips (the dropdown does the filtering).
