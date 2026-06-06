@@ -11098,77 +11098,35 @@ def portal_attendance(year: Optional[int] = Query(None), request: Request = None
 # ── Elder Attendance Report ───────────────────────────────────────────────────
 #
 # Two-step UI:
-#   1. Pick a month → GET /portal/elder/attendance/service-types returns
-#      the distinct service types recorded in that month so the Elder can
-#      choose one without guessing.
-#   2. Pick a service type → GET /portal/elder/attendance/report returns
-#      every member with their attendance count for that month + type.
+#   1. Pick a month → GET /portal/elder/attendance/service-types returns the
+#      canonical service groups recorded that month so the Elder can choose.
+#   2. Pick a service → GET /portal/elder/attendance/report returns every
+#      member with attended/total distinct service dates for that group.
 #
-# Data comes from rfm-database via member_attendance_dashboard().  Because
-# that endpoint is per-member we fan out with a thread pool (max 10 workers)
-# and cache yearly results for 5 minutes so repeat loads are instant.
+# Data is sourced from rfm-database's member_attendance table (the curated,
+# assembly-scoped check-in mirror) via the /api/v1/attendance/assembly/*
+# endpoints. The portal forwards the logged-in member's assembly so the
+# central API scopes the query correctly.
 #
-# Access: member must have "elder" in leadership_roles JSON array.
-
-import threading as _threading
-from concurrent.futures import ThreadPoolExecutor as _ThreadPoolExecutor, as_completed as _as_completed
-
-_elder_att_cache: dict = {}                   # (external_member_id, year) → (ts, data)
-_elder_att_lock = _threading.Lock()
-_ELDER_ATT_TTL = 300                          # 5 minutes
+# Access: Elders/Pastors (via _is_elder) or any admin session.
 
 
-def _fetch_member_attendance_cached(external_id: str, year: int, db) -> list:
-    """Fetch yearly attendance rows for one member, with 5-minute cache."""
-    import time
-    key = (external_id, year)
-    with _elder_att_lock:
-        cached = _elder_att_cache.get(key)
-        if cached and time.monotonic() - cached[0] < _ELDER_ATT_TTL:
-            return cached[1]
+def _elder_report_assembly_id(request: Request, db: Session) -> str:
+    """Authorise the caller (Elder/Pastor or admin) and resolve the assembly
+    UUID to report on. Raises HTTPException on failure."""
+    from routers.pages import is_authenticated
+    member = _require_logged_in_member(request, db)
+    if not _is_elder(member) and not is_authenticated(request):
+        raise HTTPException(status_code=403, detail="Elder or admin access required")
 
-    r = _rfm.member_attendance_dashboard(external_id, year=year, db=db)
-    rows = []
-    if r.ok and r.data:
-        rows = r.data if isinstance(r.data, list) else r.data.get("services", r.data.get("attendance", []))
-        if not isinstance(rows, list):
-            rows = []
-
-    with _elder_att_lock:
-        _elder_att_cache[key] = (time.monotonic(), rows)
-    return rows
-
-
-
-def _row_service_type(row: dict) -> str:
-    """Extract service type label from an attendance row."""
-    for field in ("service_type", "service_name", "service_title",
-                  "service_label", "service", "event_name", "name"):
-        val = row.get(field)
-        if val and isinstance(val, str):
-            return val.strip()
-    return "Service"
-
-
-def _row_month(row: dict) -> str:
-    """Return YYYY-MM from a row's date field."""
-    for field in ("service_date", "date", "service_day"):
-        val = row.get(field)
-        if val and isinstance(val, str) and len(val) >= 7:
-            return val[:7]
-    return ""
-
-
-def _row_attended(row: dict) -> bool:
-    """True when the member attended this service."""
-    for field in ("attended", "present", "checked_in"):
-        val = row.get(field)
-        if val is not None:
-            return bool(val)
-    count = row.get("count") or row.get("attendance_count")
-    if count is not None:
-        return int(count) > 0
-    return False
+    # Prefer the member's own central assembly link; fall back to request state.
+    assembly_id = getattr(member, "external_assembly_id", None)
+    if not assembly_id:
+        assembly = getattr(request.state, "assembly", {}) or {}
+        assembly_id = assembly.get("id")
+    if not assembly_id:
+        raise HTTPException(status_code=422, detail="No assembly link found for your account. Please ask an admin to run Member Sync.")
+    return str(assembly_id)
 
 
 @router.get("/portal/elder/attendance/service-types")
@@ -11177,56 +11135,29 @@ def elder_attendance_service_types(
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-    """Return distinct service types recorded for this assembly in the given month.
-
-    Requires Elder role or admin session.  Data sourced from church-manager.
-    """
-    from routers.pages import is_authenticated
-    member = _require_logged_in_member(request, db)
-    if not _is_elder(member) and not is_authenticated(request):
-        raise HTTPException(status_code=403, detail="Elder or admin access required")
-
-    assembly = getattr(request.state, "assembly", {})
-    assembly_id = assembly.get("id") if assembly else None
-    if not assembly_id:
-        raise HTTPException(status_code=422, detail="No assembly context found. Please log in.")
-
-    from church_manager_client import get_attendance_service_types
-    types = get_attendance_service_types(assembly_id, month)
-    if types is None:
-        raise HTTPException(status_code=503, detail="Church Manager is not connected. Contact your system administrator.")
-    return types
+    """Canonical service groups recorded for this assembly in the given month.
+    Data sourced from rfm-database member_attendance."""
+    assembly_id = _elder_report_assembly_id(request, db)
+    r = _rfm.assembly_attendance_service_types(assembly_id, month, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    return r.data or []
 
 
 @router.get("/portal/elder/attendance/report")
 def elder_attendance_report(
     month: str = Query(..., description="YYYY-MM"),
-    service_type: str = Query(..., description="Service type e.g. SUNDAY_MAIN"),
+    service_type: str = Query("Sunday", description="Canonical service group"),
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-    """Monthly attendance report for all members, filtered by service type.
-
-    Returns members sorted by attended count ascending (0 first) so
-    Elders see who to follow up with first.
-
-    Requires Elder role or admin session.  Data sourced from church-manager.
-    """
-    from routers.pages import is_authenticated
-    member = _require_logged_in_member(request, db)
-    if not _is_elder(member) and not is_authenticated(request):
-        raise HTTPException(status_code=403, detail="Elder or admin access required")
-
-    assembly = getattr(request.state, "assembly", {})
-    assembly_id = assembly.get("id") if assembly else None
-    if not assembly_id:
-        raise HTTPException(status_code=422, detail="No assembly context found. Please log in.")
-
-    from church_manager_client import get_attendance_report
-    data = get_attendance_report(assembly_id, month, service_type)
-    if data is None:
-        raise HTTPException(status_code=503, detail="Could not fetch attendance from Church Manager. Please try again.")
-    return data
+    """Monthly attendance roll-up for all assembly members, by service group.
+    Sorted most-absent first. Data sourced from rfm-database member_attendance."""
+    assembly_id = _elder_report_assembly_id(request, db)
+    r = _rfm.assembly_attendance_report(assembly_id, month, service_type, db=db)
+    if not r.ok:
+        raise HTTPException(status_code=502, detail=f"Central API error: {r.error}")
+    return r.data or {}
 
 
 @router.get("/portal/giving/banking")

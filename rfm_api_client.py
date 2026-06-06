@@ -429,6 +429,39 @@ def member_attendance_dashboard(
     )
 
 
+def assembly_attendance_service_types(
+    assembly_id: str,
+    month: str,
+    *,
+    db=None,
+) -> ApiResult:
+    """Distinct canonical service groups (Sunday, Midweek, …) recorded for the
+    assembly in the given YYYY-MM month. Powers the Elder report's service picker."""
+    return _request(
+        "GET",
+        "/api/v1/attendance/assembly/service-types",
+        db=db,
+        params={"assembly_id": assembly_id, "month": month},
+    )
+
+
+def assembly_attendance_report(
+    assembly_id: str,
+    month: str,
+    service_type: str,
+    *,
+    db=None,
+) -> ApiResult:
+    """Monthly attendance roll-up for one service group across all assembly
+    members — attended/total distinct service dates, sorted most-absent first."""
+    return _request(
+        "GET",
+        "/api/v1/attendance/assembly/report",
+        db=db,
+        params={"assembly_id": assembly_id, "month": month, "service_type": service_type},
+    )
+
+
 def create_contribution(payload: dict, *, db=None) -> ApiResult:
     """Push a captured contribution into the central database. The portal uses
     this after a successful Yoco payment to keep the central ledger in sync."""
