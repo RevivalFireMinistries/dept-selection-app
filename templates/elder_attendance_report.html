@@ -45,22 +45,6 @@
       </div>
 
       <!-- Max attendance dropdown -->
-      <div>
-        <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">Bring members who attended</label>
-        <select id="maxAttendanceSelect" onchange="onMaxAttendanceChange()"
-                class="w-full px-4 py-3 rounded-xl text-base appearance-none focus:ring-2 focus:outline-none"
-                style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 24 24%22 stroke=%22%236E6457%22><path stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%222%22 d=%22M19 9l-7 7-7-7%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:18px;padding-right:44px;">
-          <option value="">Any number — everyone</option>
-          <option value="0">Missed every service</option>
-          <option value="1">1 time or fewer</option>
-          <option value="2">2 times or fewer</option>
-          <option value="3">3 times or fewer</option>
-          <option value="4">4 times or fewer</option>
-          <option value="5">5 times or fewer</option>
-        </select>
-        <p class="text-xs mt-1" style="color:var(--color-mute);">Brings everyone up to and including that number.</p>
-      </div>
-
       <!-- Generate button -->
       <button id="generateBtn" onclick="generateReport()"
               class="w-full py-3.5 rounded-xl text-base font-semibold transition-all"
@@ -104,6 +88,16 @@
         </div>
         <!-- At-a-glance breakdown chips (read-only) -->
         <div id="bucketRow" class="flex flex-wrap gap-2"></div>
+
+        <!-- Exact attendance filter (options built from this month's services) -->
+        <div class="mt-4 pt-4" style="border-top:1px solid var(--color-border);">
+          <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1.5" style="color:var(--color-mute);">Show members who attended exactly</label>
+          <select id="exactAttendanceSelect" onchange="onExactAttendanceChange()"
+                  class="w-full px-4 py-3 rounded-xl text-base appearance-none focus:ring-2 focus:outline-none"
+                  style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 24 24%22 stroke=%22%236E6457%22><path stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%222%22 d=%22M19 9l-7 7-7-7%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:18px;padding-right:44px;">
+            <option value="">All members</option>
+          </select>
+        </div>
       </div>
 
       <!-- Member list (flat, paginated) -->
@@ -155,9 +149,10 @@
 let selectedMonth = '';
 let selectedServiceType = '';
 let reportData = null;
-// Max-attendance filter: '' = everyone; otherwise a number string — bring
-// members who attended AT MOST that many services (cumulative, includes 0).
-let maxAttendance = '';
+// Exact-attendance filter: '' = everyone; otherwise a number string — show
+// only members who attended EXACTLY that many services. Options are built
+// from the actual number of services held that month (0..total_services).
+let exactAttendance = '';
 
 const $ = (id) => document.getElementById(id);
 
@@ -216,13 +211,27 @@ function onServiceTypeChange() {
     selectedServiceType = $('serviceTypeSelect').value;
 }
 
-function onMaxAttendanceChange() {
-    maxAttendance = $('maxAttendanceSelect').value;
-    // Re-filter instantly if a report is already on screen (no refetch needed)
-    if (reportData) {
-        updateSubtitle();
-        renderMemberList();
+function onExactAttendanceChange() {
+    exactAttendance = $('exactAttendanceSelect').value;
+    // Re-filter instantly — we already have all the data
+    updateSubtitle();
+    renderMemberList();
+}
+
+// Build the exact-attendance options from the number of services held this
+// month: "All members", then "0", "1", … up to total_services. Resets to All.
+function populateExactFilter(total) {
+    exactAttendance = '';
+    const sel = $('exactAttendanceSelect');
+    let html = '<option value="">All members</option>';
+    for (let n = 0; n <= total; n++) {
+        const label = n === 0
+            ? `0 — missed every service`
+            : `${n} of ${total} service${total !== 1 ? 's' : ''}`;
+        html += `<option value="${n}">${label}</option>`;
     }
+    sel.innerHTML = html;
+    sel.value = '';
 }
 
 async function generateReport() {
@@ -261,6 +270,7 @@ function renderReport(data) {
     const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
     document.getElementById('reportTitle').textContent = `${data.service_type} — ${monthName} ${year}`;
 
+    populateExactFilter(data.total_services);
     updateSubtitle();
     renderBuckets(data);
     renderMemberList();
@@ -274,8 +284,8 @@ function updateSubtitle() {
     const shown = filteredMembers().length;
     const tot = reportData.total_services;
     let txt = `${shown} of ${reportData.total_members} members · ${tot} service${tot !== 1 ? 's' : ''} this month`;
-    if (maxAttendance !== '') {
-        txt += ` · attended ${maxAttendance} or fewer`;
+    if (exactAttendance !== '') {
+        txt += ` · attended exactly ${exactAttendance}`;
     }
     document.getElementById('reportSubtitle').textContent = txt;
 
@@ -310,13 +320,13 @@ function renderBuckets(data) {
     }).join('');
 }
 
-// Apply the max-attendance filter: members who attended AT MOST maxAttendance
-// services (cumulative — selecting 2 brings those with 0, 1 and 2).
+// Apply the exact-attendance filter: members who attended EXACTLY the
+// selected number of services. '' = show everyone.
 function filteredMembers() {
     if (!reportData) return [];
-    if (maxAttendance === '') return reportData.members;
-    const max = parseInt(maxAttendance, 10);
-    return reportData.members.filter(m => m.attended <= max);
+    if (exactAttendance === '') return reportData.members;
+    const n = parseInt(exactAttendance, 10);
+    return reportData.members.filter(m => m.attended === n);
 }
 
 const PAGE_SIZE = 25;
@@ -343,8 +353,8 @@ function renderMemberList(keepPage) {
     const pager = document.getElementById('pagination');
 
     if (!members.length) {
-        const msg = maxAttendance !== ''
-            ? `No members attended ${maxAttendance} or fewer services.`
+        const msg = exactAttendance !== ''
+            ? `No members attended exactly ${exactAttendance} service${exactAttendance === '1' ? '' : 's'}.`
             : 'No members to show.';
         list.innerHTML = `<div class="text-center text-sm italic py-10" style="color:var(--color-mute);">${msg}</div>`;
         pager.classList.add('hidden');
@@ -416,7 +426,7 @@ async function exportPDF() {
 
         const [year, mo] = reportData.month.split('-');
         const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
-        const filterLabel = maxAttendance !== '' ? ` (attended ${maxAttendance} or fewer)` : '';
+        const filterLabel = exactAttendance !== '' ? ` (attended exactly ${exactAttendance})` : '';
         const title = `${reportData.service_type} — ${monthName} ${year}${filterLabel}`;
         const subtitle = `Revival Fire Ministries · Attendance Report · ${new Date().toLocaleDateString('en-ZA')}`;
 
