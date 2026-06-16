@@ -76,15 +76,26 @@
             <p class="text-xs mt-0.5" style="color:var(--color-mute);" id="reportSubtitle"></p>
             <p class="text-[11px] mt-1 hidden" style="color:var(--color-mute);" id="serviceDates"></p>
           </div>
-          <button onclick="exportPDF()" id="pdfBtn"
-                  class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
-                  style="background-color:var(--color-ember);color:white;">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
-            Export / Share
-          </button>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button onclick="exportExcel()" id="excelBtn"
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                    style="background-color:var(--color-sage);color:white;">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Excel
+            </button>
+            <button onclick="exportPDF()" id="pdfBtn"
+                    class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all"
+                    style="background-color:var(--color-ember);color:white;">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              PDF
+            </button>
+          </div>
         </div>
         <!-- At-a-glance breakdown chips (read-only) -->
         <div id="bucketRow" class="flex flex-wrap gap-2"></div>
@@ -145,6 +156,7 @@
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
 <script>
 let selectedMonth = '';
 let selectedServiceType = '';
@@ -492,7 +504,74 @@ async function exportPDF() {
             alert('Could not export: ' + e.message);
         }
     } finally {
-        btn.innerHTML = `<svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>Export / Share`;
+        btn.innerHTML = `<svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>PDF`;
+        btn.disabled = false;
+    }
+}
+
+async function exportExcel() {
+    if (!reportData) return;
+    const btn = document.getElementById('excelBtn');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+
+    try {
+        const exportRows = filteredMembers();
+
+        const [year, mo] = reportData.month.split('-');
+        const monthName = new Date(year, mo - 1, 1).toLocaleString('default', { month: 'long' });
+        const filterLabel = exactAttendance !== '' ? ` (attended exactly ${exactAttendance})` : '';
+        const title = `${reportData.service_type} — ${monthName} ${year}${filterLabel}`;
+
+        // Build the sheet: a few header rows for context, then the table.
+        const datesLine = (reportData.service_dates || []).map(d => {
+            const dt = new Date(d + 'T00:00:00');
+            return dt.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+        }).join(', ');
+
+        const aoa = [
+            [title],
+            [`Revival Fire Ministries · Attendance Report · ${new Date().toLocaleDateString('en-ZA')}`],
+            [`Services this month: ${reportData.total_services}${datesLine ? '  (' + datesLine + ')' : ''}`],
+            [`Members shown: ${exportRows.length} of ${reportData.total_members}`],
+            [],
+            ['#', 'Name', 'Phone', 'Attended', 'Total Services'],
+        ];
+        exportRows.forEach((m, i) => {
+            aoa.push([i + 1, m.name, m.phone, m.attended, m.total]);
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        // Sensible column widths
+        ws['!cols'] = [{ wch: 5 }, { wch: 30 }, { wch: 16 }, { wch: 10 }, { wch: 14 }];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+
+        const filename = `attendance_${reportData.service_type.replace(/\s+/g, '_')}_${reportData.month}.xlsx`;
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        const file = new File([blob], filename, { type: blob.type });
+
+        // Mobile: native share sheet (→ WhatsApp, email, Drive). Desktop: download.
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ title, text: title, files: [file] });
+        } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        }
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            alert('Could not export to Excel: ' + e.message);
+        }
+    } finally {
+        btn.innerHTML = `<svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Excel`;
         btn.disabled = false;
     }
 }
