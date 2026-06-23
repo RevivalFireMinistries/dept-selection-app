@@ -291,22 +291,46 @@ async function searchCentral(query) {
         const res = await fetch('/api/admin/members/external-search?q=' + encodeURIComponent(query));
         if (tok !== centralSearchToken) return;  // stale response; user typed something newer
         if (!res.ok) {
-            document.getElementById('centralLoading').classList.add('hidden');
+            renderCentralStatus(`Central search unavailable (HTTP ${res.status}).`);
             return;
         }
         const data = await res.json();
-        if (!data.enabled) {
-            document.getElementById('centralLoading').classList.add('hidden');
+        if (tok !== centralSearchToken) return;
+        // Surface WHY there are no central results instead of silently hiding —
+        // an empty central section used to look identical whether the
+        // integration was off, misconfigured, erroring, or just had no match.
+        if (data.enabled === false) {
+            renderCentralStatus('Central directory search is turned off for this deployment (RFM_API_INTEGRATION_ENABLED).');
             return;
         }
-        renderCentralResults(data.results || []);
+        if (data.configured === false) {
+            renderCentralStatus('Central directory is not configured (RFM_API_URL / RFM_API_KEY missing).');
+            return;
+        }
+        const results = data.results || [];
+        if (!results.length) {
+            renderCentralStatus(`No matches in the central directory for "${query}". Anyone already in the portal appears in the results above.`);
+            return;
+        }
+        renderCentralResults(results);
     } catch (e) {
         console.error('Central search failed:', e);
+        if (tok === centralSearchToken) renderCentralStatus('Central search failed — network error talking to rfm-database.');
     } finally {
         if (tok === centralSearchToken) {
             document.getElementById('centralLoading').classList.add('hidden');
         }
     }
+}
+
+// Always-visible status line for the central section so the admin can see
+// what happened (off / not configured / no match / error) rather than the
+// section just disappearing.
+function renderCentralStatus(msg) {
+    document.getElementById('centralResultCount').textContent = '0';
+    document.getElementById('centralResultsContainer').innerHTML =
+        `<div class="text-xs text-gray-500 italic bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">${escapeHtml(msg)}</div>`;
+    document.getElementById('centralResults').classList.remove('hidden');
 }
 
 function renderCentralResults(results) {
