@@ -9170,6 +9170,64 @@ def admin_members_external_search(
     }
 
 
+@router.get("/admin/members/directory-search")
+def admin_members_directory_search(
+    request: Request,
+    q: str = Query(..., min_length=2, description="Name or phone search query"),
+    db: Session = Depends(get_db),
+):
+    """Live search of the central rfm-database member directory.
+
+    Unlike /external-search, this does NOT exclude members already linked
+    locally — it's the directory used by "add/assign a member" pickers
+    (home-church add, one-off preacher, etc.) where you want to find ANY
+    member regardless of portal status. Returns each member's
+    external_member_id so callers attach by central UUID, never a local id.
+    """
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        return {"enabled": False, "configured": False, "query": q, "results": []}
+    if not _rfm.is_configured(db):
+        return {"enabled": True, "configured": False, "query": q, "results": []}
+
+    tokens = _rfm._significant_name_tokens(q)
+    phone_norm = _rfm.normalise_phone(q)
+    if phone_norm and len(phone_norm) >= 6 and phone_norm not in tokens:
+        tokens.append(phone_norm)
+    if not tokens:
+        tokens = [q.strip()]
+
+    seen: set = set()
+    results: list = []
+    for token in tokens:
+        r = _rfm.search_members(search=token, page=1, size=50, db=db)
+        if not r.ok or not r.data:
+            continue
+        items = r.data if isinstance(r.data, list) else (r.data.get("data") or [])
+        for item in items:
+            ext_id = item.get("id")
+            if not ext_id or ext_id in seen:
+                continue
+            seen.add(ext_id)
+            results.append({
+                "external_member_id": ext_id,
+                "full_name": _rfm.fullname_from_member(item),
+                "phone": item.get("phone") or item.get("mobile") or "",
+                "email": item.get("email") or "",
+                "address": _rfm.address_from_member(item),
+                "_score": _rfm.name_match_score(q, item),
+            })
+
+    results.sort(key=lambda r: (-r.get("_score", 0), (r.get("full_name") or "").lower()))
+    return {
+        "enabled": True,
+        "configured": True,
+        "query": q,
+        "count": len(results),
+        "results": results,
+    }
+
+
 @router.post("/admin/members/import-from-external")
 def admin_members_import_from_external(
     request: Request,

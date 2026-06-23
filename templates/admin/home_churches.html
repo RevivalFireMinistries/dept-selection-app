@@ -925,15 +925,15 @@
                     <div x-show="membersSheet.searchQuery.length >= 2 && !membersSheet.searchResults.length" class="text-[11px] text-gray-400 italic mt-1">No matches.</div>
                     <div x-show="membersSheet.searching" class="text-[11px] text-gray-400 italic mt-1">Searching…</div>
                     <div class="mt-2 max-h-44 overflow-y-auto space-y-1">
-                        <template x-for="m in membersSheet.searchResults" :key="m.id">
+                        <template x-for="m in membersSheet.searchResults" :key="m.external_member_id">
                             <div class="flex items-center justify-between gap-2 p-2 border border-gray-200 rounded-lg">
                                 <div class="min-w-0">
                                     <div class="text-sm font-medium text-gray-900 truncate" x-text="m.full_name"></div>
                                     <div class="text-[11px] text-gray-500 truncate" x-text="(m.phone || '') + (m.home_church_id ? ' · already in another HC' : '')"></div>
                                 </div>
-                                <button @click="addMemberToHC(m)" :disabled="membersSheet.adding === m.id"
+                                <button @click="addMemberToHC(m)" :disabled="membersSheet.adding === m.external_member_id"
                                     class="text-xs px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white rounded disabled:opacity-50">
-                                    <span x-text="membersSheet.adding === m.id ? 'Adding…' : 'Add'"></span>
+                                    <span x-text="membersSheet.adding === m.external_member_id ? 'Adding…' : 'Add'"></span>
                                 </button>
                             </div>
                         </template>
@@ -1711,33 +1711,34 @@ function homeChurchApp() {
         },
 
         async searchMembersToAdd() {
-            const q = (this.membersSheet.searchQuery || '').trim().toLowerCase();
+            const q = (this.membersSheet.searchQuery || '').trim();
             if (q.length < 2) { this.membersSheet.searchResults = []; return; }
             this.membersSheet.searching = true;
+            // Search the CENTRAL rfm-database directory directly — not the
+            // portal's local subset — so every member is findable.
+            const tok = (this._memSearchTok = (this._memSearchTok || 0) + 1);
             try {
-                if (!this._allMembersCache) {
-                    const res = await fetch('/api/members');
-                    const data = await res.json();
-                    this._allMembersCache = (Array.isArray(data) ? data : []).map(m => ({
-                        id: m.id, full_name: m.fullName || m.full_name || '', phone: m.phone || ''
-                    }));
-                }
-                const inHcExternalIds = new Set((this.membersSheet.members || []).map(m => String(m.id)));
-                this.membersSheet.searchResults = this._allMembersCache
-                    .filter(m => m.full_name.toLowerCase().includes(q) || (m.phone || '').includes(q))
+                const res = await fetch('/api/admin/members/directory-search?q=' + encodeURIComponent(q));
+                if (tok !== this._memSearchTok) return;  // stale
+                const data = res.ok ? await res.json() : { results: [] };
+                // Exclude members already in THIS home church (by external id)
+                const inHc = new Set((this.membersSheet.members || [])
+                    .map(m => String(m.external_member_id || m.id)));
+                this.membersSheet.searchResults = (data.results || [])
+                    .filter(m => !inHc.has(String(m.external_member_id)))
                     .slice(0, 25);
             } catch (e) { console.error(e); this.membersSheet.searchResults = []; }
-            this.membersSheet.searching = false;
+            if (tok === this._memSearchTok) this.membersSheet.searching = false;
         },
 
         async addMemberToHC(m) {
             if (this.membersSheet.adding) return;
-            this.membersSheet.adding = m.id;
+            this.membersSheet.adding = m.external_member_id;
             try {
                 const r = await fetch(`/api/admin/home-church/${this.membersSheet.hc.id}/members`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ member_id: m.id }),
+                    body: JSON.stringify({ external_member_id: m.external_member_id }),
                 });
                 const data = await r.json();
                 if (!r.ok) throw new Error(data.detail || 'Add failed');
