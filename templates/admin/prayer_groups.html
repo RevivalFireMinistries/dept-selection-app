@@ -159,6 +159,8 @@
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
 <script>
+// NB: prayerGroups() must be defined BEFORE Alpine boots. Alpine is loaded
+// with `defer` below, so it runs after this (non-deferred) script — good.
 function prayerGroups() {
   const ON  = 'background:#1F1B16;border-color:#1F1B16;color:white;';
   const OFF = 'background:white;border-color:#E5E7EB;color:#1F1B16;';
@@ -281,4 +283,5 @@ function prayerGroups() {
   };
 }
 </script>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 {% endblock %}
