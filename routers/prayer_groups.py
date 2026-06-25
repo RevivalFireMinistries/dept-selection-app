@@ -268,10 +268,17 @@ def _set_dict(s: PrayerGroupSet) -> dict:
 def list_sets(request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
     sets = db.query(PrayerGroupSet).order_by(PrayerGroupSet.created_at.desc()).all()
+    # Resolve creator names in one query
+    creator_ids = {s.created_by_member_id for s in sets if s.created_by_member_id}
+    names: dict = {}
+    if creator_ids:
+        for m in db.query(Member).filter(Member.id.in_(creator_ids)).all():
+            names[m.id] = m.full_name
     return [{
         "id": s.id, "name": s.name, "status": s.status,
         "num_groups": s.num_groups, "criteria": json.loads(s.criteria or "[]"),
         "leader_mode": s.leader_mode,
+        "created_by": names.get(s.created_by_member_id),
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "published_at": s.published_at.isoformat() if s.published_at else None,
     } for s in sets]
@@ -297,9 +304,20 @@ def generate_set(request: Request, data: dict = Body(...), db: Session = Depends
     criteria = [c for c in (data.get("criteria") or []) if c in VALID_CRITERIA]
     leader_mode = data.get("leader_mode") if data.get("leader_mode") in ("none", "auto", "manual") else "none"
 
+    # Stamp the creating admin (their local member id, from the signed
+    # admin-identity cookie) so the saved-sets list can show who made it.
+    created_by_id = None
+    try:
+        from routers.pages import get_admin_identity
+        ident = get_admin_identity(request) or {}
+        created_by_id = ident.get("member_id")
+    except Exception:
+        pass
+
     s = PrayerGroupSet(
         name=name, num_groups=num_groups, leaders_per_group=leaders_per_group,
         criteria=json.dumps(criteria), leader_mode=leader_mode, status="draft",
+        created_by_member_id=created_by_id,
     )
     db.add(s)
     db.flush()

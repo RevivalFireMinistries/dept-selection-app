@@ -204,11 +204,17 @@
       <template x-for="s in sets" :key="s.id">
         <div class="flex items-center justify-between gap-3 py-2.5">
           <button @click="open(s.id)" class="min-w-0 text-left flex-1">
-            <span class="text-sm font-medium text-gray-900" x-text="s.name"></span>
-            <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ml-2"
-                  :class="s.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'"
-                  x-text="s.status"></span>
-            <span class="text-xs text-gray-400 ml-2" x-text="s.num_groups + ' groups'"></span>
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-medium text-gray-900" x-text="s.name"></span>
+              <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full"
+                    :class="s.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'"
+                    x-text="s.status"></span>
+              <span class="text-xs text-gray-400" x-text="s.num_groups + ' groups'"></span>
+            </div>
+            <div class="text-[11px] text-gray-400 mt-0.5">
+              <span x-show="s.created_by" x-text="'by ' + s.created_by"></span>
+              <span x-show="s.created_at" x-text="(s.created_by ? ' · ' : '') + fmtDate(s.created_at)"></span>
+            </div>
           </button>
           <button @click="del(s.id)" class="text-xs text-red-500 hover:text-red-700">Delete</button>
         </div>
@@ -259,6 +265,11 @@ function prayerGroups() {
     leaderCount(g)  { return (g.members || []).filter(m => m.is_leader).length; },
 
     weightColor(s) { s = s || 0; return s < 34 ? '#EF4444' : (s < 67 ? '#F59E0B' : '#10B981'); },
+    fmtDate(iso) {
+      if (!iso) return '';
+      try { return new Date(iso).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }); }
+      catch (e) { return ''; }
+    },
 
     sortMembers(g) {
       // Leaders first, then by weight (desc), then name
