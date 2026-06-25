@@ -99,6 +99,8 @@
           <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full"
                 :class="current.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
                 x-text="current.status"></span>
+          <span class="text-xs text-gray-400 whitespace-nowrap"
+                x-text="totalMembers() + ' members · ' + (current.groups ? current.groups.length : 0) + ' groups'"></span>
         </div>
         <div class="flex items-center gap-2">
           <button @click="regenerate()" :disabled="busy || current.status === 'published'"
@@ -416,6 +418,7 @@ function prayerGroups() {
     },
     otherGroups(id) { return (this.current?.groups || []).filter(x => x.id !== id); },
     leaderCount(g)  { return (g.members || []).filter(m => m.is_leader).length; },
+    totalMembers()  { return (this.current?.groups || []).reduce((t, g) => t + (g.members ? g.members.length : 0), 0); },
 
     weightColor(s) { s = s || 0; return s < 34 ? '#EF4444' : (s < 67 ? '#F59E0B' : '#10B981'); },
     fmtDate(iso) {
