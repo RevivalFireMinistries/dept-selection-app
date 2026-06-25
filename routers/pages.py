@@ -578,6 +578,15 @@ async def admin_settings(request: Request):
     return templates.TemplateResponse("admin/settings.html", {"request": request})
 
 
+@router.get("/admin/prayer-groups")
+async def admin_prayer_groups_page(request: Request):
+    """Admin: generate and manage prayer groups."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    _require_feature(request, "prayer_groups")
+    return templates.TemplateResponse("admin/prayer_groups.html", {"request": request})
+
+
 @router.get("/admin/features")
 async def admin_features_page(request: Request):
     """Admin: enable / disable features for this assembly deployment."""

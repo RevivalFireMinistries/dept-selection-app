@@ -396,6 +396,25 @@
                 </section>
                 {% endif %}
 
+                {% if features.prayer_groups %}
+                <!-- Your prayer group (only when a set is published and you're in one) -->
+                <section x-show="prayerGroup && prayerGroup.group" x-cloak class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border: 1px solid var(--color-border);">
+                    <div class="px-5 py-3" style="background-color: rgba(184,84,28,0.07);">
+                        <div class="text-[10px] uppercase tracking-[0.2em]" style="color: var(--color-ember);">Your prayer group</div>
+                        <h2 class="font-display text-xl mt-0.5" style="color: var(--color-ink);" x-text="prayerGroup?.group?.name"></h2>
+                    </div>
+                    <div class="divide-y" style="border-color: var(--color-border);">
+                        <template x-for="m in (prayerGroup?.group?.members || [])" :key="m.full_name">
+                            <div class="flex items-center gap-2 px-5 py-2.5">
+                                <span x-show="m.is_leader" title="Group leader">⭐</span>
+                                <span class="text-sm" :style="m.is_leader ? 'font-weight:600;color:var(--color-ink);' : 'color:var(--color-ink-soft);'" x-text="m.full_name"></span>
+                                <span x-show="m.is_leader" class="text-[10px] uppercase tracking-wide font-semibold ml-1" style="color: var(--color-ember);">Leader</span>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+                {% endif %}
+
                 <!-- Announcements (only when there are some) -->
                 {% if features.announcements %}
                 <section x-show="announcements.length" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -1764,6 +1783,7 @@ function memberPortal() {
 
         // Announcements (home tab)
         announcements: [],
+        prayerGroup: null,
         _announcementsLoaded: false,
 
         // Progressive profile enrichment
@@ -1874,6 +1894,7 @@ function memberPortal() {
                 this.loadVerse();
                 this.loadCalendarEvents();
                 this.loadProfileMissing();
+                this.loadPrayerGroup();
             }
             if (id === 'contributions') {
                 this.loadBanking();
@@ -2679,6 +2700,17 @@ function memberPortal() {
                 if (!r.ok) return;
                 this.announcements = await r.json();
                 this._announcementsLoaded = true;
+            } catch (e) { /* non-fatal */ }
+        },
+
+        async loadPrayerGroup() {
+            if (this._prayerGroupLoaded) return;
+            try {
+                const r = await fetch('/api/portal/prayer-group');
+                if (!r.ok) return;
+                const d = await r.json();
+                this.prayerGroup = (d.published && d.group) ? d : null;
+                this._prayerGroupLoaded = true;
             } catch (e) { /* non-fatal */ }
         },
 

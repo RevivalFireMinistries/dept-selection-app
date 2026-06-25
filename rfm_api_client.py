@@ -462,6 +462,23 @@ def assembly_attendance_report(
     )
 
 
+def assembly_attendance_by_member(
+    assembly_id: str,
+    *,
+    months: int = 3,
+    service_type: str = "Sunday",
+    db=None,
+) -> ApiResult:
+    """Per-member attended distinct-date counts over the last `months`, keyed
+    by member_id. Powers the prayer-group commitment-by-attendance score."""
+    return _request(
+        "GET",
+        "/api/v1/attendance/assembly/by-member",
+        db=db,
+        params={"assembly_id": assembly_id, "months": months, "service_type": service_type},
+    )
+
+
 def create_contribution(payload: dict, *, db=None) -> ApiResult:
     """Push a captured contribution into the central database. The portal uses
     this after a successful Yoco payment to keep the central ledger in sync."""

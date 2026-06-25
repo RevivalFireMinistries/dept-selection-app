@@ -301,6 +301,14 @@ FEATURES: dict[str, dict] = {
         "description": "AI provider configuration and AI-powered member tools.",
     },
 
+    # ── Admin — Pastoral ─────────────────────────────────────────────────────
+    "prayer_groups": {
+        "label": "Prayer Groups",
+        "group": "Admin — Pastoral",
+        "default": True,
+        "description": "Admin shuffles members into balanced prayer groups (by attendance, titles, departments), publishes them, and members see their group on the dashboard.",
+    },
+
     # ── Elder Tools ──────────────────────────────────────────────────────────
     "elder_attendance_report": {
         "label": "Elder Attendance Report",

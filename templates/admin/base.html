@@ -163,6 +163,12 @@
                 <span class="text-sm font-medium text-gray-700">Attendance Report</span>
             </a>
             {% endif %}
+            {% if features.prayer_groups %}
+            <a href="/admin/prayer-groups" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/prayer-groups' %}bg-blue-50{% endif %}">
+                <span class="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0 text-sm">🙏</span>
+                <span class="text-sm font-medium text-gray-700">Prayer Groups</span>
+            </a>
+            {% endif %}
             <a href="/admin/features" class="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 {% if request.url.path == '/admin/features' %}bg-blue-50{% endif %}">
                 <span class="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center flex-shrink-0 text-sm">⚙️</span>
                 <span class="text-sm font-medium text-gray-700">Features</span>

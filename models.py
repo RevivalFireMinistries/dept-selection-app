@@ -941,3 +941,60 @@ class Devotional(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     created_by = relationship("Member", foreign_keys=[created_by_member_id])
+
+
+# ============ PRAYER GROUPS ============
+
+class PrayerGroupSet(Base):
+    """A generated batch of prayer groups. Admin generates a draft, tweaks it,
+    then publishes. Only one published set is 'active' (shown to members on
+    their dashboard) at a time. Members come from rfm-database, so groups
+    store external_member_id + a name/phone snapshot rather than a local FK."""
+    __tablename__ = "prayer_group_sets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    num_groups = Column(Integer, nullable=False, server_default="2")
+    # JSON list of balancing criteria used: ["attendance","titles","departments"]
+    criteria = Column(Text, nullable=True)
+    leader_mode = Column(String(20), nullable=False, server_default="none")  # none | auto | manual
+    status = Column(String(20), nullable=False, server_default="draft")       # draft | published
+    created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    published_at = Column(DateTime(timezone=True), nullable=True)
+
+    groups = relationship(
+        "PrayerGroup", back_populates="set",
+        cascade="all, delete-orphan", order_by="PrayerGroup.sort_order",
+    )
+
+
+class PrayerGroup(Base):
+    __tablename__ = "prayer_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    set_id = Column(Integer, ForeignKey("prayer_group_sets.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    leader_external_member_id = Column(String(64), nullable=True)
+    sort_order = Column(Integer, nullable=False, server_default="0")
+
+    set = relationship("PrayerGroupSet", back_populates="groups")
+    members = relationship(
+        "PrayerGroupMember", back_populates="group", cascade="all, delete-orphan",
+    )
+
+
+class PrayerGroupMember(Base):
+    __tablename__ = "prayer_group_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("prayer_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    external_member_id = Column(String(64), nullable=False, index=True)
+    full_name = Column(String(200), nullable=True)
+    phone = Column(String(40), nullable=True)
+    is_leader = Column(Boolean, nullable=False, server_default="false")
+    # Commitment score ×100 (integer) for transparent display in the UI
+    score = Column(Integer, nullable=True)
+
+    group = relationship("PrayerGroup", back_populates="members")
