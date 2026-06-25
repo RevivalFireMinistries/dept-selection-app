@@ -95,6 +95,47 @@
         </div>
       </div>
 
+      <!-- New members not yet allocated (added after this set was generated) -->
+      <div x-show="unallocated.length" x-cloak
+           class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div class="text-sm font-semibold text-amber-900">
+            <span x-text="unallocated.length"></span> new member<span x-show="unallocated.length !== 1">s</span> not in a group yet
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="loadUnallocated()" class="text-xs font-semibold text-amber-700 hover:text-amber-900">↻ Refresh</button>
+            <button @click="allocateAuto()" class="px-3 py-1.5 text-xs font-semibold rounded-lg text-white" style="background:#B8541C;">
+              Auto-allocate all
+            </button>
+          </div>
+        </div>
+        <p class="text-[11px] text-amber-700 mb-2">These people joined the central database after this set was generated. Auto-allocate spreads them into the smallest groups, or pick a group per person.</p>
+        <div class="space-y-1 max-h-56 overflow-y-auto">
+          <template x-for="u in unallocated" :key="u.external_member_id">
+            <div class="flex items-center gap-2 bg-white border border-amber-100 rounded-lg px-3 py-2">
+              <span x-show="u.is_leader_eligible" title="Elder/Pastor">⭐</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium text-gray-900 truncate" x-text="u.full_name"></div>
+                <div class="text-[11px] text-gray-400 truncate" x-text="u.phone || 'No phone'"></div>
+              </div>
+              <span class="text-[10px] font-semibold tabular-nums" :style="`color:${weightColor(u.score)}`" x-text="(u.score || 0) + '%'"></span>
+              <select @change="allocateOne(u, $event.target.value); $event.target.value=''"
+                      class="text-[11px] border border-gray-200 rounded px-1.5 py-1 text-gray-600 bg-white">
+                <option value="">add to…</option>
+                <template x-for="g in current.groups" :key="g.id">
+                  <option :value="g.id" x-text="g.name"></option>
+                </template>
+              </select>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div x-show="!unallocated.length && !loadingUnalloc" class="mb-3">
+        <button @click="loadUnallocated()" class="text-xs font-semibold text-gray-500 hover:text-gray-700">
+          ↻ Check for new members
+        </button>
+      </div>
+
       <!-- Find which group a member landed in -->
       <div class="mb-3">
         <input type="text" x-model="memberSearch" placeholder="🔎 Find a member by name or phone…"
@@ -291,6 +332,40 @@ function prayerGroups() {
     sets: [], current: null,
     memberSearch: '',
     viewGroup: null,
+    unallocated: [], loadingUnalloc: false,
+
+    async loadUnallocated() {
+      if (!this.current) { this.unallocated = []; return; }
+      this.loadingUnalloc = true;
+      try {
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/unallocated`);
+        this.unallocated = r.ok ? await r.json() : [];
+      } catch (e) { this.unallocated = []; }
+      this.loadingUnalloc = false;
+    },
+
+    async allocateAuto() {
+      if (!this.unallocated.length) return;
+      if (!confirm(`Auto-allocate ${this.unallocated.length} new member(s) into the smallest groups?`)) return;
+      const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/allocate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'auto' }),
+      });
+      if (r.ok) { const d = await r.json(); this.current = d.set; this.unallocated = []; }
+    },
+
+    async allocateOne(m, groupId) {
+      if (!groupId) return;
+      const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/allocate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ external_member_id: m.external_member_id, group_id: parseInt(groupId) }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        this.current = d.set;
+        this.unallocated = this.unallocated.filter(u => u.external_member_id !== m.external_member_id);
+      }
+    },
 
     init() { this.loadSets(); },
 
@@ -356,7 +431,7 @@ function prayerGroups() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
-        this.current = d; await this.loadSets();
+        this.current = d; this.unallocated = []; await this.loadSets();
       } catch (e) { this.err = e.message; }
       this.busy = false;
     },
@@ -371,7 +446,7 @@ function prayerGroups() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
-        this.current = d;
+        this.current = d; this.unallocated = [];
       } catch (e) { this.err = e.message; }
       this.busy = false;
     },
@@ -384,6 +459,7 @@ function prayerGroups() {
         this.form.leaders_per_group = this.current.leaders_per_group || 1;
         this.form.criteria   = this.current.criteria;
         this.form.leader_mode = this.current.leader_mode;
+        this.loadUnallocated();
       }
     },
 

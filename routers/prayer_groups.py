@@ -293,6 +293,106 @@ def get_set(set_id: int, request: Request, db: Session = Depends(get_db)):
     return _set_dict(s)
 
 
+def _set_member_ids(set_obj: PrayerGroupSet) -> set:
+    ids = set()
+    for g in set_obj.groups:
+        for m in g.members:
+            ids.add(str(m.external_member_id))
+    return ids
+
+
+def _unallocated(set_obj: PrayerGroupSet, db: Session, assembly_id: str) -> list[dict]:
+    """Scored members who are in rfm-database but not yet in any group of
+    this set — i.e. people added after the set was generated."""
+    existing = _set_member_ids(set_obj)
+    new_pool = [m for m in _fetch_pool(assembly_id, db)
+                if str(m["external_member_id"]) not in existing]
+    if not new_pool:
+        return []
+    att = _attendance_rates(assembly_id, db)
+    roles_map = _local_roles([str(m["external_member_id"]) for m in new_pool], db)
+    criteria = [c for c in json.loads(set_obj.criteria or "[]") if c in VALID_CRITERIA]
+    out = []
+    for m in new_pool:
+        s, roles = _score(m, criteria, att, roles_map)
+        out.append({**m, "score": s, "roles": roles})
+    out.sort(key=lambda x: (-x["score"], (x["full_name"] or "").lower()))
+    return out
+
+
+@router.get("/admin/prayer-groups/{set_id}/unallocated")
+def list_unallocated(set_id: int, request: Request, db: Session = Depends(get_db)):
+    """Members not yet placed in this set (added since it was generated)."""
+    _require_admin(request)
+    assembly_id = _assembly_id(request, db)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+    return [{
+        "external_member_id": x["external_member_id"],
+        "full_name": x["full_name"],
+        "phone": x["phone"],
+        "score": int(round(x["score"] * 100)),
+        "is_leader_eligible": bool(set(x["roles"]) & LEADER_ROLES),
+    } for x in _unallocated(s, db, assembly_id)]
+
+
+@router.post("/admin/prayer-groups/{set_id}/allocate")
+def allocate(set_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Place new members into the set.
+
+    Body:
+      {"mode": "auto"}                       — distribute ALL unallocated into
+                                               the smallest groups (balanced)
+      {"external_member_id": x, "group_id": g} — place one member manually
+    """
+    _require_admin(request)
+    assembly_id = _assembly_id(request, db)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    items = _unallocated(s, db, assembly_id)
+    by_id = {str(x["external_member_id"]): x for x in items}
+    groups = sorted(s.groups, key=lambda g: g.sort_order)
+    if not groups:
+        raise HTTPException(status_code=400, detail="This set has no groups.")
+
+    def _add(x, grp):
+        is_leader = (s.leader_mode == "auto" and bool(set(x["roles"]) & LEADER_ROLES))
+        db.add(PrayerGroupMember(
+            group_id=grp.id,
+            external_member_id=str(x["external_member_id"]),
+            full_name=x["full_name"], phone=x["phone"],
+            is_leader=is_leader, score=int(round(x["score"] * 100)),
+        ))
+
+    if data.get("mode") == "auto":
+        sizes = {g.id: len(g.members) for g in groups}
+        gmap = {g.id: g for g in groups}
+        for x in items:
+            gid = min(sizes, key=lambda k: (sizes[k], k))
+            _add(x, gmap[gid])
+            sizes[gid] += 1
+        added = len(items)
+    else:
+        ext = str(data.get("external_member_id") or "")
+        gid = data.get("group_id")
+        x = by_id.get(ext)
+        grp = next((g for g in groups if g.id == gid), None)
+        if not x:
+            raise HTTPException(status_code=404, detail="Member is already allocated or not found.")
+        if not grp:
+            raise HTTPException(status_code=404, detail="Group not found in this set.")
+        _add(x, grp)
+        added = 1
+
+    s.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(s)
+    return {"added": added, "set": _set_dict(s)}
+
+
 @router.post("/admin/prayer-groups/generate")
 def generate_set(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
     _require_admin(request)
