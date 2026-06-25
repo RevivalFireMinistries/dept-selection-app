@@ -46,14 +46,27 @@ def _require_admin(request: Request):
 
 
 def _assembly_id(request: Request, db: Session) -> str:
+    """The assembly to scope members to — the LOGGED-IN ADMIN's own assembly.
+
+    Resolved from the admin's member record (external_assembly_id) so prayer
+    groups only ever contain members of that admin's branch. Falls back to
+    request.state / the deployment default only when the admin has no central
+    assembly link."""
+    from routers.pages import get_admin_identity
+    ident = get_admin_identity(request) or {}
+    mid = ident.get("member_id")
+    if mid:
+        m = db.query(Member).filter(Member.id == mid).first()
+        if m and m.external_assembly_id:
+            return str(m.external_assembly_id)
+
     assembly = getattr(request.state, "assembly", {}) or {}
     aid = assembly.get("id")
     if not aid:
-        # Fall back to the deployment default
         from routers.api import _resolve_default_assembly_id
         aid = _resolve_default_assembly_id(db)
     if not aid:
-        raise HTTPException(status_code=422, detail="No assembly context found.")
+        raise HTTPException(status_code=422, detail="No assembly link found for your admin account. Ask for Member Sync to be run.")
     return str(aid)
 
 
@@ -284,12 +297,34 @@ def list_sets(request: Request, db: Session = Depends(get_db)):
     } for s in sets]
 
 
+def _reconcile_set(set_obj: PrayerGroupSet, db: Session, valid_ids: set) -> int:
+    """Remove group members who are no longer in the central roster (deleted
+    in rfm-database, or moved to another assembly). `valid_ids` is the set of
+    external_member_ids currently in the assembly. Returns the count removed."""
+    removed = 0
+    for g in set_obj.groups:
+        for m in list(g.members):
+            if str(m.external_member_id) not in valid_ids:
+                db.delete(m)
+                removed += 1
+    if removed:
+        set_obj.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    return removed
+
+
 @router.get("/admin/prayer-groups/{set_id}")
 def get_set(set_id: int, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
+    assembly_id = _assembly_id(request, db)
     s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Set not found")
+    # Drop anyone deleted from the central roster before returning.
+    valid_ids = {str(m["external_member_id"]) for m in _fetch_pool(assembly_id, db)}
+    if valid_ids:  # guard against an empty/failed fetch wiping everyone
+        _reconcile_set(s, db, valid_ids)
+        db.refresh(s)
     return _set_dict(s)
 
 
@@ -303,10 +338,14 @@ def _set_member_ids(set_obj: PrayerGroupSet) -> set:
 
 def _unallocated(set_obj: PrayerGroupSet, db: Session, assembly_id: str) -> list[dict]:
     """Scored members who are in rfm-database but not yet in any group of
-    this set — i.e. people added after the set was generated."""
+    this set — i.e. people added after the set was generated. Also reconciles
+    the set first (drops members deleted from the central roster)."""
+    pool = _fetch_pool(assembly_id, db)
+    valid_ids = {str(m["external_member_id"]) for m in pool}
+    if valid_ids:
+        _reconcile_set(set_obj, db, valid_ids)
     existing = _set_member_ids(set_obj)
-    new_pool = [m for m in _fetch_pool(assembly_id, db)
-                if str(m["external_member_id"]) not in existing]
+    new_pool = [m for m in pool if str(m["external_member_id"]) not in existing]
     if not new_pool:
         return []
     att = _attendance_rates(assembly_id, db)
