@@ -29,15 +29,15 @@
     <div class="mt-4">
       <label class="block text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-1.5">Balance by (random within each)</label>
       <div class="flex flex-wrap gap-2">
-        <template x-for="c in criteriaOptions" :key="c.key">
-          <button type="button" @click="toggleCriteria(c.key)"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
-                  :style="form.criteria.includes(c.key)
-                    ? 'background:#1F1B16;border-color:#1F1B16;color:white;'
-                    : 'background:white;border-color:#E5E7EB;color:#1F1B16;'">
-            <span x-text="c.label"></span>
-          </button>
-        </template>
+        <button type="button" @click="toggleCriteria('attendance')"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                :style="critStyle('attendance')">Attendance</button>
+        <button type="button" @click="toggleCriteria('titles')"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                :style="critStyle('titles')">Titles (elder / deacon)</button>
+        <button type="button" @click="toggleCriteria('departments')"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                :style="critStyle('departments')">Serves in a department</button>
       </div>
       <p class="text-xs text-gray-400 mt-1.5">No criteria selected = purely random. Selected criteria mix committed and less-committed people evenly across groups.</p>
     </div>
@@ -45,15 +45,15 @@
     <div class="mt-4">
       <label class="block text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-1.5">Group leaders</label>
       <div class="flex flex-wrap gap-2">
-        <template x-for="opt in leaderModes" :key="opt.key">
-          <button type="button" @click="form.leader_mode = opt.key"
-                  class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
-                  :style="form.leader_mode === opt.key
-                    ? 'background:#B8541C;border-color:#B8541C;color:white;'
-                    : 'background:white;border-color:#E5E7EB;color:#1F1B16;'">
-            <span x-text="opt.label"></span>
-          </button>
-        </template>
+        <button type="button" @click="form.leader_mode='none'"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                :style="leaderStyle('none')">No leaders</button>
+        <button type="button" @click="form.leader_mode='auto'"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                :style="leaderStyle('auto')">Elders auto-assigned</button>
+        <button type="button" @click="form.leader_mode='manual'"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                :style="leaderStyle('manual')">Assign manually</button>
       </div>
     </div>
 
@@ -66,79 +66,73 @@
     </div>
   </div>
 
-  <!-- ── Current set ────────────────────────────────────────────── -->
-  <div x-show="current" x-cloak class="mb-6">
-    <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
-      <div class="flex items-center gap-2 min-w-0">
-        <input type="text" x-model="current.name" @change="saveMeta()"
-               class="text-lg font-bold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-rose-400 min-w-0">
-        <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full"
-              :class="current.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
-              x-text="current.status"></span>
+  <!-- ── Current set (only rendered when one is loaded) ─────────── -->
+  <template x-if="current">
+    <div class="mb-6">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <input type="text" x-model="current.name" @change="saveMeta()"
+                 class="text-lg font-bold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-rose-400 min-w-0">
+          <span class="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full"
+                :class="current.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                x-text="current.status"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button @click="regenerate()" :disabled="busy || current.status === 'published'"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">↻ Regenerate</button>
+          <button @click="exportExcel()"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl text-white" style="background:#3F7D58;">Excel</button>
+          <button x-show="current.status !== 'published'" @click="publish()"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl text-white" style="background:#1F1B16;">Publish</button>
+          <button x-show="current.status === 'published'" @click="unpublish()"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50">Unpublish</button>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <button @click="regenerate()" :disabled="busy || current.status === 'published'"
-                class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
-          ↻ Regenerate
-        </button>
-        <button @click="exportExcel()"
-                class="px-3 py-2 text-sm font-semibold rounded-xl text-white" style="background:#3F7D58;">
-          Excel
-        </button>
-        <button x-show="current.status !== 'published'" @click="publish()"
-                class="px-3 py-2 text-sm font-semibold rounded-xl bg-ink text-white" style="background:#1F1B16;color:white;">
-          Publish
-        </button>
-        <button x-show="current.status === 'published'" @click="unpublish()"
-                class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50">
-          Unpublish
-        </button>
-      </div>
-    </div>
 
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <template x-for="g in current.groups" :key="g.id">
-        <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
-            <input type="text" x-model="g.name" @change="saveGroup(g)"
-                   class="text-sm font-bold text-gray-900 bg-transparent w-full focus:outline-none">
-            <div class="text-[11px] text-gray-400 mt-0.5" x-text="g.members.length + ' members'"></div>
-            <div class="mt-2" x-show="current.leader_mode !== 'none'">
-              <label class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Leader</label>
-              <select x-model="g.leader_external_member_id" @change="saveGroup(g)"
-                      class="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
-                <option value="">— none —</option>
-                <template x-for="m in g.members" :key="m.external_member_id">
-                  <option :value="m.external_member_id" x-text="m.full_name"></option>
-                </template>
-              </select>
-            </div>
-          </div>
-          <div class="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-            <template x-for="m in g.members" :key="m.external_member_id">
-              <div class="flex items-center gap-2 px-3 py-2">
-                <span x-show="m.is_leader" title="Leader">⭐</span>
-                <div class="min-w-0 flex-1">
-                  <div class="text-sm text-gray-900 truncate" x-text="m.full_name"></div>
-                  <div class="text-[11px] text-gray-400 truncate" x-text="m.phone"></div>
-                </div>
-                <span x-show="m.score !== null && m.score !== undefined"
-                      class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
-                      x-text="m.score + '%'"></span>
-                <select @change="moveMember(m, $event.target.value); $event.target.value=''"
-                        class="text-[11px] border border-gray-200 rounded px-1 py-0.5 text-gray-500 bg-white">
-                  <option value="">move…</option>
-                  <template x-for="og in current.groups.filter(x => x.id !== g.id)" :key="og.id">
-                    <option :value="og.id" x-text="'→ ' + og.name"></option>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="g in current.groups" :key="g.id">
+          <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
+              <input type="text" x-model="g.name" @change="saveGroup(g)"
+                     class="text-sm font-bold text-gray-900 bg-transparent w-full focus:outline-none">
+              <div class="text-[11px] text-gray-400 mt-0.5" x-text="g.members.length + ' members'"></div>
+              <div class="mt-2" x-show="current.leader_mode !== 'none'">
+                <label class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">Leader</label>
+                <select x-model="g.leader_external_member_id" @change="saveGroup(g)"
+                        class="w-full mt-0.5 text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+                  <option value="">— none —</option>
+                  <template x-for="m in g.members" :key="m.external_member_id">
+                    <option :value="m.external_member_id" x-text="m.full_name"></option>
                   </template>
                 </select>
               </div>
-            </template>
+            </div>
+            <div class="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+              <template x-for="m in g.members" :key="m.external_member_id">
+                <div class="flex items-center gap-2 px-3 py-2">
+                  <span x-show="m.is_leader" title="Leader">⭐</span>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm text-gray-900 truncate" x-text="m.full_name"></div>
+                    <div class="text-[11px] text-gray-400 truncate" x-text="m.phone"></div>
+                  </div>
+                  <span x-show="m.score !== null && m.score !== undefined"
+                        class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+                        x-text="m.score + '%'"></span>
+                  <select @change="moveMember(m, $event.target.value); $event.target.value=''"
+                          class="text-[11px] border border-gray-200 rounded px-1 py-0.5 text-gray-500 bg-white">
+                    <option value="">move…</option>
+                    <template x-for="og in otherGroups(g.id)" :key="og.id">
+                      <option :value="og.id" x-text="'→ ' + og.name"></option>
+                    </template>
+                  </select>
+                </div>
+              </template>
+            </div>
           </div>
-        </div>
-      </template>
+        </template>
+      </div>
     </div>
-  </div>
+  </template>
 
   <!-- ── Saved sets ─────────────────────────────────────────────── -->
   <div x-show="sets.length" class="bg-white rounded-2xl border border-gray-200 p-4">
@@ -163,37 +157,30 @@
 {% endblock %}
 
 {% block scripts %}
-{{ super() }}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
 <script>
 function prayerGroups() {
+  const ON  = 'background:#1F1B16;border-color:#1F1B16;color:white;';
+  const OFF = 'background:white;border-color:#E5E7EB;color:#1F1B16;';
+  const LON = 'background:#B8541C;border-color:#B8541C;color:white;';
   return {
     busy: false, err: '',
     form: { name: '', num_groups: 4, criteria: ['attendance', 'titles', 'departments'], leader_mode: 'auto' },
-    criteriaOptions: [
-      { key: 'attendance',  label: 'Attendance' },
-      { key: 'titles',      label: 'Titles (elder/deacon)' },
-      { key: 'departments', label: 'Serves in a department' },
-    ],
-    leaderModes: [
-      { key: 'none',   label: 'No leaders' },
-      { key: 'auto',   label: 'Elders auto-assigned' },
-      { key: 'manual', label: 'Assign manually' },
-    ],
     sets: [], current: null,
 
-    async init() { await this.loadSets(); },
+    init() { this.loadSets(); },
 
+    critStyle(k)   { return this.form.criteria.includes(k) ? ON : OFF; },
+    leaderStyle(k) { return this.form.leader_mode === k ? LON : OFF; },
     toggleCriteria(k) {
       const i = this.form.criteria.indexOf(k);
       if (i >= 0) this.form.criteria.splice(i, 1); else this.form.criteria.push(k);
     },
+    otherGroups(id) { return (this.current?.groups || []).filter(x => x.id !== id); },
 
     async loadSets() {
-      try {
-        const r = await fetch('/api/admin/prayer-groups');
-        this.sets = r.ok ? await r.json() : [];
-      } catch (e) { this.sets = []; }
+      try { const r = await fetch('/api/admin/prayer-groups'); this.sets = r.ok ? await r.json() : []; }
+      catch (e) { this.sets = []; }
     },
 
     async generate() {
@@ -205,8 +192,7 @@ function prayerGroups() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
-        this.current = d;
-        await this.loadSets();
+        this.current = d; await this.loadSets();
       } catch (e) { this.err = e.message; }
       this.busy = false;
     },
@@ -217,11 +203,7 @@ function prayerGroups() {
       try {
         const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/regenerate`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            num_groups: this.form.num_groups,
-            criteria: this.form.criteria,
-            leader_mode: this.form.leader_mode,
-          }),
+          body: JSON.stringify({ num_groups: this.form.num_groups, criteria: this.form.criteria, leader_mode: this.form.leader_mode }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
@@ -235,7 +217,7 @@ function prayerGroups() {
       if (r.ok) {
         this.current = await r.json();
         this.form.num_groups = this.current.num_groups;
-        this.form.criteria = this.current.criteria;
+        this.form.criteria   = this.current.criteria;
         this.form.leader_mode = this.current.leader_mode;
       }
     },
@@ -254,7 +236,6 @@ function prayerGroups() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ groups: [{ id: g.id, name: g.name, leader_external_member_id: g.leader_external_member_id }] }),
       });
-      // Refresh leader stars
       this.current.groups.forEach(grp => grp.members.forEach(m =>
         m.is_leader = (grp.leader_external_member_id === m.external_member_id)));
     },
@@ -292,12 +273,10 @@ function prayerGroups() {
         g.members.forEach(m => aoa.push([m.full_name, m.phone, m.is_leader ? 'Leader' : '']));
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 10 }];
-        // Sheet names max 31 chars, no special chars
         const safe = (g.name || 'Group').replace(/[\\/?*\[\]:]/g, '').slice(0, 31);
         XLSX.utils.book_append_sheet(wb, ws, safe);
       });
-      const fn = `${(this.current.name || 'prayer_groups').replace(/\s+/g, '_')}.xlsx`;
-      XLSX.writeFile(wb, fn);
+      XLSX.writeFile(wb, `${(this.current.name || 'prayer_groups').replace(/\s+/g, '_')}.xlsx`);
     },
   };
 }
