@@ -101,6 +101,9 @@ def _fetch_pool(assembly_id: str, db: Session) -> list[dict]:
                 # Department signal straight from rfm-database (members carry
                 # their departments + ministries) — no local lookup needed.
                 "has_dept": bool(m.get("departments") or m.get("ministries")),
+                # For the keep-apart rules (same surname / same family).
+                "surname": (m.get("last_name") or "").strip().lower(),
+                "family_id": str(m.get("family_id")) if m.get("family_id") else None,
             })
         if len(items) < PAGE_SIZE:
             break  # last page
@@ -187,30 +190,46 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
 
     buckets: list[list[dict]] = [[] for _ in range(n)]
     leader_ids_by_group: dict[int, set] = {gi: set() for gi in range(n)}
+    surnames_by_group: list[set] = [set() for _ in range(n)]
+    families_by_group: list[set] = [set() for _ in range(n)]
 
-    def _snake(members, start_sizes_balance=True):
-        """Snake-draft members across buckets, dealing into the smallest
-        group first each pass so total sizes stay balanced even after
-        leaders were pre-seeded."""
-        members = sorted(members, key=lambda m: m["_sortkey"], reverse=True)
-        for m in members:
-            gi = min(range(n), key=lambda i: (len(buckets[i]), i))
-            buckets[gi].append(m)
+    sep_sur = bool(getattr(set_obj, "separate_surnames", True))
+    sep_fam = bool(getattr(set_obj, "separate_family", True))
+
+    def _conflicts(gi: int, m: dict) -> bool:
+        if sep_sur and m["surname"] and m["surname"] in surnames_by_group[gi]:
+            return True
+        if sep_fam and m["family_id"] and m["family_id"] in families_by_group[gi]:
+            return True
+        return False
+
+    def _place(m: dict) -> int:
+        """Pick the smallest group with no surname/family clash; if every
+        group clashes (unavoidable — more same-surname/family people than
+        groups), fall back to the smallest group (best effort)."""
+        candidates = [i for i in range(n) if not _conflicts(i, m)]
+        choices = candidates or list(range(n))
+        gi = min(choices, key=lambda i: (len(buckets[i]), i))
+        buckets[gi].append(m)
+        if m["surname"]:   surnames_by_group[gi].add(m["surname"])
+        if m["family_id"]: families_by_group[gi].add(m["family_id"])
+        return gi
+
+    def _snake(members):
+        for m in sorted(members, key=lambda x: x["_sortkey"], reverse=True):
+            _place(m)
 
     if set_obj.leader_mode == "auto":
-        # EVERY elder/pastor becomes a leader, distributed evenly (round-robin)
-        # across groups so all of them are used and groups are balanced.
+        # EVERY elder/pastor becomes a leader, spread across groups (respecting
+        # the keep-apart rules) so all are used and groups stay balanced.
         elders = [m for m in scored if set(m["roles"]) & LEADER_ROLES]
         rest   = [m for m in scored if not (set(m["roles"]) & LEADER_ROLES)]
         random.shuffle(elders)
-        for i, m in enumerate(elders):
-            gi = i % n
-            buckets[gi].append(m)
+        for m in elders:
+            gi = _place(m)
             leader_ids_by_group[gi].add(str(m["external_member_id"]))
-        # Fill the remaining members, balancing total group sizes.
         _snake(rest)
     else:
-        # No auto leaders — balanced snake-draft of everyone.
         _snake(scored)
 
     # Persist — wipe old groups, write new
@@ -236,6 +255,8 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
                 phone=m["phone"],
                 is_leader=(str(m["external_member_id"]) in leaders),
                 score=int(round(m["score"] * 100)),
+                surname=m.get("surname"),
+                family_id=m.get("family_id"),
             ))
     set_obj.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -251,6 +272,8 @@ def _set_dict(s: PrayerGroupSet) -> dict:
         "leaders_per_group": getattr(s, "leaders_per_group", 1),
         "criteria": json.loads(s.criteria or "[]"),
         "leader_mode": s.leader_mode,
+        "separate_surnames": bool(getattr(s, "separate_surnames", True)),
+        "separate_family": bool(getattr(s, "separate_family", True)),
         "status": s.status,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "published_at": s.published_at.isoformat() if s.published_at else None,
@@ -404,15 +427,33 @@ def allocate(set_id: int, request: Request, data: dict = Body(...), db: Session 
             external_member_id=str(x["external_member_id"]),
             full_name=x["full_name"], phone=x["phone"],
             is_leader=is_leader, score=int(round(x["score"] * 100)),
+            surname=x.get("surname"), family_id=x.get("family_id"),
         ))
 
     if data.get("mode") == "auto":
+        # Respect the keep-apart rules, seeded from existing members.
+        sep_sur = bool(getattr(s, "separate_surnames", True))
+        sep_fam = bool(getattr(s, "separate_family", True))
         sizes = {g.id: len(g.members) for g in groups}
+        surn = {g.id: {(m.surname or "").lower() for m in g.members if m.surname} for g in groups}
+        fam  = {g.id: {m.family_id for m in g.members if m.family_id} for g in groups}
         gmap = {g.id: g for g in groups}
         for x in items:
-            gid = min(sizes, key=lambda k: (sizes[k], k))
+            sname = (x.get("surname") or "").lower()
+            fid = x.get("family_id")
+            def _clash(gid):
+                if sep_sur and sname and sname in surn[gid]:
+                    return True
+                if sep_fam and fid and fid in fam[gid]:
+                    return True
+                return False
+            ok = [gid for gid in sizes if not _clash(gid)]
+            choices = ok or list(sizes.keys())
+            gid = min(choices, key=lambda k: (sizes[k], k))
             _add(x, gmap[gid])
             sizes[gid] += 1
+            if sname: surn[gid].add(sname)
+            if fid:   fam[gid].add(fid)
         added = len(items)
     else:
         ext = str(data.get("external_member_id") or "")
@@ -442,6 +483,9 @@ def generate_set(request: Request, data: dict = Body(...), db: Session = Depends
     leaders_per_group = max(0, min(20, int(data.get("leaders_per_group") or 1)))
     criteria = [c for c in (data.get("criteria") or []) if c in VALID_CRITERIA]
     leader_mode = data.get("leader_mode") if data.get("leader_mode") in ("none", "auto", "manual") else "none"
+    # Default ON — keep family / same-surname apart unless the admin opts out.
+    separate_surnames = bool(data.get("separate_surnames", True))
+    separate_family = bool(data.get("separate_family", True))
 
     # Stamp the creating admin (their local member id, from the signed
     # admin-identity cookie) so the saved-sets list can show who made it.
@@ -456,6 +500,7 @@ def generate_set(request: Request, data: dict = Body(...), db: Session = Depends
     s = PrayerGroupSet(
         name=name, num_groups=num_groups, leaders_per_group=leaders_per_group,
         criteria=json.dumps(criteria), leader_mode=leader_mode, status="draft",
+        separate_surnames=separate_surnames, separate_family=separate_family,
         created_by_member_id=created_by_id,
     )
     db.add(s)
@@ -483,6 +528,10 @@ def regenerate_set(set_id: int, request: Request, data: dict = Body(default={}),
         s.criteria = json.dumps([c for c in (data["criteria"] or []) if c in VALID_CRITERIA])
     if data.get("leader_mode") in ("none", "auto", "manual"):
         s.leader_mode = data["leader_mode"]
+    if "separate_surnames" in data:
+        s.separate_surnames = bool(data["separate_surnames"])
+    if "separate_family" in data:
+        s.separate_family = bool(data["separate_family"])
     db.flush()
     _generate(s, db, assembly_id)
     db.refresh(s)

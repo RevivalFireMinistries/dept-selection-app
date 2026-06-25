@@ -63,6 +63,23 @@
       </p>
     </div>
 
+    <div class="mt-4">
+      <label class="block text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-1.5">Keep apart</label>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" @click="form.separate_family = !form.separate_family"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-1.5"
+                :style="form.separate_family ? 'background:#1F1B16;border-color:#1F1B16;color:white;' : 'background:white;border-color:#E5E7EB;color:#1F1B16;'">
+          <span x-text="form.separate_family ? '✓' : ''"></span> Spouses &amp; siblings (same family)
+        </button>
+        <button type="button" @click="form.separate_surnames = !form.separate_surnames"
+                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all flex items-center gap-1.5"
+                :style="form.separate_surnames ? 'background:#1F1B16;border-color:#1F1B16;color:white;' : 'background:white;border-color:#E5E7EB;color:#1F1B16;'">
+          <span x-text="form.separate_surnames ? '✓' : ''"></span> Same surname
+        </button>
+      </div>
+      <p class="text-[11px] text-gray-400 mt-1.5">On (default) = these people are put in different groups. Untick to allow them in the same group.</p>
+    </div>
+
     <div class="mt-5 flex items-center gap-3">
       <button @click="generate()" :disabled="busy"
               class="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-semibold rounded-xl text-sm">
@@ -328,7 +345,7 @@ function prayerGroups() {
   const LON = 'background:#B8541C;border-color:#B8541C;color:white;';
   return {
     busy: false, err: '',
-    form: { name: '', num_groups: 4, leaders_per_group: 1, criteria: ['attendance', 'titles', 'departments'], leader_mode: 'auto' },
+    form: { name: '', num_groups: 4, leaders_per_group: 1, criteria: ['attendance', 'titles', 'departments'], leader_mode: 'auto', separate_surnames: true, separate_family: true },
     sets: [], current: null,
     memberSearch: '',
     viewGroup: null,
@@ -451,7 +468,7 @@ function prayerGroups() {
       try {
         const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/regenerate`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ num_groups: this.form.num_groups, leaders_per_group: this.form.leaders_per_group, criteria: this.form.criteria, leader_mode: this.form.leader_mode }),
+          body: JSON.stringify({ num_groups: this.form.num_groups, leaders_per_group: this.form.leaders_per_group, criteria: this.form.criteria, leader_mode: this.form.leader_mode, separate_surnames: this.form.separate_surnames, separate_family: this.form.separate_family }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
@@ -468,6 +485,8 @@ function prayerGroups() {
         this.form.leaders_per_group = this.current.leaders_per_group || 1;
         this.form.criteria   = this.current.criteria;
         this.form.leader_mode = this.current.leader_mode;
+        this.form.separate_surnames = this.current.separate_surnames !== false;
+        this.form.separate_family = this.current.separate_family !== false;
         this.loadUnallocated();
       }
     },

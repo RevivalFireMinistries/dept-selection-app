@@ -960,6 +960,9 @@ class PrayerGroupSet(Base):
     # JSON list of balancing criteria used: ["attendance","titles","departments"]
     criteria = Column(Text, nullable=True)
     leader_mode = Column(String(20), nullable=False, server_default="none")  # none | auto | manual
+    # Keep family / same-surname members in separate groups (default on)
+    separate_surnames = Column(Boolean, nullable=False, server_default="true")
+    separate_family = Column(Boolean, nullable=False, server_default="true")
     status = Column(String(20), nullable=False, server_default="draft")       # draft | published
     created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -998,5 +1001,8 @@ class PrayerGroupMember(Base):
     is_leader = Column(Boolean, nullable=False, server_default="false")
     # Commitment score ×100 (integer) for transparent display in the UI
     score = Column(Integer, nullable=True)
+    # Stored so allocation/constraints can keep family + same-surname apart
+    surname = Column(String(100), nullable=True)
+    family_id = Column(String(64), nullable=True)
 
     group = relationship("PrayerGroup", back_populates="members")

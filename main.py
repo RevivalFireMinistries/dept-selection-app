@@ -801,6 +801,22 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (leaders_per_group): {e}")
 
+        # Prayer-group separation flags + member surname/family columns
+        try:
+            conn.execute(text("""
+                ALTER TABLE prayer_group_sets
+                ADD COLUMN IF NOT EXISTS separate_surnames BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS separate_family BOOLEAN NOT NULL DEFAULT TRUE
+            """))
+            conn.execute(text("""
+                ALTER TABLE prayer_group_members
+                ADD COLUMN IF NOT EXISTS surname VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS family_id VARCHAR(64)
+            """))
+            conn.commit()
+        except Exception as e:
+            print(f"Migration note (prayer-group separation): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
