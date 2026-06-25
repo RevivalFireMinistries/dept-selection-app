@@ -352,6 +352,12 @@ function prayerGroups() {
     },
 
     async publish() {
+      const n = (this.current.groups || []).length;
+      if (!confirm(
+        `Publish “${this.current.name}”?\n\n` +
+        `This makes all ${n} groups visible to members on their dashboards, ` +
+        `and replaces any previously published set. You can unpublish later.`
+      )) return;
       const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/publish`, { method: 'POST' });
       if (r.ok) { this.current.status = 'published'; await this.loadSets(); }
     },
