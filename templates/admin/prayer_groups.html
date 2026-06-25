@@ -55,12 +55,12 @@
                 class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
                 :style="leaderStyle('manual')">Assign manually</button>
       </div>
-      <div x-show="form.leader_mode === 'auto'" class="mt-3 flex items-center gap-2">
-        <label class="text-xs text-gray-500">Leaders per group</label>
-        <input type="number" min="1" max="20" x-model.number="form.leaders_per_group"
-               class="w-20 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
-        <span class="text-[11px] text-gray-400">elders/pastors auto-assigned to each group</span>
-      </div>
+      <p x-show="form.leader_mode === 'auto'" class="text-[11px] text-gray-400 mt-2">
+        Every elder/pastor in the assembly is assigned as a leader, spread evenly across the groups. Promote anyone else with the ⭐ next to their name.
+      </p>
+      <p x-show="form.leader_mode === 'manual'" class="text-[11px] text-gray-400 mt-2">
+        No automatic leaders — promote members yourself with the ⭐ next to their name.
+      </p>
     </div>
 
     <div class="mt-5 flex items-center gap-3">
@@ -109,7 +109,7 @@
             <div class="divide-y divide-gray-50 max-h-72 overflow-y-auto">
               <template x-for="m in g.members" :key="m.external_member_id">
                 <div class="flex items-center gap-2 px-3 py-2">
-                  <button @click="toggleLeader(m)" :title="m.is_leader ? 'Remove as leader' : 'Make leader'"
+                  <button @click="toggleLeader(g, m)" :title="m.is_leader ? 'Remove as leader' : 'Make leader'"
                           class="text-base leading-none flex-shrink-0"
                           :style="m.is_leader ? '' : 'filter:grayscale(1);opacity:0.35;'">⭐</button>
                   <div class="min-w-0 flex-1">
@@ -185,9 +185,18 @@ function prayerGroups() {
     otherGroups(id) { return (this.current?.groups || []).filter(x => x.id !== id); },
     leaderCount(g)  { return (g.members || []).filter(m => m.is_leader).length; },
 
-    async toggleLeader(m) {
+    sortMembers(g) {
+      // Leaders first, then alphabetical
+      g.members.sort((a, b) =>
+        (a.is_leader === b.is_leader)
+          ? (a.full_name || '').localeCompare(b.full_name || '')
+          : (a.is_leader ? -1 : 1));
+    },
+
+    async toggleLeader(g, m) {
       const next = !m.is_leader;
-      m.is_leader = next;  // optimistic
+      m.is_leader = next;          // optimistic
+      this.sortMembers(g);         // move to / from the top
       await fetch(`/api/admin/prayer-groups/${this.current.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ set_leader: { external_member_id: m.external_member_id, is_leader: next } }),

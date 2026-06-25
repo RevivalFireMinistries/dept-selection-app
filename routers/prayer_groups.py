@@ -162,32 +162,37 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
         s, roles = _score(m, criteria, att, local)
         scored.append({**m, "score": s, "roles": roles})
 
-    # Balanced-random: sort by score, jitter within score tiers so each
-    # regenerate differs, then snake-draft across the N groups.
+    # Jitter within score tiers so each regenerate differs.
     for m in scored:
         m["_sortkey"] = round(m["score"], 2) + random.uniform(-0.04, 0.04)
-    scored.sort(key=lambda m: m["_sortkey"], reverse=True)
 
     buckets: list[list[dict]] = [[] for _ in range(n)]
-    idx, direction = 0, 1
-    for m in scored:
-        buckets[idx].append(m)
-        idx += direction
-        if idx == n:
-            idx, direction = n - 1, -1
-        elif idx < 0:
-            idx, direction = 0, 1
-
-    # Leaders (auto): up to `leaders_per_group` elders/pastors per group,
-    # chosen from among that group's own drafted members.
-    lpg = max(0, int(getattr(set_obj, "leaders_per_group", 1) or 0))
     leader_ids_by_group: dict[int, set] = {gi: set() for gi in range(n)}
-    if set_obj.leader_mode == "auto" and lpg > 0:
-        for gi in range(n):
-            eligible = [m for m in buckets[gi] if set(m["roles"]) & LEADER_ROLES]
-            random.shuffle(eligible)
-            for m in eligible[:lpg]:
-                leader_ids_by_group[gi].add(str(m["external_member_id"]))
+
+    def _snake(members, start_sizes_balance=True):
+        """Snake-draft members across buckets, dealing into the smallest
+        group first each pass so total sizes stay balanced even after
+        leaders were pre-seeded."""
+        members = sorted(members, key=lambda m: m["_sortkey"], reverse=True)
+        for m in members:
+            gi = min(range(n), key=lambda i: (len(buckets[i]), i))
+            buckets[gi].append(m)
+
+    if set_obj.leader_mode == "auto":
+        # EVERY elder/pastor becomes a leader, distributed evenly (round-robin)
+        # across groups so all of them are used and groups are balanced.
+        elders = [m for m in scored if set(m["roles"]) & LEADER_ROLES]
+        rest   = [m for m in scored if not (set(m["roles"]) & LEADER_ROLES)]
+        random.shuffle(elders)
+        for i, m in enumerate(elders):
+            gi = i % n
+            buckets[gi].append(m)
+            leader_ids_by_group[gi].add(str(m["external_member_id"]))
+        # Fill the remaining members, balancing total group sizes.
+        _snake(rest)
+    else:
+        # No auto leaders — balanced snake-draft of everyone.
+        _snake(scored)
 
     # Persist — wipe old groups, write new
     for g in list(set_obj.groups):
