@@ -60,14 +60,23 @@ def _assembly_id(request: Request, db: Session) -> str:
 # ── Signal gathering ─────────────────────────────────────────────────────────
 
 def _fetch_pool(assembly_id: str, db: Session) -> list[dict]:
-    """All active assembly members from rfm-database."""
+    """All active assembly members from rfm-database.
+
+    Pages by page-fill, not by meta: the portal's rfm_api_client unwraps the
+    {data, meta} envelope and returns only the data list, so the pagination
+    metadata isn't available here. Instead we keep fetching while a page comes
+    back full (== PAGE_SIZE) and stop on the first short/empty page.
+    """
+    PAGE_SIZE = 100
     pool: list[dict] = []
     page = 1
-    while True:
-        r = _rfm.search_members(assembly_id=assembly_id, page=page, size=100, db=db)
+    while page <= 200:  # hard safety cap (20k members)
+        r = _rfm.search_members(assembly_id=assembly_id, page=page, size=PAGE_SIZE, db=db)
         if not r.ok or not r.data:
             break
         items = r.data if isinstance(r.data, list) else (r.data.get("data") or [])
+        if not items:
+            break
         for m in items:
             status = (m.get("membership_status") or "ACTIVE").upper()
             if status != "ACTIVE":
@@ -80,10 +89,8 @@ def _fetch_pool(assembly_id: str, db: Session) -> list[dict]:
                 # their departments + ministries) — no local lookup needed.
                 "has_dept": bool(m.get("departments") or m.get("ministries")),
             })
-        # Paginate via meta if present
-        meta = (r.data.get("meta") if isinstance(r.data, dict) else None) or {}
-        if len(items) < 100 or page >= int(meta.get("pages") or 1):
-            break
+        if len(items) < PAGE_SIZE:
+            break  # last page
         page += 1
     return pool
 
