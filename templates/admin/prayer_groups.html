@@ -95,9 +95,27 @@
         </div>
       </div>
 
+      <!-- Find which group a member landed in -->
+      <div class="mb-3">
+        <input type="text" x-model="memberSearch" placeholder="🔎 Find a member by name or phone…"
+               class="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+        <div x-show="memberSearch.trim().length >= 2" class="mt-2 space-y-1">
+          <template x-for="hit in searchHits()" :key="hit.external_member_id">
+            <div class="flex items-center gap-2 px-3 py-2 bg-rose-50 border border-rose-100 rounded-lg text-sm">
+              <span x-show="hit.is_leader">⭐</span>
+              <span class="font-medium text-gray-900" x-text="hit.full_name"></span>
+              <span class="text-gray-400" x-text="hit.phone"></span>
+              <span class="ml-auto text-rose-700 font-semibold" x-text="'→ ' + hit.group_name"></span>
+            </div>
+          </template>
+          <div x-show="!searchHits().length" class="text-[11px] text-gray-400 italic px-1">No member matches “<span x-text="memberSearch"></span>” in this set.</div>
+        </div>
+      </div>
+
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <template x-for="g in current.groups" :key="g.id">
-          <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden"
+               :style="searchHitGroupIds().includes(g.id) ? 'box-shadow:0 0 0 2px #B8541C;' : ''">
             <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
               <input type="text" x-model="g.name" @change="saveGroup(g)"
                      class="text-sm font-bold text-gray-900 bg-transparent w-full focus:outline-none">
@@ -173,8 +191,22 @@ function prayerGroups() {
     busy: false, err: '',
     form: { name: '', num_groups: 4, leaders_per_group: 1, criteria: ['attendance', 'titles', 'departments'], leader_mode: 'auto' },
     sets: [], current: null,
+    memberSearch: '',
 
     init() { this.loadSets(); },
+
+    searchHits() {
+      const q = this.memberSearch.trim().toLowerCase();
+      if (q.length < 2 || !this.current) return [];
+      const hits = [];
+      this.current.groups.forEach(g => g.members.forEach(m => {
+        if ((m.full_name || '').toLowerCase().includes(q) || (m.phone || '').includes(q)) {
+          hits.push({ ...m, group_name: g.name, group_id: g.id });
+        }
+      }));
+      return hits;
+    },
+    searchHitGroupIds() { return this.searchHits().map(h => h.group_id); },
 
     critStyle(k)   { return this.form.criteria.includes(k) ? ON : OFF; },
     leaderStyle(k) { return this.form.leader_mode === k ? LON : OFF; },
