@@ -791,6 +791,16 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (clerk_user_id): {e}")
 
+        # Add leaders_per_group to prayer_group_sets
+        try:
+            conn.execute(text("""
+                ALTER TABLE prayer_group_sets
+                ADD COLUMN IF NOT EXISTS leaders_per_group INTEGER NOT NULL DEFAULT 1
+            """))
+            conn.commit()
+        except Exception as e:
+            print(f"Migration note (leaders_per_group): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

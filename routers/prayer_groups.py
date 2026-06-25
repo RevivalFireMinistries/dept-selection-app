@@ -178,22 +178,16 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
         elif idx < 0:
             idx, direction = 0, 1
 
-    # Leaders (auto): one elder/pastor per group where available
-    leader_for: dict[int, str] = {}
-    if set_obj.leader_mode == "auto":
-        leaders = [m for m in scored if set(m["roles"]) & LEADER_ROLES]
-        random.shuffle(leaders)
-        used = set()
+    # Leaders (auto): up to `leaders_per_group` elders/pastors per group,
+    # chosen from among that group's own drafted members.
+    lpg = max(0, int(getattr(set_obj, "leaders_per_group", 1) or 0))
+    leader_ids_by_group: dict[int, set] = {gi: set() for gi in range(n)}
+    if set_obj.leader_mode == "auto" and lpg > 0:
         for gi in range(n):
-            # Prefer a leader already drafted into this group; else any unused
-            in_group = [m for m in buckets[gi] if str(m["external_member_id"]) in
-                        {str(l["external_member_id"]) for l in leaders}
-                        and str(m["external_member_id"]) not in used]
-            chosen = in_group[0] if in_group else next(
-                (l for l in leaders if str(l["external_member_id"]) not in used), None)
-            if chosen:
-                leader_for[gi] = str(chosen["external_member_id"])
-                used.add(str(chosen["external_member_id"]))
+            eligible = [m for m in buckets[gi] if set(m["roles"]) & LEADER_ROLES]
+            random.shuffle(eligible)
+            for m in eligible[:lpg]:
+                leader_ids_by_group[gi].add(str(m["external_member_id"]))
 
     # Persist — wipe old groups, write new
     for g in list(set_obj.groups):
@@ -201,10 +195,11 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
     db.flush()
 
     for gi in range(n):
+        leaders = leader_ids_by_group.get(gi, set())
         grp = PrayerGroup(
             set_id=set_obj.id,
             name=f"Group {gi + 1}",
-            leader_external_member_id=leader_for.get(gi),
+            leader_external_member_id=next(iter(leaders), None),  # legacy/first
             sort_order=gi,
         )
         db.add(grp)
@@ -215,7 +210,7 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
                 external_member_id=str(m["external_member_id"]),
                 full_name=m["full_name"],
                 phone=m["phone"],
-                is_leader=(leader_for.get(gi) == str(m["external_member_id"])),
+                is_leader=(str(m["external_member_id"]) in leaders),
                 score=int(round(m["score"] * 100)),
             ))
     set_obj.updated_at = datetime.now(timezone.utc)
@@ -229,6 +224,7 @@ def _set_dict(s: PrayerGroupSet) -> dict:
         "id": s.id,
         "name": s.name,
         "num_groups": s.num_groups,
+        "leaders_per_group": getattr(s, "leaders_per_group", 1),
         "criteria": json.loads(s.criteria or "[]"),
         "leader_mode": s.leader_mode,
         "status": s.status,
@@ -286,11 +282,12 @@ def generate_set(request: Request, data: dict = Body(...), db: Session = Depends
 
     name = (data.get("name") or "").strip() or f"Prayer Groups {datetime.now(timezone.utc):%b %Y}"
     num_groups = max(1, min(100, int(data.get("num_groups") or 2)))
+    leaders_per_group = max(0, min(20, int(data.get("leaders_per_group") or 1)))
     criteria = [c for c in (data.get("criteria") or []) if c in VALID_CRITERIA]
     leader_mode = data.get("leader_mode") if data.get("leader_mode") in ("none", "auto", "manual") else "none"
 
     s = PrayerGroupSet(
-        name=name, num_groups=num_groups,
+        name=name, num_groups=num_groups, leaders_per_group=leaders_per_group,
         criteria=json.dumps(criteria), leader_mode=leader_mode, status="draft",
     )
     db.add(s)
@@ -312,6 +309,8 @@ def regenerate_set(set_id: int, request: Request, data: dict = Body(default={}),
     # Allow updating params on regenerate
     if "num_groups" in data:
         s.num_groups = max(1, min(100, int(data["num_groups"] or 2)))
+    if "leaders_per_group" in data:
+        s.leaders_per_group = max(0, min(20, int(data["leaders_per_group"] or 1)))
     if "criteria" in data:
         s.criteria = json.dumps([c for c in (data["criteria"] or []) if c in VALID_CRITERIA])
     if data.get("leader_mode") in ("none", "auto", "manual"):
@@ -345,6 +344,19 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
             g.leader_external_member_id = g_in["leader_external_member_id"] or None
             for m in g.members:
                 m.is_leader = (m.external_member_id == g.leader_external_member_id)
+
+    # Promote / demote a member: {set_leader: {external_member_id, is_leader}}
+    sl = data.get("set_leader")
+    if sl and sl.get("external_member_id") is not None:
+        pm = (
+            db.query(PrayerGroupMember)
+            .join(PrayerGroup, PrayerGroupMember.group_id == PrayerGroup.id)
+            .filter(PrayerGroup.set_id == s.id,
+                    PrayerGroupMember.external_member_id == str(sl["external_member_id"]))
+            .first()
+        )
+        if pm:
+            pm.is_leader = bool(sl.get("is_leader"))
 
     # Move a member: {external_member_id, to_group_id}
     mv = data.get("move")

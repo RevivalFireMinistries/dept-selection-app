@@ -955,6 +955,8 @@ class PrayerGroupSet(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), nullable=False)
     num_groups = Column(Integer, nullable=False, server_default="2")
+    # How many leaders to auto-assign per group (when leader_mode == 'auto')
+    leaders_per_group = Column(Integer, nullable=False, server_default="1")
     # JSON list of balancing criteria used: ["attendance","titles","departments"]
     criteria = Column(Text, nullable=True)
     leader_mode = Column(String(20), nullable=False, server_default="none")  # none | auto | manual
