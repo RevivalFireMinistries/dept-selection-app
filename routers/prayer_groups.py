@@ -6,7 +6,7 @@ gets a "commitment score" from the admin-selected criteria:
 
   - attendance   — % of recent Sundays attended      (rfm-database)
   - titles       — pastor/elder/deacon weighting      (portal leadership_roles)
-  - departments  — serves in ≥1 department            (portal MemberDepartment)
+  - departments  — serves in ≥1 department/ministry  (rfm-database)
 
 Members are then snake-drafted across N groups so every group gets a balanced
 spread of committed / less-committed people. Admin can regenerate (re-shuffle),
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import (
-    Member, MemberDepartment,
+    Member,
     PrayerGroupSet, PrayerGroup, PrayerGroupMember,
 )
 import rfm_api_client as _rfm
@@ -76,6 +76,9 @@ def _fetch_pool(assembly_id: str, db: Session) -> list[dict]:
                 "external_member_id": m.get("id"),
                 "full_name": _rfm.fullname_from_member(m),
                 "phone": m.get("phone") or "",
+                # Department signal straight from rfm-database (members carry
+                # their departments + ministries) — no local lookup needed.
+                "has_dept": bool(m.get("departments") or m.get("ministries")),
             })
         # Paginate via meta if present
         meta = (r.data.get("meta") if isinstance(r.data, dict) else None) or {}
@@ -99,10 +102,11 @@ def _attendance_rates(assembly_id: str, db: Session) -> dict[str, float]:
     return rates
 
 
-def _local_signals(external_ids: list[str], db: Session) -> dict[str, dict]:
-    """external_member_id → {roles: [...], has_dept: bool} from the portal's
-    local member records (where leadership_roles + dept selections live)."""
-    out: dict[str, dict] = {}
+def _local_roles(external_ids: list[str], db: Session) -> dict[str, list]:
+    """external_member_id → leadership_roles. Titles (elder/deacon/pastor)
+    live only in the portal, so this is the one signal we still read locally;
+    rfm-database has no per-member office field."""
+    out: dict[str, list] = {}
     if not external_ids:
         return out
     rows = (
@@ -117,29 +121,24 @@ def _local_signals(external_ids: list[str], db: Session) -> dict[str, dict]:
                 roles = json.loads(roles)
             except (ValueError, TypeError):
                 roles = []
-        roles = [str(x).lower() for x in (roles or [])]
-        has_dept = (
-            db.query(MemberDepartment)
-            .filter(MemberDepartment.member_id == m.id,
-                    MemberDepartment.status == "approved")
-            .count() > 0
-        )
-        out[str(m.external_member_id)] = {"roles": roles, "has_dept": has_dept}
+        out[str(m.external_member_id)] = [str(x).lower() for x in (roles or [])]
     return out
 
 
-def _score(member: dict, criteria: list[str], att: dict, local: dict) -> tuple[float, list[str]]:
-    """Return (commitment_score 0..1, roles) for a member under the chosen criteria."""
+def _score(member: dict, criteria: list[str], att: dict, roles_map: dict) -> tuple[float, list[str]]:
+    """Return (commitment_score 0..1, roles) for a member under the chosen criteria.
+
+    Sources: attendance + departments from rfm-database (on the member dict /
+    attendance map), titles from the portal's leadership_roles."""
     ext = str(member["external_member_id"])
-    sig = local.get(ext, {})
-    roles = sig.get("roles", [])
+    roles = roles_map.get(ext, [])
     parts: list[float] = []
     if "attendance" in criteria:
         parts.append(att.get(ext, 0.0))
     if "titles" in criteria:
         parts.append(max((TITLE_SCORES.get(r, 0.0) for r in roles), default=0.0))
     if "departments" in criteria:
-        parts.append(1.0 if sig.get("has_dept") else 0.0)
+        parts.append(1.0 if member.get("has_dept") else 0.0)
     score = sum(parts) / len(parts) if parts else 0.0
     return score, roles
 
@@ -154,12 +153,12 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
         raise HTTPException(status_code=400, detail="No active members found in the central database.")
 
     att = _attendance_rates(assembly_id, db)
-    local = _local_signals([str(m["external_member_id"]) for m in pool], db)
+    roles_map = _local_roles([str(m["external_member_id"]) for m in pool], db)
 
     # Score every member
     scored = []
     for m in pool:
-        s, roles = _score(m, criteria, att, local)
+        s, roles = _score(m, criteria, att, roles_map)
         scored.append({**m, "score": s, "roles": roles})
 
     # Jitter within score tiers so each regenerate differs.
@@ -248,7 +247,7 @@ def _set_dict(s: PrayerGroupSet) -> dict:
                         "is_leader": m.is_leader,
                         "score": m.score,
                     }
-                    for m in sorted(g.members, key=lambda x: (not x.is_leader, (x.full_name or "").lower()))
+                    for m in sorted(g.members, key=lambda x: (not x.is_leader, -(x.score or 0), (x.full_name or "").lower()))
                 ],
             }
             for g in sorted(s.groups, key=lambda x: x.sort_order)
@@ -456,6 +455,8 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
             "name": g.name,
             "members": [
                 {"full_name": m.full_name, "is_leader": m.is_leader, "phone": m.phone}
+                # Members see leaders first, then alphabetical — no weight
+                # ordering (we don't expose a commitment ranking to members).
                 for m in sorted(g.members, key=lambda x: (not x.is_leader, (x.full_name or "").lower()))
             ],
         },
