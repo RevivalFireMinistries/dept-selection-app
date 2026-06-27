@@ -922,6 +922,16 @@ async def elder_attendance_report_page(request: Request, db: Session = Depends(g
     return templates.TemplateResponse("elder_attendance_report.html", {"request": request})
 
 
+@router.get("/portal/prayer-group")
+async def my_prayer_group_page(request: Request, db: Session = Depends(get_db)):
+    """A prayer-group leader's view of their group list (with contact details)."""
+    _require_feature(request, "prayer_groups")
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/portal/prayer-group", status_code=302)
+    return templates.TemplateResponse("portal_prayer_group.html", {"request": request})
+
+
 @router.get("/reading-plans")
 async def member_reading_plans(request: Request, db: Session = Depends(get_db)):
     member = get_current_member(request, db)

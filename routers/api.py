@@ -3405,6 +3405,19 @@ def _is_elder(member: "Member") -> bool:
     return "elder" in roles_lower or "pastor" in roles_lower
 
 
+def _is_prayer_group_leader(member: "Member", db: Session) -> bool:
+    """True if this member leads a group in the currently published prayer
+    set — gates the leader-only 'My prayer group' portal menu item."""
+    ext = getattr(member, "external_member_id", None)
+    if not ext:
+        return False
+    try:
+        from routers.prayer_groups import member_leads_published_group
+        return member_leads_published_group(str(ext), db)
+    except Exception:
+        return False
+
+
 def _get_accessible_departments(db: Session, member: "Member"):
     """Get departments a member can manage meetings for (HOD depts + all depts if elder)"""
     if _is_elder(member):
@@ -10611,6 +10624,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "hod_departments": hod_departments,
             "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
             "is_elder": _is_elder(member),
+            "is_prayer_group_leader": _is_prayer_group_leader(member, db),
         },
         "open_change_requests": open_change_requests,
     }

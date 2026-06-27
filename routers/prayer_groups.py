@@ -664,6 +664,7 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
     return {
         "published": True,
         "set_name": s.name,
+        "you_are_leader": bool(pm.is_leader),
         "group": {
             "name": g.name,
             "members": [
@@ -674,3 +675,21 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
             ],
         },
     }
+
+
+def member_leads_published_group(external_member_id: str, db: Session) -> bool:
+    """True if this member is a leader of a group in the currently published
+    set — drives the leader-only 'My prayer group' portal menu item."""
+    if not external_member_id:
+        return False
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.status == "published").first()
+    if not s:
+        return False
+    return (
+        db.query(PrayerGroupMember)
+        .join(PrayerGroup, PrayerGroupMember.group_id == PrayerGroup.id)
+        .filter(PrayerGroup.set_id == s.id,
+                PrayerGroupMember.external_member_id == str(external_member_id),
+                PrayerGroupMember.is_leader.is_(True))
+        .count() > 0
+    )

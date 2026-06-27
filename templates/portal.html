@@ -1117,6 +1117,17 @@
                 <span class="text-gray-300">›</span>
             </a>
             {% endif %}
+            {% if features.prayer_groups %}
+            <a x-show="data?.leadership?.is_prayer_group_leader" href="/portal/prayer-group"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-sm">🙏</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">My prayer group</div>
+                    <div class="text-[11px] text-gray-500">View and contact your group members</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            {% endif %}
             {% if features.admin_home_churches %}
             <a x-show="data?.leadership?.is_hc_committee || data?.leadership?.is_hc_leader"
                :href="`/admin/home-churches?phone=${encodeURIComponent(data.member.phone)}`"
@@ -3285,7 +3296,7 @@ function memberPortal() {
         },
         hasLeadership() {
             const l = this.data?.leadership || {};
-            return l.is_hc_leader || l.is_hc_committee || l.is_hod || l.can_create_surveys || l.is_elder;
+            return l.is_hc_leader || l.is_hc_committee || l.is_hod || l.can_create_surveys || l.is_elder || l.is_prayer_group_leader;
         },
         summaryPlaceholder() {
             const t = this.changeForm.change_type;
