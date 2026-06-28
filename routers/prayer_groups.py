@@ -262,6 +262,48 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
     db.commit()
 
 
+# ── Chain prayer scheduling ──────────────────────────────────────────────────
+
+def _chain_schedule(s: PrayerGroupSet) -> list:
+    """Slice the chain-prayer window into consecutive slots and hand them to
+    groups round-robin (g1, g2, …, gN, g1, g2, …) until the window is full.
+    Returns ordered [{start, end, group_id, group_name, sort_order}]."""
+    if not (getattr(s, "chain_enabled", False) and s.chain_start and s.chain_end and s.chain_slot_minutes):
+        return []
+
+    def to_min(t):
+        try:
+            hh, mm = str(t).split(":")
+            return int(hh) * 60 + int(mm)
+        except Exception:
+            return None
+
+    def to_str(m):
+        return f"{(m // 60) % 24:02d}:{m % 60:02d}"
+
+    start, end = to_min(s.chain_start), to_min(s.chain_end)
+    if start is None or end is None:
+        return []
+    if end <= start:
+        end += 24 * 60  # window crosses midnight
+    slot = max(1, int(s.chain_slot_minutes))
+    groups = sorted(s.groups, key=lambda g: g.sort_order)
+    if not groups:
+        return []
+
+    out, cur, i = [], start, 0
+    # Cap iterations defensively (a tiny slot over a huge window).
+    while cur + slot <= end and i < 1000:
+        g = groups[i % len(groups)]
+        out.append({
+            "start": to_str(cur), "end": to_str(cur + slot),
+            "group_id": g.id, "group_name": g.name, "sort_order": g.sort_order,
+        })
+        cur += slot
+        i += 1
+    return out
+
+
 # ── Serialization ────────────────────────────────────────────────────────────
 
 def _set_dict(s: PrayerGroupSet) -> dict:
@@ -275,6 +317,14 @@ def _set_dict(s: PrayerGroupSet) -> dict:
         "separate_surnames": bool(getattr(s, "separate_surnames", True)),
         "separate_family": bool(getattr(s, "separate_family", True)),
         "status": s.status,
+        "chain": {
+            "enabled": bool(getattr(s, "chain_enabled", False)),
+            "label": s.chain_label,
+            "start": s.chain_start,
+            "end": s.chain_end,
+            "slot_minutes": s.chain_slot_minutes,
+            "schedule": _chain_schedule(s),
+        },
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "published_at": s.published_at.isoformat() if s.published_at else None,
         "groups": [
@@ -549,6 +599,18 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
     if "name" in data:
         s.name = (data["name"] or "").strip() or s.name
 
+    # Chain-prayer schedule: {enabled, label, start "HH:MM", end "HH:MM", slot_minutes}
+    chain = data.get("chain")
+    if isinstance(chain, dict):
+        s.chain_enabled = bool(chain.get("enabled"))
+        s.chain_label = (chain.get("label") or "").strip() or None
+        s.chain_start = (chain.get("start") or "").strip() or None
+        s.chain_end = (chain.get("end") or "").strip() or None
+        try:
+            s.chain_slot_minutes = int(chain["slot_minutes"]) if chain.get("slot_minutes") else None
+        except (ValueError, TypeError):
+            s.chain_slot_minutes = None
+
     # Group renames + leader assignment: [{id, name, leader_external_member_id}]
     for g_in in (data.get("groups") or []):
         g = db.query(PrayerGroup).filter(
@@ -661,18 +723,37 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
         return {"published": True, "group": None}
 
     g = db.query(PrayerGroup).filter(PrayerGroup.id == pm.group_id).first()
+    you_are_leader = bool(pm.is_leader)
+
+    # Ordinary members only see their group name + their prayer slots. The full
+    # member list (with contact details) is for leaders only.
+    members = []
+    if you_are_leader:
+        members = [
+            {"full_name": m.full_name, "is_leader": m.is_leader, "phone": m.phone}
+            for m in sorted(g.members, key=lambda x: (not x.is_leader, (x.full_name or "").lower()))
+        ]
+
+    # This member's chain-prayer slots, in order.
+    my_slots = [
+        {"start": slot["start"], "end": slot["end"]}
+        for slot in _chain_schedule(s) if slot["group_id"] == g.id
+    ]
+
     return {
         "published": True,
         "set_name": s.name,
-        "you_are_leader": bool(pm.is_leader),
+        "you_are_leader": you_are_leader,
+        "chain": {
+            "enabled": bool(getattr(s, "chain_enabled", False)),
+            "label": s.chain_label,
+            "start": s.chain_start,
+            "end": s.chain_end,
+            "my_slots": my_slots,
+        },
         "group": {
             "name": g.name,
-            "members": [
-                {"full_name": m.full_name, "is_leader": m.is_leader, "phone": m.phone}
-                # Members see leaders first, then alphabetical — no weight
-                # ordering (we don't expose a commitment ranking to members).
-                for m in sorted(g.members, key=lambda x: (not x.is_leader, (x.full_name or "").lower()))
-            ],
+            "members": members,
         },
     }
 

@@ -36,6 +36,23 @@
     <!-- Group card -->
     <div x-show="!loading && group" x-cloak class="space-y-4">
 
+      <!-- Chain-prayer times -->
+      <div x-show="(chain.my_slots || []).length" x-cloak
+           class="rounded-2xl shadow-sm p-5" style="background-color:#fff7ed;border:1px solid #fed7aa;">
+        <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider font-semibold mb-2" style="color:#b45309;">
+          <span>🕊️ Chain prayer</span>
+          <span x-show="chain.label" style="color:#d97706;" x-text="'· ' + chain.label"></span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="(slot, i) in (chain.my_slots || [])" :key="i">
+            <span class="inline-flex items-center text-sm font-semibold px-3 py-1.5 rounded-lg text-white" style="background-color:var(--color-ember);">
+              <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
+            </span>
+          </template>
+        </div>
+        <p class="text-[11px] mt-2" style="color:#b45309;">Your group's slots on the prayer chain.</p>
+      </div>
+
       <div class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border:1px solid var(--color-border);">
         <div class="px-5 py-4" style="background-color:var(--color-ink);">
           <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Group</div>
@@ -92,12 +109,14 @@
       loading: true,
       setName: '',
       group: null,
+      chain: { my_slots: [], label: '' },
       async load() {
         try {
           const r = await fetch('/api/portal/prayer-group');
           const d = await r.json();
           this.setName = d.set_name || '';
           this.group = (d.published && d.group) ? d.group : null;
+          this.chain = d.chain || { my_slots: [], label: '' };
         } catch (e) {
           this.group = null;
         } finally {

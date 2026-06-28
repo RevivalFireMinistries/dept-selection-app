@@ -172,6 +172,66 @@
         </div>
       </div>
 
+      <!-- Chain prayer schedule -->
+      <div class="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-3">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🕊️</span>
+            <span class="text-sm font-semibold text-gray-800">Chain prayer schedule</span>
+          </div>
+          <label class="inline-flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="current.chain.enabled" @change="saveChain()" class="rounded border-gray-300 text-rose-600 focus:ring-rose-400">
+            <span class="text-xs text-gray-600">Enabled</span>
+          </label>
+        </div>
+        <p class="text-[11px] text-gray-400 mb-3 leading-relaxed">
+          Slice a prayer window into equal slots and rotate them across the groups in order.
+          E.g. 19:00–21:00 with 30-min slots and 4 groups gives each group one slot;
+          stretch it to 19:00–23:00 and each group gets two, alternating. Members see their own times on their dashboard.
+        </p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div class="col-span-2 sm:col-span-1">
+            <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Label</label>
+            <input type="text" x-model="current.chain.label" @change="saveChain()" placeholder="e.g. Fri 4 Jul"
+                   class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Start</label>
+            <input type="time" x-model="current.chain.start" @change="saveChain()"
+                   class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">End</label>
+            <input type="time" x-model="current.chain.end" @change="saveChain()"
+                   class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Slot (min)</label>
+            <input type="number" min="1" step="5" x-model.number="current.chain.slot_minutes" @change="saveChain()"
+                   class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+          </div>
+        </div>
+        <!-- Live preview -->
+        <template x-if="chainPreview().length">
+          <div class="mt-3">
+            <div class="text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1.5">
+              Rotation preview · <span x-text="chainPreview().length"></span> slots
+            </div>
+            <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+              <template x-for="(slot, i) in chainPreview()" :key="i">
+                <span class="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border border-gray-200 bg-gray-50">
+                  <span class="font-mono text-gray-700" x-text="slot.start + '–' + slot.end"></span>
+                  <span class="font-semibold text-rose-700" x-text="slot.group_name"></span>
+                </span>
+              </template>
+            </div>
+          </div>
+        </template>
+        <p x-show="current.chain.enabled && !chainPreview().length" class="text-[11px] text-amber-600 mt-2">
+          Set a start, end and slot length to build the rotation.
+        </p>
+      </div>
+
       <!-- Weight legend -->
       <div class="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-3">
         <div class="flex items-start gap-2 flex-wrap">
@@ -368,7 +428,7 @@ function prayerGroups() {
     async refreshSet() {
       if (!this.current) return;
       const r = await fetch(`/api/admin/prayer-groups/${this.current.id}`);
-      if (r.ok) this.current = await r.json();
+      if (r.ok) { this.current = await r.json(); this._normChain(); }
       await this.loadUnallocated();
     },
 
@@ -460,7 +520,7 @@ function prayerGroups() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
-        this.current = d; this.unallocated = []; await this.loadSets();
+        this.current = d; this._normChain(); this.unallocated = []; await this.loadSets();
       } catch (e) { this.err = e.message; }
       this.busy = false;
     },
@@ -475,15 +535,22 @@ function prayerGroups() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
-        this.current = d; this.unallocated = [];
+        this.current = d; this._normChain(); this.unallocated = [];
       } catch (e) { this.err = e.message; }
       this.busy = false;
+    },
+
+    _normChain() {
+      if (this.current && !this.current.chain) {
+        this.current.chain = { enabled: false, label: '', start: '', end: '', slot_minutes: 30 };
+      }
     },
 
     async open(id) {
       const r = await fetch(`/api/admin/prayer-groups/${id}`);
       if (r.ok) {
         this.current = await r.json();
+        this._normChain();
         this.form.num_groups = this.current.num_groups;
         this.form.leaders_per_group = this.current.leaders_per_group || 1;
         this.form.criteria   = this.current.criteria;
@@ -501,6 +568,46 @@ function prayerGroups() {
         body: JSON.stringify({ name: this.current.name }),
       });
       await this.loadSets();
+    },
+
+    async saveChain() {
+      if (!this.current) return;
+      const c = this.current.chain || {};
+      const r = await fetch(`/api/admin/prayer-groups/${this.current.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chain: {
+          enabled: !!c.enabled, label: c.label || '',
+          start: c.start || '', end: c.end || '',
+          slot_minutes: c.slot_minutes || null,
+        } }),
+      });
+      if (r.ok) {
+        // Refresh the server-computed schedule (kept for parity with members).
+        const d = await r.json();
+        if (d && d.chain) this.current.chain = d.chain;
+      }
+    },
+
+    // Client-side mirror of the server's round-robin slot assignment, for a
+    // live preview as the admin edits the window.
+    chainPreview() {
+      const c = this.current && this.current.chain;
+      if (!c || !c.enabled || !c.start || !c.end || !c.slot_minutes) return [];
+      const groups = (this.current.groups || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      if (!groups.length) return [];
+      const toMin = t => { const [h, m] = String(t).split(':'); return (+h) * 60 + (+m); };
+      const toStr = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      let start = toMin(c.start), end = toMin(c.end);
+      if (isNaN(start) || isNaN(end)) return [];
+      if (end <= start) end += 24 * 60;
+      const slot = Math.max(1, parseInt(c.slot_minutes));
+      const out = []; let cur = start, i = 0;
+      while (cur + slot <= end && i < 1000) {
+        const g = groups[i % groups.length];
+        out.push({ start: toStr(cur), end: toStr(cur + slot), group_name: g.name });
+        cur += slot; i++;
+      }
+      return out;
     },
 
     async saveGroup(g) {

@@ -817,6 +817,20 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (prayer-group separation): {e}")
 
+        # Prayer-group chain-prayer schedule columns
+        try:
+            conn.execute(text("""
+                ALTER TABLE prayer_group_sets
+                ADD COLUMN IF NOT EXISTS chain_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS chain_label VARCHAR(120),
+                ADD COLUMN IF NOT EXISTS chain_start VARCHAR(5),
+                ADD COLUMN IF NOT EXISTS chain_end VARCHAR(5),
+                ADD COLUMN IF NOT EXISTS chain_slot_minutes INTEGER
+            """))
+            conn.commit()
+        except Exception as e:
+            print(f"Migration note (prayer-group chain): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

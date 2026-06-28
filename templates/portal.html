@@ -58,6 +58,46 @@
                     </div>
                 </section>
 
+                {% if features.prayer_groups %}
+                <!-- Your prayer group — top item. Ordinary members see only their
+                     group name + chain-prayer times (not the member list). -->
+                <section x-show="prayerGroup && prayerGroup.group" x-cloak class="rounded-2xl shadow-sm overflow-hidden text-white" style="background-color: var(--color-ink);">
+                    <div class="px-5 py-4">
+                        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Your prayer group</div>
+                        <h2 class="font-display text-2xl mt-0.5" x-text="prayerGroup?.group?.name"></h2>
+                        <div x-show="prayerGroup?.you_are_leader" class="inline-flex items-center gap-1 mt-1.5 text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded-full" style="background-color: rgba(255,255,255,0.15);">⭐ You lead this group</div>
+                    </div>
+
+                    <!-- Chain-prayer times for this group -->
+                    <template x-if="(prayerGroup?.chain?.my_slots || []).length">
+                        <div class="px-5 pb-4">
+                            <div class="rounded-xl px-4 py-3" style="background-color: rgba(255,255,255,0.08);">
+                                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/70 mb-2">
+                                    <span>🕊️ Chain prayer</span>
+                                    <span x-show="prayerGroup?.chain?.label" class="text-white/50" x-text="'· ' + prayerGroup?.chain?.label"></span>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <template x-for="(slot, i) in (prayerGroup?.chain?.my_slots || [])" :key="i">
+                                        <span class="inline-flex items-center text-sm font-semibold px-3 py-1.5 rounded-lg" style="background-color: var(--color-ember); color: #fff;">
+                                            <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                                <div class="text-[11px] text-white/60 mt-2">These are the times your group is on the prayer chain.</div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Leaders get a shortcut to the full list -->
+                    <template x-if="prayerGroup?.you_are_leader">
+                        <a href="/portal/prayer-group" class="flex items-center justify-between px-5 py-3 text-sm" style="background-color: rgba(255,255,255,0.06);">
+                            <span class="text-white/90">View &amp; contact your group members</span>
+                            <span class="text-white/50">›</span>
+                        </a>
+                    </template>
+                </section>
+                {% endif %}
+
                 <!-- Kingdom Gateway: EXAM IS OPEN — prominent "Take exam now"
                      card. Only shown when the member has an exam_available_at
                      in the past AND no attempts yet. Once they've submitted
@@ -392,25 +432,6 @@
                                 <button @click="neverPushPrompt()" class="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600">Don't show again</button>
                             </div>
                         </div>
-                    </div>
-                </section>
-                {% endif %}
-
-                {% if features.prayer_groups %}
-                <!-- Your prayer group (only when a set is published and you're in one) -->
-                <section x-show="prayerGroup && prayerGroup.group" x-cloak class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border: 1px solid var(--color-border);">
-                    <div class="px-5 py-3" style="background-color: rgba(184,84,28,0.07);">
-                        <div class="text-[10px] uppercase tracking-[0.2em]" style="color: var(--color-ember);">Your prayer group</div>
-                        <h2 class="font-display text-xl mt-0.5" style="color: var(--color-ink);" x-text="prayerGroup?.group?.name"></h2>
-                    </div>
-                    <div class="divide-y" style="border-color: var(--color-border);">
-                        <template x-for="m in (prayerGroup?.group?.members || [])" :key="m.full_name">
-                            <div class="flex items-center gap-2 px-5 py-2.5">
-                                <span x-show="m.is_leader" title="Group leader">⭐</span>
-                                <span class="text-sm" :style="m.is_leader ? 'font-weight:600;color:var(--color-ink);' : 'color:var(--color-ink-soft);'" x-text="m.full_name"></span>
-                                <span x-show="m.is_leader" class="text-[10px] uppercase tracking-wide font-semibold ml-1" style="color: var(--color-ember);">Leader</span>
-                            </div>
-                        </template>
                     </div>
                 </section>
                 {% endif %}
