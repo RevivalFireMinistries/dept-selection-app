@@ -793,13 +793,14 @@ function prayerGroups() {
       return g ? g.name : '';
     },
 
-    // [{time, group, point}] in slot order — the schedule summary.
+    // [{time, group, point, round}] in slot order — the schedule summary.
     scheduleRows() {
       const pts = (this.current.chain && this.current.chain.prayer_points) || [];
       return this.chainTimes().map((t, i) => ({
         time: `${t.start}–${t.end}`,
         group: this.groupNameById(this.slotGroupId(i)),
         point: pts[this.slotRound(i)] || '',
+        round: this.slotRound(i),
       }));
     },
 
@@ -822,16 +823,29 @@ function prayerGroups() {
       doc.text(`Revival Fire Ministries${sub ? '  ·  ' + sub : ''}`, 14, 25);
       doc.setTextColor(0, 0, 0);
 
-      // Full rotation in time order (add a prayer-point column if any are set)
-      const hasPoints = rows.some(r => r.point);
+      // Time-ordered flow, broken into rounds. Each round gets a bold ember band
+      // (carrying its shared prayer point) so the rounds read as clear blocks.
+      const body = [];
+      let cur = -1;
+      rows.forEach(r => {
+        if (r.round !== cur) {
+          cur = r.round;
+          const span = this.roundSpanLabel(cur);
+          const label = `ROUND ${cur + 1}   ·   ${span}` + (r.point ? `      🙏 ${r.point}` : '');
+          body.push([{
+            content: label, colSpan: 2,
+            styles: { fillColor: [184, 84, 28], textColor: 255, fontStyle: 'bold', halign: 'left', cellPadding: 2.5, fontSize: 10 },
+          }]);
+        }
+        body.push([r.time, r.group]);
+      });
       doc.autoTable({
         startY: 31,
-        head: [hasPoints ? ['Time', 'Group', 'Prayer point'] : ['Time', 'Group']],
-        body: rows.map(r => hasPoints ? [r.time, r.group, r.point] : [r.time, r.group]),
-        styles: { fontSize: 10, cellPadding: 3 },
+        head: [['Time', 'Group']],
+        body,
+        styles: { fontSize: 10, cellPadding: 3, lineColor: [235, 230, 222], lineWidth: 0.1 },
         headStyles: { fillColor: [31, 27, 22], textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [250, 247, 242] },
-        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: hasPoints ? 40 : 'auto' } },
+        columnStyles: { 0: { cellWidth: 45 } },
       });
 
       const filename = `prayer_chain_${(this.current.name || 'schedule').replace(/\s+/g, '_')}.pdf`;
