@@ -264,6 +264,30 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
 
 # ── Chain prayer scheduling ──────────────────────────────────────────────────
 
+def _expire_chain_if_past(s: PrayerGroupSet, db: Session) -> bool:
+    """Clear the chain-prayer schedule once its event date has passed, so the
+    admin form goes blank and they can schedule a fresh one. Returns True if it
+    was cleared. A schedule with no date never auto-expires."""
+    d = getattr(s, "chain_date", None)
+    if not d:
+        return False
+    try:
+        event = datetime.strptime(str(d), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False
+    if event >= datetime.now(timezone.utc).date():
+        return False  # today or future — keep it
+    s.chain_enabled = False
+    s.chain_label = None
+    s.chain_date = None
+    s.chain_start = None
+    s.chain_end = None
+    s.chain_slot_minutes = None
+    s.chain_slots = None
+    db.commit()
+    return True
+
+
 def _chain_slots_list(s: PrayerGroupSet) -> list:
     """The stored per-slot group-id assignment (empty if unset/invalid)."""
     try:
@@ -432,6 +456,7 @@ def get_set(set_id: int, request: Request, db: Session = Depends(get_db)):
     if valid_ids:  # guard against an empty/failed fetch wiping everyone
         _reconcile_set(s, db, valid_ids)
         db.refresh(s)
+    _expire_chain_if_past(s, db)
     return _set_dict(s)
 
 
@@ -760,6 +785,9 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
     s = db.query(PrayerGroupSet).filter(PrayerGroupSet.status == "published").first()
     if not s:
         return {"published": False, "group": None}
+
+    # Wipe a chain schedule whose date has passed so members stop seeing stale times.
+    _expire_chain_if_past(s, db)
 
     pm = (
         db.query(PrayerGroupMember)
