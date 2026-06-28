@@ -264,13 +264,17 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
 
 # ── Chain prayer scheduling ──────────────────────────────────────────────────
 
-def _chain_schedule(s: PrayerGroupSet) -> list:
-    """Slice the chain-prayer window into consecutive slots and hand them to
-    groups round-robin (g1, g2, …, gN, g1, g2, …) until the window is full.
-    Returns ordered [{start, end, group_id, group_name, sort_order}]."""
-    if not (getattr(s, "chain_enabled", False) and s.chain_start and s.chain_end and s.chain_slot_minutes):
+def _chain_slots_list(s: PrayerGroupSet) -> list:
+    """The stored per-slot group-id assignment (empty if unset/invalid)."""
+    try:
+        v = json.loads(s.chain_slots) if getattr(s, "chain_slots", None) else []
+        return v if isinstance(v, list) else []
+    except (ValueError, TypeError):
         return []
 
+
+def _chain_slot_times(s: PrayerGroupSet) -> list:
+    """The ordered (start, end) time slots for the chain-prayer window."""
     def to_min(t):
         try:
             hh, mm = str(t).split(":")
@@ -281,26 +285,54 @@ def _chain_schedule(s: PrayerGroupSet) -> list:
     def to_str(m):
         return f"{(m // 60) % 24:02d}:{m % 60:02d}"
 
+    if not (getattr(s, "chain_enabled", False) and s.chain_start and s.chain_end and s.chain_slot_minutes):
+        return []
     start, end = to_min(s.chain_start), to_min(s.chain_end)
     if start is None or end is None:
         return []
     if end <= start:
         end += 24 * 60  # window crosses midnight
     slot = max(1, int(s.chain_slot_minutes))
+
+    out, cur, i = [], start, 0
+    while cur + slot <= end and i < 1000:  # cap defensively
+        out.append((to_str(cur), to_str(cur + slot)))
+        cur += slot
+        i += 1
+    return out
+
+
+def _chain_schedule(s: PrayerGroupSet) -> list:
+    """Assign groups to the chain-prayer time slots. Uses the admin's explicit
+    (randomised / hand-edited) assignment in `chain_slots` when it's valid for
+    the current slot count + groups; otherwise falls back to round-robin order.
+    Returns ordered [{start, end, group_id, group_name, sort_order}]."""
+    times = _chain_slot_times(s)
+    if not times:
+        return []
     groups = sorted(s.groups, key=lambda g: g.sort_order)
     if not groups:
         return []
+    gmap = {g.id: g for g in groups}
 
-    out, cur, i = [], start, 0
-    # Cap iterations defensively (a tiny slot over a huge window).
-    while cur + slot <= end and i < 1000:
-        g = groups[i % len(groups)]
+    slot_ids = []
+    try:
+        slot_ids = json.loads(s.chain_slots) if s.chain_slots else []
+    except (ValueError, TypeError):
+        slot_ids = []
+    use_explicit = (
+        isinstance(slot_ids, list)
+        and len(slot_ids) == len(times)
+        and all(gid in gmap for gid in slot_ids)
+    )
+
+    out = []
+    for i, (st, en) in enumerate(times):
+        g = gmap[slot_ids[i]] if use_explicit else groups[i % len(groups)]
         out.append({
-            "start": to_str(cur), "end": to_str(cur + slot),
+            "start": st, "end": en,
             "group_id": g.id, "group_name": g.name, "sort_order": g.sort_order,
         })
-        cur += slot
-        i += 1
     return out
 
 
@@ -320,9 +352,11 @@ def _set_dict(s: PrayerGroupSet) -> dict:
         "chain": {
             "enabled": bool(getattr(s, "chain_enabled", False)),
             "label": s.chain_label,
+            "date": getattr(s, "chain_date", None),
             "start": s.chain_start,
             "end": s.chain_end,
             "slot_minutes": s.chain_slot_minutes,
+            "slots": _chain_slots_list(s),
             "schedule": _chain_schedule(s),
         },
         "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -604,12 +638,27 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
     if isinstance(chain, dict):
         s.chain_enabled = bool(chain.get("enabled"))
         s.chain_label = (chain.get("label") or "").strip() or None
+        s.chain_date = (chain.get("date") or "").strip() or None
         s.chain_start = (chain.get("start") or "").strip() or None
         s.chain_end = (chain.get("end") or "").strip() or None
         try:
             s.chain_slot_minutes = int(chain["slot_minutes"]) if chain.get("slot_minutes") else None
         except (ValueError, TypeError):
             s.chain_slot_minutes = None
+        if "slots" in chain:
+            slots = chain.get("slots")
+            if isinstance(slots, list):
+                # Keep only valid integers; the schedule builder validates them
+                # against the current groups before use.
+                clean = []
+                for gid in slots:
+                    try:
+                        clean.append(int(gid))
+                    except (ValueError, TypeError):
+                        clean.append(None)
+                s.chain_slots = json.dumps(clean)
+            else:
+                s.chain_slots = None
 
     # Group renames + leader assignment: [{id, name, leader_external_member_id}]
     for g_in in (data.get("groups") or []):
@@ -747,6 +796,7 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
         "chain": {
             "enabled": bool(getattr(s, "chain_enabled", False)),
             "label": s.chain_label,
+            "date": getattr(s, "chain_date", None),
             "start": s.chain_start,
             "end": s.chain_end,
             "my_slots": my_slots,

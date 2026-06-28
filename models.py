@@ -964,13 +964,17 @@ class PrayerGroupSet(Base):
     separate_surnames = Column(Boolean, nullable=False, server_default="true")
     separate_family = Column(Boolean, nullable=False, server_default="true")
     status = Column(String(20), nullable=False, server_default="draft")       # draft | published
-    # Chain-prayer schedule: groups rotate through consecutive time slots
-    # across a window (e.g. 19:00–21:00, 30-min slots, round-robin by group).
+    # Chain-prayer schedule: a window (e.g. 19:00–21:00) is sliced into equal
+    # slots and groups are assigned to slots — randomised by default, but the
+    # admin can reshuffle or hand-edit individual slots.
     chain_enabled = Column(Boolean, nullable=False, server_default="false")
-    chain_label = Column(String(120), nullable=True)   # e.g. "Fri 4 Jul" or "Every night"
+    chain_label = Column(String(120), nullable=True)   # optional note, e.g. "Friday night"
+    chain_date = Column(String(10), nullable=True)     # ISO date "2026-07-04"
     chain_start = Column(String(5), nullable=True)     # "19:00"
     chain_end = Column(String(5), nullable=True)       # "21:00" (may cross midnight)
     chain_slot_minutes = Column(Integer, nullable=True)
+    # JSON list of group ids, one per slot in order (explicit assignment).
+    chain_slots = Column(Text, nullable=True)
     created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -39,8 +39,9 @@
       <!-- Chain-prayer times -->
       <div x-show="(chain.my_slots || []).length" x-cloak
            class="rounded-2xl shadow-sm p-5" style="background-color:#fff7ed;border:1px solid #fed7aa;">
-        <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider font-semibold mb-2" style="color:#b45309;">
+        <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider font-semibold mb-2 flex-wrap" style="color:#b45309;">
           <span>🕊️ Chain prayer</span>
+          <span x-show="chain.date" style="color:#d97706;" x-text="'· ' + fmtDate(chain.date)"></span>
           <span x-show="chain.label" style="color:#d97706;" x-text="'· ' + chain.label"></span>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -125,6 +126,12 @@
       },
       initials(name) {
         return (name || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0] || '').join('').toUpperCase();
+      },
+      fmtDate(iso) {
+        if (!iso) return '';
+        try {
+          return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+        } catch (e) { return iso; }
       },
       waNumber(phone) {
         // Strip non-digits; assume SA local numbers (leading 0 → 27).

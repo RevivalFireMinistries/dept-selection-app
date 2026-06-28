@@ -185,49 +185,67 @@
           </label>
         </div>
         <p class="text-[11px] text-gray-400 mb-3 leading-relaxed">
-          Slice a prayer window into equal slots and rotate them across the groups in order.
-          E.g. 19:00–21:00 with 30-min slots and 4 groups gives each group one slot;
-          stretch it to 19:00–23:00 and each group gets two, alternating. Members see their own times on their dashboard.
+          Pick the event date and a prayer window. The window is sliced into equal slots and
+          groups are dropped into them at random. Reshuffle for a fresh draw, or change any slot's
+          group by hand. Members see their own times (and the date) on their dashboard.
         </p>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div class="col-span-2 sm:col-span-1">
-            <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Label</label>
-            <input type="text" x-model="current.chain.label" @change="saveChain()" placeholder="e.g. Fri 4 Jul"
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <div class="col-span-2 sm:col-span-2">
+            <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Event date</label>
+            <input type="date" x-model="current.chain.date" @change="saveChain()"
                    class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
           </div>
           <div>
             <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Start</label>
-            <input type="time" x-model="current.chain.start" @change="saveChain()"
+            <input type="time" x-model="current.chain.start" @change="onChainWindowChange()"
                    class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
           </div>
           <div>
             <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">End</label>
-            <input type="time" x-model="current.chain.end" @change="saveChain()"
+            <input type="time" x-model="current.chain.end" @change="onChainWindowChange()"
                    class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
           </div>
           <div>
             <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Slot (min)</label>
-            <input type="number" min="1" step="5" x-model.number="current.chain.slot_minutes" @change="saveChain()"
+            <input type="number" min="1" step="5" x-model.number="current.chain.slot_minutes" @change="onChainWindowChange()"
                    class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
           </div>
         </div>
-        <!-- Live preview -->
-        <template x-if="chainPreview().length">
+        <div class="mt-2">
+          <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Note (optional)</label>
+          <input type="text" x-model="current.chain.label" @change="saveChain()" placeholder="e.g. All-night prayer"
+                 class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+        </div>
+
+        <!-- Editable, shufflable slot → group assignment -->
+        <template x-if="chainTimes().length">
           <div class="mt-3">
-            <div class="text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1.5">
-              Rotation preview · <span x-text="chainPreview().length"></span> slots
+            <div class="flex items-center justify-between mb-1.5">
+              <div class="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
+                Slots · <span x-text="chainTimes().length"></span>
+              </div>
+              <button @click="shuffleChain()" type="button"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
+                🎲 Reshuffle
+              </button>
             </div>
-            <div class="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-              <template x-for="(slot, i) in chainPreview()" :key="i">
-                <span class="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border border-gray-200 bg-gray-50">
-                  <span class="font-mono text-gray-700" x-text="slot.start + '–' + slot.end"></span>
-                  <span class="font-semibold text-rose-700" x-text="slot.group_name"></span>
-                </span>
+            <div class="space-y-1 max-h-56 overflow-y-auto">
+              <template x-for="(t, i) in chainTimes()" :key="i">
+                <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <span class="font-mono text-[12px] text-gray-700 whitespace-nowrap" x-text="t.start + '–' + t.end"></span>
+                  <select :value="slotGroupId(i)" @change="setSlotGroup(i, $event.target.value)"
+                          class="ml-auto text-[12px] border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white font-semibold">
+                    <template x-for="g in current.groups" :key="g.id">
+                      <option :value="g.id" x-text="g.name"></option>
+                    </template>
+                  </select>
+                </div>
               </template>
             </div>
+            <p class="text-[11px] text-gray-400 mt-1.5">Each group appears a balanced number of times; tweak any slot above.</p>
           </div>
         </template>
-        <p x-show="current.chain.enabled && !chainPreview().length" class="text-[11px] text-amber-600 mt-2">
+        <p x-show="current.chain.enabled && !chainTimes().length" class="text-[11px] text-amber-600 mt-2">
           Set a start, end and slot length to build the rotation.
         </p>
       </div>
@@ -542,7 +560,7 @@ function prayerGroups() {
 
     _normChain() {
       if (this.current && !this.current.chain) {
-        this.current.chain = { enabled: false, label: '', start: '', end: '', slot_minutes: 30 };
+        this.current.chain = { enabled: false, label: '', date: '', start: '', end: '', slot_minutes: 30, slots: [] };
       }
     },
 
@@ -573,28 +591,30 @@ function prayerGroups() {
     async saveChain() {
       if (!this.current) return;
       const c = this.current.chain || {};
+      // Once a valid window exists, make sure we have a balanced random draw.
+      const n = this.chainTimes().length;
+      if (c.enabled && n > 0 && (!Array.isArray(c.slots) || c.slots.length !== n)) {
+        c.slots = this._buildBalancedSlots(n);
+      }
       const r = await fetch(`/api/admin/prayer-groups/${this.current.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chain: {
-          enabled: !!c.enabled, label: c.label || '',
+          enabled: !!c.enabled, label: c.label || '', date: c.date || '',
           start: c.start || '', end: c.end || '',
           slot_minutes: c.slot_minutes || null,
+          slots: Array.isArray(c.slots) ? c.slots : [],
         } }),
       });
       if (r.ok) {
-        // Refresh the server-computed schedule (kept for parity with members).
         const d = await r.json();
         if (d && d.chain) this.current.chain = d.chain;
       }
     },
 
-    // Client-side mirror of the server's round-robin slot assignment, for a
-    // live preview as the admin edits the window.
-    chainPreview() {
+    // The ordered time slots for the window (no group assignment).
+    chainTimes() {
       const c = this.current && this.current.chain;
       if (!c || !c.enabled || !c.start || !c.end || !c.slot_minutes) return [];
-      const groups = (this.current.groups || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      if (!groups.length) return [];
       const toMin = t => { const [h, m] = String(t).split(':'); return (+h) * 60 + (+m); };
       const toStr = m => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
       let start = toMin(c.start), end = toMin(c.end);
@@ -603,11 +623,73 @@ function prayerGroups() {
       const slot = Math.max(1, parseInt(c.slot_minutes));
       const out = []; let cur = start, i = 0;
       while (cur + slot <= end && i < 1000) {
-        const g = groups[i % groups.length];
-        out.push({ start: toStr(cur), end: toStr(cur + slot), group_name: g.name });
+        out.push({ start: toStr(cur), end: toStr(cur + slot) });
         cur += slot; i++;
       }
       return out;
+    },
+
+    _sortedGroupIds() {
+      return (this.current.groups || []).slice()
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(g => g.id);
+    },
+
+    _shuffle(a) {
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    },
+
+    // Each group appears a balanced number of times, then the whole list is
+    // shuffled — random but fair.
+    _buildBalancedSlots(count) {
+      const ids = this._sortedGroupIds();
+      if (!ids.length || count <= 0) return [];
+      const base = Math.floor(count / ids.length), rem = count % ids.length;
+      const pool = [];
+      ids.forEach(id => { for (let k = 0; k < base; k++) pool.push(id); });
+      const extra = this._shuffle(ids.slice());
+      for (let k = 0; k < rem; k++) pool.push(extra[k]);
+      return this._shuffle(pool);
+    },
+
+    // The group id shown for slot i (stored assignment, else round-robin).
+    slotGroupId(i) {
+      const c = this.current.chain || {};
+      const n = this.chainTimes().length;
+      const ids = this._sortedGroupIds();
+      if (Array.isArray(c.slots) && c.slots.length === n && ids.includes(c.slots[i])) return c.slots[i];
+      return ids.length ? ids[i % ids.length] : '';
+    },
+
+    _ensureSlotsArray() {
+      const c = this.current.chain;
+      const n = this.chainTimes().length;
+      if (!Array.isArray(c.slots) || c.slots.length !== n) {
+        const cur = [];
+        for (let i = 0; i < n; i++) cur.push(this.slotGroupId(i));
+        c.slots = cur;
+      }
+    },
+
+    setSlotGroup(i, gid) {
+      this._ensureSlotsArray();
+      this.current.chain.slots[i] = parseInt(gid);
+      this.saveChain();
+    },
+
+    shuffleChain() {
+      this.current.chain.slots = this._buildBalancedSlots(this.chainTimes().length);
+      this.saveChain();
+    },
+
+    // Window/slot length changed → the slot count likely changed, so draw a
+    // fresh balanced assignment.
+    onChainWindowChange() {
+      this.current.chain.slots = this._buildBalancedSlots(this.chainTimes().length);
+      this.saveChain();
     },
 
     async saveGroup(g) {

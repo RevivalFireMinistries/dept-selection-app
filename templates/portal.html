@@ -72,8 +72,9 @@
                     <template x-if="(prayerGroup?.chain?.my_slots || []).length">
                         <div class="px-5 pb-4">
                             <div class="rounded-xl px-4 py-3" style="background-color: rgba(255,255,255,0.08);">
-                                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/70 mb-2">
+                                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/70 mb-2 flex-wrap">
                                     <span>🕊️ Chain prayer</span>
+                                    <span x-show="prayerGroup?.chain?.date" class="text-white/50" x-text="'· ' + fmtChainDate(prayerGroup?.chain?.date)"></span>
                                     <span x-show="prayerGroup?.chain?.label" class="text-white/50" x-text="'· ' + prayerGroup?.chain?.label"></span>
                                 </div>
                                 <div class="flex flex-wrap gap-2">
@@ -2744,6 +2745,14 @@ function memberPortal() {
                 this.prayerGroup = (d.published && d.group) ? d : null;
                 this._prayerGroupLoaded = true;
             } catch (e) { /* non-fatal */ }
+        },
+
+        fmtChainDate(iso) {
+            if (!iso) return '';
+            try {
+                const d = new Date(iso + 'T00:00:00');
+                return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+            } catch (e) { return iso; }
         },
 
         async loadReadingPlans() {
