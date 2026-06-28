@@ -234,7 +234,7 @@
               <template x-for="(t, i) in chainTimes()" :key="i">
                 <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
                   <span class="font-mono text-[12px] text-gray-700 whitespace-nowrap" x-text="t.start + '–' + t.end"></span>
-                  <select :value="slotGroupId(i)" @change="setSlotGroup(i, $event.target.value)"
+                  <select x-model.number="current.chain.slots[i]" @change="markChainDirty()"
                           class="ml-auto text-[12px] border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white font-semibold">
                     <template x-for="g in current.groups" :key="g.id">
                       <option :value="g.id" x-text="g.name"></option>
@@ -582,9 +582,35 @@ function prayerGroups() {
       if (this.current && !this.current.chain) {
         this.current.chain = { enabled: false, label: '', date: '', start: '', end: '', slot_minutes: 30, slots: [] };
       }
-      // Freshly-loaded state is in sync with the server.
-      this.chainDirty = false;
+      // Make the stored slot assignment a concrete, valid array so the per-slot
+      // <select>s bind correctly via x-model.
+      const rebuilt = this._syncChainSlots();
+      // Freshly-loaded state is in sync with the server — unless we had to draw
+      // a fresh assignment (no/invalid saved slots), in which case prompt a save.
+      this.chainDirty = rebuilt;
       this.chainSavedMsg = '';
+    },
+
+    // Ensure current.chain.slots is exactly one valid group id per time slot,
+    // keeping the saved assignment where valid and only filling gaps. Returns
+    // true if it had to change anything.
+    _syncChainSlots() {
+      const c = this.current && this.current.chain;
+      if (!c) return false;
+      const n = this.chainTimes().length;
+      const ids = this._sortedGroupIds();
+      if (n === 0 || !ids.length) return false;
+      let slots = Array.isArray(c.slots) ? c.slots.slice() : [];
+      if (slots.length === n && slots.every(x => ids.includes(x))) return false; // already good
+      if (slots.length === n) {
+        // right length, some stale ids (e.g. after a regenerate) → fill gaps
+        slots = slots.map((x, i) => (ids.includes(x) ? x : ids[i % ids.length]));
+      } else {
+        // wrong length / never set → fresh balanced draw
+        slots = this._buildBalancedSlots(n);
+      }
+      c.slots = slots;
+      return true;
     },
 
     async open(id) {
