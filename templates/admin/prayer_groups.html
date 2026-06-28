@@ -795,13 +795,23 @@ function prayerGroups() {
 
     async publish() {
       const n = (this.current.groups || []).length;
+      const hasChain = !!(this.current.chain && this.current.chain.enabled && this.chainTimes().length);
       if (!confirm(
         `Publish “${this.current.name}”?\n\n` +
         `This makes all ${n} groups visible to members on their dashboards, ` +
-        `and replaces any previously published set. You can unpublish later.`
+        `and replaces any previously published set.` +
+        (hasChain ? `\n\nEach group's leader(s) will be emailed a summary of their group's prayer slots.` : ``) +
+        `\n\nYou can unpublish later.`
       )) return;
       const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/publish`, { method: 'POST' });
-      if (r.ok) { this.current.status = 'published'; await this.loadSets(); }
+      if (r.ok) {
+        const d = await r.json().catch(() => ({}));
+        this.current.status = 'published';
+        await this.loadSets();
+        if (d && d.leaders_notified > 0) {
+          alert(`Published. Sent the schedule to ${d.leaders_notified} group leader${d.leaders_notified === 1 ? '' : 's'}.`);
+        }
+      }
     },
     async unpublish() {
       const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/unpublish`, { method: 'POST' });

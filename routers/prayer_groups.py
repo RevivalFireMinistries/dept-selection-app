@@ -732,6 +732,53 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
     return _set_dict(s)
 
 
+def _notify_leaders_of_schedule(s: PrayerGroupSet, db: Session) -> int:
+    """On publish, email each group's leader(s) a summary of their own group's
+    chain-prayer slots. Best-effort; returns the number of leaders notified.
+    No-op when there's no chain schedule set."""
+    schedule = _chain_schedule(s)
+    if not schedule:
+        return 0
+    by_group: dict = {}
+    for slot in schedule:
+        by_group.setdefault(slot["group_id"], []).append(
+            {"start": slot["start"], "end": slot["end"]}
+        )
+
+    date_display = _fmt_event_date(s.chain_date) if getattr(s, "chain_date", None) else ""
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+
+    notified = 0
+    for g in s.groups:
+        slots = by_group.get(g.id)
+        if not slots:
+            continue
+        leaders = [m for m in g.members if m.is_leader]
+        if not leaders:
+            continue
+        recipients = _resolve_group_recipients(leaders, db)
+        if not recipients:
+            continue
+        data = {
+            "group_name": g.name,
+            "set_name": s.name,
+            "label": s.chain_label or "",
+            "date_display": date_display,
+            "date_suffix": f" · {date_display}" if date_display else "",
+            "slots": slots,
+        }
+        try:
+            dispatch_event(db, EventType.PRAYER_CHAIN_SCHEDULE, data, recipients)
+            notified += len(recipients)
+        except Exception as e:
+            try:
+                print(f"Prayer-chain publish notify failed for group {g.id}: {e}")
+            except Exception:
+                pass
+    return notified
+
+
 @router.post("/admin/prayer-groups/{set_id}/publish")
 def publish_set(set_id: int, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
@@ -745,7 +792,17 @@ def publish_set(set_id: int, request: Request, db: Session = Depends(get_db)):
     s.status = "published"
     s.published_at = datetime.now(timezone.utc)
     db.commit()
-    return {"status": "published", "id": s.id}
+
+    # Auto-send each leader a summary of their group's prayer slots.
+    leaders_notified = 0
+    try:
+        leaders_notified = _notify_leaders_of_schedule(s, db)
+    except Exception as e:
+        try:
+            print(f"Prayer-chain publish notify error: {e}")
+        except Exception:
+            pass
+    return {"status": "published", "id": s.id, "leaders_notified": leaders_notified}
 
 
 @router.post("/admin/prayer-groups/{set_id}/unpublish")
@@ -896,57 +953,3 @@ def _resolve_group_recipients(members: list, db: Session) -> list:
     return recipients
 
 
-@router.post("/portal/prayer-group/notify")
-def notify_my_group(request: Request, db: Session = Depends(get_db)):
-    """A group leader sends the chain-prayer schedule (their group's time slots)
-    to everyone in their group."""
-    from routers.api import _require_logged_in_member
-    member = _require_logged_in_member(request, db)
-    ext = getattr(member, "external_member_id", None)
-    if not ext:
-        raise HTTPException(status_code=403, detail="You're not in a prayer group.")
-
-    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.status == "published").first()
-    if not s:
-        raise HTTPException(status_code=404, detail="No prayer groups are published.")
-    _expire_chain_if_past(s, db)
-
-    pm = (
-        db.query(PrayerGroupMember)
-        .join(PrayerGroup, PrayerGroupMember.group_id == PrayerGroup.id)
-        .filter(PrayerGroup.set_id == s.id,
-                PrayerGroupMember.external_member_id == str(ext))
-        .first()
-    )
-    if not pm or not pm.is_leader:
-        raise HTTPException(status_code=403, detail="Only group leaders can send the schedule.")
-
-    g = db.query(PrayerGroup).filter(PrayerGroup.id == pm.group_id).first()
-    slots = [
-        {"start": slot["start"], "end": slot["end"]}
-        for slot in _chain_schedule(s) if slot["group_id"] == g.id
-    ]
-    if not slots:
-        raise HTTPException(status_code=400, detail="No prayer schedule has been set for your group yet.")
-
-    date_display = _fmt_event_date(s.chain_date) if getattr(s, "chain_date", None) else ""
-    data = {
-        "group_name": g.name,
-        "set_name": s.name,
-        "label": s.chain_label or "",
-        "date_display": date_display,
-        "date_suffix": f" · {date_display}" if date_display else "",
-        "slots": slots,
-    }
-
-    recipients = _resolve_group_recipients(list(g.members), db)
-    if not recipients:
-        raise HTTPException(
-            status_code=400,
-            detail="No group members have a contactable email address yet.",
-        )
-
-    from notifications.dispatcher import dispatch_event
-    from notifications.events import EventType
-    dispatch_event(db, EventType.PRAYER_CHAIN_SCHEDULE, data, recipients)
-    return {"sent": len(recipients), "group": g.name}

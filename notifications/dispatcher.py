@@ -532,12 +532,12 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             content=f'''
                 {heading(data.get('group_name', 'Your Prayer Group'))}
                 {paragraph("🕊️ Chain prayer" + (f" · {data.get('date_display')}" if data.get('date_display') else '') + (f" · {data.get('label')}" if data.get('label') else ''))}
-                {greeting(data.get('recipient_name', 'Member'))}
-                {paragraph(f"Here are the prayer slots for <strong>{data.get('group_name', 'your group')}</strong> on the prayer chain. Please be ready to pray during your group's time(s):")}
+                {greeting(data.get('recipient_name', 'Leader'))}
+                {paragraph(f"You're leading <strong>{data.get('group_name', 'your group')}</strong> on the prayer chain. Here are your group's prayer slots — please share these times with your group and make sure each one is covered:")}
                 {section_heading("Your group's prayer slots")}
                 {''.join(f'<p style="margin:0 0 8px 0;color:{TEXT};font-size:16px;font-weight:600;line-height:1.4;padding-left:12px;border-left:3px solid #B8541C;">{s.get("start","")} – {s.get("end","")}</p>' for s in data.get('slots', [])) or paragraph("No specific slots have been set yet.")}
                 {divider()}
-                {paragraph("Let's keep the chain unbroken — show up for your slot and pray. If you can't make your time, please arrange cover within your group.")}
+                {paragraph("Let's keep the chain unbroken. Rally your group, confirm who covers each slot, and lead them in prayer at the set times.")}
             ''',
             button_text="Open Portal" if data.get('app_url') else None,
             button_url=f"{data.get('app_url')}/portal?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None

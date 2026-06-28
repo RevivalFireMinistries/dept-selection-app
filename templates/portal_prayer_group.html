@@ -52,19 +52,6 @@
           </template>
         </div>
         <p class="text-[11px] mt-2" style="color:#b45309;">Your group's slots on the prayer chain.</p>
-
-        <!-- Leader: send the schedule to the whole group -->
-        <div x-show="youAreLeader" class="mt-3 pt-3" style="border-top:1px dashed #fed7aa;">
-          <button @click="sendSchedule()" :disabled="sending"
-                  class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
-                  style="background-color:var(--color-ember);">
-            <span x-show="!sending">📣 Send schedule to my group</span>
-            <span x-show="sending">Sending…</span>
-          </button>
-          <p x-show="sendMsg" x-cloak class="text-[12px] text-center mt-2"
-             :style="sendOk ? 'color:#15803d;' : 'color:#dc2626;'" x-text="sendMsg"></p>
-          <p class="text-[11px] text-center mt-1" style="color:#b45309;">Notifies every member of your group with these times.</p>
-        </div>
       </div>
 
       <div class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border:1px solid var(--color-border);">
@@ -124,10 +111,6 @@
       setName: '',
       group: null,
       chain: { my_slots: [], label: '' },
-      youAreLeader: false,
-      sending: false,
-      sendMsg: '',
-      sendOk: false,
       async load() {
         try {
           const r = await fetch('/api/portal/prayer-group');
@@ -135,7 +118,6 @@
           this.setName = d.set_name || '';
           this.group = (d.published && d.group) ? d.group : null;
           this.chain = d.chain || { my_slots: [], label: '' };
-          this.youAreLeader = !!d.you_are_leader;
         } catch (e) {
           this.group = null;
         } finally {
@@ -150,28 +132,6 @@
         try {
           return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
         } catch (e) { return iso; }
-      },
-      async sendSchedule() {
-        if (this.sending) return;
-        const count = (this.group?.members || []).length;
-        if (!confirm(`Send the prayer schedule to all ${count} members of ${this.group?.name || 'your group'}?`)) return;
-        this.sending = true; this.sendMsg = '';
-        try {
-          const r = await fetch('/api/portal/prayer-group/notify', { method: 'POST' });
-          const d = await r.json().catch(() => ({}));
-          if (r.ok) {
-            this.sendOk = true;
-            this.sendMsg = `Sent to ${d.sent} member${d.sent === 1 ? '' : 's'}.`;
-          } else {
-            this.sendOk = false;
-            this.sendMsg = d.detail || 'Could not send the schedule.';
-          }
-        } catch (e) {
-          this.sendOk = false;
-          this.sendMsg = 'Network error — please try again.';
-        } finally {
-          this.sending = false;
-        }
       },
       waNumber(phone) {
         // Strip non-digits; assume SA local numbers (leading 0 → 27).
