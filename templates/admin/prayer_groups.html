@@ -268,10 +268,16 @@
               </div>
             </div>
 
-            <button @click="shareSchedulePdf()" type="button"
-                    class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
-              📄 Share schedule as PDF
-            </button>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <button @click="previewSchedulePdf()" type="button"
+                      class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
+                👁️ Preview PDF
+              </button>
+              <button @click="shareSchedulePdf()" type="button"
+                      class="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
+                📄 Share / download
+              </button>
+            </div>
           </div>
         </template>
         <p x-show="current.chain.enabled && !chainTimes().length" class="text-[11px] text-amber-600 mt-2">
@@ -797,10 +803,12 @@ function prayerGroups() {
       }));
     },
 
-    async shareSchedulePdf() {
+    // Build the schedule PDF — a single time-ordered flow (no duplicate
+    // by-group section). Returns { blob, filename, title, sub } or null.
+    _buildSchedulePdf() {
       const rows = this.scheduleRows();
-      if (!rows.length) { alert('Set a prayer window first.'); return; }
-      if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF library still loading — try again.'); return; }
+      if (!rows.length) { alert('Set a prayer window first.'); return null; }
+      if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF library still loading — try again.'); return null; }
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const c = this.current.chain || {};
@@ -826,31 +834,34 @@ function prayerGroups() {
         columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: hasPoints ? 40 : 'auto' } },
       });
 
-      // Per-group summary
-      const byGroup = {};
-      rows.forEach(r => { (byGroup[r.group] = byGroup[r.group] || []).push(r.time); });
-      const sumRows = Object.entries(byGroup).map(([g, ts]) => [g, ts.join(',  ')]);
-      let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 31) + 8;
-      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.text('By group', 14, y);
-      doc.autoTable({
-        startY: y + 3,
-        head: [['Group', 'Prayer slots']],
-        body: sumRows,
-        styles: { fontSize: 9, cellPadding: 3 },
-        headStyles: { fillColor: [184, 84, 28], textColor: 255, fontStyle: 'bold' },
-        columnStyles: { 0: { cellWidth: 45 } },
-      });
-
       const filename = `prayer_chain_${(this.current.name || 'schedule').replace(/\s+/g, '_')}.pdf`;
-      const blob = doc.output('blob');
-      const file = new File([blob], filename, { type: 'application/pdf' });
+      return { blob: doc.output('blob'), filename, title, sub };
+    },
+
+    previewSchedulePdf() {
+      const out = this._buildSchedulePdf();
+      if (!out) return;
+      const url = URL.createObjectURL(out.blob);
+      const w = window.open(url, '_blank');
+      if (!w) {
+        // Popup blocked → fall back to a download so the admin still gets it.
+        const a = document.createElement('a');
+        a.href = url; a.download = out.filename; a.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    },
+
+    async shareSchedulePdf() {
+      const out = this._buildSchedulePdf();
+      if (!out) return;
+      const file = new File([out.blob], out.filename, { type: 'application/pdf' });
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ title, text: `${title}${sub ? '\n' + sub : ''}`, files: [file] });
+          await navigator.share({ title: out.title, text: `${out.title}${out.sub ? '\n' + out.sub : ''}`, files: [file] });
         } else {
-          const url = URL.createObjectURL(blob);
+          const url = URL.createObjectURL(out.blob);
           const a = document.createElement('a');
-          a.href = url; a.download = filename; a.click();
+          a.href = url; a.download = out.filename; a.click();
           setTimeout(() => URL.revokeObjectURL(url), 5000);
         }
       } catch (e) {
