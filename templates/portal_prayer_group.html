@@ -36,28 +36,21 @@
     <!-- Group card -->
     <div x-show="!loading && group" x-cloak class="space-y-4">
 
-      <!-- Chain-prayer flow (full timeline; your group highlighted) -->
-      <div x-show="(chain.schedule || []).length" x-cloak
+      <!-- Your chain-prayer slot(s) -->
+      <div x-show="(chain.my_slots || []).length" x-cloak
            class="rounded-2xl shadow-sm p-5" style="background-color:#fff7ed;border:1px solid #fed7aa;">
         <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
           <div class="text-sm font-bold" style="color:#9a3412;" x-text="'🕊️ ' + (chain.title || 'Chain Prayer')"></div>
           <div class="text-[11px]" style="color:#c2410c;" x-text="[chain.date_display, chain.label].filter(Boolean).join(' · ')"></div>
         </div>
-        <div class="space-y-1">
-          <template x-for="(slot, i) in (chain.schedule || [])" :key="i">
-            <div class="flex items-center gap-3 rounded-lg px-3 py-2"
-                 :style="slot.mine ? 'background-color:var(--color-ember);' : 'background-color:#fffbeb;'">
-              <span class="font-mono text-[13px] whitespace-nowrap font-bold"
-                    :style="slot.mine ? 'color:#fff;' : 'color:#b45309;'">
-                <span x-text="slot.start"></span>–<span x-text="slot.end"></span>
-              </span>
-              <span class="text-sm flex-1 truncate"
-                    :style="slot.mine ? 'color:#fff;font-weight:600;' : 'color:#9a3412;'" x-text="slot.group_name"></span>
-              <span x-show="slot.mine" class="text-[10px] uppercase tracking-wide font-bold text-white/90">You</span>
-            </div>
+        <div class="text-[10px] uppercase tracking-wider mb-1.5" style="color:#c2410c;">You're praying at</div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="(slot, i) in (chain.my_slots || [])" :key="i">
+            <span class="inline-flex items-center text-base font-bold px-3 py-1.5 rounded-lg text-white" style="background-color:var(--color-ember);">
+              <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
+            </span>
           </template>
         </div>
-        <p class="text-[11px] mt-2" style="color:#b45309;">Your group's slot is highlighted.</p>
       </div>
 
       <div class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border:1px solid var(--color-border);">
