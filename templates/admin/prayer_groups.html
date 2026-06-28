@@ -180,7 +180,7 @@
             <span class="text-sm font-semibold text-gray-800">Chain prayer schedule</span>
           </div>
           <label class="inline-flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" x-model="current.chain.enabled" @change="saveChain()" class="rounded border-gray-300 text-rose-600 focus:ring-rose-400">
+            <input type="checkbox" x-model="current.chain.enabled" @change="onChainToggle()" class="rounded border-gray-300 text-rose-600 focus:ring-rose-400">
             <span class="text-xs text-gray-600">Enabled</span>
           </label>
         </div>
@@ -192,7 +192,7 @@
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <div class="col-span-2 sm:col-span-2">
             <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Event date</label>
-            <input type="date" x-model="current.chain.date" @change="saveChain()"
+            <input type="date" x-model="current.chain.date" @change="markChainDirty()"
                    class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
           </div>
           <div>
@@ -213,7 +213,7 @@
         </div>
         <div class="mt-2">
           <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-1">Note (optional)</label>
-          <input type="text" x-model="current.chain.label" @change="saveChain()" placeholder="e.g. All-night prayer"
+          <input type="text" x-model="current.chain.label" @change="markChainDirty()" placeholder="e.g. All-night prayer"
                  class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
         </div>
 
@@ -252,6 +252,18 @@
         <p x-show="current.chain.enabled && !chainTimes().length" class="text-[11px] text-amber-600 mt-2">
           Set a start, end and slot length to build the rotation.
         </p>
+
+        <!-- Save bar -->
+        <div class="flex items-center justify-end gap-3 mt-3 pt-3 border-t border-gray-100">
+          <span x-show="chainDirty" x-cloak class="text-[11px] font-medium text-amber-600">● Unsaved changes</span>
+          <span x-show="!chainDirty && chainSavedMsg" x-cloak class="text-[11px] font-medium text-emerald-600" x-text="chainSavedMsg"></span>
+          <button @click="saveChain()" type="button" :disabled="!chainDirty || chainSaving"
+                  class="px-4 py-2 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
+                  style="background:#1F1B16;">
+            <span x-show="!chainSaving">Save schedule</span>
+            <span x-show="chainSaving">Saving…</span>
+          </button>
+        </div>
       </div>
 
       <!-- Weight legend -->
@@ -436,6 +448,7 @@ function prayerGroups() {
     memberSearch: '',
     viewGroup: null,
     unallocated: [], loadingUnalloc: false,
+    chainDirty: false, chainSaving: false, chainSavedMsg: '',
 
     async loadUnallocated() {
       if (!this.current) { this.unallocated = []; return; }
@@ -568,6 +581,9 @@ function prayerGroups() {
       if (this.current && !this.current.chain) {
         this.current.chain = { enabled: false, label: '', date: '', start: '', end: '', slot_minutes: 30, slots: [] };
       }
+      // Freshly-loaded state is in sync with the server.
+      this.chainDirty = false;
+      this.chainSavedMsg = '';
     },
 
     async open(id) {
@@ -594,26 +610,40 @@ function prayerGroups() {
       await this.loadSets();
     },
 
+    markChainDirty() { this.chainDirty = true; this.chainSavedMsg = ''; },
+
     async saveChain() {
-      if (!this.current) return;
+      if (!this.current || this.chainSaving) return;
       const c = this.current.chain || {};
       // Once a valid window exists, make sure we have a balanced random draw.
       const n = this.chainTimes().length;
       if (c.enabled && n > 0 && (!Array.isArray(c.slots) || c.slots.length !== n)) {
         c.slots = this._buildBalancedSlots(n);
       }
-      const r = await fetch(`/api/admin/prayer-groups/${this.current.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chain: {
-          enabled: !!c.enabled, label: c.label || '', date: c.date || '',
-          start: c.start || '', end: c.end || '',
-          slot_minutes: c.slot_minutes || null,
-          slots: Array.isArray(c.slots) ? c.slots : [],
-        } }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        if (d && d.chain) this.current.chain = d.chain;
+      this.chainSaving = true;
+      try {
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chain: {
+            enabled: !!c.enabled, label: c.label || '', date: c.date || '',
+            start: c.start || '', end: c.end || '',
+            slot_minutes: c.slot_minutes || null,
+            slots: Array.isArray(c.slots) ? c.slots : [],
+          } }),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.chain) this.current.chain = d.chain;
+          this.chainDirty = false;
+          this.chainSavedMsg = '✓ Saved';
+        } else {
+          this.chainSavedMsg = '';
+          alert('Could not save the schedule.');
+        }
+      } catch (e) {
+        alert('Could not save the schedule: ' + e.message);
+      } finally {
+        this.chainSaving = false;
       }
     },
 
@@ -760,19 +790,30 @@ function prayerGroups() {
     setSlotGroup(i, gid) {
       this._ensureSlotsArray();
       this.current.chain.slots[i] = parseInt(gid);
-      this.saveChain();
+      this.markChainDirty();
     },
 
     shuffleChain() {
       this.current.chain.slots = this._buildBalancedSlots(this.chainTimes().length);
-      this.saveChain();
+      this.markChainDirty();
     },
 
     // Window/slot length changed → the slot count likely changed, so draw a
-    // fresh balanced assignment.
+    // fresh balanced assignment (not saved until the admin hits Save).
     onChainWindowChange() {
       this.current.chain.slots = this._buildBalancedSlots(this.chainTimes().length);
-      this.saveChain();
+      this.markChainDirty();
+    },
+
+    // Enable/disable toggled → seed a balanced draw if turning on with a valid
+    // window, so the preview is populated before saving.
+    onChainToggle() {
+      const c = this.current.chain;
+      const n = this.chainTimes().length;
+      if (c.enabled && n > 0 && (!Array.isArray(c.slots) || c.slots.length !== n)) {
+        c.slots = this._buildBalancedSlots(n);
+      }
+      this.markChainDirty();
     },
 
     async saveGroup(g) {
@@ -794,6 +835,11 @@ function prayerGroups() {
     },
 
     async publish() {
+      if (this.chainDirty) {
+        if (!confirm('You have unsaved schedule changes. Save them before publishing?')) return;
+        await this.saveChain();
+        if (this.chainDirty) return; // save failed
+      }
       const n = (this.current.groups || []).length;
       const hasChain = !!(this.current.chain && this.current.chain.enabled && this.chainTimes().length);
       if (!confirm(
