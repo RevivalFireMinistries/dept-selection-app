@@ -235,10 +235,10 @@
                 <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
                   <span x-show="roundsCount() > 1" class="text-[9px] font-bold text-rose-400 w-5 flex-shrink-0" x-text="'R' + (slotRound(i) + 1)"></span>
                   <span class="font-mono text-[12px] text-gray-700 whitespace-nowrap" x-text="t.start + '–' + t.end"></span>
-                  <select x-model.number="current.chain.slots[i]" @change="markChainDirty()"
+                  <select @change="setSlotGroup(i, $event.target.value)"
                           class="ml-auto text-[12px] border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white font-semibold">
                     <template x-for="g in current.groups" :key="g.id">
-                      <option :value="g.id" x-text="g.name"></option>
+                      <option :value="g.id" :selected="g.id === slotGroupId(i)" x-text="g.name"></option>
                     </template>
                   </select>
                 </div>
