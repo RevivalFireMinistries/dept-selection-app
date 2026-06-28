@@ -44,11 +44,14 @@
           <div class="text-[11px]" style="color:#c2410c;" x-text="[chain.date_display, chain.label].filter(Boolean).join(' · ')"></div>
         </div>
         <div class="text-[10px] uppercase tracking-wider mb-1.5" style="color:#c2410c;">You're praying at</div>
-        <div class="flex flex-wrap gap-2">
+        <div class="space-y-2">
           <template x-for="(slot, i) in (chain.my_slots || [])" :key="i">
-            <span class="inline-flex items-center text-base font-bold px-3 py-1.5 rounded-lg text-white" style="background-color:var(--color-ember);">
-              <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
-            </span>
+            <div>
+              <span class="inline-flex items-center text-base font-bold px-3 py-1.5 rounded-lg text-white" style="background-color:var(--color-ember);">
+                <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
+              </span>
+              <div x-show="slot.prayer_point" class="text-[13px] mt-1.5 pl-1" style="color:#9a3412;">🙏 <span x-text="slot.prayer_point"></span></div>
+            </div>
           </template>
         </div>
       </div>

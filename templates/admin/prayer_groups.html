@@ -233,6 +233,7 @@
             <div class="space-y-1 max-h-56 overflow-y-auto">
               <template x-for="(t, i) in chainTimes()" :key="i">
                 <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1.5">
+                  <span x-show="roundsCount() > 1" class="text-[9px] font-bold text-rose-400 w-5 flex-shrink-0" x-text="'R' + (slotRound(i) + 1)"></span>
                   <span class="font-mono text-[12px] text-gray-700 whitespace-nowrap" x-text="t.start + '–' + t.end"></span>
                   <select x-model.number="current.chain.slots[i]" @change="markChainDirty()"
                           class="ml-auto text-[12px] border border-gray-200 rounded px-2 py-1 text-gray-800 bg-white font-semibold">
@@ -244,8 +245,31 @@
               </template>
             </div>
             <p class="text-[11px] text-gray-400 mt-1.5">Each group appears a balanced number of times; tweak any slot above.</p>
+
+            <!-- Prayer points — one per round, shared by every group in that round -->
+            <div class="mt-3 pt-3 border-t border-gray-100">
+              <div class="text-[11px] font-semibold text-gray-700 mb-0.5">🙏 Prayer points</div>
+              <p class="text-[11px] text-gray-400 mb-2 leading-relaxed">
+                One per round (a round = one full pass through the groups). Every group prays the
+                same point in a round, and the points repeat as the chain loops —
+                <span x-text="roundsCount()"></span> round<span x-show="roundsCount() !== 1">s</span> here.
+              </p>
+              <div class="space-y-2">
+                <template x-for="r in roundsCount()" :key="r">
+                  <div>
+                    <label class="block text-[10px] uppercase tracking-wider font-semibold text-gray-400 mb-0.5">
+                      Round <span x-text="r"></span> <span class="text-gray-300" x-text="'· ' + roundSpanLabel(r - 1)"></span>
+                    </label>
+                    <input type="text" x-model="current.chain.prayer_points[r - 1]" @change="markChainDirty()"
+                           placeholder="What to pray for this round…"
+                           class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-400 focus:outline-none">
+                  </div>
+                </template>
+              </div>
+            </div>
+
             <button @click="shareSchedulePdf()" type="button"
-                    class="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
+                    class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
               📄 Share schedule as PDF
             </button>
           </div>
@@ -580,11 +604,13 @@ function prayerGroups() {
 
     _normChain() {
       if (this.current && !this.current.chain) {
-        this.current.chain = { enabled: false, label: '', date: '', start: '', end: '', slot_minutes: 30, slots: [] };
+        this.current.chain = { enabled: false, label: '', date: '', start: '', end: '', slot_minutes: 30, slots: [], prayer_points: [] };
       }
+      if (this.current && !Array.isArray(this.current.chain.prayer_points)) this.current.chain.prayer_points = [];
       // Make the stored slot assignment a concrete, valid array so the per-slot
       // <select>s bind correctly via x-model.
       const rebuilt = this._syncChainSlots();
+      this._syncPrayerPoints();
       // Freshly-loaded state is in sync with the server — unless we had to draw
       // a fresh assignment (no/invalid saved slots), in which case prompt a save.
       this.chainDirty = rebuilt;
@@ -656,6 +682,7 @@ function prayerGroups() {
             start: c.start || '', end: c.end || '',
             slot_minutes: c.slot_minutes || null,
             slots: Array.isArray(c.slots) ? c.slots : [],
+            prayer_points: Array.isArray(c.prayer_points) ? c.prayer_points : [],
           } }),
         });
         if (r.ok) {
@@ -719,16 +746,54 @@ function prayerGroups() {
       catch (e) { return c.date; }
     },
 
+    numGroups() { return (this.current.groups || []).length; },
+
+    // How many times each group prays = ceil(slots / groups).
+    roundsCount() {
+      const g = this.numGroups();
+      const n = this.chainTimes().length;
+      return (g && n) ? Math.ceil(n / g) : 0;
+    },
+
+    slotRound(i) {
+      const g = this.numGroups();
+      return g ? Math.floor(i / g) : 0;
+    },
+
+    // Time span of a round: first slot's start → last slot's end.
+    roundSpanLabel(r) {
+      const times = this.chainTimes();
+      const g = this.numGroups();
+      if (!times.length || !g) return '';
+      const a = r * g, b = Math.min((r + 1) * g, times.length) - 1;
+      if (a < 0 || b < 0 || a >= times.length) return '';
+      return `${times[a].start}–${times[b].end}`;
+    },
+
+    // Keep prayer_points length == round count, preserving what's typed.
+    _syncPrayerPoints() {
+      const c = this.current && this.current.chain;
+      if (!c) return;
+      const want = this.roundsCount();
+      let pts = Array.isArray(c.prayer_points) ? c.prayer_points.slice() : [];
+      if (pts.length === want) return;
+      if (pts.length > want) pts = pts.slice(0, want);
+      else while (pts.length < want) pts.push('');
+      c.prayer_points = pts;
+    },
+
     groupNameById(id) {
       const g = (this.current.groups || []).find(x => x.id === id);
       return g ? g.name : '';
     },
 
-    // [{time, group}] in slot order — the schedule summary.
+    // [{time, group, point}] in slot order — the schedule summary.
     scheduleRows() {
+      const pts = (this.current.chain && this.current.chain.prayer_points) || [];
       return this.chainTimes().map((t, i) => ({
         time: `${t.start}–${t.end}`,
         group: this.groupNameById(this.slotGroupId(i)),
+        point: pts[this.slotRound(i)] || '',
       }));
     },
 
@@ -749,15 +814,16 @@ function prayerGroups() {
       doc.text(`Revival Fire Ministries${sub ? '  ·  ' + sub : ''}`, 14, 25);
       doc.setTextColor(0, 0, 0);
 
-      // Full rotation in time order
+      // Full rotation in time order (add a prayer-point column if any are set)
+      const hasPoints = rows.some(r => r.point);
       doc.autoTable({
         startY: 31,
-        head: [['Time', 'Group']],
-        body: rows.map(r => [r.time, r.group]),
+        head: [hasPoints ? ['Time', 'Group', 'Prayer point'] : ['Time', 'Group']],
+        body: rows.map(r => hasPoints ? [r.time, r.group, r.point] : [r.time, r.group]),
         styles: { fontSize: 10, cellPadding: 3 },
         headStyles: { fillColor: [31, 27, 22], textColor: 255, fontStyle: 'bold' },
         alternateRowStyles: { fillColor: [250, 247, 242] },
-        columnStyles: { 0: { cellWidth: 45 } },
+        columnStyles: { 0: { cellWidth: 40 }, 1: { cellWidth: hasPoints ? 40 : 'auto' } },
       });
 
       // Per-group summary
@@ -847,6 +913,7 @@ function prayerGroups() {
     // fresh balanced assignment (not saved until the admin hits Save).
     onChainWindowChange() {
       this.current.chain.slots = this._buildBalancedSlots(this.chainTimes().length);
+      this._syncPrayerPoints();
       this.markChainDirty();
     },
 
@@ -858,6 +925,7 @@ function prayerGroups() {
       if (c.enabled && n > 0 && (!Array.isArray(c.slots) || c.slots.length !== n)) {
         c.slots = this._buildBalancedSlots(n);
       }
+      this._syncPrayerPoints();
       this.markChainDirty();
     },
 

@@ -827,7 +827,8 @@ def run_migrations():
                 ADD COLUMN IF NOT EXISTS chain_start VARCHAR(5),
                 ADD COLUMN IF NOT EXISTS chain_end VARCHAR(5),
                 ADD COLUMN IF NOT EXISTS chain_slot_minutes INTEGER,
-                ADD COLUMN IF NOT EXISTS chain_slots TEXT
+                ADD COLUMN IF NOT EXISTS chain_slots TEXT,
+                ADD COLUMN IF NOT EXISTS chain_prayer_points TEXT
             """))
             conn.commit()
         except Exception as e:

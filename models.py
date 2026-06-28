@@ -975,6 +975,11 @@ class PrayerGroupSet(Base):
     chain_slot_minutes = Column(Integer, nullable=True)
     # JSON list of group ids, one per slot in order (explicit assignment).
     chain_slots = Column(Text, nullable=True)
+    # JSON list of prayer points, ONE PER ROUND (a round = one full pass through
+    # all groups). All groups praying in a round share that round's prayer point,
+    # mimicking everyone praying the same thing together; the points repeat as the
+    # rounds repeat across the window.
+    chain_prayer_points = Column(Text, nullable=True)
     created_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -358,11 +358,32 @@ def _chain_slot_times(s: PrayerGroupSet) -> list:
     return out
 
 
+def _chain_prayer_points_list(s: PrayerGroupSet) -> list:
+    """Stored prayer points (one per round); empty if unset/invalid."""
+    try:
+        v = json.loads(s.chain_prayer_points) if getattr(s, "chain_prayer_points", None) else []
+        return [str(x or "") for x in v] if isinstance(v, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def _chain_rounds_count(s: PrayerGroupSet) -> int:
+    """How many times each group prays = ceil(slots / groups). Each round is one
+    full pass through all groups and shares a single prayer point."""
+    n = len(_chain_slot_times(s))
+    g = len([_ for _ in s.groups])
+    if n == 0 or g == 0:
+        return 0
+    return -(-n // g)  # ceil
+
+
 def _chain_schedule(s: PrayerGroupSet) -> list:
     """Assign groups to the chain-prayer time slots. Uses the admin's explicit
     (randomised / hand-edited) assignment in `chain_slots` when it's valid for
     the current slot count + groups; otherwise falls back to round-robin order.
-    Returns ordered [{start, end, group_id, group_name, sort_order}]."""
+    Each slot also carries its round index + the round's shared prayer point.
+    Returns ordered
+    [{start, end, group_id, group_name, sort_order, round, prayer_point}]."""
     times = _chain_slot_times(s)
     if not times:
         return []
@@ -370,6 +391,7 @@ def _chain_schedule(s: PrayerGroupSet) -> list:
     if not groups:
         return []
     gmap = {g.id: g for g in groups}
+    points = _chain_prayer_points_list(s)
 
     slot_ids = []
     try:
@@ -385,9 +407,12 @@ def _chain_schedule(s: PrayerGroupSet) -> list:
     out = []
     for i, (st, en) in enumerate(times):
         g = gmap[slot_ids[i]] if use_explicit else groups[i % len(groups)]
+        rnd = i // len(groups)  # one full pass through the groups = one round
         out.append({
             "start": st, "end": en,
             "group_id": g.id, "group_name": g.name, "sort_order": g.sort_order,
+            "round": rnd,
+            "prayer_point": points[rnd] if rnd < len(points) else "",
         })
     return out
 
@@ -413,6 +438,8 @@ def _set_dict(s: PrayerGroupSet) -> dict:
             "end": s.chain_end,
             "slot_minutes": s.chain_slot_minutes,
             "slots": _chain_slots_list(s),
+            "prayer_points": _chain_prayer_points_list(s),
+            "rounds": _chain_rounds_count(s),
             "schedule": _chain_schedule(s),
         },
         "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -716,6 +743,12 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
                 s.chain_slots = json.dumps(clean)
             else:
                 s.chain_slots = None
+        if "prayer_points" in chain:
+            pts = chain.get("prayer_points")
+            if isinstance(pts, list):
+                s.chain_prayer_points = json.dumps([str(p or "").strip() for p in pts])
+            else:
+                s.chain_prayer_points = None
 
     # Group renames + leader assignment: [{id, name, leader_external_member_id}]
     for g_in in (data.get("groups") or []):
@@ -774,7 +807,8 @@ def _notify_leaders_of_schedule(s: PrayerGroupSet, db: Session) -> int:
     by_group: dict = {}
     for slot in schedule:
         by_group.setdefault(slot["group_id"], []).append(
-            {"start": slot["start"], "end": slot["end"]}
+            {"start": slot["start"], "end": slot["end"],
+             "prayer_point": slot.get("prayer_point") or ""}
         )
 
     date_display = _long_date(s.chain_date) if getattr(s, "chain_date", None) else ""
@@ -911,7 +945,10 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
          "mine": x["group_id"] == g.id}
         for x in full
     ]
-    my_slots = [{"start": x["start"], "end": x["end"]} for x in full if x["group_id"] == g.id]
+    my_slots = [
+        {"start": x["start"], "end": x["end"], "prayer_point": x.get("prayer_point") or ""}
+        for x in full if x["group_id"] == g.id
+    ]
 
     dur = _chain_duration_label(s)
     chain_enabled = bool(getattr(s, "chain_enabled", False))
