@@ -531,7 +531,7 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             accent_color="#B8541C",
             content=f'''
                 {heading(data.get('group_name', 'Your Prayer Group'))}
-                {paragraph("🕊️ Chain prayer" + (f" · {data.get('date_display')}" if data.get('date_display') else '') + (f" · {data.get('label')}" if data.get('label') else ''))}
+                {paragraph(f"🕊️ {data.get('title') or 'Chain Prayer'}" + (f" · {data.get('date_display')}" if data.get('date_display') else '') + (f" · {data.get('label')}" if data.get('label') else ''))}
                 {greeting(data.get('recipient_name', 'Leader'))}
                 {paragraph(f"You're leading <strong>{data.get('group_name', 'your group')}</strong> on the prayer chain. Here are your group's prayer slots — please share these times with your group and make sure each one is covered:")}
                 {section_heading("Your group's prayer slots")}

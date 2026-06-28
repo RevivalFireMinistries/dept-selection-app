@@ -297,6 +297,38 @@ def _chain_slots_list(s: PrayerGroupSet) -> list:
         return []
 
 
+def _chain_duration_label(s: PrayerGroupSet) -> str:
+    """Total window length as a friendly label: '2-hour', '90-minute', '2h 30m'."""
+    def to_min(t):
+        try:
+            hh, mm = str(t).split(":")
+            return int(hh) * 60 + int(mm)
+        except Exception:
+            return None
+    start, end = to_min(s.chain_start), to_min(s.chain_end)
+    if start is None or end is None:
+        return ""
+    if end <= start:
+        end += 24 * 60
+    mins = end - start
+    if mins <= 0:
+        return ""
+    if mins % 60 == 0:
+        return f"{mins // 60}-hour"
+    if mins < 60:
+        return f"{mins}-minute"
+    return f"{mins // 60}h {mins % 60}m"
+
+
+def _long_date(iso) -> str:
+    """ISO date -> '27 June 2026'."""
+    try:
+        d = datetime.strptime(str(iso), "%Y-%m-%d")
+        return f"{d.day} {d.strftime('%B')} {d.year}"
+    except (ValueError, TypeError):
+        return str(iso or "")
+
+
 def _chain_slot_times(s: PrayerGroupSet) -> list:
     """The ordered (start, end) time slots for the chain-prayer window."""
     def to_min(t):
@@ -745,7 +777,9 @@ def _notify_leaders_of_schedule(s: PrayerGroupSet, db: Session) -> int:
             {"start": slot["start"], "end": slot["end"]}
         )
 
-    date_display = _fmt_event_date(s.chain_date) if getattr(s, "chain_date", None) else ""
+    date_display = _long_date(s.chain_date) if getattr(s, "chain_date", None) else ""
+    dur = _chain_duration_label(s)
+    title = f"{dur} Chain Prayer" if dur else "Chain Prayer"
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType
 
@@ -764,6 +798,7 @@ def _notify_leaders_of_schedule(s: PrayerGroupSet, db: Session) -> int:
             "group_name": g.name,
             "set_name": s.name,
             "label": s.chain_label or "",
+            "title": title,
             "date_display": date_display,
             "date_suffix": f" · {date_display}" if date_display else "",
             "slots": slots,
@@ -868,23 +903,33 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
             for m in sorted(g.members, key=lambda x: (not x.is_leader, (x.full_name or "").lower()))
         ]
 
-    # This member's chain-prayer slots, in order.
-    my_slots = [
-        {"start": slot["start"], "end": slot["end"]}
-        for slot in _chain_schedule(s) if slot["group_id"] == g.id
+    # The full chain flow in time order, with this member's slots flagged so the
+    # UI can highlight where their group prays.
+    full = _chain_schedule(s)
+    flow = [
+        {"start": x["start"], "end": x["end"], "group_name": x["group_name"],
+         "mine": x["group_id"] == g.id}
+        for x in full
     ]
+    my_slots = [{"start": x["start"], "end": x["end"]} for x in full if x["group_id"] == g.id]
 
+    dur = _chain_duration_label(s)
+    chain_enabled = bool(getattr(s, "chain_enabled", False))
     return {
         "published": True,
         "set_name": s.name,
         "you_are_leader": you_are_leader,
         "chain": {
-            "enabled": bool(getattr(s, "chain_enabled", False)),
+            "enabled": chain_enabled,
             "label": s.chain_label,
             "date": getattr(s, "chain_date", None),
+            "date_display": _long_date(s.chain_date) if getattr(s, "chain_date", None) else "",
             "start": s.chain_start,
             "end": s.chain_end,
+            "title": (f"{dur} Chain Prayer" if dur else "Chain Prayer") if chain_enabled else "",
+            "my_group_name": g.name,
             "my_slots": my_slots,
+            "schedule": flow,
         },
         "group": {
             "name": g.name,

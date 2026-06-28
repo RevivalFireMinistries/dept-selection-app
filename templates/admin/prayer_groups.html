@@ -221,8 +221,9 @@
         <template x-if="chainTimes().length">
           <div class="mt-3">
             <div class="flex items-center justify-between mb-1.5">
-              <div class="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
-                Slots · <span x-text="chainTimes().length"></span>
+              <div class="text-[11px] font-semibold text-gray-700">
+                <span x-text="(chainDurationLabel() ? chainDurationLabel() + ' Chain Prayer' : 'Chain Prayer')"></span>
+                <span class="text-gray-400 font-normal" x-text="(chainLongDate() ? ' · ' + chainLongDate() : '') + '  ·  ' + chainTimes().length + ' slots'"></span>
               </div>
               <button @click="shuffleChain()" type="button"
                       class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
@@ -670,6 +671,28 @@ function prayerGroups() {
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(g => g.id);
     },
 
+    // Total window length: '2-hour', '90-minute', '2h 30m'.
+    chainDurationLabel() {
+      const c = this.current && this.current.chain;
+      if (!c || !c.start || !c.end) return '';
+      const toMin = t => { const [h, m] = String(t).split(':'); return (+h) * 60 + (+m); };
+      let s = toMin(c.start), e = toMin(c.end);
+      if (isNaN(s) || isNaN(e)) return '';
+      if (e <= s) e += 24 * 60;
+      const mins = e - s;
+      if (mins <= 0) return '';
+      if (mins % 60 === 0) return `${mins / 60}-hour`;
+      if (mins < 60) return `${mins}-minute`;
+      return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    },
+
+    chainLongDate() {
+      const c = this.current && this.current.chain;
+      if (!c || !c.date) return '';
+      try { return new Date(c.date + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' }); }
+      catch (e) { return c.date; }
+    },
+
     groupNameById(id) {
       const g = (this.current.groups || []).find(x => x.id === id);
       return g ? g.name : '';
@@ -691,13 +714,9 @@ function prayerGroups() {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const c = this.current.chain || {};
 
-      let dateStr = '';
-      if (c.date) {
-        try { dateStr = new Date(c.date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
-        catch (e) { dateStr = c.date; }
-      }
-      const title = `${this.current.name} — Prayer Chain`;
-      const sub = [dateStr, c.label, (c.start && c.end) ? `${c.start}–${c.end}` : ''].filter(Boolean).join('  ·  ');
+      const dur = this.chainDurationLabel();
+      const title = (dur ? `${dur} Chain Prayer` : 'Chain Prayer') + (this.chainLongDate() ? ` · ${this.chainLongDate()}` : '');
+      const sub = [this.current.name, c.label, (c.start && c.end) ? `${c.start}–${c.end}` : ''].filter(Boolean).join('  ·  ');
 
       doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(title, 14, 18);
       doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 100, 87);

@@ -68,23 +68,27 @@
                         <div x-show="prayerGroup?.you_are_leader" class="inline-flex items-center gap-1 mt-1.5 text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded-full" style="background-color: rgba(255,255,255,0.15);">⭐ You lead this group</div>
                     </div>
 
-                    <!-- Chain-prayer times for this group -->
-                    <template x-if="(prayerGroup?.chain?.my_slots || []).length">
+                    <!-- Chain-prayer flow (full timeline; your group highlighted) -->
+                    <template x-if="(prayerGroup?.chain?.schedule || []).length">
                         <div class="px-5 pb-4">
                             <div class="rounded-xl px-4 py-3" style="background-color: rgba(255,255,255,0.08);">
-                                <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/70 mb-2 flex-wrap">
-                                    <span>🕊️ Chain prayer</span>
-                                    <span x-show="prayerGroup?.chain?.date" class="text-white/50" x-text="'· ' + fmtChainDate(prayerGroup?.chain?.date)"></span>
-                                    <span x-show="prayerGroup?.chain?.label" class="text-white/50" x-text="'· ' + prayerGroup?.chain?.label"></span>
+                                <div class="flex items-baseline justify-between gap-2 mb-3 flex-wrap">
+                                    <div class="text-sm font-semibold" x-text="'🕊️ ' + (prayerGroup?.chain?.title || 'Chain Prayer')"></div>
+                                    <div class="text-[11px] text-white/60" x-text="[prayerGroup?.chain?.date_display, prayerGroup?.chain?.label].filter(Boolean).join(' · ')"></div>
                                 </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <template x-for="(slot, i) in (prayerGroup?.chain?.my_slots || [])" :key="i">
-                                        <span class="inline-flex items-center text-sm font-semibold px-3 py-1.5 rounded-lg" style="background-color: var(--color-ember); color: #fff;">
-                                            <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
-                                        </span>
+                                <div class="space-y-1">
+                                    <template x-for="(slot, i) in (prayerGroup?.chain?.schedule || [])" :key="i">
+                                        <div class="flex items-center gap-3 rounded-lg px-3 py-2"
+                                             :style="slot.mine ? 'background-color: var(--color-ember);' : ''">
+                                            <span class="font-mono text-[13px] whitespace-nowrap" :class="slot.mine ? 'text-white font-bold' : 'text-white/50'">
+                                                <span x-text="slot.start"></span>–<span x-text="slot.end"></span>
+                                            </span>
+                                            <span class="text-sm flex-1 truncate" :class="slot.mine ? 'text-white font-semibold' : 'text-white/50'" x-text="slot.group_name"></span>
+                                            <span x-show="slot.mine" class="text-[10px] uppercase tracking-wide font-bold text-white/90">You</span>
+                                        </div>
                                     </template>
                                 </div>
-                                <div class="text-[11px] text-white/60 mt-2">These are the times your group is on the prayer chain.</div>
+                                <div class="text-[11px] text-white/55 mt-2">Your group's slot is highlighted.</div>
                             </div>
                         </div>
                     </template>
