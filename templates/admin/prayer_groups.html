@@ -243,6 +243,10 @@
               </template>
             </div>
             <p class="text-[11px] text-gray-400 mt-1.5">Each group appears a balanced number of times; tweak any slot above.</p>
+            <button @click="shareSchedulePdf()" type="button"
+                    class="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold rounded-lg border border-gray-200 hover:bg-gray-50">
+              📄 Share schedule as PDF
+            </button>
           </div>
         </template>
         <p x-show="current.chain.enabled && !chainTimes().length" class="text-[11px] text-amber-600 mt-2">
@@ -416,6 +420,8 @@
 
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" crossorigin="anonymous"></script>
 <script>
 // NB: prayerGroups() must be defined BEFORE Alpine boots. Alpine is loaded
 // with `defer` below, so it runs after this (non-deferred) script — good.
@@ -632,6 +638,83 @@ function prayerGroups() {
     _sortedGroupIds() {
       return (this.current.groups || []).slice()
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(g => g.id);
+    },
+
+    groupNameById(id) {
+      const g = (this.current.groups || []).find(x => x.id === id);
+      return g ? g.name : '';
+    },
+
+    // [{time, group}] in slot order — the schedule summary.
+    scheduleRows() {
+      return this.chainTimes().map((t, i) => ({
+        time: `${t.start}–${t.end}`,
+        group: this.groupNameById(this.slotGroupId(i)),
+      }));
+    },
+
+    async shareSchedulePdf() {
+      const rows = this.scheduleRows();
+      if (!rows.length) { alert('Set a prayer window first.'); return; }
+      if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF library still loading — try again.'); return; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const c = this.current.chain || {};
+
+      let dateStr = '';
+      if (c.date) {
+        try { dateStr = new Date(c.date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
+        catch (e) { dateStr = c.date; }
+      }
+      const title = `${this.current.name} — Prayer Chain`;
+      const sub = [dateStr, c.label, (c.start && c.end) ? `${c.start}–${c.end}` : ''].filter(Boolean).join('  ·  ');
+
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(title, 14, 18);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 100, 87);
+      doc.text(`Revival Fire Ministries${sub ? '  ·  ' + sub : ''}`, 14, 25);
+      doc.setTextColor(0, 0, 0);
+
+      // Full rotation in time order
+      doc.autoTable({
+        startY: 31,
+        head: [['Time', 'Group']],
+        body: rows.map(r => [r.time, r.group]),
+        styles: { fontSize: 10, cellPadding: 3 },
+        headStyles: { fillColor: [31, 27, 22], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [250, 247, 242] },
+        columnStyles: { 0: { cellWidth: 45 } },
+      });
+
+      // Per-group summary
+      const byGroup = {};
+      rows.forEach(r => { (byGroup[r.group] = byGroup[r.group] || []).push(r.time); });
+      const sumRows = Object.entries(byGroup).map(([g, ts]) => [g, ts.join(',  ')]);
+      let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 31) + 8;
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.text('By group', 14, y);
+      doc.autoTable({
+        startY: y + 3,
+        head: [['Group', 'Prayer slots']],
+        body: sumRows,
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [184, 84, 28], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 45 } },
+      });
+
+      const filename = `prayer_chain_${(this.current.name || 'schedule').replace(/\s+/g, '_')}.pdf`;
+      const blob = doc.output('blob');
+      const file = new File([blob], filename, { type: 'application/pdf' });
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ title, text: `${title}${sub ? '\n' + sub : ''}`, files: [file] });
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = filename; a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+        }
+      } catch (e) {
+        if (e.name !== 'AbortError') alert('Could not share: ' + e.message);
+      }
     },
 
     _shuffle(a) {
