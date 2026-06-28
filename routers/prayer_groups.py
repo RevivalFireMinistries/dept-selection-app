@@ -852,3 +852,101 @@ def member_leads_published_group(external_member_id: str, db: Session) -> bool:
                 PrayerGroupMember.is_leader.is_(True))
         .count() > 0
     )
+
+
+def _fmt_event_date(iso) -> str:
+    """ISO date -> 'Sat, 4 Jul' (cross-platform, no %-d)."""
+    try:
+        d = datetime.strptime(str(iso), "%Y-%m-%d")
+        return f"{d.strftime('%a')}, {d.day} {d.strftime('%b')}"
+    except (ValueError, TypeError):
+        return str(iso or "")
+
+
+def _resolve_group_recipients(members: list, db: Session) -> list:
+    """Build dispatch recipients ({id,email,phone,name}) for prayer-group
+    members. Email comes from the local Member where present, else from
+    rfm-database (we rely on central for anyone not yet in the portal)."""
+    ext_ids = [str(m.external_member_id) for m in members if m.external_member_id]
+    local: dict = {}
+    if ext_ids:
+        for lm in db.query(Member).filter(Member.external_member_id.in_(ext_ids)).all():
+            local[str(lm.external_member_id)] = lm
+
+    recipients = []
+    for m in members:
+        ext = str(m.external_member_id)
+        lm = local.get(ext)
+        email = (getattr(lm, "email", None) or "").strip() if lm else ""
+        if not email:  # fall back to the central roster
+            try:
+                r = _rfm.get_member(ext, db=db)
+                if r.ok and isinstance(r.data, dict):
+                    email = (r.data.get("email") or "").strip()
+            except Exception:
+                email = ""
+        if not email:
+            continue
+        recipients.append({
+            "id": lm.id if lm else None,
+            "email": email,
+            "phone": (getattr(lm, "phone", None) if lm else None) or m.phone or "",
+            "name": (getattr(lm, "full_name", None) if lm else None) or m.full_name or "",
+        })
+    return recipients
+
+
+@router.post("/portal/prayer-group/notify")
+def notify_my_group(request: Request, db: Session = Depends(get_db)):
+    """A group leader sends the chain-prayer schedule (their group's time slots)
+    to everyone in their group."""
+    from routers.api import _require_logged_in_member
+    member = _require_logged_in_member(request, db)
+    ext = getattr(member, "external_member_id", None)
+    if not ext:
+        raise HTTPException(status_code=403, detail="You're not in a prayer group.")
+
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.status == "published").first()
+    if not s:
+        raise HTTPException(status_code=404, detail="No prayer groups are published.")
+    _expire_chain_if_past(s, db)
+
+    pm = (
+        db.query(PrayerGroupMember)
+        .join(PrayerGroup, PrayerGroupMember.group_id == PrayerGroup.id)
+        .filter(PrayerGroup.set_id == s.id,
+                PrayerGroupMember.external_member_id == str(ext))
+        .first()
+    )
+    if not pm or not pm.is_leader:
+        raise HTTPException(status_code=403, detail="Only group leaders can send the schedule.")
+
+    g = db.query(PrayerGroup).filter(PrayerGroup.id == pm.group_id).first()
+    slots = [
+        {"start": slot["start"], "end": slot["end"]}
+        for slot in _chain_schedule(s) if slot["group_id"] == g.id
+    ]
+    if not slots:
+        raise HTTPException(status_code=400, detail="No prayer schedule has been set for your group yet.")
+
+    date_display = _fmt_event_date(s.chain_date) if getattr(s, "chain_date", None) else ""
+    data = {
+        "group_name": g.name,
+        "set_name": s.name,
+        "label": s.chain_label or "",
+        "date_display": date_display,
+        "date_suffix": f" · {date_display}" if date_display else "",
+        "slots": slots,
+    }
+
+    recipients = _resolve_group_recipients(list(g.members), db)
+    if not recipients:
+        raise HTTPException(
+            status_code=400,
+            detail="No group members have a contactable email address yet.",
+        )
+
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+    dispatch_event(db, EventType.PRAYER_CHAIN_SCHEDULE, data, recipients)
+    return {"sent": len(recipients), "group": g.name}

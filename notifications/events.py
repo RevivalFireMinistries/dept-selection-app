@@ -29,6 +29,7 @@ class EventType(str, Enum):
     HOME_CHURCH_REMINDER_LEADER = "home_church_reminder_leader"
     HOME_CHURCH_REMINDER_PREACHER = "home_church_reminder_preacher"
     HOME_CHURCH_ATTENDANCE_REMINDER = "home_church_attendance_reminder"
+    PRAYER_CHAIN_SCHEDULE = "prayer_chain_schedule"
 
 
 # Event display names for admin UI
@@ -52,6 +53,7 @@ EVENT_LABELS = {
     EventType.HOME_CHURCH_REMINDER_LEADER: "Home Church Reminder (Leader)",
     EventType.HOME_CHURCH_REMINDER_PREACHER: "Home Church Reminder (Preacher)",
     EventType.HOME_CHURCH_ATTENDANCE_REMINDER: "Home Church Attendance Capture Reminder (to committee)",
+    EventType.PRAYER_CHAIN_SCHEDULE: "Prayer Chain Schedule (to group)",
 }
 
 
@@ -76,6 +78,7 @@ EVENT_DESCRIPTIONS = {
     EventType.HOME_CHURCH_REMINDER_LEADER: "Sunday evening reminder to home church leaders about Monday's program",
     EventType.HOME_CHURCH_REMINDER_PREACHER: "Sunday evening reminder to assigned preachers about Monday's home church",
     EventType.HOME_CHURCH_ATTENDANCE_REMINDER: "Tuesday-noon digest to home church committee members listing home churches whose attendance/offering for Monday hasn't been captured yet",
+    EventType.PRAYER_CHAIN_SCHEDULE: "Sent by a group leader to their prayer group with the group's chain-prayer time slots",
 }
 
 
@@ -100,6 +103,7 @@ EMAIL_SUBJECTS = {
     EventType.HOME_CHURCH_REMINDER_LEADER: "Reminder: Your home church meets tomorrow",
     EventType.HOME_CHURCH_REMINDER_PREACHER: "Reminder: You're preaching tomorrow at {home_church_name}",
     EventType.HOME_CHURCH_ATTENDANCE_REMINDER: "Home Church reports pending — {pending_count} still to capture",
+    EventType.PRAYER_CHAIN_SCHEDULE: "Prayer chain: {group_name}{date_suffix}",
 }
 
 

@@ -117,6 +117,11 @@ def build_push_payload(event_type, data: dict) -> Tuple[str, str, str]:
             f"{_get('pending_count', '?')} home church reports still to capture.",
             "/admin/home-churches",
         ),
+        "prayer_chain_schedule": (
+            f"🕊️ {_get('group_name', 'Prayer chain')}",
+            "Your prayer chain slots are ready — tap to view your times.",
+            "/portal",
+        ),
     }
     if et in title_body_url:
         return title_body_url[et]
