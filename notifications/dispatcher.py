@@ -559,6 +559,23 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_text="Open Prayer Requests" if data.get('app_url') else None,
             button_url=f"{data.get('app_url')}/portal/prayer-requests" if data.get('app_url') else None
         ),
+
+        EventType.PRAYER_REQUEST_REMINDER: base_template(
+            title="Prayer Requests Awaiting You",
+            accent_color="#d97706",
+            content=f'''
+                {heading(f"{data.get('count', 0)} request(s) still awaiting acknowledgment")}
+                {paragraph(f"These have been waiting {data.get('days', 3)}+ days without being marked received.")}
+                {greeting(data.get('recipient_name', 'Team'))}
+                {paragraph("Please open the portal, mark them as received, and pray. A quick acknowledgment lets us know they're in hand.")}
+                {section_heading("Waiting")}
+                {''.join(f'<p style="margin:0 0 8px 0;color:{TEXT};font-size:14px;line-height:1.5;padding-left:12px;border-left:3px solid #d97706;">{t}</p>' for t in data.get('requests', []))}
+                {divider()}
+                {paragraph("Thank you for standing in the gap for our people.")}
+            ''',
+            button_text="Open Prayer Requests" if data.get('app_url') else None,
+            button_url=f"{data.get('app_url')}/portal/prayer-requests" if data.get('app_url') else None
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")

@@ -287,6 +287,7 @@ def set_prayer_request_status(req_id: int, request: Request, data: dict = Body(.
     if status == "new":
         r.acknowledged_at = None
         r.acknowledged_by_member_id = None
+        r.reminder_sent_at = None  # let the nudge fire again if it goes stale
     else:
         if not r.acknowledged_at:
             r.acknowledged_at = datetime.now(timezone.utc)

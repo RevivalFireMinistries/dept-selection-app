@@ -844,6 +844,10 @@ def run_migrations():
             conn.execute(text("""
                 UPDATE prayer_requests SET status = 'closed' WHERE status = 'answered'
             """))
+            conn.execute(text("""
+                ALTER TABLE prayer_requests
+                ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ
+            """))
             conn.commit()
         except Exception as e:
             print(f"Migration note (prayer-request status): {e}")

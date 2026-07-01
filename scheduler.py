@@ -4,7 +4,7 @@ Uses APScheduler to run jobs at specified times.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -120,6 +120,16 @@ def start_scheduler():
         CronTrigger(hour=2, minute=0),
         id="purge_expired_surveys",
         name="Purge Expired Surveys",
+        replace_existing=True,
+    )
+
+    # Prayer-request nudges — runs daily at 09:00. Reminds prayer coordinators
+    # of any request still unacknowledged (status "new") after 3 days.
+    scheduler.add_job(
+        send_prayer_request_reminders,
+        CronTrigger(hour=9, minute=0),
+        id="prayer_request_reminders",
+        name="Prayer Request Nudges",
         replace_existing=True,
     )
 
@@ -791,6 +801,83 @@ def send_home_church_attendance_reminders():
         print(f"[AttendanceReminder] Sent digest to {len(recipients)} committee member(s) — {len(pending)} pending church(es) for {last_monday.isoformat()}")
     except Exception as exc:
         print(f"[AttendanceReminder] Job failed: {exc}")
+    finally:
+        db.close()
+
+
+def send_prayer_request_reminders() -> Dict[str, Any]:
+    """Nudge prayer coordinators about requests still unacknowledged (status
+    "new") after 3 days. One nudge per request (tracked by reminder_sent_at),
+    grouped into a per-assembly digest to the coordinators."""
+    from models import PrayerRequest
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+    from routers.prayer_requests import _recipient_ids, _default_assembly
+
+    days = int(os.getenv("PRAYER_REMINDER_DAYS", "3"))
+    db = SessionLocal()
+    sent_batches = 0
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        stale = (
+            db.query(PrayerRequest)
+            .filter(
+                PrayerRequest.status == "new",
+                PrayerRequest.created_at < cutoff,
+                PrayerRequest.reminder_sent_at.is_(None),
+            )
+            .order_by(PrayerRequest.created_at.asc())
+            .all()
+        )
+        if not stale:
+            return {"reminded": 0, "batches": 0}
+
+        # Group by assembly so each branch's coordinators get their own digest.
+        by_asm: Dict[Any, List] = {}
+        for r in stale:
+            by_asm.setdefault(r.assembly_id, []).append(r)
+
+        default_asm = _default_assembly(db)
+        now = datetime.now(timezone.utc)
+
+        for asm, reqs in by_asm.items():
+            ids = _recipient_ids(db, asm)
+            if not ids and default_asm and str(default_asm) != str(asm or ""):
+                ids = _recipient_ids(db, default_asm)
+            if not ids:
+                continue
+            members = db.query(Member).filter(Member.id.in_(ids)).all()
+            recipients = [
+                {"id": m.id, "email": (getattr(m, "email", None) or "").strip(),
+                 "name": m.full_name, "phone": m.phone}
+                for m in members if (getattr(m, "email", None) or "").strip()
+            ]
+            if not recipients:
+                continue
+
+            def _short(t: str) -> str:
+                t = (t or "").strip().replace("\n", " ")
+                return t if len(t) <= 120 else t[:117] + "…"
+
+            data = {
+                "count": len(reqs),
+                "days": days,
+                "requests": [_short(r.request_text) for r in reqs],
+            }
+            try:
+                dispatch_event(db, EventType.PRAYER_REQUEST_REMINDER, data, recipients)
+                for r in reqs:
+                    r.reminder_sent_at = now
+                sent_batches += 1
+            except Exception as exc:
+                print(f"[PrayerReminder] dispatch failed for assembly {asm}: {exc}")
+
+        db.commit()
+        print(f"[PrayerReminder] nudged coordinators for {len(stale)} request(s) across {sent_batches} assembly digest(s)")
+        return {"reminded": len(stale), "batches": sent_batches}
+    except Exception as exc:
+        print(f"[PrayerReminder] Job failed: {exc}")
+        return {"error": str(exc)}
     finally:
         db.close()
 

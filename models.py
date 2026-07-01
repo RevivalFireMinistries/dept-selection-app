@@ -1038,7 +1038,9 @@ class PrayerRequest(Base):
     phone = Column(String(40), nullable=True)
     email = Column(String(200), nullable=True)
     request_text = Column(Text, nullable=False)
-    status = Column(String(20), nullable=False, server_default="new")  # new | acknowledged
+    status = Column(String(20), nullable=False, server_default="new")  # new | received | closed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     acknowledged_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    # When the coordinators were nudged about this still-unacknowledged request
+    reminder_sent_at = Column(DateTime(timezone=True), nullable=True)

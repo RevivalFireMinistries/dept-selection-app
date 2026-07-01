@@ -127,6 +127,11 @@ def build_push_payload(event_type, data: dict) -> Tuple[str, str, str]:
             f"From {_get('submitter', 'a member')} — tap to view and acknowledge.",
             "/portal/prayer-requests",
         ),
+        "prayer_request_reminder": (
+            "🙏 Prayer requests waiting",
+            f"{_get('count', 'Some')} request(s) still need acknowledging.",
+            "/portal/prayer-requests",
+        ),
     }
     if et in title_body_url:
         return title_body_url[et]
