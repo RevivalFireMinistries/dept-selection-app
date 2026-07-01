@@ -101,6 +101,20 @@
                 </section>
                 {% endif %}
 
+                {% if features.prayer_requests %}
+                <!-- Solicit prayer requests -->
+                <a href="/prayer-request" class="block bg-white rounded-2xl shadow-sm p-4 hover:shadow transition" style="border:1px solid var(--color-border);">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0" style="background-color:rgba(184,84,28,0.10);">🙏</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-semibold" style="color:var(--color-ink);">Need prayer?</div>
+                            <div class="text-[12px]" style="color:var(--color-mute);">Submit a prayer request — we'll pray with you.</div>
+                        </div>
+                        <span style="color:var(--color-mute);">›</span>
+                    </div>
+                </a>
+                {% endif %}
+
                 <!-- Kingdom Gateway: EXAM IS OPEN — prominent "Take exam now"
                      card. Only shown when the member has an exam_available_at
                      in the past AND no attempts yet. Once they've submitted
@@ -1054,6 +1068,28 @@
                 <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium text-gray-900">Reading plans</div>
                     <div class="text-[11px] text-gray-500">Daily Bible reading & progress</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            {% endif %}
+
+            {% if features.prayer_requests %}
+            <!-- Submit a prayer request (everyone) -->
+            <a href="/prayer-request" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center text-sm">🙏</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Prayer request</div>
+                    <div class="text-[11px] text-gray-500">Ask us to pray with you</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <!-- Prayer requests inbox (assigned recipients only) -->
+            <a x-show="data?.leadership?.is_prayer_request_recipient" x-cloak href="/portal/prayer-requests"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center text-sm">📥</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Prayer requests inbox</div>
+                    <div class="text-[11px] text-gray-500">View & acknowledge requests</div>
                 </div>
                 <span class="text-gray-300">›</span>
             </a>

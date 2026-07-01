@@ -3418,6 +3418,16 @@ def _is_prayer_group_leader(member: "Member", db: Session) -> bool:
         return False
 
 
+def _is_prayer_request_recipient(member: "Member", db: Session) -> bool:
+    """True if this member is an assigned prayer-request recipient — gates the
+    'Prayer requests inbox' portal menu item."""
+    try:
+        from routers.prayer_requests import member_is_prayer_recipient
+        return member_is_prayer_recipient(member, db)
+    except Exception:
+        return False
+
+
 def _get_accessible_departments(db: Session, member: "Member"):
     """Get departments a member can manage meetings for (HOD depts + all depts if elder)"""
     if _is_elder(member):
@@ -10625,6 +10635,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
             "is_elder": _is_elder(member),
             "is_prayer_group_leader": _is_prayer_group_leader(member, db),
+            "is_prayer_request_recipient": _is_prayer_request_recipient(member, db),
         },
         "open_change_requests": open_change_requests,
     }

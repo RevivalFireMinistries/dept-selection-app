@@ -122,6 +122,11 @@ def build_push_payload(event_type, data: dict) -> Tuple[str, str, str]:
             "Your prayer chain slots are ready — tap to view your times.",
             "/portal",
         ),
+        "prayer_request_submitted": (
+            "🙏 New prayer request",
+            f"From {_get('submitter', 'a member')} — tap to view and acknowledge.",
+            "/portal/prayer-requests",
+        ),
     }
     if et in title_body_url:
         return title_body_url[et]

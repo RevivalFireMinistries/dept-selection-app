@@ -932,6 +932,39 @@ async def my_prayer_group_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse("portal_prayer_group.html", {"request": request})
 
 
+@router.get("/prayer-request")
+async def prayer_request_page(request: Request, db: Session = Depends(get_db)):
+    """Public prayer-request form — open to guests and logged-in members."""
+    _require_feature(request, "prayer_requests")
+    member = get_current_member(request, db)
+    prefill = {}
+    if member:
+        prefill = {"name": member.full_name or "", "phone": member.phone or "",
+                   "email": getattr(member, "email", None) or ""}
+    return templates.TemplateResponse("prayer_request.html", {
+        "request": request, "logged_in": bool(member), "prefill": prefill,
+    })
+
+
+@router.get("/admin/prayer-requests")
+async def admin_prayer_requests_page(request: Request, db: Session = Depends(get_db)):
+    """Admin management of prayer requests + recipient assignment."""
+    _require_feature(request, "prayer_requests")
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/prayer_requests.html", {"request": request})
+
+
+@router.get("/portal/prayer-requests")
+async def portal_prayer_requests_page(request: Request, db: Session = Depends(get_db)):
+    """Assigned-recipient inbox — view and acknowledge prayer requests."""
+    _require_feature(request, "prayer_requests")
+    member = get_current_member(request, db)
+    if not member:
+        return RedirectResponse(url="/?next=/portal/prayer-requests", status_code=302)
+    return templates.TemplateResponse("portal_prayer_requests.html", {"request": request})
+
+
 @router.get("/reading-plans")
 async def member_reading_plans(request: Request, db: Session = Depends(get_db)):
     member = get_current_member(request, db)

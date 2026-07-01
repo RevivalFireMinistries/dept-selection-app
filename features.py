@@ -309,6 +309,13 @@ FEATURES: dict[str, dict] = {
         "description": "Admin shuffles members into balanced prayer groups (by attendance, titles, departments), publishes them, and members see their group on the dashboard.",
     },
 
+    "prayer_requests": {
+        "label": "Prayer Requests",
+        "group": "Admin — Pastoral",
+        "default": True,
+        "description": "Members and guests submit prayer requests (optionally anonymous); admin assigns recipients who are notified and acknowledge them, and can view/delete all past requests.",
+    },
+
     # ── Elder Tools ──────────────────────────────────────────────────────────
     "elder_attendance_report": {
         "label": "Elder Attendance Report",

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Prayer Request{% endblock %}
+{% block content %}
+<script type="application/json" id="pr-config">{{ {'logged_in': logged_in, 'prefill': prefill} | tojson }}</script>
+<div class="min-h-screen pb-32" style="background-color: var(--color-paper);"
+     x-data="prayerRequestForm()" x-init="init()">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-30 shadow-sm text-white px-5 py-4" style="background-color: var(--color-ink);">
+    <div class="max-w-xl mx-auto flex items-center gap-3">
+      <a :href="loggedIn ? '/portal' : '/'" class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+         style="background-color: rgba(255,255,255,0.15);">
+        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </a>
+      <div>
+        <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Revival Fire Ministries</div>
+        <div class="text-base font-semibold">Prayer Request</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-xl mx-auto px-4 py-5">
+
+    <!-- Thank you -->
+    <div x-show="done" x-cloak class="bg-white rounded-2xl shadow-sm p-8 text-center" style="border:1px solid var(--color-border);">
+      <div class="text-4xl mb-3">🙏</div>
+      <h2 class="font-display text-2xl" style="color:var(--color-ink);">Thank you</h2>
+      <p class="text-sm mt-2" style="color:var(--color-mute);">
+        Your prayer request<span x-show="submittedCount > 1">s have</span><span x-show="submittedCount === 1"> has</span> been received. Our team will be praying with you.
+      </p>
+      <div class="mt-5 flex items-center justify-center gap-2">
+        <button @click="reset()" class="px-4 py-2 text-sm font-semibold rounded-xl border" style="border-color:var(--color-border);color:var(--color-ink);">Submit another</button>
+        <a :href="loggedIn ? '/portal' : '/'" class="px-4 py-2 text-sm font-semibold rounded-xl text-white" style="background-color:var(--color-ember);">Done</a>
+      </div>
+    </div>
+
+    <!-- Form -->
+    <div x-show="!done" class="space-y-4">
+      <p class="text-sm px-1" style="color:var(--color-mute);">
+        Share what you'd like us to pray for. You can add more than one, and you can submit anonymously.
+      </p>
+
+      <!-- Anonymous -->
+      <label class="flex items-center gap-3 bg-white rounded-2xl shadow-sm p-4 cursor-pointer" style="border:1px solid var(--color-border);">
+        <input type="checkbox" x-model="isAnonymous" class="rounded border-gray-300 w-5 h-5" style="color:var(--color-ember);">
+        <div>
+          <div class="text-sm font-medium" style="color:var(--color-ink);">Submit anonymously</div>
+          <div class="text-[12px]" style="color:var(--color-mute);">Your name and contact details won't be attached.</div>
+        </div>
+      </label>
+
+      <!-- Contact (hidden when anonymous) -->
+      <div x-show="!isAnonymous" x-cloak class="bg-white rounded-2xl shadow-sm p-4 space-y-3" style="border:1px solid var(--color-border);">
+        <div>
+          <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1" style="color:var(--color-mute);">Your name</label>
+          <input type="text" x-model="name" placeholder="Optional"
+                 class="w-full px-3 py-2.5 rounded-xl text-sm focus:ring-2 focus:outline-none"
+                 style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1" style="color:var(--color-mute);">Phone</label>
+            <input type="tel" x-model="phone" placeholder="Optional"
+                   class="w-full px-3 py-2.5 rounded-xl text-sm focus:ring-2 focus:outline-none"
+                   style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);">
+          </div>
+          <div>
+            <label class="block text-[11px] uppercase tracking-wider font-semibold mb-1" style="color:var(--color-mute);">Email</label>
+            <input type="email" x-model="email" placeholder="Optional"
+                   class="w-full px-3 py-2.5 rounded-xl text-sm focus:ring-2 focus:outline-none"
+                   style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);">
+          </div>
+        </div>
+      </div>
+
+      <!-- Requests -->
+      <div class="space-y-3">
+        <template x-for="(r, i) in requests" :key="i">
+          <div class="bg-white rounded-2xl shadow-sm p-4" style="border:1px solid var(--color-border);">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[11px] uppercase tracking-wider font-semibold" style="color:var(--color-mute);">
+                Prayer request <span x-show="requests.length > 1" x-text="i + 1"></span>
+              </label>
+              <button x-show="requests.length > 1" @click="requests.splice(i, 1)" class="text-[12px] text-red-500 font-medium">Remove</button>
+            </div>
+            <textarea x-model="requests[i]" rows="3" placeholder="What would you like us to pray for?"
+                      class="w-full px-3 py-2.5 rounded-xl text-sm focus:ring-2 focus:outline-none resize-none"
+                      style="background-color:var(--color-paper);border:1px solid var(--color-border);color:var(--color-ink);"></textarea>
+          </div>
+        </template>
+        <button @click="requests.push('')" type="button"
+                class="w-full py-2.5 text-sm font-semibold rounded-xl border border-dashed"
+                style="border-color:var(--color-border);color:var(--color-ember);">+ Add another request</button>
+      </div>
+
+      <p x-show="err" x-cloak class="text-sm text-red-600 px-1" x-text="err"></p>
+
+      <button @click="submit()" :disabled="busy"
+              class="w-full py-3.5 rounded-2xl text-white text-base font-semibold shadow-sm disabled:opacity-50"
+              style="background-color:var(--color-ember);">
+        <span x-show="!busy">🙏 Submit prayer request<span x-show="filledCount() > 1">s</span></span>
+        <span x-show="busy">Submitting…</span>
+      </button>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+  function prayerRequestForm() {
+    return {
+      loggedIn: false,
+      isAnonymous: false,
+      name: '', phone: '', email: '',
+      requests: [''],
+      busy: false, err: '', done: false, submittedCount: 0,
+      init() {
+        let cfg = { logged_in: false, prefill: {} };
+        try { cfg = JSON.parse(document.getElementById('pr-config').textContent) || cfg; } catch (e) {}
+        this.loggedIn = !!cfg.logged_in;
+        const p = cfg.prefill || {};
+        this.name = p.name || '';
+        this.phone = p.phone || '';
+        this.email = p.email || '';
+      },
+      filledCount() { return this.requests.filter(r => (r || '').trim()).length; },
+      async submit() {
+        const texts = this.requests.map(r => (r || '').trim()).filter(Boolean);
+        if (!texts.length) { this.err = 'Please enter at least one prayer request.'; return; }
+        this.busy = true; this.err = '';
+        try {
+          const r = await fetch('/api/prayer-requests', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              is_anonymous: this.isAnonymous,
+              name: this.name, phone: this.phone, email: this.email,
+              requests: texts,
+            }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (r.ok) { this.submittedCount = d.submitted || texts.length; this.done = true; }
+          else { this.err = d.detail || 'Could not submit. Please try again.'; }
+        } catch (e) {
+          this.err = 'Network error — please try again.';
+        } finally {
+          this.busy = false;
+        }
+      },
+      reset() {
+        this.requests = ['']; this.done = false; this.err = '';
+      },
+    };
+  }
+</script>
+{% endblock %}

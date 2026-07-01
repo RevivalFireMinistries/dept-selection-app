@@ -1022,3 +1022,23 @@ class PrayerGroupMember(Base):
     family_id = Column(String(64), nullable=True)
 
     group = relationship("PrayerGroup", back_populates="members")
+
+
+class PrayerRequest(Base):
+    """A prayer request submitted by a member or a guest. Assigned recipients
+    (set by the admin per assembly) are notified and acknowledge receipt."""
+    __tablename__ = "prayer_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    assembly_id = Column(String(64), nullable=True, index=True)
+    # Submitter (member_id when logged in and not anonymous)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    is_anonymous = Column(Boolean, nullable=False, server_default="false")
+    name = Column(String(200), nullable=True)
+    phone = Column(String(40), nullable=True)
+    email = Column(String(200), nullable=True)
+    request_text = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, server_default="new")  # new | acknowledged
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)

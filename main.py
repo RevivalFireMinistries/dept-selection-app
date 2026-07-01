@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals, kg, clerk, prayer_groups
+from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals, kg, clerk, prayer_groups, prayer_requests
 
 
 def run_migrations():
@@ -942,6 +942,7 @@ app.include_router(external.router, prefix="/api", tags=["external"])
 app.include_router(connect.router, prefix="/api", tags=["connect"])
 app.include_router(devotionals.router, prefix="/api", tags=["devotionals"])
 app.include_router(prayer_groups.router, prefix="/api", tags=["prayer-groups"])
+app.include_router(prayer_requests.router, prefix="/api", tags=["prayer-requests"])
 app.include_router(display.router, prefix="/api/display", tags=["display"])
 app.include_router(songlist.router, tags=["songlist"])
 app.include_router(kg.router, tags=["kingdom-gateway"])

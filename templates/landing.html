@@ -169,6 +169,14 @@
             <div class="text-[11px] uppercase tracking-wider mt-2" style="color: var(--color-ember);">Hebrews 10:25</div>
         </section>
 
+        {% if features.prayer_requests %}
+        <!-- ============ PRAYER REQUEST (open to guests) ============ -->
+        <a href="/prayer-request" class="mt-4 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold shadow-sm hover:shadow transition"
+           style="background-color: white; border: 1px solid var(--color-border); color: var(--color-ink);">
+            🙏 <span>Submit a prayer request</span>
+        </a>
+        {% endif %}
+
         <!-- ============ STAFF LINKS (subtle) ============ -->
         <div class="mt-10 flex items-center justify-center gap-2 text-[11px]" style="color: var(--color-mute);">
             <a href="/desk" class="px-3 py-1.5 rounded-full hover:underline" style="border: 1px solid var(--color-border); background-color: white;">Info desk</a>

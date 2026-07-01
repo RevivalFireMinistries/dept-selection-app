@@ -542,6 +542,23 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_text="Open Portal" if data.get('app_url') else None,
             button_url=f"{data.get('app_url')}/portal?phone={data.get('recipient_phone', '')}" if data.get('app_url') else None
         ),
+
+        EventType.PRAYER_REQUEST_SUBMITTED: base_template(
+            title="New Prayer Request",
+            accent_color="#7c3aed",
+            content=f'''
+                {heading("New prayer request" + (f" ({data.get('count')})" if (data.get('count') or 0) > 1 else ""))}
+                {paragraph(f"From: <strong>{data.get('submitter', 'A member')}</strong>")}
+                {greeting(data.get('recipient_name', 'Team'))}
+                {paragraph("You've been assigned to receive prayer requests. Please pray and acknowledge receipt on the portal.")}
+                {section_heading("Request" + ("s" if (data.get('count') or 0) > 1 else ""))}
+                {''.join(f'<p style="margin:0 0 8px 0;color:{TEXT};font-size:14px;line-height:1.5;padding-left:12px;border-left:3px solid #7c3aed;">{t}</p>' for t in data.get('requests', []))}
+                {divider()}
+                {paragraph("Open the portal to acknowledge you've received and are praying for this.")}
+            ''',
+            button_text="Open Prayer Requests" if data.get('app_url') else None,
+            button_url=f"{data.get('app_url')}/portal/prayer-requests" if data.get('app_url') else None
+        ),
     }
 
     return templates.get(event_type, "<p>Notification</p>")
