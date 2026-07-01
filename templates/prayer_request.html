@@ -1,5 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Prayer Request{% endblock %}
+{% block title %}Prayer Request · Revival Fire Ministries{% endblock %}
+{% block meta_description %}Submit a prayer request to Revival Fire Ministries — our prayer team will stand with you. You can add more than one and submit anonymously.{% endblock %}
+{% block og_title %}Prayer Request · Revival Fire Ministries{% endblock %}
+{% block og_description %}Share what you'd like us to pray for. Our prayer team will pray with you — submit anonymously if you prefer.{% endblock %}
 {% block content %}
 <script type="application/json" id="pr-config">{{ {'logged_in': logged_in, 'prefill': prefill} | tojson }}</script>
 <div class="min-h-screen pb-32" style="background-color: var(--color-paper);"

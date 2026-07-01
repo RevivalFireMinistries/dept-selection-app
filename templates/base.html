@@ -7,9 +7,13 @@
     <meta property="og:title" content="{% block og_title %}RFM Portal{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Networking nations through Christ Jesus.{% endblock %}">
     <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Revival Fire Ministries">
+    <meta property="og:image" content="{% block og_image %}{{ request.base_url }}static/icons/icon-512.png{% endblock %}">
+    {% if request %}<meta property="og:url" content="{{ request.url }}">{% endif %}
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="{% block twitter_title %}{{ self.og_title() }}{% endblock %}">
     <meta name="twitter:description" content="{% block twitter_description %}{{ self.og_description() }}{% endblock %}">
+    <meta name="twitter:image" content="{% block twitter_image %}{{ self.og_image() }}{% endblock %}">
     <title>{% block title %}Revival Fire{% endblock %}</title>
 
     <!-- PWA -->
