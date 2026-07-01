@@ -48,11 +48,16 @@
   </div>
 
   <!-- Filters -->
-  <div class="flex items-center gap-2 mb-3">
+  <div class="flex items-center gap-2 mb-3 flex-wrap">
     <button @click="filter='all'" :class="filter==='all' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-700'"
             class="px-3 py-1.5 text-xs font-semibold rounded-lg">All (<span x-text="requests.length"></span>)</button>
     <button @click="filter='new'" :class="filter==='new' ? 'bg-rose-600 text-white' : 'bg-white border border-gray-200 text-gray-700'"
             class="px-3 py-1.5 text-xs font-semibold rounded-lg">New (<span x-text="newCount"></span>)</button>
+    <button x-show="visible().length" @click="sharePdf()"
+            class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-white bg-green-600 hover:bg-green-700">
+      <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 018.413 3.488 11.82 11.82 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.978-1.607z"/></svg>
+      Share PDF
+    </button>
   </div>
 
   <div x-show="loading" class="text-center py-12 text-sm text-gray-400">Loading…</div>
@@ -93,6 +98,8 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
 <script>
   const STATUS_META = {
@@ -118,6 +125,48 @@
         finally { this.loading = false; }
       },
       visible() { return this.filter === 'new' ? this.requests.filter(r => r.status === 'new') : this.requests; },
+      async sharePdf() {
+        const list = this.visible();
+        if (!list.length) { alert('No requests to share.'); return; }
+        if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF is still loading — try again in a moment.'); return; }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const when = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
+        const title = this.filter === 'new' ? 'New Prayer Requests' : 'Prayer Requests';
+        doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(title, 14, 18);
+        doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 100, 87);
+        doc.text(`Revival Fire Ministries · ${when} · ${list.length} request(s)`, 14, 25);
+        doc.setTextColor(0, 0, 0);
+        doc.autoTable({
+          startY: 31,
+          head: [['When', 'From', 'Prayer request', 'Status']],
+          body: list.map(r => [
+            this.fmtDate(r.created_at),
+            r.is_anonymous ? 'Anonymous' : (r.name || 'Member'),
+            r.request_text,
+            this.statusMeta(r.status).label,
+          ]),
+          styles: { fontSize: 9, cellPadding: 2.5, valign: 'top' },
+          headStyles: { fillColor: [31, 27, 22], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [250, 247, 242] },
+          columnStyles: { 0: { cellWidth: 26 }, 1: { cellWidth: 30 }, 3: { cellWidth: 22 } },
+        });
+        const filename = `prayer_requests_${new Date().toISOString().slice(0, 10)}.pdf`;
+        const blob = doc.output('blob');
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        try {
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ title, text: `${title} — Revival Fire Ministries`, files: [file] });
+          } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          }
+        } catch (e) {
+          if (e.name !== 'AbortError') alert('Could not share: ' + e.message);
+        }
+      },
       async loadRecipients() {
         try { const r = await fetch('/api/admin/prayer-requests/recipients'); const d = await r.json(); this.recipients = d.recipients || []; }
         catch (e) { this.recipients = []; }
