@@ -104,11 +104,34 @@
         <span x-show="busy">Submitting…</span>
       </button>
     </div>
+
+    <!-- Your recent requests (logged-in members only) -->
+    <div x-show="loggedIn && mine.length" x-cloak class="mt-6">
+      <div class="text-[11px] uppercase tracking-wider font-semibold mb-2 px-1" style="color:var(--color-mute);">Your recent requests</div>
+      <div class="space-y-2">
+        <template x-for="m in mine" :key="m.id">
+          <div class="bg-white rounded-2xl shadow-sm p-4" style="border:1px solid var(--color-border);">
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-sm flex-1" style="color:var(--color-ink);" x-text="m.request_text"></p>
+              <span class="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                    :style="memberStatus(m.status).style" x-text="memberStatus(m.status).label"></span>
+            </div>
+            <div class="text-[11px] mt-1.5" style="color:var(--color-mute);" x-text="fmtDate(m.created_at)"></div>
+          </div>
+        </template>
+      </div>
+    </div>
   </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <script>
+  const MEMBER_STATUS = {
+    new:      { label: 'Received',        style: 'background-color:#fef3c7;color:#b45309;' },
+    praying:  { label: 'Being prayed for', style: 'background-color:#ede9fe;color:#6d28d9;' },
+    answered: { label: 'Answered 🙌',     style: 'background-color:#dcfce7;color:#15803d;' },
+    closed:   { label: 'Closed',          style: 'background-color:#f3f4f6;color:#6b7280;' },
+  };
   function prayerRequestForm() {
     return {
       loggedIn: false,
@@ -116,6 +139,7 @@
       name: '', phone: '', email: '',
       requests: [''],
       busy: false, err: '', done: false, submittedCount: 0,
+      mine: [],
       init() {
         let cfg = { logged_in: false, prefill: {} };
         try { cfg = JSON.parse(document.getElementById('pr-config').textContent) || cfg; } catch (e) {}
@@ -124,6 +148,20 @@
         this.name = p.name || '';
         this.phone = p.phone || '';
         this.email = p.email || '';
+        if (this.loggedIn) this.loadMine();
+      },
+      memberStatus(s) { return MEMBER_STATUS[s] || MEMBER_STATUS.new; },
+      fmtDate(iso) {
+        if (!iso) return '';
+        try { return new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+        catch (e) { return iso; }
+      },
+      async loadMine() {
+        try {
+          const r = await fetch('/api/prayer-requests/mine');
+          const d = await r.json();
+          this.mine = d.requests || [];
+        } catch (e) { this.mine = []; }
       },
       filledCount() { return this.requests.filter(r => (r || '').trim()).length; },
       async submit() {
@@ -140,7 +178,7 @@
             }),
           });
           const d = await r.json().catch(() => ({}));
-          if (r.ok) { this.submittedCount = d.submitted || texts.length; this.done = true; }
+          if (r.ok) { this.submittedCount = d.submitted || texts.length; this.done = true; if (this.loggedIn) this.loadMine(); }
           else { this.err = d.detail || 'Could not submit. Please try again.'; }
         } catch (e) {
           this.err = 'Network error — please try again.';

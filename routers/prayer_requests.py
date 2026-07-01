@@ -18,6 +18,9 @@ router = APIRouter()
 
 RECIPIENTS_KEY = "prayer_request_recipients"  # per-assembly: "<key>:<assembly_id>"
 
+# Status flow: New → Praying → Answered / Closed
+PRAYER_STATUSES = ["new", "praying", "answered", "closed"]
+
 
 # ── Context helpers ───────────────────────────────────────────────────────────
 
@@ -165,6 +168,28 @@ def submit_prayer_requests(request: Request, data: dict = Body(...), db: Session
     return {"submitted": len(created)}
 
 
+@router.get("/prayer-requests/mine")
+def my_prayer_requests(request: Request, db: Session = Depends(get_db)):
+    """The logged-in member's own recent (non-anonymous) requests + status."""
+    from routers.pages import get_current_member
+    member = get_current_member(request, db)
+    if not member:
+        return {"requests": []}
+    rows = (
+        db.query(PrayerRequest)
+        .filter(PrayerRequest.member_id == member.id)
+        .order_by(PrayerRequest.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    return {"requests": [{
+        "id": r.id,
+        "request_text": r.request_text,
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in rows]}
+
+
 def _notify_recipients(db: Session, assembly_id: str | None, requests: list):
     ids = _recipient_ids(db, assembly_id)
     if not ids or not requests:
@@ -214,24 +239,35 @@ def list_prayer_requests(request: Request, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/admin/prayer-requests/{req_id}/acknowledge")
-def acknowledge_prayer_request(req_id: int, request: Request, db: Session = Depends(get_db)):
+@router.post("/admin/prayer-requests/{req_id}/status")
+def set_prayer_request_status(req_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Move a request through the flow: new → praying → answered / closed."""
     assembly_id, is_admin, member = _manage_context(request, db)
+    status = (data.get("status") or "").strip()
+    if status not in PRAYER_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid status")
     r = db.query(PrayerRequest).filter(PrayerRequest.id == req_id).first()
     if not r or (assembly_id and r.assembly_id and r.assembly_id != assembly_id):
         raise HTTPException(status_code=404, detail="Request not found")
-    r.status = "acknowledged"
-    r.acknowledged_at = datetime.now(timezone.utc)
-    if member:
-        r.acknowledged_by_member_id = member.id
-    elif is_admin:
+
+    r.status = status
+    # Stamp who last actioned it (first time it leaves "new" records receipt).
+    handler_id = member.id if member else None
+    if handler_id is None and is_admin:
         try:
             from routers.pages import get_admin_identity
-            r.acknowledged_by_member_id = (get_admin_identity(request) or {}).get("member_id")
+            handler_id = (get_admin_identity(request) or {}).get("member_id")
         except Exception:
-            pass
+            handler_id = None
+    if status == "new":
+        r.acknowledged_at = None
+        r.acknowledged_by_member_id = None
+    else:
+        if not r.acknowledged_at:
+            r.acknowledged_at = datetime.now(timezone.utc)
+        r.acknowledged_by_member_id = handler_id
     db.commit()
-    return {"status": "acknowledged", "id": r.id}
+    return {"status": r.status, "id": r.id}
 
 
 @router.delete("/admin/prayer-requests/{req_id}")

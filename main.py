@@ -834,6 +834,15 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (prayer-group chain): {e}")
 
+        # Prayer requests: migrate the old "acknowledged" status to "praying"
+        try:
+            conn.execute(text("""
+                UPDATE prayer_requests SET status = 'praying' WHERE status = 'acknowledged'
+            """))
+            conn.commit()
+        except Exception as e:
+            print(f"Migration note (prayer-request status): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

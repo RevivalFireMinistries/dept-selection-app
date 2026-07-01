@@ -42,18 +42,23 @@
             <span x-text="' · ' + fmtDate(r.created_at)"></span>
           </div>
           <span class="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded-full"
-                :style="r.status === 'new' ? 'background-color:#fee2e2;color:#b91c1c;' : 'background-color:#dcfce7;color:#15803d;'"
-                x-text="r.status === 'new' ? 'New' : 'Acknowledged'"></span>
+                :style="statusMeta(r.status).style" x-text="statusMeta(r.status).label"></span>
         </div>
         <p class="text-sm whitespace-pre-line" style="color:var(--color-ink);" x-text="r.request_text"></p>
-        <div class="mt-3 flex items-center justify-between gap-2">
+        <div class="mt-3 flex items-center justify-between gap-2 flex-wrap">
           <div class="text-[11px]" style="color:var(--color-mute);">
-            <span x-show="r.status === 'acknowledged' && r.acknowledged_by" x-text="'✓ ' + r.acknowledged_by"></span>
+            <span x-show="r.status !== 'new' && r.acknowledged_by" x-text="'Last handled by ' + r.acknowledged_by"></span>
           </div>
-          <button x-show="r.status === 'new'" @click="acknowledge(r)"
-                  class="px-3 py-1.5 text-xs font-semibold rounded-lg text-white" style="background-color:var(--color-ember);">
-            Acknowledge
-          </button>
+          <div class="flex items-center gap-2 ml-auto">
+            <label class="text-[11px]" style="color:var(--color-mute);">Status</label>
+            <select @change="setStatus(r, $event.target.value)"
+                    class="text-[12px] rounded-lg px-2 py-1.5 font-semibold"
+                    style="border:1px solid var(--color-border);background-color:#fff;color:var(--color-ink);">
+              <template x-for="s in STATUSES" :key="s">
+                <option :value="s" :selected="s === r.status" x-text="statusMeta(s).label"></option>
+              </template>
+            </select>
+          </div>
         </div>
       </div>
     </template>
@@ -62,9 +67,17 @@
 
 <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <script>
+  const STATUS_META = {
+    new:      { label: 'New',      style: 'background-color:#fef3c7;color:#b45309;' },
+    praying:  { label: 'Praying',  style: 'background-color:#ede9fe;color:#6d28d9;' },
+    answered: { label: 'Answered', style: 'background-color:#dcfce7;color:#15803d;' },
+    closed:   { label: 'Closed',   style: 'background-color:#f3f4f6;color:#6b7280;' },
+  };
   function prayerInbox() {
     return {
       loading: true, requests: [], newCount: 0, filter: 'all',
+      STATUSES: ['new', 'praying', 'answered', 'closed'],
+      statusMeta(s) { return STATUS_META[s] || STATUS_META.new; },
       async load() {
         try {
           const r = await fetch('/api/admin/prayer-requests');
@@ -77,10 +90,18 @@
       visible() {
         return this.filter === 'new' ? this.requests.filter(r => r.status === 'new') : this.requests;
       },
-      async acknowledge(r) {
+      async setStatus(r, status) {
+        const was = r.status;
         try {
-          const res = await fetch(`/api/admin/prayer-requests/${r.id}/acknowledge`, { method: 'POST' });
-          if (res.ok) { r.status = 'acknowledged'; this.newCount = Math.max(0, this.newCount - 1); }
+          const res = await fetch(`/api/admin/prayer-requests/${r.id}/status`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status }),
+          });
+          if (res.ok) {
+            r.status = status;
+            if (was === 'new' && status !== 'new') this.newCount = Math.max(0, this.newCount - 1);
+            if (was !== 'new' && status === 'new') this.newCount += 1;
+          }
         } catch (e) {}
       },
       fmtDate(iso) {
