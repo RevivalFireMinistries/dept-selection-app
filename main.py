@@ -834,10 +834,15 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (prayer-group chain): {e}")
 
-        # Prayer requests: migrate the old "acknowledged" status to "praying"
+        # Prayer requests: collapse to the New → Received → Closed flow.
+        # (legacy: acknowledged/praying -> received, answered -> closed)
         try:
             conn.execute(text("""
-                UPDATE prayer_requests SET status = 'praying' WHERE status = 'acknowledged'
+                UPDATE prayer_requests SET status = 'received'
+                WHERE status IN ('acknowledged', 'praying')
+            """))
+            conn.execute(text("""
+                UPDATE prayer_requests SET status = 'closed' WHERE status = 'answered'
             """))
             conn.commit()
         except Exception as e:

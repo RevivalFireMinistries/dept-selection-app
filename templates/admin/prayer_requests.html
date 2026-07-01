@@ -79,13 +79,12 @@
         <div class="mt-3 flex items-center justify-between gap-2 flex-wrap">
           <span class="text-[11px] text-gray-400" x-show="r.status !== 'new' && r.acknowledged_by" x-text="'Last handled by ' + r.acknowledged_by"></span>
           <div class="flex items-center gap-2 ml-auto">
-            <label class="text-[11px] text-gray-400">Status</label>
-            <select @change="setStatus(r, $event.target.value)"
-                    class="text-[12px] border border-gray-200 rounded-lg px-2 py-1.5 bg-white font-semibold text-gray-800">
-              <template x-for="s in STATUSES" :key="s">
-                <option :value="s" :selected="s === r.status" x-text="statusMeta(s).label"></option>
-              </template>
-            </select>
+            <button x-show="r.status === 'new'" @click="setStatus(r, 'received')"
+                    class="px-3 py-1.5 text-xs font-semibold rounded-lg text-white bg-violet-600 hover:bg-violet-700">Mark received</button>
+            <button x-show="r.status === 'received'" @click="setStatus(r, 'closed')"
+                    class="px-3 py-1.5 text-xs font-semibold rounded-lg text-white bg-green-600 hover:bg-green-700">Close (prayed for)</button>
+            <button x-show="r.status === 'closed'" @click="setStatus(r, 'received')"
+                    class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">Reopen</button>
             <button @click="del(r)" class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50">Delete</button>
           </div>
         </div>
@@ -98,15 +97,14 @@
 <script>
   const STATUS_META = {
     new:      { label: 'New',      cls: 'bg-amber-100 text-amber-700' },
-    praying:  { label: 'Praying',  cls: 'bg-violet-100 text-violet-700' },
-    answered: { label: 'Answered', cls: 'bg-green-100 text-green-700' },
-    closed:   { label: 'Closed',   cls: 'bg-gray-100 text-gray-500' },
+    received: { label: 'Received', cls: 'bg-violet-100 text-violet-700' },
+    closed:   { label: 'Closed',   cls: 'bg-green-100 text-green-700' },
   };
   function prayerRequestsAdmin() {
     return {
       loading: true, requests: [], newCount: 0, filter: 'all',
       recipients: [], search: '', results: [],
-      STATUSES: ['new', 'praying', 'answered', 'closed'],
+      STATUSES: ['new', 'received', 'closed'],
       statusMeta(s) { return STATUS_META[s] || STATUS_META.new; },
       async init() { await this.loadRecipients(); await this.load(); },
       async load() {

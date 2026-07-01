@@ -18,8 +18,8 @@ router = APIRouter()
 
 RECIPIENTS_KEY = "prayer_request_recipients"  # per-assembly: "<key>:<assembly_id>"
 
-# Status flow: New → Praying → Answered / Closed
-PRAYER_STATUSES = ["new", "praying", "answered", "closed"]
+# Status flow: New (submitted) → Received (coordinator acknowledged) → Closed (prayed for)
+PRAYER_STATUSES = ["new", "received", "closed"]
 
 
 # ── Context helpers ───────────────────────────────────────────────────────────

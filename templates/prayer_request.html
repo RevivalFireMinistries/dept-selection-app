@@ -127,10 +127,9 @@
 <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <script>
   const MEMBER_STATUS = {
-    new:      { label: 'Received',        style: 'background-color:#fef3c7;color:#b45309;' },
-    praying:  { label: 'Being prayed for', style: 'background-color:#ede9fe;color:#6d28d9;' },
-    answered: { label: 'Answered 🙌',     style: 'background-color:#dcfce7;color:#15803d;' },
-    closed:   { label: 'Closed',          style: 'background-color:#f3f4f6;color:#6b7280;' },
+    new:      { label: 'Submitted',    style: 'background-color:#fef3c7;color:#b45309;' },
+    received: { label: 'Received',     style: 'background-color:#ede9fe;color:#6d28d9;' },
+    closed:   { label: 'Prayed for 🙏', style: 'background-color:#dcfce7;color:#15803d;' },
   };
   function prayerRequestForm() {
     return {
