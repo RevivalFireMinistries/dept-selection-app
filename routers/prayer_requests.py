@@ -191,9 +191,26 @@ def my_prayer_requests(request: Request, db: Session = Depends(get_db)):
 
 
 def _notify_recipients(db: Session, assembly_id: str | None, requests: list):
-    ids = _recipient_ids(db, assembly_id)
-    if not ids or not requests:
+    """Email every assigned prayer coordinator that new requests came in.
+
+    Coordinators are stored per-assembly. A guest submission may resolve to a
+    different (or default) assembly than the one the admin assigned under, so we
+    fall back to the default-assembly coordinators when the request's assembly
+    has none — this guarantees someone is alerted."""
+    if not requests:
         return
+    ids = _recipient_ids(db, assembly_id)
+    if not ids:
+        default = _default_assembly(db)
+        if default and str(default) != str(assembly_id or ""):
+            ids = _recipient_ids(db, default)
+    if not ids:
+        try:
+            print(f"[prayer-request] no coordinators assigned for assembly {assembly_id} — no alert sent")
+        except Exception:
+            pass
+        return
+
     members = db.query(Member).filter(Member.id.in_(ids)).all()
     recipients = []
     for m in members:
@@ -201,6 +218,10 @@ def _notify_recipients(db: Session, assembly_id: str | None, requests: list):
         if email:
             recipients.append({"id": m.id, "email": email, "name": m.full_name, "phone": m.phone})
     if not recipients:
+        try:
+            print(f"[prayer-request] {len(members)} coordinator(s) assigned but none have an email on file")
+        except Exception:
+            pass
         return
 
     count = len(requests)
@@ -214,6 +235,10 @@ def _notify_recipients(db: Session, assembly_id: str | None, requests: list):
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType
     dispatch_event(db, EventType.PRAYER_REQUEST_SUBMITTED, data, recipients)
+    try:
+        print(f"[prayer-request] alerted {len(recipients)} coordinator(s) for assembly {assembly_id}")
+    except Exception:
+        pass
 
 
 # ── Inbox: admin + assigned recipients ────────────────────────────────────────

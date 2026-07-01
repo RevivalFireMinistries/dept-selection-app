@@ -7,28 +7,29 @@
   <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
     <div>
       <h1 class="text-xl font-bold text-gray-900">🙏 Prayer Requests</h1>
-      <p class="text-sm text-gray-500">View and acknowledge requests, and choose who receives them.</p>
+      <p class="text-sm text-gray-500">Manage requests through their status, and choose which coordinators get email alerts.</p>
     </div>
     <a href="/prayer-request" target="_blank"
        class="text-xs font-semibold text-rose-700 hover:text-rose-900">Open public form ↗</a>
   </div>
 
-  <!-- Recipients -->
+  <!-- Prayer coordinators -->
   <div class="bg-white border border-gray-200 rounded-xl p-4 mb-5">
     <div class="flex items-center justify-between mb-2">
-      <div class="text-sm font-semibold text-gray-800">Who receives prayer requests</div>
+      <div class="text-sm font-semibold text-gray-800">Prayer coordinators</div>
       <span class="text-[11px] text-gray-400" x-text="recipients.length + ' assigned'"></span>
     </div>
-    <p class="text-[12px] text-gray-500 mb-3">These members are emailed when a request comes in and can acknowledge them. They must have an email on file.</p>
+    <p class="text-[12px] text-gray-500 mb-3">Coordinators get an <strong>email alert</strong> whenever a prayer request is submitted, and can view and manage them. They must have an email on file.</p>
 
     <div class="flex flex-wrap gap-2 mb-3">
       <template x-for="r in recipients" :key="r.member_id">
         <span class="inline-flex items-center gap-1.5 bg-rose-50 border border-rose-100 rounded-lg px-2.5 py-1 text-[13px] text-gray-800">
           <span x-text="r.name"></span>
+          <span x-show="!r.email" class="text-[10px] text-amber-600" title="No email — won't get alerts">⚠ no email</span>
           <button @click="removeRecipient(r)" class="text-rose-400 hover:text-rose-700 font-bold">×</button>
         </span>
       </template>
-      <span x-show="!recipients.length" class="text-[12px] text-gray-400 italic">No recipients yet — add some below.</span>
+      <span x-show="!recipients.length" class="text-[12px] text-gray-400 italic">No coordinators yet — add some below.</span>
     </div>
 
     <div class="relative">
