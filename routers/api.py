@@ -11024,6 +11024,11 @@ async def portal_create_manual_contribution(
     pledge_id = (form.get("pledge_id") or "").strip() or None
     reference = (form.get("reference") or "").strip() or None
     notes = (form.get("notes") or "").strip() or None
+    # Set by the UI on a re-submit after the "looks like a duplicate?"
+    # prompt — tells us the member has confirmed it's a separate gift.
+    confirm_duplicate = (form.get("confirm_duplicate") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
 
     try:
         amount = float(amount_raw or 0)
@@ -11056,6 +11061,43 @@ async def portal_create_manual_contribution(
             )
         pop_filename = getattr(pop_file, "filename", None) or "pop"
         pop_content_type = getattr(pop_file, "content_type", None) or "application/octet-stream"
+
+    # Duplicate guard: people sometimes tap submit twice, or re-log a gift
+    # they already captured earlier the same day. If the member already has
+    # a contribution with the SAME amount + payment method on this date, ask
+    # them to confirm it isn't a duplicate (409) rather than silently
+    # creating a second row. They can legitimately give the same amount
+    # twice, so this is a confirm-to-continue, not a hard block.
+    if not confirm_duplicate:
+        existing = _rfm.list_member_contributions(
+            member_id=str(member.external_member_id),
+            from_date=contribution_date,
+            to_date=contribution_date,
+            size=50,
+            db=db,
+        )
+        if existing.ok:
+            data = existing.data or {}
+            rows = data.get("items") or data.get("data") or []
+            for row in rows:
+                try:
+                    same_amount = round(float(row.get("amount") or 0), 2) == round(amount, 2)
+                except (TypeError, ValueError):
+                    same_amount = False
+                same_method = (row.get("payment_method") or "").upper() == payment_method
+                if same_amount and same_method:
+                    raise _HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "POSSIBLE_DUPLICATE",
+                            "message": (
+                                f"You already logged R{amount:,.2f} by "
+                                f"{payment_method.replace('_', ' ').title()} on this date. "
+                                "If this is a separate gift, confirm to continue — "
+                                "otherwise it looks like a duplicate."
+                            ),
+                        },
+                    )
 
     r = _rfm.create_manual_contribution(
         member_id=str(member.external_member_id),

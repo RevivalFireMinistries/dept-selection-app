@@ -3010,11 +3010,15 @@ function memberPortal() {
                 : `${(kb / 1024).toFixed(1)} MB`;
         },
 
-        async submitManualPayment() {
+        async submitManualPayment(confirmDuplicate = false) {
             // Member-claimed EFT / bank deposit / cash. Lands in
             // rfm-database as PENDING via the church-manager proxy →
             // /api/portal/contributions/manual. Admin gets an email
             // with the POP link to reconcile against bank statement.
+            //
+            // The backend returns 409 POSSIBLE_DUPLICATE when the member
+            // already logged the same amount + method on this date; we
+            // confirm with them, then re-submit with confirm_duplicate=true.
             this.payError = '';
             const amt = parseFloat(this.payForm.amount || '0');
             if (!amt || amt < 1) { this.payError = 'Enter an amount of at least R1.00.'; return; }
@@ -3035,14 +3039,30 @@ function memberPortal() {
                 if (this.payForm.reference) fd.append('reference', this.payForm.reference);
                 if (this.payForm.notes) fd.append('notes', this.payForm.notes);
                 if (this.popFile) fd.append('pop_file', this.popFile, this.popFile.name);
+                if (confirmDuplicate) fd.append('confirm_duplicate', 'true');
 
                 const res = await fetch('/api/portal/contributions/manual', {
                     method: 'POST',
                     body: fd,
                 });
                 const data = await res.json().catch(() => ({}));
+
+                // Possible-duplicate prompt: ask, then retry as a confirmed
+                // separate gift if they say yes.
+                if (res.status === 409 && data?.detail?.code === 'POSSIBLE_DUPLICATE') {
+                    this.paySubmitting = false;
+                    const msg = data.detail.message || 'This looks like a duplicate.';
+                    if (confirm(msg + '\n\nRecord it anyway?')) {
+                        return this.submitManualPayment(true);
+                    }
+                    return;
+                }
+
                 if (!res.ok) {
-                    this.payError = data.detail || `Submission failed (${res.status}).`;
+                    // detail may be a string or an object {code, message}.
+                    const d = data && data.detail;
+                    this.payError = (d && (d.message || (typeof d === 'string' ? d : null)))
+                        || `Submission failed (${res.status}).`;
                     this.paySubmitting = false;
                     return;
                 }
