@@ -622,6 +622,7 @@ def send_home_church_reminders():
 
         from notifications.dispatcher import dispatch_event
         from notifications.events import EventType
+        from routers.api import _member_email_with_central_fallback
 
         leader_count = 0
         preacher_count = 0
@@ -632,7 +633,8 @@ def send_home_church_reminders():
                 continue
 
             # Leader reminder
-            if hc.leader and hc.leader.email:
+            leader_email = _member_email_with_central_fallback(hc.leader, db) if hc.leader else ""
+            if hc.leader and leader_email:
                 try:
                     dispatch_event(db, EventType.HOME_CHURCH_REMINDER_LEADER, {
                         "leader_name": hc.leader.full_name,
@@ -644,14 +646,17 @@ def send_home_church_reminders():
                         "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
                         "preacher_name": e.preacher.full_name if e.preacher else None,
                         "preacher_phone": e.preacher.phone if e.preacher else None,
-                        "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": hc.leader.email, "phone": hc.leader.phone}],
+                        "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": leader_email, "phone": hc.leader.phone}],
                     })
                     leader_count += 1
                 except Exception as exc:
                     print(f"[HomeChurchReminder] Failed leader reminder for {hc.name}: {exc}")
+            elif hc.leader:
+                print(f"[HomeChurchReminder] leader {hc.leader.full_name} ({hc.name}) skipped — no email locally or in rfm-database")
 
             # Preacher reminder (only if assigned)
-            if e.preacher and e.preacher.email:
+            preacher_email = _member_email_with_central_fallback(e.preacher, db) if e.preacher else ""
+            if e.preacher and preacher_email:
                 try:
                     dispatch_event(db, EventType.HOME_CHURCH_REMINDER_PREACHER, {
                         "preacher_name": e.preacher.full_name,
@@ -661,11 +666,13 @@ def send_home_church_reminders():
                         "leader_phone": hc.leader.phone if hc.leader else "",
                         "roster_date": tomorrow.isoformat(),
                         "meeting_time": hc.meeting_time,
-                        "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": e.preacher.email, "phone": e.preacher.phone}],
+                        "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": preacher_email, "phone": e.preacher.phone}],
                     })
                     preacher_count += 1
                 except Exception as exc:
                     print(f"[HomeChurchReminder] Failed preacher reminder for {hc.name}: {exc}")
+            elif e.preacher:
+                print(f"[HomeChurchReminder] preacher {e.preacher.full_name} ({hc.name}) skipped — no email locally or in rfm-database")
 
         print(f"[HomeChurchReminder] Sent {leader_count} leader + {preacher_count} preacher reminders for {tomorrow.isoformat()}")
     except Exception as exc:

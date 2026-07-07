@@ -7152,6 +7152,27 @@ def _preacher_pool_member_ids(db: Session) -> List[int]:
     return [r[0] for r in rows]
 
 
+def _member_email_with_central_fallback(member: "Member", db: Session) -> str:
+    """A member's email — local first, else from rfm-database. Since the
+    portal now relies on rfm-database for member data, a local shadow may not
+    carry the email even though the central record does. Used so home-church
+    notifications aren't silently skipped for a blank local email."""
+    if not member:
+        return ""
+    local = (getattr(member, "email", None) or "").strip()
+    if local:
+        return local
+    ext = getattr(member, "external_member_id", None)
+    if ext:
+        try:
+            r = _rfm.get_member(str(ext), db=db)
+            if r.ok and isinstance(r.data, dict):
+                return (r.data.get("email") or "").strip()
+        except Exception:
+            pass
+    return ""
+
+
 def _home_church_to_dict(hc: HomeChurch, db: Session) -> dict:
     leader = None
     if hc.leader_member_id:
@@ -7897,12 +7918,16 @@ def admin_publish_roster(request: Request, data: dict = Body(...), db: Session =
 
         for e in entries:
             hc = e.home_church
-            if not hc or not hc.leader or not hc.leader.email:
+            if not hc or not hc.leader:
+                continue
+            leader_email = _member_email_with_central_fallback(hc.leader, db)
+            if not leader_email:
+                print(f"[roster] leader {hc.leader.full_name} ({hc.name}) skipped — no email locally or in rfm-database")
                 continue
             dispatch_event(db, EventType.HOME_CHURCH_ROSTER_PUBLISHED, {
                 "leader_id": hc.leader.id,
                 "leader_name": hc.leader.full_name,
-                "leader_email": hc.leader.email,
+                "leader_email": leader_email,
                 "home_church_name": hc.name,
                 "roster_date": d.isoformat(),
                 "meeting_time": hc.meeting_time,
@@ -7911,24 +7936,28 @@ def admin_publish_roster(request: Request, data: dict = Body(...), db: Session =
                 "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
                 "preacher_name": e.preacher.full_name if e.preacher else None,
                 "preacher_phone": e.preacher.phone if e.preacher else None,
-                "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": hc.leader.email, "phone": hc.leader.phone}],
+                "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": leader_email, "phone": hc.leader.phone}],
             })
 
         for e in entries:
-            if not e.preacher or not e.preacher.email:
+            if not e.preacher:
+                continue
+            preacher_email = _member_email_with_central_fallback(e.preacher, db)
+            if not preacher_email:
+                print(f"[roster] preacher {e.preacher.full_name} skipped — no email locally or in rfm-database")
                 continue
             hc = e.home_church
             dispatch_event(db, EventType.HOME_CHURCH_PREACHER_ASSIGNED, {
                 "preacher_id": e.preacher.id,
                 "preacher_name": e.preacher.full_name,
-                "preacher_email": e.preacher.email,
+                "preacher_email": preacher_email,
                 "home_church_name": hc.name if hc else "",
                 "home_church_address": hc.address if hc else "",
                 "leader_name": hc.leader.full_name if (hc and hc.leader) else "",
                 "leader_phone": hc.leader.phone if (hc and hc.leader) else "",
                 "roster_date": d.isoformat(),
                 "meeting_time": hc.meeting_time if hc else "19:00",
-                "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": e.preacher.email, "phone": e.preacher.phone}],
+                "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": preacher_email, "phone": e.preacher.phone}],
             })
     except Exception as exc:
         print(f"Failed to dispatch home church roster notifications: {exc}")
