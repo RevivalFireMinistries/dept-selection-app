@@ -2509,7 +2509,8 @@ def update_review_status(
             "member_email": md.member.email,
             "department_name": md.department.name,
             "category_name": md.department.category.name if md.department.category else None,
-            "admin_note": data.admin_note
+            "admin_note": data.admin_note,
+            "idem_scope": str(member_department_id),
         })
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
@@ -2812,7 +2813,8 @@ def assign_department(
             "member_email": member.email,
             "department_name": dept.name,
             "category_name": dept.category.name if dept.category else None,
-            "admin_note": data.admin_note
+            "admin_note": data.admin_note,
+            "idem_scope": str(md.id),
         })
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
@@ -3010,6 +3012,7 @@ def publish_results(request: Request = None, db: Session = Depends(get_db)):
         if recipients:
             dispatch_event(db, EventType.RESULTS_PUBLISHED, {
                 "year": year,
+                "idem_scope": str(year),
                 "recipients": recipients
             })
     except Exception as e:
@@ -3350,7 +3353,8 @@ def resolve_appeal(
             "status": data.status,
             "unwanted_department": appeal.unwanted_department.name if appeal.unwanted_department else None,
             "wanted_department": appeal.wanted_department.name if appeal.wanted_department else None,
-            "admin_response": data.admin_response
+            "admin_response": data.admin_response,
+            "idem_scope": str(appeal_id),
         })
     except Exception as e:
         print(f"Failed to dispatch notification: {e}")
@@ -4113,6 +4117,7 @@ def create_hod_meeting(
                 "meeting_link": first_meeting.meeting_link,
                 "department_name": department.name,
                 "recurrence_info": recurrence_info,
+                "idem_scope": str(first_meeting.id),
                 "recipients": recipients
             })
     except Exception as e:
@@ -4801,6 +4806,7 @@ def create_admin_meeting(data: MeetingCreate, request: Request = None, db: Sessi
                 "department_name": dept_name,
                 "is_general": is_general,
                 "recurrence_info": recurrence_info,
+                "idem_scope": str(first_meeting.id),
                 "recipients": recipients
             })
     except Exception as e:
@@ -5117,6 +5123,7 @@ def create_poster_request(
                         "scripture": pr.scripture,
                         "target_audience": pr.target_audience,
                         "additional_notes": pr.additional_notes,
+                        "idem_scope": str(pr.id),
                         "recipients": recipients
                     })
             except Exception as e:
@@ -5267,6 +5274,7 @@ def acknowledge_poster_request(
                 "request_id": pr.id,
                 "event_name": pr.event_name,
                 "acknowledged_by_name": member.full_name,
+                "idem_scope": str(pr.id),
                 "recipients": [{
                     "id": pr.requester.id,
                     "name": pr.requester.full_name,
@@ -5357,6 +5365,7 @@ def complete_poster_request(
                 "event_name": pr.event_name,
                 "event_date": pr.event_date.isoformat() if pr.event_date else None,
                 "completed_by_name": member.full_name,
+                "idem_scope": str(pr.id),
                 "recipients": [{
                     "id": pr.requester.id,
                     "name": pr.requester.full_name,
@@ -5827,7 +5836,8 @@ def send_meeting_invite(meeting_id: int, request: Request, db: Session = Depends
         "location": meeting.location,
         "meeting_link": meeting.meeting_link,
         "department_name": meeting.department.name if meeting.department else "All Leaders",
-        "is_general": meeting.is_general
+        "is_general": meeting.is_general,
+        "idem_scope": str(meeting.id),
     }
 
     # Dispatch invite notification
@@ -5883,7 +5893,8 @@ def send_meeting_reminder(meeting_id: int, request: Request, db: Session = Depen
         "location": meeting.location,
         "department_name": meeting.department.name if meeting.department else "All Leaders",
         "meeting_link": meeting.meeting_link,
-        "description": meeting.description
+        "description": meeting.description,
+        "idem_scope": f"{meeting.id}:{meeting.meeting_date.isoformat() if meeting.meeting_date else ''}",
     }
 
     # Dispatch reminder notification
@@ -6277,6 +6288,7 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                     "prayer_points": unique_prayer_points,
                     "admin_announcements": member_admin_ann,
                     "pastors_announcements": member_pastor_ann,
+                    "idem_scope": str(program_id),
                 },
                 recipients=[{
                     "id": member.id,
@@ -7936,6 +7948,7 @@ def admin_publish_roster(request: Request, data: dict = Body(...), db: Session =
                 "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
                 "preacher_name": e.preacher.full_name if e.preacher else None,
                 "preacher_phone": e.preacher.phone if e.preacher else None,
+                "idem_scope": d.isoformat(),
                 "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": leader_email, "phone": hc.leader.phone}],
             })
 
@@ -7957,6 +7970,7 @@ def admin_publish_roster(request: Request, data: dict = Body(...), db: Session =
                 "leader_phone": hc.leader.phone if (hc and hc.leader) else "",
                 "roster_date": d.isoformat(),
                 "meeting_time": hc.meeting_time if hc else "19:00",
+                "idem_scope": d.isoformat(),
                 "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": preacher_email, "phone": e.preacher.phone}],
             })
     except Exception as exc:

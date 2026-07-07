@@ -836,6 +836,7 @@ def _notify_leaders_of_schedule(s: PrayerGroupSet, db: Session) -> int:
             "date_display": date_display,
             "date_suffix": f" · {date_display}" if date_display else "",
             "slots": slots,
+            "idem_scope": f"{s.id}:{g.id}",
         }
         try:
             dispatch_event(db, EventType.PRAYER_CHAIN_SCHEDULE, data, recipients)

@@ -252,7 +252,8 @@ def send_meeting_reminders(meeting_ids: Optional[List[int]] = None) -> Dict[str,
                     "location": meeting.location,
                     "department_name": meeting.department.name if meeting.department else "All Leaders",
                     "meeting_link": meeting.meeting_link,
-                    "description": meeting.description
+                    "description": meeting.description,
+                    "idem_scope": f"{meeting.id}:{meeting.meeting_date.isoformat() if meeting.meeting_date else ''}",
                 }
 
                 # Dispatch reminder to all recipients
@@ -646,6 +647,7 @@ def send_home_church_reminders():
                         "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
                         "preacher_name": e.preacher.full_name if e.preacher else None,
                         "preacher_phone": e.preacher.phone if e.preacher else None,
+                        "idem_scope": tomorrow.isoformat(),
                         "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": leader_email, "phone": hc.leader.phone}],
                     })
                     leader_count += 1
@@ -666,6 +668,7 @@ def send_home_church_reminders():
                         "leader_phone": hc.leader.phone if hc.leader else "",
                         "roster_date": tomorrow.isoformat(),
                         "meeting_time": hc.meeting_time,
+                        "idem_scope": tomorrow.isoformat(),
                         "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": preacher_email, "phone": e.preacher.phone}],
                     })
                     preacher_count += 1
@@ -781,6 +784,7 @@ def send_home_church_attendance_reminders():
                 "roster_date": last_monday.isoformat(),
                 "pending_count": len(pending),
                 "pending_list": pending_list,
+                "idem_scope": last_monday.isoformat(),
                 "recipients": recipients,
             })
         except Exception as exc:
@@ -870,6 +874,7 @@ def send_prayer_request_reminders() -> Dict[str, Any]:
                 "count": len(reqs),
                 "days": days,
                 "requests": [_short(r.request_text) for r in reqs],
+                "idem_scope": "-".join(str(r.id) for r in reqs),
             }
             try:
                 dispatch_event(db, EventType.PRAYER_REQUEST_REMINDER, data, recipients)

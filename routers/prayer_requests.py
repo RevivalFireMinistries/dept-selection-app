@@ -231,6 +231,8 @@ def _notify_recipients(db: Session, assembly_id: str | None, requests: list):
         "count": count,
         "submitter": submitter,
         "requests": [r.request_text for r in requests],
+        # Unique per submission so each new batch alerts (not deduped forever).
+        "idem_scope": "-".join(str(r.id) for r in requests),
     }
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType

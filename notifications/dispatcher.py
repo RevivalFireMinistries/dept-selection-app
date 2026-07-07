@@ -701,10 +701,16 @@ def dispatch_event(
         html_content = render_email_template(event_type, recipient_data)
         subject = get_email_subject(event_type, recipient_data)
 
-        # Stable idempotency key per (event, recipient) so retries from a
-        # failed scheduler tick don't double-send.
+        # Idempotency key per (event, recipient, occurrence). The optional
+        # `idem_scope` (e.g. a roster/meeting date) makes recurring events send
+        # fresh each occurrence while still deduping genuine retries. Without a
+        # scope the key is stable per (event, recipient) — correct only for
+        # one-shot events; recurring senders MUST pass idem_scope.
         idem_id = recipient.get('id') or recipient_email
+        idem_scope = str(data.get('idem_scope') or '').strip()
         idempotency_key = f"portal:{event_type.value}:{idem_id}"
+        if idem_scope:
+            idempotency_key = f"{idempotency_key}:{idem_scope}"
 
         try:
             success, error = notify_channel.send(
