@@ -410,6 +410,7 @@ class ProgramItem(BaseModel):
 class Participant(BaseModel):
     role: str  # "Prayer"
     name: str  # "Dcns Gohodo"
+    confirmed: bool = False  # Has the service manager confirmed with this person?
 
 class ProgramTemplateCreate(BaseModel):
     title: str

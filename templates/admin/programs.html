@@ -141,6 +141,8 @@
                 <svg class="w-5 h-5 text-gray-400 section-chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
             <div id="participantsBody" class="border-t border-gray-100 p-4 pt-3">
+                <div id="pendingConfirmBanner" style="display:none;" class="mb-3 px-3 py-2.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200"></div>
+                <p class="text-[11px] text-gray-400 mb-2">Tap <span class="font-semibold text-amber-600">⚠ Confirm?</span> next to each person once you've checked they'll take the part. Publishing is blocked until everyone is confirmed.</p>
                 <div id="participants" class="space-y-3"></div>
                 <button type="button" onclick="addParticipantGroup()"
                     class="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-amber-300 hover:text-amber-600 active:bg-amber-50 transition-colors">
@@ -1049,28 +1051,84 @@ function addParticipantGroup(role = '', names = ['']) {
     container.appendChild(group);
 
     if (names.length === 0) names = [''];
-    names.forEach(n => addNameSlot(groupId, n));
+    names.forEach(n => {
+        const nm = (typeof n === 'string') ? n : (n && n.name) || '';
+        const cf = (typeof n === 'object' && n) ? !!n.confirmed : false;
+        addNameSlot(groupId, nm, cf);
+    });
     updateCounts();
 }
 
-function addNameSlot(groupId, name = '') {
+function addNameSlot(groupId, name = '', confirmed = false) {
     const group = document.getElementById(groupId);
     if (!group) return;
     const namesList = group.querySelector('.part-names-list');
     const id = 'part-name-' + (participantCounter++);
     const slot = document.createElement('div');
     slot.className = 'part-name-slot';
+    slot.dataset.confirmed = confirmed ? 'true' : 'false';
     slot.innerHTML = `
-        <div class="autocomplete-wrapper">
+        <div class="autocomplete-wrapper" style="flex:1;">
             <input type="text" value="${escapeHtml(name)}" placeholder="Search or type name..."
-                id="${id}" class="part-name" autocomplete="off">
+                id="${id}" class="part-name" autocomplete="off" oninput="renderSlotConfirm(this.closest('.part-name-slot'))">
         </div>
+        <button type="button" onclick="toggleSlotConfirmed(this)" class="part-confirm-btn"></button>
         <button type="button" onclick="confirmRemoveNameSlot(this)" class="btn-remove" style="width:32px;height:32px;min-width:32px;" title="Remove person">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     namesList.appendChild(slot);
     setupAutocomplete(slot.querySelector('#' + id));
+    renderSlotConfirm(slot);
+}
+
+function renderSlotConfirm(slot) {
+    if (!slot) return;
+    const btn = slot.querySelector('.part-confirm-btn');
+    if (!btn) return;
+    const hasName = ((slot.querySelector('.part-name') || {}).value || '').trim().length > 0;
+    if (!hasName) { btn.style.display = 'none'; updatePendingBanner(); return; }
+    btn.style.display = '';
+    const confirmed = slot.dataset.confirmed === 'true';
+    if (confirmed) {
+        btn.textContent = '✓ Confirmed';
+        btn.style.cssText = 'display:inline-block;padding:5px 9px;border-radius:8px;font-size:11px;font-weight:700;background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;white-space:nowrap;cursor:pointer;';
+    } else {
+        btn.textContent = '⚠ Confirm?';
+        btn.style.cssText = 'display:inline-block;padding:5px 9px;border-radius:8px;font-size:11px;font-weight:700;background:#fef3c7;color:#b45309;border:1px solid #fde68a;white-space:nowrap;cursor:pointer;';
+    }
+    updatePendingBanner();
+}
+
+function toggleSlotConfirmed(btn) {
+    const slot = btn.closest('.part-name-slot');
+    if (!slot) return;
+    const name = ((slot.querySelector('.part-name') || {}).value || '').trim() || 'this person';
+    if (slot.dataset.confirmed === 'true') {
+        slot.dataset.confirmed = 'false';
+    } else {
+        const ok = confirm(`Have you confirmed with "${name}" that they will take this part?\n\nOK = Yes, confirmed (they'll be emailed when you publish)\nCancel = Not yet`);
+        slot.dataset.confirmed = ok ? 'true' : 'false';
+    }
+    renderSlotConfirm(slot);
+}
+
+function updatePendingBanner() {
+    let pending = 0;
+    document.querySelectorAll('.part-name-slot').forEach(slot => {
+        const nm = ((slot.querySelector('.part-name') || {}).value || '').trim();
+        if (nm && slot.dataset.confirmed !== 'true') pending++;
+    });
+    const banner = document.getElementById('pendingConfirmBanner');
+    if (banner) {
+        if (pending > 0) {
+            banner.style.display = '';
+            banner.textContent = `⚠ ${pending} participant${pending === 1 ? '' : 's'} not yet confirmed — confirm everyone before you can publish.`;
+        } else {
+            banner.style.display = 'none';
+        }
+    }
+    return pending;
 }
 
 function removeNameSlot(btn) {
@@ -1402,7 +1460,7 @@ function showEditForm(program) {
     const grouped = {};
     (program.participants || []).forEach(p => {
         if (!grouped[p.role]) grouped[p.role] = [];
-        grouped[p.role].push(p.name);
+        grouped[p.role].push({ name: p.name, confirmed: !!p.confirmed });
     });
     Object.entries(grouped).forEach(([role, names]) => addParticipantGroup(role, names));
 
@@ -1599,7 +1657,7 @@ function collectFormData() {
         if (!role) return;
         group.querySelectorAll('.part-name-slot').forEach(slot => {
             const name = slot.querySelector('.part-name').value.trim();
-            if (name) participants.push({ role, name });
+            if (name) participants.push({ role, name, confirmed: slot.dataset.confirmed === 'true' });
         });
     });
 
@@ -1787,6 +1845,7 @@ async function loadPrograms() {
                         ${isDraft
                             ? '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full animate-pulse">Provisional</span>'
                             : '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-full">Published</span>'}
+                        ${(p.pending_confirmations || 0) > 0 ? `<span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full">⚠ ${p.pending_confirmations} to confirm</span>` : ''}
                         ${isToday ? '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">TODAY</span>' : ''}
                         ${p.location_type === 'online'
                             ? '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Online</span>'

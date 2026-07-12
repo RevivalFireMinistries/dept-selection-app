@@ -6043,6 +6043,7 @@ def _program_to_dict(program: ServiceProgram, public: bool = False, db: Session 
         "pastors_announcements": _parse_json(program.pastors_announcements),
         "prayer_points": _parse_json(program.prayer_points),
         "status": getattr(program, 'status', 'draft') or 'draft',
+        "pending_confirmations": sum(1 for p in participants if (p.get("name") or "").strip() and not p.get("confirmed")),
         "created_by_member_id": created_by_id,
         "created_by_name": created_by_name,
         "created_at": program.created_at.isoformat() if program.created_at else None,
@@ -6442,8 +6443,10 @@ def delete_program(program_id: int, request: Request, editor_member_id: int = No
 
 
 def _send_program_notifications(db: Session, program: ServiceProgram):
-    """Send email notifications to all participants of a program."""
+    """Send email notifications to participants of a program — CONFIRMED only,
+    so we never email someone the manager hasn't checked with."""
     participants = json.loads(program.participants) if isinstance(program.participants, str) else (program.participants or [])
+    participants = [p for p in participants if p.get("confirmed")]
     if not participants:
         return
 
@@ -6602,6 +6605,17 @@ def publish_program(program_id: int, request: Request, editor_member_id: int = N
         raise HTTPException(status_code=404, detail="Program not found")
 
     _check_program_edit_permission(db, program, editor_member_id)
+
+    # Every participant must be confirmed before a program can be finalised —
+    # stops managers publishing (and emailing) people they haven't checked with.
+    _participants = json.loads(program.participants) if isinstance(program.participants, str) else (program.participants or [])
+    _pending = [p for p in _participants if (p.get("name") or "").strip() and not p.get("confirmed")]
+    if _pending:
+        _names = ", ".join((p.get("name") or "").strip() for p in _pending[:12])
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(_pending)} participant(s) still to be confirmed — {_names}. Mark everyone as confirmed before publishing.",
+        )
 
     program.status = "published"
     db.commit()
