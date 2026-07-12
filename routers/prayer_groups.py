@@ -400,11 +400,39 @@ def _despace(s: str) -> str:
     return re.sub(r" {2,}", " ", joined).strip()
 
 
+# Smart punctuation / other odd chars → plain ASCII the PDF font can render.
+_CLEAN_TRANSLATE = {
+    0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'",          # single quotes
+    0x201C: '"', 0x201D: '"', 0x201E: '"', 0x201F: '"',          # double quotes
+    0x2013: "-", 0x2014: "-", 0x2015: "-", 0x2212: "-",          # dashes / minus
+    0x2026: "...",                                                # ellipsis
+    0x00A0: " ", 0x2022: "-",                                     # nbsp, bullet
+}
+
+
+def _clean_text(s: str) -> str:
+    """Clean pasted text (users copy from graphics / Word / PDFs). Folds
+    fancy-font unicode, strips zero-width + control chars, normalises smart
+    quotes/dashes, undoes letter-spacing, and collapses whitespace."""
+    import re, unicodedata
+    if not s:
+        return s
+    s = unicodedata.normalize("NFKC", s)                          # fold fancy fonts
+    s = re.sub(r"[  -   　]", " ", s)  # unicode spaces
+    s = re.sub(r"[​-‍⁠﻿]", "", s)            # zero-width / BOM
+    s = s.translate(_CLEAN_TRANSLATE)
+    # drop control chars except tab/newline
+    s = "".join(ch for ch in s if ch in "\n\t" or unicodedata.category(ch)[0] != "C")
+    s = _despace(s)                                               # undo letter-spacing
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return s.strip()
+
+
 def _chain_prayer_points_list(s: PrayerGroupSet) -> list:
-    """Stored prayer points (one per round), de-spaced; empty if unset/invalid."""
+    """Stored prayer points (one per round), cleaned; empty if unset/invalid."""
     try:
         v = json.loads(s.chain_prayer_points) if getattr(s, "chain_prayer_points", None) else []
-        return [_despace(str(x or "")) for x in v] if isinstance(v, list) else []
+        return [_clean_text(str(x or "")) for x in v] if isinstance(v, list) else []
     except (ValueError, TypeError):
         return []
 
@@ -765,7 +793,7 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
     chain = data.get("chain")
     if isinstance(chain, dict):
         s.chain_enabled = bool(chain.get("enabled"))
-        s.chain_label = (chain.get("label") or "").strip() or None
+        s.chain_label = _clean_text((chain.get("label") or "").strip()) or None
         s.chain_date = (chain.get("date") or "").strip() or None
         s.chain_start = (chain.get("start") or "").strip() or None
         s.chain_end = (chain.get("end") or "").strip() or None
@@ -790,7 +818,7 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
         if "prayer_points" in chain:
             pts = chain.get("prayer_points")
             if isinstance(pts, list):
-                s.chain_prayer_points = json.dumps([_despace(str(p or "").strip()) for p in pts])
+                s.chain_prayer_points = json.dumps([_clean_text(str(p or "").strip()) for p in pts])
             else:
                 s.chain_prayer_points = None
 
