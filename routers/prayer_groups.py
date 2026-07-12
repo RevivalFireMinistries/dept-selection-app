@@ -367,11 +367,44 @@ def _chain_slot_times(s: PrayerGroupSet) -> list:
     return out
 
 
+def _despace(s: str) -> str:
+    """Undo 'letter-spacing' in pasted prayer points (e.g. text copied from a
+    graphic where every character is separated by a space: "D I V I N E").
+    Only kicks in when the text has double-space word gaps — the letter-spacing
+    signature — so normal single-spaced text is never touched."""
+    import re
+    if not s or "  " not in s:
+        return s
+    SENT = "\x00"
+    t = re.sub(r" {2,}", SENT, s)  # protect word gaps
+
+    def fix_seg(seg: str) -> str:
+        out, run = [], []
+        for tk in seg.split(" "):
+            if len(tk) == 1:
+                run.append(tk)
+            else:
+                if len(run) >= 2:
+                    out.append("".join(run))
+                elif run:
+                    out.extend(run)
+                run = []
+                out.append(tk)
+        if len(run) >= 2:
+            out.append("".join(run))
+        elif run:
+            out.extend(run)
+        return " ".join(out)
+
+    joined = " ".join(fix_seg(p) for p in t.split(SENT))
+    return re.sub(r" {2,}", " ", joined).strip()
+
+
 def _chain_prayer_points_list(s: PrayerGroupSet) -> list:
-    """Stored prayer points (one per round); empty if unset/invalid."""
+    """Stored prayer points (one per round), de-spaced; empty if unset/invalid."""
     try:
         v = json.loads(s.chain_prayer_points) if getattr(s, "chain_prayer_points", None) else []
-        return [str(x or "") for x in v] if isinstance(v, list) else []
+        return [_despace(str(x or "")) for x in v] if isinstance(v, list) else []
     except (ValueError, TypeError):
         return []
 
@@ -757,7 +790,7 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
         if "prayer_points" in chain:
             pts = chain.get("prayer_points")
             if isinstance(pts, list):
-                s.chain_prayer_points = json.dumps([str(p or "").strip() for p in pts])
+                s.chain_prayer_points = json.dumps([_despace(str(p or "").strip()) for p in pts])
             else:
                 s.chain_prayer_points = None
 
