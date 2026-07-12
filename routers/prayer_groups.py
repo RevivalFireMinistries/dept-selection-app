@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import (
-    Member,
+    Member, Settings,
     PrayerGroupSet, PrayerGroup, PrayerGroupMember,
 )
 import rfm_api_client as _rfm
@@ -43,6 +43,15 @@ def _require_admin(request: Request):
     from routers.pages import is_authenticated
     if not is_authenticated(request):
         raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _require_password(db: Session, password: str | None):
+    """Re-confirm the admin password before a disruptive action on a PUBLISHED
+    (running) set. Guards accidental deletes / member reshuffles."""
+    setting = db.query(Settings).filter(Settings.key == "adminPassword").first()
+    correct = setting.value if setting else "admin123"
+    if (password or "") != correct:
+        raise HTTPException(status_code=403, detail="Incorrect admin password.")
 
 
 def _assembly_id(request: Request, db: Session) -> str:
@@ -685,8 +694,10 @@ def regenerate_set(set_id: int, request: Request, data: dict = Body(default={}),
     s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Set not found")
+    # Reshuffling a PUBLISHED (running) set replaces everyone's group — require
+    # the admin password so it can't happen by accident.
     if s.status == "published":
-        raise HTTPException(status_code=400, detail="Unpublish before regenerating.")
+        _require_password(db, data.get("password"))
     # Allow updating params on regenerate
     if "num_groups" in data:
         s.num_groups = max(1, min(100, int(data["num_groups"] or 2)))
@@ -888,11 +899,15 @@ def unpublish_set(set_id: int, request: Request, db: Session = Depends(get_db)):
 
 
 @router.delete("/admin/prayer-groups/{set_id}")
-def delete_set(set_id: int, request: Request, db: Session = Depends(get_db)):
+def delete_set(set_id: int, request: Request, password: str = "", db: Session = Depends(get_db)):
     _require_admin(request)
     s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Set not found")
+    # Deleting a PUBLISHED (running) set wipes groups members are already using —
+    # require the admin password.
+    if s.status == "published":
+        _require_password(db, password)
     db.delete(s)
     db.commit()
     return {"deleted": set_id}

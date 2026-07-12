@@ -103,8 +103,11 @@
                 x-text="totalMembers() + ' members · ' + (current.groups ? current.groups.length : 0) + ' groups'"></span>
         </div>
         <div class="flex items-center gap-2">
-          <button @click="regenerate()" :disabled="busy || current.status === 'published'"
-                  class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">↻ Regenerate</button>
+          <button @click="regenerate()" :disabled="busy"
+                  :title="current.status === 'published' ? 'Reshuffles a published set — requires the admin password' : ''"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+            ↻ Regenerate<span x-show="current.status === 'published'"> 🔒</span>
+          </button>
           <button @click="exportExcel()"
                   class="px-3 py-2 text-sm font-semibold rounded-xl text-white" style="background:#3F7D58;">Excel</button>
           <button x-show="current.status !== 'published'" @click="publish()"
@@ -601,16 +604,23 @@ function prayerGroups() {
 
     async regenerate() {
       if (!this.current) return;
+      const published = this.current.status === 'published';
+      let password = '';
+      if (published) {
+        if (!confirm('This set is PUBLISHED and members are already using their groups.\n\nRegenerating REPLACES everyone into new groups. Continue?')) return;
+        password = prompt('Enter the admin password to reshuffle a published set:') || '';
+        if (!password) return;
+      }
       this.busy = true; this.err = '';
       try {
         const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/regenerate`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ num_groups: this.form.num_groups, leaders_per_group: this.form.leaders_per_group, criteria: this.form.criteria, leader_mode: this.form.leader_mode, separate_surnames: this.form.separate_surnames, separate_family: this.form.separate_family }),
+          body: JSON.stringify({ num_groups: this.form.num_groups, leaders_per_group: this.form.leaders_per_group, criteria: this.form.criteria, leader_mode: this.form.leader_mode, separate_surnames: this.form.separate_surnames, separate_family: this.form.separate_family, password }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || 'Failed');
         this.current = d; this._normChain(); this.unallocated = [];
-      } catch (e) { this.err = e.message; }
+      } catch (e) { this.err = e.message; alert(e.message); }
       this.busy = false;
     },
 
@@ -1083,8 +1093,26 @@ function prayerGroups() {
     },
 
     async del(id) {
-      if (!confirm('Delete this set of prayer groups?')) return;
-      await fetch(`/api/admin/prayer-groups/${id}`, { method: 'DELETE' });
+      const set = (this.current && this.current.id === id) ? this.current : (this.sets || []).find(s => s.id === id);
+      const published = set && set.status === 'published';
+      const name = (set && set.name) || 'this set';
+      if (published) {
+        if (!confirm(`⚠️ “${name}” is PUBLISHED — members are actively using these groups.\n\nDeleting it removes their groups permanently. Are you sure?`)) return;
+      } else {
+        if (!confirm(`Delete “${name}”? This can't be undone.`)) return;
+      }
+      let url = `/api/admin/prayer-groups/${id}`;
+      if (published) {
+        const password = prompt('Enter the admin password to delete a published set:') || '';
+        if (!password) return;
+        url += `?password=${encodeURIComponent(password)}`;
+      }
+      const r = await fetch(url, { method: 'DELETE' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert(d.detail || 'Could not delete the set.');
+        return;
+      }
       if (this.current && this.current.id === id) this.current = null;
       await this.loadSets();
     },
