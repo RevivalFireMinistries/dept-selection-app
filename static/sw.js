@@ -3,7 +3,7 @@
 // on every client. The activate handler below wipes any cache that doesn't
 // match the current VERSION, which is the only reliable way to evict stale
 // templates from existing installs (display_submit.html in particular).
-const VERSION = 'rfm-portal-v6';
+const VERSION = 'rfm-portal-v7';
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 

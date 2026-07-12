@@ -143,19 +143,26 @@
           return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
         } catch (e) { return iso; }
       },
+      // Manual amber box (no autoTable) so long points can't be justified out of the box.
       _prayerBanner(doc, pt, y, M, contentW) {
-        if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} }
-        doc.autoTable({
-          startY: y,
-          body: [
-            [{ content: 'PRAYER POINT', styles: { fontSize: 7.5, textColor: [180, 83, 9], fontStyle: 'bold', cellPadding: { top: 3, bottom: 0, left: 4, right: 4 } } }],
-            [{ content: pt, styles: { fontSize: 12, textColor: [17, 24, 39], fontStyle: 'bold', cellPadding: { top: 1, bottom: 3, left: 4, right: 4 } } }],
-          ],
-          theme: 'plain', tableWidth: contentW, margin: { left: M, right: M },
-          tableLineColor: [245, 158, 11], tableLineWidth: 0.4, styles: { fillColor: [255, 243, 224], overflow: 'linebreak' },
-          willDrawCell: () => { if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} } },
-        });
-        return (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 3;
+        const padX = 4, padTop = 3, lineH = 5.6, labelH = 4.5, padBottom = 3.5;
+        try { doc.setCharSpace && doc.setCharSpace(0); } catch (e) {}
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+        const lines = doc.splitTextToSize(String(pt || ''), contentW - padX * 2);
+        const boxH = padTop + labelH + lines.length * lineH + padBottom;
+        doc.setFillColor(255, 243, 224); doc.setDrawColor(245, 158, 11); doc.setLineWidth(0.4);
+        doc.roundedRect(M, y, contentW, boxH, 2, 2, 'FD');
+        doc.setFontSize(7.5); doc.setTextColor(180, 83, 9);
+        doc.text('PRAYER POINT', M + padX, y + padTop + 2.5);
+        doc.setFontSize(12); doc.setTextColor(17, 24, 39);
+        let ty = y + padTop + labelH + 4;
+        for (const ln of lines) {
+          try { doc.setCharSpace && doc.setCharSpace(0); } catch (e) {}
+          doc.text(ln, M + padX, ty);
+          ty += lineH;
+        }
+        doc.setTextColor(0, 0, 0);
+        return y + boxH + 3;
       },
       async shareMySchedulePdf() {
         const slots = (this.chain && this.chain.my_slots) || [];
@@ -182,7 +189,10 @@
           y = s.prayer_point ? this._prayerBanner(doc, s.prayer_point, y, M, contentW) : (y + 4);
           y += 4;
         }
-        const filename = `prayer_${((this.group && this.group.name) || 'group').replace(/\s+/g, '_')}.pdf`;
+        const gname = (this.group && this.group.name) || 'group';
+        const fnParts = [gname, this.chain && this.chain.date].filter(Boolean)
+          .map(s => String(s).trim().replace(/[^\w\-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''));
+        const filename = (fnParts.join('-') || 'prayer') + '.pdf';
         const blob = doc.output('blob');
         const file = new File([blob], filename, { type: 'application/pdf' });
         try {

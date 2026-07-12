@@ -475,6 +475,29 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" crossorigin="anonymous"></script>
 <script>
+// Amber prayer-point box, drawn 100% by hand (no autoTable) so the text can
+// never be justified/letter-spaced beyond the box. Returns the new y.
+function pdfPrayerBox(doc, pt, y, M, contentW) {
+  const padX = 4, padTop = 3, lineH = 5.6, labelH = 4.5, padBottom = 3.5;
+  try { doc.setCharSpace && doc.setCharSpace(0); } catch (e) {}
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+  const lines = doc.splitTextToSize(String(pt || ''), contentW - padX * 2);
+  const boxH = padTop + labelH + lines.length * lineH + padBottom;
+  doc.setFillColor(255, 243, 224); doc.setDrawColor(245, 158, 11); doc.setLineWidth(0.4);
+  doc.roundedRect(M, y, contentW, boxH, 2, 2, 'FD');
+  doc.setFontSize(7.5); doc.setTextColor(180, 83, 9);
+  doc.text('PRAYER POINT', M + padX, y + padTop + 2.5);
+  doc.setFontSize(12); doc.setTextColor(17, 24, 39);
+  let ty = y + padTop + labelH + 4;
+  for (const ln of lines) {
+    try { doc.setCharSpace && doc.setCharSpace(0); } catch (e) {}
+    doc.text(ln, M + padX, ty);   // one line, no options → cannot justify
+    ty += lineH;
+  }
+  doc.setTextColor(0, 0, 0);
+  return y + boxH + 3;
+}
+
 // NB: prayerGroups() must be defined BEFORE Alpine boots. Alpine is loaded
 // with `defer` below, so it runs after this (non-deferred) script — good.
 function prayerGroups() {
@@ -879,8 +902,7 @@ function prayerGroups() {
         y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 10;
       }
 
-      const filename = `prayer_chain_${(this.current.name || 'schedule').replace(/\s+/g, '_')}.pdf`;
-      return { blob: doc.output('blob'), filename, title, sub };
+      return { blob: doc.output('blob'), filename: this._pdfFilename(), title, sub };
     },
 
     previewSchedulePdf() {
@@ -918,25 +940,11 @@ function prayerGroups() {
     },
 
     // Amber prayer-point banner via autoTable — wraps inside the width reliably.
+    // Draw the amber prayer-point box entirely by hand — each line is a separate
+    // doc.text call with charSpace reset, so nothing can justify/letter-space it
+    // out of the box (autoTable was doing that on some jsPDF builds).
     _pdfPrayerBanner(doc, pt, y, M, contentW) {
-      // Reset any leaked character spacing so a long point can't render wider
-      // than it was measured (which would push it out of the box on some
-      // jsPDF builds — the "letter-spaced first line" symptom).
-      if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} }
-      doc.autoTable({
-        startY: y,
-        body: [
-          [{ content: 'PRAYER POINT', styles: { fontSize: 7.5, textColor: [180, 83, 9], fontStyle: 'bold', cellPadding: { top: 3, bottom: 0, left: 4, right: 4 } } }],
-          [{ content: pt, styles: { fontSize: 12, textColor: [17, 24, 39], fontStyle: 'bold', cellPadding: { top: 1, bottom: 3, left: 4, right: 4 } } }],
-        ],
-        theme: 'plain',
-        tableWidth: contentW,
-        margin: { left: M, right: M },
-        tableLineColor: [245, 158, 11], tableLineWidth: 0.4,
-        styles: { fillColor: [255, 243, 224], overflow: 'linebreak' },
-        willDrawCell: () => { if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} } },
-      });
-      return (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 3;
+      return pdfPrayerBox(doc, pt, y, M, contentW);
     },
 
     // A single group's schedule as its own PDF. groupRows: [{time, point}].
@@ -958,8 +966,9 @@ function prayerGroups() {
       doc.setTextColor(0, 0, 0);
 
       let y = 40;
-      const ordered = groupRows.slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-      for (const gr of ordered) {
+      // Keep chain order (already chronological across midnight) — do NOT sort
+      // by clock time, or a 00:30 after-midnight slot jumps to the front.
+      for (const gr of groupRows) {
         if (y > pageH - 45) { doc.addPage(); y = 20; }
         doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(17, 24, 39);
         doc.text(gr.time, M, y);
@@ -968,8 +977,15 @@ function prayerGroups() {
         y = gr.point ? this._pdfPrayerBanner(doc, gr.point, y, M, contentW) : (y + 4);
         y += 4;
       }
-      const filename = `prayer_${(groupName || 'group').replace(/\s+/g, '_')}.pdf`;
-      return { blob: doc.output('blob'), filename, title: `${title} — ${groupName}`, sub: '' };
+      return { blob: doc.output('blob'), filename: this._pdfFilename(groupName), title: `${title} — ${groupName}`, sub: '' };
+    },
+
+    // "<Set name> - <date> - <group>.pdf" (sanitised).
+    _pdfFilename(groupName) {
+      const parts = [this.current.name, this.current.chain && this.current.chain.date, groupName]
+        .filter(Boolean)
+        .map(s => String(s).trim().replace(/[^\w\-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''));
+      return (parts.join('-') || 'prayer_chain') + '.pdf';
     },
 
     async downloadGroupPdf(g) {
