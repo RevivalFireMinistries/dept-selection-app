@@ -345,10 +345,16 @@
                   <span x-text="g.members.length + ' members'"></span>
                   <span x-show="leaderCount(g) > 0" x-text="' · ' + leaderCount(g) + ' leader' + (leaderCount(g) === 1 ? '' : 's')"></span>
                 </div>
-                <button @click="viewGroup = g" class="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
-                  Open
-                </button>
+                <div class="flex items-center gap-3">
+                  <button x-show="chainTimes().length" @click="downloadGroupPdf(g)" class="text-[11px] font-semibold text-gray-500 hover:text-gray-800 flex items-center gap-1" title="Download this group's schedule as PDF">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    PDF
+                  </button>
+                  <button @click="viewGroup = g" class="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    Open
+                  </button>
+                </div>
               </div>
             </div>
             <div class="divide-y divide-gray-50 max-h-72 overflow-y-auto">
@@ -799,6 +805,7 @@ function prayerGroups() {
       return this.chainTimes().map((t, i) => ({
         time: `${t.start}–${t.end}`,
         group: this.groupNameById(this.slotGroupId(i)),
+        group_id: this.slotGroupId(i),
         point: pts[this.slotRound(i)] || '',
         round: this.slotRound(i),
       }));
@@ -838,15 +845,7 @@ function prayerGroups() {
         const span = this.roundSpanLabel(r);
         const pt = rRows[0].point;
 
-        // Pre-measure the prayer-point box (wrap the text at the content width).
-        const padX = 4, padY = 3.5, lineH = 5.6, labelH = 4.5;
-        doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-        const ptLines = pt ? doc.splitTextToSize(pt, contentW - padX * 2) : [];
-        const boxH = pt ? (padY * 2 + labelH + ptLines.length * lineH) : 0;
-
-        // Page-break so a heading + box + first rows stay together.
-        const need = 8 + (boxH ? boxH + 3 : 0) + 20;
-        if (y + need > pageH - 12) { doc.addPage(); y = 20; }
+        if (y > pageH - 55) { doc.addPage(); y = 20; }
 
         // Round heading
         doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(184, 84, 28);
@@ -854,19 +853,8 @@ function prayerGroups() {
         doc.setTextColor(0, 0, 0);
         y += 3;
 
-        // Prominent prayer-point box
-        if (pt) {
-          doc.setFillColor(255, 243, 224);   // light amber
-          doc.setDrawColor(245, 158, 11);     // amber border
-          doc.setLineWidth(0.4);
-          doc.roundedRect(M, y, contentW, boxH, 2, 2, 'FD');
-          doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(180, 83, 9);
-          doc.text('PRAYER POINT', M + padX, y + padY + 2);
-          doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(17, 24, 39);
-          doc.text(ptLines, M + padX, y + padY + labelH + 3);
-          doc.setTextColor(0, 0, 0);
-          y += boxH + 3;
-        }
+        // Prayer point — rendered via autoTable so it always wraps inside the box
+        if (pt) { y = this._pdfPrayerBanner(doc, pt, y, M, contentW); }
 
         doc.autoTable({
           startY: y,
@@ -900,11 +888,14 @@ function prayerGroups() {
 
     async shareSchedulePdf() {
       const out = this._buildSchedulePdf();
-      if (!out) return;
+      if (out) await this._sharePdfBlob(out);
+    },
+
+    async _sharePdfBlob(out) {
       const file = new File([out.blob], out.filename, { type: 'application/pdf' });
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ title: out.title, text: `${out.title}${out.sub ? '\n' + out.sub : ''}`, files: [file] });
+          await navigator.share({ title: out.title, text: (out.title + (out.sub ? '\n' + out.sub : '')), files: [file] });
         } else {
           const url = URL.createObjectURL(out.blob);
           const a = document.createElement('a');
@@ -914,6 +905,62 @@ function prayerGroups() {
       } catch (e) {
         if (e.name !== 'AbortError') alert('Could not share: ' + e.message);
       }
+    },
+
+    // Amber prayer-point banner via autoTable — wraps inside the width reliably.
+    _pdfPrayerBanner(doc, pt, y, M, contentW) {
+      doc.autoTable({
+        startY: y,
+        body: [
+          [{ content: 'PRAYER POINT', styles: { fontSize: 7.5, textColor: [180, 83, 9], fontStyle: 'bold', cellPadding: { top: 3, bottom: 0, left: 4, right: 4 } } }],
+          [{ content: pt, styles: { fontSize: 12, textColor: [17, 24, 39], fontStyle: 'bold', cellPadding: { top: 1, bottom: 3, left: 4, right: 4 } } }],
+        ],
+        theme: 'plain',
+        tableWidth: contentW,
+        margin: { left: M, right: M },
+        tableLineColor: [245, 158, 11], tableLineWidth: 0.4,
+        styles: { fillColor: [255, 243, 224] },
+      });
+      return (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 3;
+    },
+
+    // A single group's schedule as its own PDF. groupRows: [{time, point}].
+    _buildGroupPdf(groupName, groupRows) {
+      if (!groupRows.length) { alert('This group has no slots yet.'); return null; }
+      if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF library still loading — try again.'); return null; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const c = this.current.chain || {};
+      const dur = this.chainDurationLabel();
+      const title = (dur ? `${dur} Chain Prayer` : 'Chain Prayer') + (this.chainLongDate() ? ` · ${this.chainLongDate()}` : '');
+      const M = 14, pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight(), contentW = pageW - M * 2;
+
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(title, M, 18);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 100, 87);
+      doc.text('Revival Fire Ministries' + (c.label ? '  ·  ' + c.label : ''), M, 25);
+      doc.setFontSize(15); doc.setFont('helvetica', 'bold'); doc.setTextColor(184, 84, 28);
+      doc.text(groupName, M, 34);
+      doc.setTextColor(0, 0, 0);
+
+      let y = 40;
+      const ordered = groupRows.slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+      for (const gr of ordered) {
+        if (y > pageH - 45) { doc.addPage(); y = 20; }
+        doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(17, 24, 39);
+        doc.text(gr.time, M, y);
+        doc.setTextColor(0, 0, 0);
+        y += 2;
+        y = gr.point ? this._pdfPrayerBanner(doc, gr.point, y, M, contentW) : (y + 4);
+        y += 4;
+      }
+      const filename = `prayer_${(groupName || 'group').replace(/\s+/g, '_')}.pdf`;
+      return { blob: doc.output('blob'), filename, title: `${title} — ${groupName}`, sub: '' };
+    },
+
+    async downloadGroupPdf(g) {
+      const rows = this.scheduleRows().filter(x => x.group_id === g.id);
+      const out = this._buildGroupPdf(g.name, rows);
+      if (out) await this._sharePdfBlob(out);
     },
 
     _shuffle(a) {

@@ -54,6 +54,12 @@
             </div>
           </template>
         </div>
+        <button @click="shareMySchedulePdf()"
+                class="mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-semibold"
+                style="background-color:#16a34a;">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 018.413 3.488 11.82 11.82 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.51 5.26l-.999 3.648 3.978-1.607z"/></svg>
+          Share my schedule (PDF)
+        </button>
       </div>
 
       <div class="bg-white rounded-2xl shadow-sm overflow-hidden" style="border:1px solid var(--color-border);">
@@ -105,6 +111,8 @@
   </main>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <script>
   function prayerGroupView() {
@@ -134,6 +142,56 @@
         try {
           return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
         } catch (e) { return iso; }
+      },
+      _prayerBanner(doc, pt, y, M, contentW) {
+        doc.autoTable({
+          startY: y,
+          body: [
+            [{ content: 'PRAYER POINT', styles: { fontSize: 7.5, textColor: [180, 83, 9], fontStyle: 'bold', cellPadding: { top: 3, bottom: 0, left: 4, right: 4 } } }],
+            [{ content: pt, styles: { fontSize: 12, textColor: [17, 24, 39], fontStyle: 'bold', cellPadding: { top: 1, bottom: 3, left: 4, right: 4 } } }],
+          ],
+          theme: 'plain', tableWidth: contentW, margin: { left: M, right: M },
+          tableLineColor: [245, 158, 11], tableLineWidth: 0.4, styles: { fillColor: [255, 243, 224] },
+        });
+        return (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 3;
+      },
+      async shareMySchedulePdf() {
+        const slots = (this.chain && this.chain.my_slots) || [];
+        if (!slots.length) { alert('No schedule to share yet.'); return; }
+        if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF is still loading — try again in a moment.'); return; }
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const M = 14, pageW = doc.internal.pageSize.getWidth(), pageH = doc.internal.pageSize.getHeight(), contentW = pageW - M * 2;
+        const title = this.chain.title || 'Chain Prayer';
+        const sub = [this.chain.date_display, this.chain.label].filter(Boolean).join('  ·  ');
+        doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(title, M, 18);
+        doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 100, 87);
+        doc.text('Revival Fire Ministries' + (sub ? '  ·  ' + sub : ''), M, 25);
+        doc.setFontSize(15); doc.setFont('helvetica', 'bold'); doc.setTextColor(184, 84, 28);
+        doc.text((this.group && this.group.name) || 'My Group', M, 34);
+        doc.setTextColor(0, 0, 0);
+        let y = 40;
+        for (const s of slots) {
+          if (y > pageH - 45) { doc.addPage(); y = 20; }
+          doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(17, 24, 39);
+          doc.text(`${s.start}–${s.end}`, M, y);
+          doc.setTextColor(0, 0, 0);
+          y += 2;
+          y = s.prayer_point ? this._prayerBanner(doc, s.prayer_point, y, M, contentW) : (y + 4);
+          y += 4;
+        }
+        const filename = `prayer_${((this.group && this.group.name) || 'group').replace(/\s+/g, '_')}.pdf`;
+        const blob = doc.output('blob');
+        const file = new File([blob], filename, { type: 'application/pdf' });
+        try {
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ title: title + ' — ' + ((this.group && this.group.name) || ''), text: title, files: [file] });
+          } else {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+          }
+        } catch (e) { if (e.name !== 'AbortError') alert('Could not share: ' + e.message); }
       },
       waNumber(phone) {
         // Strip non-digits; assume SA local numbers (leading 0 → 27).
