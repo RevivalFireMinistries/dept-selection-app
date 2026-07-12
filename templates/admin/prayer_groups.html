@@ -919,6 +919,10 @@ function prayerGroups() {
 
     // Amber prayer-point banner via autoTable — wraps inside the width reliably.
     _pdfPrayerBanner(doc, pt, y, M, contentW) {
+      // Reset any leaked character spacing so a long point can't render wider
+      // than it was measured (which would push it out of the box on some
+      // jsPDF builds — the "letter-spaced first line" symptom).
+      if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} }
       doc.autoTable({
         startY: y,
         body: [
@@ -929,7 +933,8 @@ function prayerGroups() {
         tableWidth: contentW,
         margin: { left: M, right: M },
         tableLineColor: [245, 158, 11], tableLineWidth: 0.4,
-        styles: { fillColor: [255, 243, 224] },
+        styles: { fillColor: [255, 243, 224], overflow: 'linebreak' },
+        willDrawCell: () => { if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} } },
       });
       return (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 3;
     },

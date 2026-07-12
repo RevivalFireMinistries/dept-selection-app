@@ -144,6 +144,7 @@
         } catch (e) { return iso; }
       },
       _prayerBanner(doc, pt, y, M, contentW) {
+        if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} }
         doc.autoTable({
           startY: y,
           body: [
@@ -151,7 +152,8 @@
             [{ content: pt, styles: { fontSize: 12, textColor: [17, 24, 39], fontStyle: 'bold', cellPadding: { top: 1, bottom: 3, left: 4, right: 4 } } }],
           ],
           theme: 'plain', tableWidth: contentW, margin: { left: M, right: M },
-          tableLineColor: [245, 158, 11], tableLineWidth: 0.4, styles: { fillColor: [255, 243, 224] },
+          tableLineColor: [245, 158, 11], tableLineWidth: 0.4, styles: { fillColor: [255, 243, 224], overflow: 'linebreak' },
+          willDrawCell: () => { if (doc.setCharSpace) { try { doc.setCharSpace(0); } catch (e) {} } },
         });
         return (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 3;
       },

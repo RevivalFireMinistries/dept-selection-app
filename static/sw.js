@@ -3,7 +3,7 @@
 // on every client. The activate handler below wipes any cache that doesn't
 // match the current VERSION, which is the only reliable way to evict stale
 // templates from existing installs (display_submit.html in particular).
-const VERSION = 'rfm-portal-v5';
+const VERSION = 'rfm-portal-v6';
 const STATIC_CACHE = `${VERSION}-static`;
 const RUNTIME_CACHE = `${VERSION}-runtime`;
 
@@ -45,10 +45,12 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
 
-  // Page navigation
+  // Page navigation — always fetch the freshest HTML, bypassing the browser's
+  // HTTP cache (cache:'no-store'). Without this, a stale cached page (and its
+  // inline JS) could keep serving old code even after a deploy.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-store' })
         .then((res) => {
           const copy = res.clone();
           caches.open(RUNTIME_CACHE).then((cache) => cache.put(req, copy));
