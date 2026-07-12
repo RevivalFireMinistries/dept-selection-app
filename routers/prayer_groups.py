@@ -417,14 +417,25 @@ def _clean_text(s: str) -> str:
     import re, unicodedata
     if not s:
         return s
-    s = unicodedata.normalize("NFKC", s)                          # fold fancy fonts
-    s = re.sub(r"[  -   　]", " ", s)  # unicode spaces
-    s = re.sub(r"[​-‍⁠﻿]", "", s)            # zero-width / BOM
-    s = s.translate(_CLEAN_TRANSLATE)
-    # drop control chars except tab/newline
-    s = "".join(ch for ch in s if ch in "\n\t" or unicodedata.category(ch)[0] != "C")
-    s = _despace(s)                                               # undo letter-spacing
-    s = re.sub(r"[ \t]{2,}", " ", s)
+    s = unicodedata.normalize("NFKC", s)  # fold fancy-font / compatibility unicode
+    # Classify every char by its Unicode category so we catch ALL exotic
+    # whitespace/format chars (NBSP, U+2028 LINE SEPARATOR, U+2029, zero-width,
+    # BOM, soft hyphen, control chars) without hardcoding a list.
+    out = []
+    for ch in s:
+        if ch == chr(10):          # keep real newlines
+            out.append(ch)
+            continue
+        cat = unicodedata.category(ch)
+        if cat[0] == "Z" or ch == chr(9):   # separators (incl. U+2028/2029) + tab -> space
+            out.append(" ")
+        elif cat[0] == "C":                 # control & format (zero-width, BOM, soft hyphen)
+            continue
+        else:
+            out.append(ch)
+    s = "".join(out).translate(_CLEAN_TRANSLATE)
+    s = _despace(s)                # undo letter-spacing
+    s = re.sub("  +", " ", s)      # collapse runs of 2+ spaces
     return s.strip()
 
 
