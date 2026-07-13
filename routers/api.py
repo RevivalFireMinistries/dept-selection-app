@@ -7626,6 +7626,7 @@ def admin_get_roster(
     request: Request,
     start_date: Optional[str] = Query(None),
     weeks: int = Query(8, ge=1, le=26),
+    past_weeks: int = Query(4, ge=0, le=12),
     db: Session = Depends(get_db),
 ):
     _require_committee_or_admin(request, db)
@@ -7637,18 +7638,31 @@ def admin_get_roster(
     else:
         start = _next_weekday()
 
-    dates = [start + timedelta(days=7 * i) for i in range(weeks)]
+    # Past columns give the committee recent context (who preached + attendance)
+    # right next to the upcoming roster. `start` stays the upcoming anchor so
+    # navigation math is unaffected; past dates are simply prepended.
+    past_dates = [start - timedelta(days=7 * (past_weeks - i)) for i in range(past_weeks)]
+    future_dates = [start + timedelta(days=7 * i) for i in range(weeks)]
+    dates = past_dates + future_dates
+    range_start = dates[0]
     end_date = dates[-1]
 
     churches = db.query(HomeChurch).filter(HomeChurch.is_active == True).order_by(HomeChurch.name).all()
     entries = db.query(HomeChurchRoster).filter(
-        HomeChurchRoster.roster_date >= start,
+        HomeChurchRoster.roster_date >= range_start,
         HomeChurchRoster.roster_date <= end_date,
     ).all()
 
     entry_map = {}
     for e in entries:
         entry_map[(e.home_church_id, e.roster_date)] = e
+
+    # Attendance reports for the range so past columns can show turnout.
+    reports = db.query(HomeChurchAttendance).filter(
+        HomeChurchAttendance.roster_date >= range_start,
+        HomeChurchAttendance.roster_date <= end_date,
+    ).all()
+    att_map = {(r.home_church_id, r.roster_date): r for r in reports}
 
     program_types = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.is_active == True).order_by(HomeChurchProgramType.sort_order).all()
 
@@ -7657,17 +7671,22 @@ def admin_get_roster(
         row = {"home_church": _home_church_to_dict(c, db), "cells": []}
         for d in dates:
             entry = entry_map.get((c.id, d))
+            report = att_map.get((c.id, d))
             row["cells"].append({
                 "date": d.isoformat(),
                 "entry": _roster_entry_to_dict(entry, db) if entry else None,
+                "attendance": _attendance_to_dict(report, db) if report else None,
             })
         matrix.append(row)
 
     return {
         "start_date": start.isoformat(),
+        "range_start": range_start.isoformat(),
         "end_date": end_date.isoformat(),
+        "today": date.today().isoformat(),
         "dates": [d.isoformat() for d in dates],
         "weeks": weeks,
+        "past_weeks": past_weeks,
         "home_churches": [_home_church_to_dict(c, db) for c in churches],
         "program_types": [_program_type_to_dict(t) for t in program_types],
         "matrix": matrix,

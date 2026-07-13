@@ -110,7 +110,7 @@
 
         <!-- MOBILE: week cards -->
         <div class="mt-4 sm:hidden space-y-4" x-show="!rosterLoading && matrix && matrix.length > 0">
-            <template x-for="(d, di) in dates" :key="d">
+            <template x-for="d in upcomingDates()" :key="d">
                 <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                     <div class="px-4 py-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-gray-100">
                         <div class="flex items-start justify-between gap-2">
@@ -141,20 +141,20 @@
                             <div class="px-4 py-3 flex items-center gap-3 active:bg-gray-50 cursor-pointer" @click="openCellEditor(row.home_church, d)">
                                 <div class="flex-1 min-w-0">
                                     <div class="text-sm font-medium text-gray-900 truncate" x-text="row.home_church.name"></div>
-                                    <template x-if="cellAt(row, di) && cellAt(row, di).entry">
+                                    <template x-if="cellFor(row, d) && cellFor(row, d).entry">
                                         <div class="text-[11px] text-gray-600 mt-0.5">
-                                            <template x-if="cellAt(row, di).entry.preacher">
-                                                <span>🎤 <span x-text="cellAt(row, di).entry.preacher.full_name"></span></span>
+                                            <template x-if="cellFor(row, d).entry.preacher">
+                                                <span>🎤 <span x-text="cellFor(row, d).entry.preacher.full_name"></span></span>
                                             </template>
-                                            <template x-if="!cellAt(row, di).entry.preacher && cellAt(row, di).entry.program_type && cellAt(row, di).entry.program_type.requires_preacher">
+                                            <template x-if="!cellFor(row, d).entry.preacher && cellFor(row, d).entry.program_type && cellFor(row, d).entry.program_type.requires_preacher">
                                                 <span class="text-amber-600 font-medium">⚠ Preacher needed</span>
                                             </template>
-                                            <template x-if="!cellAt(row, di).entry.preacher && cellAt(row, di).entry.program_type && !cellAt(row, di).entry.program_type.requires_preacher">
+                                            <template x-if="!cellFor(row, d).entry.preacher && cellFor(row, d).entry.program_type && !cellFor(row, d).entry.program_type.requires_preacher">
                                                 <span class="text-gray-400">Leader-led</span>
                                             </template>
                                         </div>
                                     </template>
-                                    <template x-if="!cellAt(row, di) || !cellAt(row, di).entry">
+                                    <template x-if="!cellFor(row, d) || !cellFor(row, d).entry">
                                         <div class="text-[11px] text-gray-400 mt-0.5">Tap to assign</div>
                                     </template>
                                 </div>
@@ -176,13 +176,20 @@
                                 Home Church
                             </th>
                             <template x-for="d in dates" :key="d">
-                                <th class="px-2 py-3 text-center text-xs font-semibold text-gray-600 min-w-[150px]">
-                                    <div class="text-gray-400 text-[10px] font-normal" x-text="formatDayLabel(d)"></div>
-                                    <div x-text="formatDateShort(d)"></div>
-                                    <div class="mt-1 flex justify-center gap-1">
-                                        <button @click="openShareDialog(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-gray-50" title="Share week">📤</button>
-                                        <button @click="publishDate(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium">Publish</button>
-                                    </div>
+                                <th class="px-2 py-3 text-center text-xs font-semibold min-w-[150px]"
+                                    :class="isPast(d) ? 'bg-gray-100/70' : 'text-gray-600'"
+                                    :style="isFirstUpcoming(d) ? 'box-shadow: inset 2px 0 0 0 #a78bfa' : ''">
+                                    <div class="text-[10px] font-normal" :class="isPast(d) ? 'text-gray-400' : 'text-gray-400'" x-text="formatDayLabel(d)"></div>
+                                    <div :class="isPast(d) ? 'text-gray-400' : 'text-gray-800'" x-text="formatDateShort(d)"></div>
+                                    <template x-if="!isPast(d)">
+                                        <div class="mt-1 flex justify-center gap-1">
+                                            <button @click="openShareDialog(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-gray-50" title="Share week">📤</button>
+                                            <button @click="publishDate(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium">Publish</button>
+                                        </div>
+                                    </template>
+                                    <template x-if="isPast(d)">
+                                        <div class="mt-1 text-[9px] uppercase tracking-wider text-gray-400 font-semibold">Past · turnout</div>
+                                    </template>
                                 </th>
                             </template>
                         </tr>
@@ -192,14 +199,21 @@
                                 Programme for the week
                             </th>
                             <template x-for="d in dates" :key="'wp-' + d">
-                                <th class="px-1.5 py-1.5 text-center">
-                                    <select :value="weekProgramTypeId(d)" @change="setWeekProgramType(d, $event.target.value)"
-                                        class="w-full text-[11px] border border-violet-200 rounded-md px-1.5 py-1 bg-white font-medium text-gray-800">
-                                        <option value="">—</option>
-                                        <template x-for="pt in programTypes" :key="pt.id">
-                                            <option :value="pt.id" x-text="(pt.icon || '') + ' ' + pt.name"></option>
-                                        </template>
-                                    </select>
+                                <th class="px-1.5 py-1.5 text-center" :class="isPast(d) ? 'bg-gray-100/40' : ''"
+                                    :style="isFirstUpcoming(d) ? 'box-shadow: inset 2px 0 0 0 #a78bfa' : ''">
+                                    <template x-if="!isPast(d)">
+                                        <select :value="weekProgramTypeId(d)" @change="setWeekProgramType(d, $event.target.value)"
+                                            class="w-full text-[11px] border border-violet-200 rounded-md px-1.5 py-1 bg-white font-medium text-gray-800">
+                                            <option value="">—</option>
+                                            <template x-for="pt in programTypes" :key="pt.id">
+                                                <option :value="pt.id" x-text="(pt.icon || '') + ' ' + pt.name"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <template x-if="isPast(d)">
+                                        <div class="text-[11px] text-gray-400 font-medium truncate px-1 py-1"
+                                             x-text="weekProgramType(d) ? ((weekProgramType(d).icon || '') + ' ' + weekProgramType(d).name) : '—'"></div>
+                                    </template>
                                 </th>
                             </template>
                         </tr>
@@ -212,30 +226,53 @@
                                     <div class="text-[11px] text-gray-400" x-text="row.home_church.leader ? row.home_church.leader.full_name : 'No leader'"></div>
                                 </td>
                                 <template x-for="(cell, ci) in row.cells" :key="cell.date">
-                                    <td class="px-1.5 py-1.5 text-center align-top">
-                                        <button @click="openCellEditor(row.home_church, cell.date)"
-                                            class="w-full h-full min-h-[52px] p-2 rounded-lg border transition text-left"
-                                            :class="cell.entry ? 'border-gray-200 bg-white hover:border-violet-300' : 'border-dashed border-gray-200 bg-gray-50/50 hover:bg-violet-50 hover:border-violet-300'">
-                                            <template x-if="cell.entry">
-                                                <div>
-                                                    <!-- Programme type is set at week level; show small badge only if the cell deviates -->
-                                                    <template x-if="cell.entry.program_type_id && cell.entry.program_type_id != weekProgramTypeId(cell.date)">
-                                                        <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold leading-tight mb-1"
-                                                            :style="colorStyle(cell.entry.program_type.color)">
-                                                            <span x-text="cell.entry.program_type.icon"></span>
-                                                            <span class="truncate" x-text="cell.entry.program_type.name"></span>
-                                                        </div>
-                                                    </template>
-                                                    <div class="text-xs font-medium text-gray-900 truncate" x-text="cell.entry.preacher ? cell.entry.preacher.full_name : (cell.entry.program_type && cell.entry.program_type.requires_preacher ? '⚠ preacher needed' : (cell.entry.program_type ? 'Leader-led' : '—'))"></div>
-                                                    <template x-if="cell.entry.status === 'published'">
-                                                        <div class="mt-0.5 text-[9px] text-emerald-600 font-semibold">✓ Published</div>
-                                                    </template>
+                                    <td class="px-1.5 py-1.5 text-center align-top" :class="isPast(cell.date) ? 'bg-gray-100/40' : ''"
+                                        :style="isFirstUpcoming(cell.date) ? 'box-shadow: inset 2px 0 0 0 #a78bfa' : ''">
+                                        <!-- PAST: read-only — turnout + who preached -->
+                                        <template x-if="isPast(cell.date)">
+                                            <div class="w-full min-h-[52px] p-2 rounded-lg border border-gray-100 bg-white/60 text-left">
+                                                <template x-if="cell.attendance && cell.attendance.did_not_meet">
+                                                    <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px] font-semibold">Did not meet</div>
+                                                </template>
+                                                <template x-if="cell.attendance && !cell.attendance.did_not_meet">
+                                                    <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 text-[11px] font-bold" :title="'Attendance on ' + formatDateShort(cell.date)">
+                                                        <span>👥</span><span x-text="cell.attendance.attendance_count"></span>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!cell.attendance">
+                                                    <div class="text-[10px] text-gray-300 font-semibold uppercase tracking-wide">No report</div>
+                                                </template>
+                                                <div class="text-[11px] text-gray-500 truncate mt-1" :title="cellPreacherLabel(cell)">
+                                                    <span class="text-gray-300">🎤</span> <span x-text="cellPreacherLabel(cell)"></span>
                                                 </div>
-                                            </template>
-                                            <template x-if="!cell.entry">
-                                                <div class="text-[11px] text-gray-400 text-center py-2">+ assign</div>
-                                            </template>
-                                        </button>
+                                            </div>
+                                        </template>
+                                        <!-- UPCOMING: editable assignment -->
+                                        <template x-if="!isPast(cell.date)">
+                                            <button @click="openCellEditor(row.home_church, cell.date)"
+                                                class="w-full h-full min-h-[52px] p-2 rounded-lg border transition text-left"
+                                                :class="cell.entry ? 'border-gray-200 bg-white hover:border-violet-300' : 'border-dashed border-gray-200 bg-gray-50/50 hover:bg-violet-50 hover:border-violet-300'">
+                                                <template x-if="cell.entry">
+                                                    <div>
+                                                        <!-- Programme type is set at week level; show small badge only if the cell deviates -->
+                                                        <template x-if="cell.entry.program_type_id && cell.entry.program_type_id != weekProgramTypeId(cell.date)">
+                                                            <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold leading-tight mb-1"
+                                                                :style="colorStyle(cell.entry.program_type.color)">
+                                                                <span x-text="cell.entry.program_type.icon"></span>
+                                                                <span class="truncate" x-text="cell.entry.program_type.name"></span>
+                                                            </div>
+                                                        </template>
+                                                        <div class="text-xs font-medium text-gray-900 truncate" x-text="cell.entry.preacher ? cell.entry.preacher.full_name : (cell.entry.program_type && cell.entry.program_type.requires_preacher ? '⚠ preacher needed' : (cell.entry.program_type ? 'Leader-led' : '—'))"></div>
+                                                        <template x-if="cell.entry.status === 'published'">
+                                                            <div class="mt-0.5 text-[9px] text-emerald-600 font-semibold">✓ Published</div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!cell.entry">
+                                                    <div class="text-[11px] text-gray-400 text-center py-2">+ assign</div>
+                                                </template>
+                                            </button>
+                                        </template>
                                     </td>
                                 </template>
                             </tr>
@@ -1221,6 +1258,7 @@ function homeChurchApp() {
     return {
         activeTab: 'roster',
         weeks: 8,
+        pastWeeks: 4,
         startDate: null,
         dates: [],
         matrix: [],
@@ -1320,7 +1358,7 @@ function homeChurchApp() {
         async loadRoster() {
             this.rosterLoading = true;
             try {
-                const url = `/api/admin/home-church/roster?weeks=${this.weeks}` + (this.startDate ? `&start_date=${this.startDate}` : '');
+                const url = `/api/admin/home-church/roster?weeks=${this.weeks}&past_weeks=${this.pastWeeks}` + (this.startDate ? `&start_date=${this.startDate}` : '');
                 const r = await fetch(url);
                 if (!r.ok) throw new Error('Failed to load roster');
                 const data = await r.json();
@@ -1329,7 +1367,8 @@ function homeChurchApp() {
                 this.matrix = data.matrix;
                 this.homeChurches = data.home_churches;
                 this.programTypes = data.program_types;
-                if (!this.share.date && this.dates.length) this.share.date = this.dates[0];
+                // Default the share date to the upcoming anchor, never a past week.
+                if (!this.share.date || this.isPast(this.share.date)) this.share.date = data.start_date;
             } catch (e) {
                 console.error(e);
             } finally {
@@ -1371,6 +1410,24 @@ function homeChurchApp() {
                 gray: 'background:#f3f4f6;color:#4b5563',
             };
             return map[color] || map.gray;
+        },
+
+        // A roster date is "past" (read-only) once it falls before today.
+        _todayISO() { return this._localISO(new Date()); },
+        isPast(d) { return d < this._todayISO(); },
+        // Dates that are still upcoming/current — used for the mobile roster.
+        upcomingDates() { return (this.dates || []).filter(d => !this.isPast(d)); },
+        // The first upcoming column marks the past→upcoming boundary.
+        isFirstUpcoming(d) { return (this.dates || []).find(x => !this.isPast(x)) === d; },
+        // Cell lookup by date string (position-independent).
+        cellFor(row, dateStr) { return row.cells.find(c => c.date === dateStr); },
+        // Preacher who took (or is booked for) this cell, titled where possible.
+        cellPreacherLabel(cell) {
+            if (cell && cell.entry && cell.entry.preacher) {
+                return cell.entry.preacher.titled_name || cell.entry.preacher.full_name;
+            }
+            if (cell && cell.entry && cell.entry.program_type && !cell.entry.program_type.requires_preacher) return 'Leader-led';
+            return '—';
         },
 
         formatDayLabel(d) {
@@ -1451,6 +1508,9 @@ function homeChurchApp() {
 
         // ---- cell editor ----
         openCellEditor(hc, dateStr) {
+            // Past weeks are read-only — the roster can't be re-assigned after
+            // the meeting has happened.
+            if (this.isPast(dateStr)) return;
             const row = this.matrix.find(r => r.home_church.id === hc.id);
             const cell = row ? row.cells.find(c => c.date === dateStr) : null;
             const entry = cell ? cell.entry : null;
