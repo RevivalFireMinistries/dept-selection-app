@@ -90,6 +90,17 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # Home church deferred publish notifications - runs daily at 08:00.
+    # Sends the "roster published" emails for weeks that were published early,
+    # once the meeting falls within ROSTER_NOTIFY_DAYS_BEFORE days.
+    scheduler.add_job(
+        send_home_church_publish_notifications,
+        CronTrigger(hour=8, minute=0),
+        id="home_church_publish_notifications",
+        name="Home Church Deferred Publish Notifications",
+        replace_existing=True
+    )
+
     # Home church day-before reminders - runs daily at 18:00 (6pm)
     # The job figures out which day is "tomorrow" and only acts if there are
     # published home church entries for tomorrow.
@@ -595,6 +606,43 @@ def slot_to_time(slot: int) -> str:
         display_hours = 12
 
     return f"{display_hours}:{minutes:02d} {period}"
+
+
+def send_home_church_publish_notifications():
+    """Send the deferred 'roster published' emails as the meeting approaches.
+
+    Publishing a week only emails leaders/preachers immediately when the
+    meeting is within ROSTER_NOTIFY_DAYS_BEFORE days. This daily sweep catches
+    weeks that were published earlier, once they fall inside that window."""
+    db: Session = SessionLocal()
+    try:
+        from routers.api import _notify_due_roster_entries, ROSTER_NOTIFY_DAYS_BEFORE
+
+        today = datetime.now().date()
+        horizon = today + timedelta(days=ROSTER_NOTIFY_DAYS_BEFORE)
+
+        entries = db.query(HomeChurchRoster).options(
+            joinedload(HomeChurchRoster.home_church).joinedload(HomeChurch.leader),
+            joinedload(HomeChurchRoster.program_type),
+            joinedload(HomeChurchRoster.preacher),
+        ).filter(
+            HomeChurchRoster.status == "published",
+            HomeChurchRoster.notified_at.is_(None),
+            HomeChurchRoster.roster_date >= today,
+            HomeChurchRoster.roster_date <= horizon,
+        ).all()
+
+        if not entries:
+            print("[HomeChurchPublish] No roster entries due for notification")
+            return
+
+        notified = _notify_due_roster_entries(db, entries)
+        db.commit()
+        print(f"[HomeChurchPublish] Sent publish notifications for {notified} entries due within {ROSTER_NOTIFY_DAYS_BEFORE} days")
+    except Exception as exc:
+        print(f"[HomeChurchPublish] Job failed: {exc}")
+    finally:
+        db.close()
 
 
 def send_home_church_reminders():

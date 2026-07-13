@@ -514,6 +514,10 @@ class HomeChurchRoster(Base):
     notes = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, server_default="draft")  # draft | published
     published_at = Column(DateTime(timezone=True), nullable=True)
+    # When the publish notification (leader + preacher emails) was actually
+    # sent. Publishing only emails within a few days of the meeting; a
+    # scheduler sweeps the rest. Null = published but not yet notified.
+    notified_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

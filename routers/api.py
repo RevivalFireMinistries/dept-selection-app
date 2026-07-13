@@ -8006,6 +8006,7 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         if entry.status == "published":
             entry.status = "draft"
             entry.published_at = None
+            entry.notified_at = None
         recent_assignments.setdefault(chosen.id, []).append(entry.roster_date)
         recent_hc_visits[(chosen.id, entry.home_church_id)] = \
             recent_hc_visits.get((chosen.id, entry.home_church_id), 0) + 1
@@ -8039,11 +8040,91 @@ def admin_clear_roster_week(request: Request, data: dict = Body(...), db: Sessio
             was_published += 1
         e.status = "draft"
         e.published_at = None
+        e.notified_at = None
         cleared += 1
     db.commit()
     _log_admin_action(request, db, "clear_home_church_roster_week", "home_church_roster", None, f"Cleared {cleared} preachers for {d.isoformat()} ({was_published} were published)")
     db.commit()
     return {"success": True, "cleared": cleared, "was_published": was_published}
+
+
+# Publish emails (leader + preacher) go out only when the meeting is within
+# this many days — set at publish time if already close, else swept in by the
+# scheduler as the date approaches.
+ROSTER_NOTIFY_DAYS_BEFORE = 3
+
+
+def _send_roster_entry_notifications(db: Session, e: "HomeChurchRoster") -> None:
+    """Dispatch the 'roster published' (leader) + 'preacher assigned' (preacher)
+    emails for a single roster entry. Safe to call repeatedly — the dispatcher
+    dedupes by (event, recipient, date)."""
+    from notifications.dispatcher import dispatch_event
+    from notifications.events import EventType
+
+    hc = e.home_church
+    d = e.roster_date
+    if not hc:
+        return
+    if hc.leader:
+        leader_email = _member_email_with_central_fallback(hc.leader, db)
+        if leader_email:
+            dispatch_event(db, EventType.HOME_CHURCH_ROSTER_PUBLISHED, {
+                "leader_id": hc.leader.id,
+                "leader_name": hc.leader.full_name,
+                "leader_email": leader_email,
+                "home_church_name": hc.name,
+                "roster_date": d.isoformat(),
+                "meeting_time": hc.meeting_time,
+                "program_type_name": e.program_type.name if e.program_type else "Not set",
+                "program_type_icon": e.program_type.icon if e.program_type else "\U0001F4CC",
+                "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
+                "preacher_name": e.preacher.full_name if e.preacher else None,
+                "preacher_phone": e.preacher.phone if e.preacher else None,
+                "idem_scope": d.isoformat(),
+                "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": leader_email, "phone": hc.leader.phone}],
+            })
+        else:
+            print(f"[roster] leader {hc.leader.full_name} ({hc.name}) skipped — no email locally or in rfm-database")
+    if e.preacher:
+        preacher_email = _member_email_with_central_fallback(e.preacher, db)
+        if preacher_email:
+            dispatch_event(db, EventType.HOME_CHURCH_PREACHER_ASSIGNED, {
+                "preacher_id": e.preacher.id,
+                "preacher_name": e.preacher.full_name,
+                "preacher_email": preacher_email,
+                "home_church_name": hc.name,
+                "home_church_address": hc.address or "",
+                "leader_name": hc.leader.full_name if hc.leader else "",
+                "leader_phone": hc.leader.phone if hc.leader else "",
+                "roster_date": d.isoformat(),
+                "meeting_time": hc.meeting_time,
+                "idem_scope": d.isoformat(),
+                "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": preacher_email, "phone": e.preacher.phone}],
+            })
+        else:
+            print(f"[roster] preacher {e.preacher.full_name} skipped — no email locally or in rfm-database")
+
+
+def _notify_due_roster_entries(db: Session, entries, now=None) -> int:
+    """Send publish notifications for any of `entries` whose meeting is within
+    ROSTER_NOTIFY_DAYS_BEFORE days and hasn't been notified yet. Marks
+    notified_at so we never double-send. Returns how many were notified."""
+    now = now or datetime.utcnow()
+    today = date.today()
+    notified = 0
+    for e in entries:
+        if e.status != "published" or e.notified_at is not None:
+            continue
+        days_until = (e.roster_date - today).days
+        if not (0 <= days_until <= ROSTER_NOTIFY_DAYS_BEFORE):
+            continue
+        try:
+            _send_roster_entry_notifications(db, e)
+        except Exception as exc:
+            print(f"[roster] notify failed for entry {e.id}: {exc}")
+        e.notified_at = now
+        notified += 1
+    return notified
 
 
 @router.post("/admin/home-church/roster/publish")
@@ -8075,62 +8156,27 @@ def admin_publish_roster(request: Request, data: dict = Body(...), db: Session =
         e.published_at = now
     db.commit()
 
+    # Only email now if the meeting is close (<= ROSTER_NOTIFY_DAYS_BEFORE days);
+    # otherwise the scheduler sends as the date approaches.
+    notified = 0
     try:
-        from notifications.dispatcher import dispatch_event
-        from notifications.events import EventType
-
-        for e in entries:
-            hc = e.home_church
-            if not hc or not hc.leader:
-                continue
-            leader_email = _member_email_with_central_fallback(hc.leader, db)
-            if not leader_email:
-                print(f"[roster] leader {hc.leader.full_name} ({hc.name}) skipped — no email locally or in rfm-database")
-                continue
-            dispatch_event(db, EventType.HOME_CHURCH_ROSTER_PUBLISHED, {
-                "leader_id": hc.leader.id,
-                "leader_name": hc.leader.full_name,
-                "leader_email": leader_email,
-                "home_church_name": hc.name,
-                "roster_date": d.isoformat(),
-                "meeting_time": hc.meeting_time,
-                "program_type_name": e.program_type.name if e.program_type else "Not set",
-                "program_type_icon": e.program_type.icon if e.program_type else "\U0001F4CC",
-                "requires_preacher": e.program_type.requires_preacher if e.program_type else False,
-                "preacher_name": e.preacher.full_name if e.preacher else None,
-                "preacher_phone": e.preacher.phone if e.preacher else None,
-                "idem_scope": d.isoformat(),
-                "recipients": [{"id": hc.leader.id, "name": hc.leader.full_name, "email": leader_email, "phone": hc.leader.phone}],
-            })
-
-        for e in entries:
-            if not e.preacher:
-                continue
-            preacher_email = _member_email_with_central_fallback(e.preacher, db)
-            if not preacher_email:
-                print(f"[roster] preacher {e.preacher.full_name} skipped — no email locally or in rfm-database")
-                continue
-            hc = e.home_church
-            dispatch_event(db, EventType.HOME_CHURCH_PREACHER_ASSIGNED, {
-                "preacher_id": e.preacher.id,
-                "preacher_name": e.preacher.full_name,
-                "preacher_email": preacher_email,
-                "home_church_name": hc.name if hc else "",
-                "home_church_address": hc.address if hc else "",
-                "leader_name": hc.leader.full_name if (hc and hc.leader) else "",
-                "leader_phone": hc.leader.phone if (hc and hc.leader) else "",
-                "roster_date": d.isoformat(),
-                "meeting_time": hc.meeting_time if hc else "19:00",
-                "idem_scope": d.isoformat(),
-                "recipients": [{"id": e.preacher.id, "name": e.preacher.full_name, "email": preacher_email, "phone": e.preacher.phone}],
-            })
+        notified = _notify_due_roster_entries(db, entries, now=now)
     except Exception as exc:
         print(f"Failed to dispatch home church roster notifications: {exc}")
-
-    _log_admin_action(request, db, "publish_home_church_roster", "home_church_roster", None, f"Published roster for {d.isoformat()} ({len(entries)} entries)")
     db.commit()
 
-    return {"success": True, "date": d.isoformat(), "entries_published": len(entries), "newly_published": published_count}
+    days_until = (d - date.today()).days
+    deferred = notified == 0 and days_until > ROSTER_NOTIFY_DAYS_BEFORE
+
+    _log_admin_action(request, db, "publish_home_church_roster", "home_church_roster", None, f"Published roster for {d.isoformat()} ({len(entries)} entries, {notified} notified, deferred={deferred})")
+    db.commit()
+
+    return {
+        "success": True, "date": d.isoformat(),
+        "entries_published": len(entries), "newly_published": published_count,
+        "notified": notified, "deferred": deferred,
+        "notify_days_before": ROSTER_NOTIFY_DAYS_BEFORE,
+    }
 
 
 # ---- PUBLIC (portal) ----

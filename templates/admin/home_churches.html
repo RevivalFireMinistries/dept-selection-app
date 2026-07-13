@@ -1240,7 +1240,7 @@
             <div class="p-5 space-y-3">
                 <label class="block">
                     <span class="text-xs font-semibold text-gray-700">Week</span>
-                    <select x-model="share.date" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    <select x-model="share.date" @change="$nextTick(() => _scaleShareCard())" class="mt-1 w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                         <template x-for="d in dates" :key="d">
                             <option :value="d" x-text="formatDateLong(d)"></option>
                         </template>
@@ -2420,13 +2420,22 @@ function homeChurchApp() {
         _scaleShareCard() {
             const el = document.getElementById('shareCard');
             if (!el) return;
-            const containerWidth = el.parentElement.clientWidth;
+            const wrapper = el.parentElement;
+            const containerWidth = wrapper.clientWidth;
             const cardWidth = 480;
+            el.style.width = cardWidth + 'px';
+            let scale = 1;
             if (containerWidth > 0 && containerWidth < cardWidth) {
-                el.style.setProperty('--share-card-scale', (containerWidth / cardWidth).toFixed(3));
-                el.style.width = cardWidth + 'px';
+                scale = containerWidth / cardWidth;
+            }
+            el.style.setProperty('--share-card-scale', scale.toFixed(3));
+            // transform:scale() leaves the layout box at full height, so the
+            // overflow-hidden wrapper would reserve the unscaled height and show
+            // a big gap under a tall card. Pin the wrapper to the SCALED height.
+            if (scale < 1) {
+                wrapper.style.height = Math.ceil(el.scrollHeight * scale) + 'px';
             } else {
-                el.style.setProperty('--share-card-scale', '1');
+                wrapper.style.height = '';
             }
         },
         shareLineText(row) {

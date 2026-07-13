@@ -548,6 +548,17 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (home_churches rfm-db): {e}")
 
+        # Migration: notified_at on home_church_roster (deferred publish emails)
+        try:
+            conn.execute(text("""
+                ALTER TABLE home_church_roster
+                ADD COLUMN IF NOT EXISTS notified_at TIMESTAMP WITH TIME ZONE
+            """))
+            conn.commit()
+            print("Migration: Added notified_at to home_church_roster")
+        except Exception as e:
+            print(f"Migration note (home_church_roster notified_at): {e}")
+
         # Migration: allow_multiple_responses on surveys (added after initial ship)
         try:
             conn.execute(text("""
