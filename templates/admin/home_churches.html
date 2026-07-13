@@ -1138,54 +1138,58 @@
                         <div style="padding: 36px 32px 28px 32px;">
                             <!-- Header -->
                             <div>
-                                <div style="font-size: 10px; letter-spacing: 2.5px; font-weight: 600; text-transform: uppercase; color: #9ca3af;">Revival Fire Ministries</div>
-                                <div style="font-size: 26px; font-weight: 700; margin-top: 4px; letter-spacing: -0.6px; color: #111827;">Home Churches</div>
+                                <div style="font-size: 10px; letter-spacing: 2.5px; font-weight: 700; text-transform: uppercase; color: #9ca3af;">Revival Fire Ministries</div>
+                                <div style="font-size: 28px; font-weight: 800; margin-top: 5px; letter-spacing: -0.7px; color: #0f172a;">Home Churches</div>
                             </div>
 
                             <!-- Date -->
-                            <div style="margin-top: 24px;">
-                                <div style="font-size: 11px; letter-spacing: 1.5px; font-weight: 600; text-transform: uppercase; color: #9ca3af;">This Monday</div>
-                                <div style="font-size: 17px; font-weight: 500; margin-top: 3px; color: #374151;" x-text="shareDisplayDate()"></div>
+                            <div style="margin-top: 22px;">
+                                <div style="font-size: 10px; letter-spacing: 1.8px; font-weight: 700; text-transform: uppercase; color: #9ca3af;">This Monday</div>
+                                <div style="font-size: 17px; font-weight: 600; margin-top: 3px; color: #334155;" x-text="shareDisplayDate()"></div>
                             </div>
 
-                            <!-- Programme — big, centered, single accent chip -->
-                            <div style="margin-top: 28px; text-align: center;">
-                                <div style="font-size: 46px; line-height: 1;" x-text="shareWeekIcon()"></div>
-                                <div :style="'margin-top: 10px; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: ' + shareAccentHex() + ';'" x-text="shareWeekName()"></div>
-                                <div x-show="!shareRequiresPreacher() && shareWeekType()" style="margin-top: 6px; font-size: 13px; color: #6b7280;">Led by each home church leader</div>
+                            <!-- Programme — elegant centered chip -->
+                            <div style="margin-top: 26px; text-align: center;">
+                                <div :style="'display: inline-flex; align-items: center; gap: 10px; padding: 11px 20px; border-radius: 999px; background: ' + shareAccentSoft() + ';'">
+                                    <span style="font-size: 22px; line-height: 1;" x-text="shareWeekIcon()"></span>
+                                    <span :style="'font-size: 20px; font-weight: 800; letter-spacing: -0.3px; color: ' + shareAccentHex() + ';'" x-text="shareWeekName()"></span>
+                                </div>
+                                <div x-show="!shareRequiresPreacher() && shareWeekType()" style="margin-top: 8px; font-size: 13px; color: #94a3b8;">Led by each home church leader</div>
                             </div>
 
-                            <!-- Divider -->
-                            <div style="margin-top: 24px; height: 1px; background: #f3f4f6;"></div>
-
-                            <!-- Preachers (preaching weeks) — stacked layout so nothing clips -->
-                            <div x-show="shareRequiresPreacher()" style="margin-top: 20px;">
-                                <div style="font-size: 10px; letter-spacing: 2px; font-weight: 600; text-transform: uppercase; color: #9ca3af; margin-bottom: 10px; text-align: center;">Preachers</div>
+                            <!-- Preachers — avatar rows, name prominent -->
+                            <div x-show="shareRequiresPreacher()" style="margin-top: 28px;">
+                                <div style="font-size: 10px; letter-spacing: 2px; font-weight: 700; text-transform: uppercase; color: #cbd5e1; margin-bottom: 14px; text-align: center;">Preachers this week</div>
                                 <div>
                                     <template x-for="(it, idx) in shareAllRows()" :key="'row-' + it.hc">
-                                        <div :style="'padding: 12px 0;' + (idx < shareAllRows().length - 1 ? ' border-bottom: 1px solid #f3f4f6;' : '')">
-                                            <!-- Home church name on top, preacher on the line below — no horizontal clipping even with long names -->
-                                            <div style="font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 600; color: #9ca3af;" x-text="it.hc"></div>
-                                            <div style="font-size: 17px; font-weight: 600; color: #111827; margin-top: 4px; line-height: 1.3; word-wrap: break-word;" x-text="it.person"></div>
+                                        <div :style="'display: flex; align-items: center; gap: 14px; padding: 11px 2px;' + (idx < shareAllRows().length - 1 ? ' border-bottom: 1px solid #f1f5f9;' : '')">
+                                            <div :style="'flex-shrink: 0; width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: ' + shareAccentHex() + '; background: ' + shareAccentSoft() + ';'" x-text="shareInitials(it.person) || '·'"></div>
+                                            <div style="min-width: 0; flex: 1;">
+                                                <div style="font-size: 10px; letter-spacing: 1px; text-transform: uppercase; font-weight: 700; color: #94a3b8;" x-text="it.hc"></div>
+                                                <div style="font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 2px; line-height: 1.25; word-wrap: break-word;" x-text="it.person"></div>
+                                            </div>
                                         </div>
                                     </template>
                                 </div>
                             </div>
 
                             <!-- Venues (non-preaching weeks) -->
-                            <div x-show="!shareRequiresPreacher() && shareAllRows().length > 0" style="margin-top: 20px;">
-                                <div style="font-size: 10px; letter-spacing: 2px; font-weight: 600; text-transform: uppercase; color: #9ca3af; margin-bottom: 10px; text-align: center;">Meeting at all locations</div>
+                            <div x-show="!shareRequiresPreacher() && shareAllRows().length > 0" style="margin-top: 26px;">
+                                <div style="font-size: 10px; letter-spacing: 2px; font-weight: 700; text-transform: uppercase; color: #cbd5e1; margin-bottom: 12px; text-align: center;">Meeting at all locations</div>
                                 <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;">
                                     <template x-for="it in shareAllRows()" :key="'v-' + it.hc">
-                                        <div style="font-size: 13px; font-weight: 500; padding: 6px 12px; background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 999px; color: #374151; word-wrap: break-word;" x-text="it.hc"></div>
+                                        <div :style="'font-size: 13px; font-weight: 600; padding: 7px 14px; background: ' + shareAccentSoft() + '; border-radius: 999px; color: #334155; word-wrap: break-word;'" x-text="it.hc"></div>
                                     </template>
                                 </div>
                             </div>
 
                             <!-- Footer -->
-                            <div style="margin-top: 28px; padding-top: 16px; border-top: 1px solid #f3f4f6; text-align: center;">
-                                <div style="font-size: 12px; font-weight: 500; color: #6b7280;">Meeting at <span x-text="shareMeetingTime()"></span></div>
-                                <div style="font-size: 11px; color: #9ca3af; margin-top: 2px;">Revival Fire Ministries</div>
+                            <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #f1f5f9; text-align: center;">
+                                <div :style="'display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: ' + shareAccentHex() + ';'">
+                                    <span style="font-size: 13px; line-height: 1;">🕖</span>
+                                    <span>Meeting at <span x-text="shareMeetingTime()"></span></span>
+                                </div>
+                                <div style="font-size: 11px; color: #cbd5e1; margin-top: 5px; letter-spacing: 0.4px;">Revival Fire Ministries</div>
                             </div>
                         </div>
                     </div>
@@ -2241,6 +2245,21 @@ function homeChurchApp() {
             };
             return map[color] || '#4f46e5';
         },
+        // Soft, tinted version of the accent for avatar / chip backgrounds.
+        shareAccentSoft() {
+            const hex = this.shareAccentHex().replace('#', '');
+            const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+            return `rgba(${r},${g},${b},0.10)`;
+        },
+        // Initials for the avatar — skips a leading title word (Pastor/Elder/…).
+        shareInitials(name) {
+            let n = (name || '').trim();
+            if (/^—/.test(n) || n === '—' || /Leader-led/i.test(n)) return '';
+            n = n.replace(/^(Pastor|Elder|Deacon|Dr|Mr|Mrs|Rev|Bishop|Apostle|Prophet)\.?\s+/i, '');
+            const parts = n.split(/\s+/).filter(Boolean);
+            if (!parts.length) return '';
+            return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+        },
         // Elegant mixed-case date ("Monday, 27 April 2026")
         shareDisplayDate() {
             if (!this.share.date) return '';
@@ -2254,7 +2273,7 @@ function homeChurchApp() {
             for (const row of this.matrix) {
                 const e = this.entryFor(row, this.share.date);
                 let person;
-                if (e && e.preacher) person = e.preacher.full_name;
+                if (e && e.preacher) person = e.preacher.titled_name || e.preacher.full_name;
                 else if (this.shareRequiresPreacher()) person = '— preacher needed —';
                 else if (e && e.program_type && !e.program_type.requires_preacher) person = 'Leader-led';
                 else person = '—';
@@ -2275,7 +2294,7 @@ function homeChurchApp() {
                 const icon = pt ? (pt.icon || '📌') : '⚠️';
                 if (!groups.has(typeKey)) groups.set(typeKey, { typeKey, name, icon, requires: pt ? pt.requires_preacher : false, items: [] });
                 let person;
-                if (e && e.preacher) person = e.preacher.full_name;
+                if (e && e.preacher) person = e.preacher.titled_name || e.preacher.full_name;
                 else if (pt && !pt.requires_preacher) person = 'Leader-led';
                 else if (pt && pt.requires_preacher) person = '— preacher needed —';
                 else person = '—';

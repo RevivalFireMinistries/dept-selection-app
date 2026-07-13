@@ -5926,21 +5926,19 @@ def _title_case_name(name: str) -> str:
 
 
 def _get_titled_name(member: "Member") -> str:
-    """Get member's full name with leadership title prefix (e.g., 'Pastor John Smith')"""
+    """Get member's full name with leadership title prefix (e.g., 'Pastor John Smith')."""
     name = _title_case_name(member.full_name)
     roles = member.leadership_roles or []
-    if "pastor" in roles:
-        return f"Pastor {name}"
-    elif "elder" in roles:
-        return f"Elder {name}"
-    elif "deacon" in roles:
-        return f"Deacon {name}"
-    elif "dr" in roles:
-        return f"Dr {name}"
-    elif "mr" in roles:
-        return f"Mr {name}"
-    elif "mrs" in roles:
-        return f"Mrs {name}"
+    if isinstance(roles, str):
+        try:
+            roles = json.loads(roles)
+        except (ValueError, TypeError):
+            roles = []
+    roles = [str(r).strip().lower() for r in (roles or [])]
+    for key, title in (("pastor", "Pastor"), ("elder", "Elder"), ("deacon", "Deacon"),
+                       ("dr", "Dr"), ("mr", "Mr"), ("mrs", "Mrs")):
+        if key in roles:
+            return f"{title} {name}"
     return name
 
 
@@ -7237,7 +7235,9 @@ def _roster_entry_to_dict(entry: HomeChurchRoster, db: Session) -> dict:
     if entry.preacher_member_id:
         pm = db.query(Member).filter(Member.id == entry.preacher_member_id).first()
         if pm:
-            preacher = {"id": pm.id, "full_name": pm.full_name, "phone": pm.phone, "email": pm.email}
+            preacher = {"id": pm.id, "full_name": pm.full_name,
+                        "titled_name": _get_titled_name(pm),
+                        "phone": pm.phone, "email": pm.email}
     program_type = None
     if entry.program_type_id:
         pt = db.query(HomeChurchProgramType).filter(HomeChurchProgramType.id == entry.program_type_id).first()
