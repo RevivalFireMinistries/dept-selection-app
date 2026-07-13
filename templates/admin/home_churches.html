@@ -83,6 +83,12 @@
                 class="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg">
                 ✨ Auto-fill preachers
             </button>
+            {% if is_admin or is_committee %}
+            <button @click="openPreacherMgr()"
+                class="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg">
+                🎤 Manage preachers
+            </button>
+            {% endif %}
             <button @click="openShareDialog()"
                 class="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 text-xs font-medium rounded-lg">
                 📤 Share a week
@@ -123,6 +129,11 @@
                                 <button @click="openShareDialog(d)" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white text-gray-500 border border-gray-200 active:scale-95">📤</button>
                                 <button @click="publishDate(d)" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold active:scale-95">Publish</button>
                             </div>
+                        </div>
+                        <!-- Per-week preacher actions -->
+                        <div class="mt-2 flex gap-2">
+                            <button @click="autoFillWeek(d)" class="flex-1 px-2 py-1.5 rounded-lg bg-white border border-gray-200 text-xs font-medium text-indigo-600 active:scale-95">✨ Re-fill preachers</button>
+                            <button @click="clearWeek(d)" class="flex-1 px-2 py-1.5 rounded-lg bg-white border border-gray-200 text-xs font-medium text-rose-600 active:scale-95">🧹 Clear</button>
                         </div>
                         <!-- Week programme selector: all home churches share one type -->
                         <div class="mt-3 flex items-center gap-2">
@@ -182,9 +193,15 @@
                                     <div class="text-[10px] font-normal" :class="isPast(d) ? 'text-gray-400' : 'text-gray-400'" x-text="formatDayLabel(d)"></div>
                                     <div :class="isPast(d) ? 'text-gray-400' : 'text-gray-800'" x-text="formatDateShort(d)"></div>
                                     <template x-if="!isPast(d)">
-                                        <div class="mt-1 flex justify-center gap-1">
-                                            <button @click="openShareDialog(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-gray-50" title="Share week">📤</button>
-                                            <button @click="publishDate(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium">Publish</button>
+                                        <div>
+                                            <div class="mt-1 flex justify-center gap-1">
+                                                <button @click="openShareDialog(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-gray-50" title="Share week">📤</button>
+                                                <button @click="publishDate(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-medium">Publish</button>
+                                            </div>
+                                            <div class="mt-1 flex justify-center gap-1">
+                                                <button @click="autoFillWeek(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-indigo-50 hover:border-indigo-300" title="Re-run auto-fill for this week">✨ Fill</button>
+                                                <button @click="clearWeek(d)" class="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 hover:bg-rose-50 hover:border-rose-300 text-rose-600" title="Clear all preachers this week">🧹 Clear</button>
+                                            </div>
                                         </div>
                                     </template>
                                     <template x-if="isPast(d)">
@@ -1146,6 +1163,58 @@
         </div>
     </div>
 
+    <!-- MANAGE PREACHERS -->
+    <div x-show="preacherMgr.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="closePreacherMgr()">
+        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+            <div class="px-5 pt-5 pb-3 border-b border-gray-100">
+                <div class="flex items-center justify-between">
+                    <div class="font-semibold text-gray-900">🎤 Manage preachers</div>
+                    <button @click="closePreacherMgr()" class="w-8 h-8 rounded-lg hover:bg-gray-100 text-gray-400 text-lg">✕</button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">This is the preacher pool the roster and auto-fill draw from. Home church leaders are <span class="font-medium">not</span> included automatically — add whoever should preach.</p>
+            </div>
+            <!-- Add search -->
+            <div class="px-5 py-3 border-b border-gray-100">
+                <input type="text" x-model="preacherMgr.query" @input.debounce.250ms="searchPreacherCandidates()"
+                    placeholder="Search members to add…"
+                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-violet-200 focus:border-violet-400">
+                <div x-show="preacherMgr.query.length >= 2 && preacherMgr.results.length === 0" class="text-[11px] text-gray-400 italic mt-1.5">No matching members.</div>
+                <div x-show="preacherMgr.results.length" class="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                    <template x-for="m in preacherMgr.results" :key="'cand-' + m.id">
+                        <button @click="addPreacher(m)" :disabled="preacherMgr.busy"
+                            class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg hover:bg-violet-50 text-left disabled:opacity-50">
+                            <span class="text-sm text-gray-800 truncate" x-text="m.full_name"></span>
+                            <span class="text-[11px] font-semibold text-violet-600 flex-shrink-0">+ Add</span>
+                        </button>
+                    </template>
+                </div>
+                <div x-show="preacherMgr.error" class="text-[11px] text-rose-600 mt-1.5" x-text="preacherMgr.error"></div>
+            </div>
+            <!-- Current group -->
+            <div class="px-5 py-3 overflow-y-auto flex-1">
+                <div class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    Preacher group · <span x-text="preachers.length"></span>
+                </div>
+                <template x-if="preachers.length === 0">
+                    <div class="text-xs text-gray-400 italic py-4 text-center">No preachers yet. Search above to add someone.</div>
+                </template>
+                <div class="space-y-1">
+                    <template x-for="p in preachers" :key="'pg-' + p.id">
+                        <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gray-50">
+                            <span class="text-sm text-gray-800 truncate" x-text="p.titled_name || p.full_name"></span>
+                            <button @click="removePreacher(p)" :disabled="preacherMgr.busy"
+                                class="text-[11px] font-medium text-rose-500 hover:text-rose-700 flex-shrink-0 disabled:opacity-50">Remove</button>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100">
+                <button @click="closePreacherMgr()" class="w-full px-3 py-2.5 text-sm font-semibold bg-gray-100 hover:bg-gray-200 rounded-lg">Done</button>
+            </div>
+        </div>
+    </div>
+
     <!-- SHARE DIALOG -->
     <div x-show="share.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="share.open=false">
         <div class="absolute inset-0 bg-black/40"></div>
@@ -1304,6 +1373,7 @@ function homeChurchApp() {
 
         autoFill: { open: false, running: false, weeks: 4 },
         share: { open: false, date: null, rendering: false },
+        preacherMgr: { open: false, busy: false, query: '', results: [], error: '' },
 
         // Attendance state
         attendanceStartDate: null,
@@ -1349,8 +1419,9 @@ function homeChurchApp() {
 
         shiftWeeks(n) {
             if (!this.startDate) return;
+            // Move the window by a single week at a time (not the whole span).
             const d = new Date(this.startDate + 'T00:00:00');
-            d.setDate(d.getDate() + 7 * this.weeks * n);
+            d.setDate(d.getDate() + 7 * n);
             this.startDate = this._localISO(d);
             this.loadRoster();
         },
@@ -1389,6 +1460,60 @@ function homeChurchApp() {
         async loadPreachers() {
             const r = await fetch('/api/admin/home-church/preachers');
             if (r.ok) this.preachers = await r.json();
+        },
+
+        // ---- manage preacher group (committee-curated) ----
+        openPreacherMgr() {
+            this.preacherMgr = { open: true, busy: false, query: '', results: [], error: '' };
+            this.loadPreachers();
+        },
+        closePreacherMgr() { this.preacherMgr.open = false; },
+
+        async searchPreacherCandidates() {
+            const q = (this.preacherMgr.query || '').trim().toLowerCase();
+            if (q.length < 2) { this.preacherMgr.results = []; return; }
+            try {
+                if (!this._allMembersCache) {
+                    const res = await fetch('/api/members');
+                    const data = await res.json();
+                    this._allMembersCache = (Array.isArray(data) ? data : []).map(m => ({
+                        id: m.id, full_name: m.fullName || m.full_name || '', phone: m.phone || ''
+                    }));
+                }
+                const existing = new Set((this.preachers || []).map(p => p.id));
+                this.preacherMgr.results = this._allMembersCache
+                    .filter(m => m.full_name.toLowerCase().includes(q) || (m.phone || '').includes(q))
+                    .filter(m => !existing.has(m.id))
+                    .slice(0, 25);
+            } catch (e) { console.error(e); this.preacherMgr.results = []; }
+        },
+
+        async addPreacher(m) {
+            this.preacherMgr.busy = true;
+            this.preacherMgr.error = '';
+            try {
+                const r = await fetch('/api/admin/home-church/preachers', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ member_id: m.id })
+                });
+                if (!r.ok) throw new Error('add failed');
+                await this.loadPreachers();
+                this.preacherMgr.query = '';
+                this.preacherMgr.results = [];
+            } catch (e) { console.error(e); this.preacherMgr.error = 'Could not add that member.'; }
+            this.preacherMgr.busy = false;
+        },
+
+        async removePreacher(p) {
+            if (!confirm('Remove ' + (p.titled_name || p.full_name) + ' from the preacher group?')) return;
+            this.preacherMgr.busy = true;
+            this.preacherMgr.error = '';
+            try {
+                const r = await fetch('/api/admin/home-church/preachers/' + p.id, { method: 'DELETE' });
+                if (!r.ok) throw new Error('remove failed');
+                await this.loadPreachers();
+            } catch (e) { console.error(e); this.preacherMgr.error = 'Could not remove that member.'; }
+            this.preacherMgr.busy = false;
         },
 
         cellAt(row, index) { return row.cells[index]; },
@@ -1895,6 +2020,33 @@ function homeChurchApp() {
 
         // ---- auto fill ----
         openAutoFillDialog() { this.autoFill.open = true; this.autoFill.weeks = 4; },
+
+        // Re-run auto-fill for a single week (reshuffles every preacher that week).
+        async autoFillWeek(dateStr) {
+            if (!confirm('Re-run auto-fill for ' + this.formatDateShort(dateStr) + '?\nThis reshuffles all preachers for that week.')) return;
+            try {
+                const r = await fetch('/api/admin/home-church/roster/auto-fill', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ start_date: dateStr, weeks: 1, overwrite: true }),
+                });
+                if (!r.ok) { const err = await r.json().catch(()=>({})); throw new Error(err.detail || 'Failed'); }
+                await this.loadRoster();
+            } catch (e) { alert('Error: ' + e.message); }
+        },
+
+        // Clear every preacher assignment for a single week.
+        async clearWeek(dateStr) {
+            if (!confirm('Clear ALL preachers for ' + this.formatDateShort(dateStr) + '?\nThis removes every preacher assigned that week.')) return;
+            try {
+                const r = await fetch('/api/admin/home-church/roster/clear-week', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ roster_date: dateStr }),
+                });
+                if (!r.ok) { const err = await r.json().catch(()=>({})); throw new Error(err.detail || 'Failed'); }
+                await this.loadRoster();
+            } catch (e) { alert('Error: ' + e.message); }
+        },
+
         async runAutoFill() {
             this.autoFill.running = true;
             try {

@@ -7085,15 +7085,24 @@ def _home_church_dept_ids(db: Session, role: str) -> List[int]:
 
 
 def _preacher_pool_dept_ids(db: Session) -> List[int]:
-    """Preachers may come from any of the three Home Church departments."""
-    seen = set()
-    out = []
-    for role in ("preachers", "committee", "leaders"):
-        for d_id in _home_church_dept_ids(db, role):
-            if d_id not in seen:
-                seen.add(d_id)
-                out.append(d_id)
-    return out
+    """The preacher pool is a SEPARATELY-MANAGED group: only the Home Church
+    Preachers department. Home church leaders and committee members are NOT
+    automatically treated as preachers — the committee curates this group
+    explicitly via the "Manage preachers" tool."""
+    return _home_church_dept_ids(db, "preachers")
+
+
+def _ensure_preachers_dept(db: Session) -> int:
+    """Return the Home Church Preachers department id, creating it if missing
+    so the committee always has a group to add people into. Uncategorised, to
+    match the other home-church coordination departments."""
+    ids = _home_church_dept_ids(db, "preachers")
+    if ids:
+        return ids[0]
+    dept = Department(name="Home Church Preachers")
+    db.add(dept)
+    db.flush()
+    return dept.id
 
 
 def _require_hc_access(request: Request, db: Session, hc: HomeChurch) -> Optional[Member]:
@@ -7431,7 +7440,56 @@ def admin_list_preachers(request: Request, db: Session = Depends(get_db)):
     if not member_ids:
         return []
     members = db.query(Member).filter(Member.id.in_(member_ids), Member.is_active == True).order_by(Member.full_name).all()
-    return [{"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email} for m in members]
+    return [{"id": m.id, "full_name": m.full_name, "titled_name": _get_titled_name(m), "phone": m.phone, "email": m.email} for m in members]
+
+
+@router.post("/admin/home-church/preachers")
+def admin_add_preacher(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Committee adds a member to the managed preacher group."""
+    _require_committee_or_admin(request, db)
+    try:
+        member_id = int(data["member_id"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="member_id required")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    dept_id = _ensure_preachers_dept(db)
+    existing = db.query(MemberDepartment).filter(
+        MemberDepartment.member_id == member_id,
+        MemberDepartment.department_id == dept_id,
+    ).first()
+    if existing:
+        if existing.status != "approved":
+            existing.status = "approved"
+    else:
+        db.add(MemberDepartment(
+            member_id=member_id, department_id=dept_id,
+            status="approved", source="admin",
+        ))
+    db.commit()
+    _log_admin_action(request, db, "add_home_church_preacher", "member", member_id, f"Added {member.full_name} to preacher group")
+    db.commit()
+    return {"success": True}
+
+
+@router.delete("/admin/home-church/preachers/{member_id}")
+def admin_remove_preacher(member_id: int, request: Request, db: Session = Depends(get_db)):
+    """Committee removes a member from the managed preacher group."""
+    _require_committee_or_admin(request, db)
+    dept_ids = _home_church_dept_ids(db, "preachers")
+    if dept_ids:
+        rows = db.query(MemberDepartment).filter(
+            MemberDepartment.member_id == member_id,
+            MemberDepartment.department_id.in_(dept_ids),
+        ).all()
+        for r in rows:
+            db.delete(r)
+        db.commit()
+    member = db.query(Member).filter(Member.id == member_id).first()
+    _log_admin_action(request, db, "remove_home_church_preacher", "member", member_id, f"Removed {member.full_name if member else member_id} from preacher group")
+    db.commit()
+    return {"success": True}
 
 
 # ---- HOME CHURCH MEMBERSHIP (sourced from rfm-database) ----
@@ -7871,6 +7929,9 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
     _require_committee_or_admin(request, db)
     start_date_str = data.get("start_date")
     weeks = int(data.get("weeks", 4))
+    # overwrite=True re-generates the whole range (used for "re-run a week"),
+    # reshuffling cells that already have a preacher. Default only fills gaps.
+    overwrite = bool(data.get("overwrite", False))
     if start_date_str:
         try:
             start = date.fromisoformat(start_date_str)
@@ -7880,15 +7941,17 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         start = _next_weekday()
     end_date = start + timedelta(days=7 * weeks)
 
-    entries = db.query(HomeChurchRoster).join(HomeChurchProgramType).filter(
+    q = db.query(HomeChurchRoster).join(HomeChurchProgramType).filter(
         HomeChurchRoster.roster_date >= start,
         HomeChurchRoster.roster_date < end_date,
         HomeChurchProgramType.requires_preacher == True,
-        HomeChurchRoster.preacher_member_id.is_(None),
-    ).order_by(HomeChurchRoster.roster_date, HomeChurchRoster.home_church_id).all()
+    )
+    if not overwrite:
+        q = q.filter(HomeChurchRoster.preacher_member_id.is_(None))
+    entries = q.order_by(HomeChurchRoster.roster_date, HomeChurchRoster.home_church_id).all()
 
     if not entries:
-        return {"success": True, "filled": 0, "message": "No empty preacher slots. Set program types first."}
+        return {"success": True, "filled": 0, "message": "No preacher slots to fill. Set program types first."}
 
     member_ids = _preacher_pool_member_ids(db)
     if not member_ids:
@@ -7906,9 +7969,18 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         HomeChurchRoster.preacher_member_id.isnot(None),
     ).all()
     for e in existing:
+        # A re-run shouldn't bias against itself — ignore assignments inside the
+        # window we're about to (re)fill when building recency history.
+        if overwrite and start <= e.roster_date < end_date:
+            continue
         recent_assignments.setdefault(e.preacher_member_id, []).append(e.roster_date)
         recent_hc_visits[(e.preacher_member_id, e.home_church_id)] = \
             recent_hc_visits.get((e.preacher_member_id, e.home_church_id), 0) + 1
+
+    # Clear the target cells first so scoring starts from a clean slate.
+    if overwrite:
+        for entry in entries:
+            entry.preacher_member_id = None
 
     hc_leader = {hc.id: hc.leader_member_id for hc in db.query(HomeChurch).all()}
 
@@ -7935,9 +8007,31 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         filled += 1
 
     db.commit()
-    _log_admin_action(request, db, "auto_fill_home_church_roster", "home_church_roster", None, f"Auto-filled {filled} preacher slots from {start.isoformat()} for {weeks} weeks")
+    _log_admin_action(request, db, "auto_fill_home_church_roster", "home_church_roster", None, f"Auto-filled {filled} preacher slots from {start.isoformat()} for {weeks} weeks (overwrite={overwrite})")
     db.commit()
     return {"success": True, "filled": filled}
+
+
+@router.post("/admin/home-church/roster/clear-week")
+def admin_clear_roster_week(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Clear every preacher assignment for a single week (program types kept)."""
+    _require_committee_or_admin(request, db)
+    try:
+        d = date.fromisoformat(data["roster_date"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="roster_date required")
+    entries = db.query(HomeChurchRoster).filter(
+        HomeChurchRoster.roster_date == d,
+        HomeChurchRoster.preacher_member_id.isnot(None),
+    ).all()
+    cleared = 0
+    for e in entries:
+        e.preacher_member_id = None
+        cleared += 1
+    db.commit()
+    _log_admin_action(request, db, "clear_home_church_roster_week", "home_church_roster", None, f"Cleared {cleared} preachers for {d.isoformat()}")
+    db.commit()
+    return {"success": True, "cleared": cleared}
 
 
 @router.post("/admin/home-church/roster/publish")
