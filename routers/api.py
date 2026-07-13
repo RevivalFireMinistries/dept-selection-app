@@ -7879,12 +7879,17 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         raise HTTPException(status_code=400, detail="No active preachers available")
 
     recent_assignments = {}
+    # Track how often each preacher has recently been to each specific home
+    # church so we can avoid sending the same person to the same place.
+    recent_hc_visits = {}
     existing = db.query(HomeChurchRoster).filter(
         HomeChurchRoster.roster_date >= start - timedelta(days=56),
         HomeChurchRoster.preacher_member_id.isnot(None),
     ).all()
     for e in existing:
         recent_assignments.setdefault(e.preacher_member_id, []).append(e.roster_date)
+        recent_hc_visits[(e.preacher_member_id, e.home_church_id)] = \
+            recent_hc_visits.get((e.preacher_member_id, e.home_church_id), 0) + 1
 
     hc_leader = {hc.id: hc.leader_member_id for hc in db.query(HomeChurch).all()}
 
@@ -7893,14 +7898,21 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         leader_id = hc_leader.get(entry.home_church_id)
 
         def score(p):
-            count = len(recent_assignments.get(p.id, []))
+            # 1) Never let a home church's own leader preach there if avoidable.
             self_preach = 1 if p.id == leader_id else 0
-            return (self_preach, count)
+            # 2) Avoid sending a preacher back to the same home church — prefer
+            #    someone who hasn't been here in the lookback window.
+            hc_visits = recent_hc_visits.get((p.id, entry.home_church_id), 0)
+            # 3) Balance overall preaching load as the final tiebreak.
+            count = len(recent_assignments.get(p.id, []))
+            return (self_preach, hc_visits, count)
 
         candidates = sorted(preachers, key=score)
         chosen = candidates[0]
         entry.preacher_member_id = chosen.id
         recent_assignments.setdefault(chosen.id, []).append(entry.roster_date)
+        recent_hc_visits[(chosen.id, entry.home_church_id)] = \
+            recent_hc_visits.get((chosen.id, entry.home_church_id), 0) + 1
         filled += 1
 
     db.commit()
