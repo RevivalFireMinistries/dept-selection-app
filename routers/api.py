@@ -8001,6 +8001,11 @@ def admin_auto_fill_roster(request: Request, data: dict = Body(default={}), db: 
         candidates = sorted(preachers, key=score)
         chosen = candidates[0]
         entry.preacher_member_id = chosen.id
+        # A freshly-assigned preacher hasn't been announced yet — keep it draft
+        # so a published week that changes is re-published (and re-notified).
+        if entry.status == "published":
+            entry.status = "draft"
+            entry.published_at = None
         recent_assignments.setdefault(chosen.id, []).append(entry.roster_date)
         recent_hc_visits[(chosen.id, entry.home_church_id)] = \
             recent_hc_visits.get((chosen.id, entry.home_church_id), 0) + 1
@@ -8025,13 +8030,20 @@ def admin_clear_roster_week(request: Request, data: dict = Body(...), db: Sessio
         HomeChurchRoster.preacher_member_id.isnot(None),
     ).all()
     cleared = 0
+    was_published = 0
     for e in entries:
         e.preacher_member_id = None
+        # A cleared slot no longer matches what leaders/preachers were told, so
+        # drop it back to draft — the committee must re-publish to re-notify.
+        if e.status == "published":
+            was_published += 1
+        e.status = "draft"
+        e.published_at = None
         cleared += 1
     db.commit()
-    _log_admin_action(request, db, "clear_home_church_roster_week", "home_church_roster", None, f"Cleared {cleared} preachers for {d.isoformat()}")
+    _log_admin_action(request, db, "clear_home_church_roster_week", "home_church_roster", None, f"Cleared {cleared} preachers for {d.isoformat()} ({was_published} were published)")
     db.commit()
-    return {"success": True, "cleared": cleared}
+    return {"success": True, "cleared": cleared, "was_published": was_published}
 
 
 @router.post("/admin/home-church/roster/publish")

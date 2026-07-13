@@ -268,7 +268,7 @@
                                         <template x-if="!isPast(cell.date)">
                                             <button @click="openCellEditor(row.home_church, cell.date)"
                                                 class="w-full h-full min-h-[52px] p-2 rounded-lg border transition text-left"
-                                                :class="cell.entry ? 'border-gray-200 bg-white hover:border-violet-300' : 'border-dashed border-gray-200 bg-gray-50/50 hover:bg-violet-50 hover:border-violet-300'">
+                                                :class="!cell.entry ? 'border-dashed border-gray-200 bg-gray-50/50 hover:bg-violet-50 hover:border-violet-300' : (needsPreacher(cell) ? 'border-amber-300 bg-amber-50 hover:border-amber-400' : 'border-gray-200 bg-white hover:border-violet-300')">
                                                 <template x-if="cell.entry">
                                                     <div>
                                                         <!-- Programme type is set at week level; show small badge only if the cell deviates -->
@@ -279,7 +279,21 @@
                                                                 <span class="truncate" x-text="cell.entry.program_type.name"></span>
                                                             </div>
                                                         </template>
-                                                        <div class="text-xs font-medium text-gray-900 truncate" x-text="cell.entry.preacher ? cell.entry.preacher.full_name : (cell.entry.program_type && cell.entry.program_type.requires_preacher ? '⚠ preacher needed' : (cell.entry.program_type ? 'Leader-led' : '—'))"></div>
+                                                        <!-- Preacher SET -->
+                                                        <template x-if="cell.entry.preacher">
+                                                            <div class="flex items-start gap-1">
+                                                                <span class="text-emerald-500 text-[11px] leading-tight mt-px">✓</span>
+                                                                <span class="text-xs font-semibold text-gray-900 truncate" x-text="cell.entry.preacher.full_name"></span>
+                                                            </div>
+                                                        </template>
+                                                        <!-- Preacher NEEDED -->
+                                                        <template x-if="!cell.entry.preacher && needsPreacher(cell)">
+                                                            <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">⚠ Preacher needed</div>
+                                                        </template>
+                                                        <!-- Leader-led / none -->
+                                                        <template x-if="!cell.entry.preacher && !needsPreacher(cell)">
+                                                            <div class="text-xs font-medium text-gray-400" x-text="cell.entry.program_type ? 'Leader-led' : '—'"></div>
+                                                        </template>
                                                         <template x-if="cell.entry.status === 'published'">
                                                             <div class="mt-0.5 text-[9px] text-emerald-600 font-semibold">✓ Published</div>
                                                         </template>
@@ -1546,6 +1560,19 @@ function homeChurchApp() {
         isFirstUpcoming(d) { return (this.dates || []).find(x => !this.isPast(x)) === d; },
         // Cell lookup by date string (position-independent).
         cellFor(row, dateStr) { return row.cells.find(c => c.date === dateStr); },
+        // A cell that requires a preacher but has none assigned.
+        needsPreacher(cell) {
+            return !!(cell && cell.entry && cell.entry.program_type &&
+                      cell.entry.program_type.requires_preacher && !cell.entry.preacher);
+        },
+        // Whether any cell on this date has been published (announced).
+        isDatePublished(dateStr) {
+            if (!this.matrix) return false;
+            return this.matrix.some(row => {
+                const c = row.cells.find(cc => cc.date === dateStr);
+                return c && c.entry && c.entry.status === 'published';
+            });
+        },
         // Preacher who took (or is booked for) this cell, titled where possible.
         cellPreacherLabel(cell) {
             if (cell && cell.entry && cell.entry.preacher) {
@@ -2023,7 +2050,9 @@ function homeChurchApp() {
 
         // Re-run auto-fill for a single week (reshuffles every preacher that week).
         async autoFillWeek(dateStr) {
-            if (!confirm('Re-run auto-fill for ' + this.formatDateShort(dateStr) + '?\nThis reshuffles all preachers for that week.')) return;
+            let msg = 'Re-run auto-fill for ' + this.formatDateShort(dateStr) + '?\nThis reshuffles all preachers for that week.';
+            if (this.isDatePublished(dateStr)) msg += '\n\n⚠ This week is already PUBLISHED. Changed slots go back to draft — re-publish to notify leaders & preachers again.';
+            if (!confirm(msg)) return;
             try {
                 const r = await fetch('/api/admin/home-church/roster/auto-fill', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -2036,7 +2065,9 @@ function homeChurchApp() {
 
         // Clear every preacher assignment for a single week.
         async clearWeek(dateStr) {
-            if (!confirm('Clear ALL preachers for ' + this.formatDateShort(dateStr) + '?\nThis removes every preacher assigned that week.')) return;
+            let msg = 'Clear ALL preachers for ' + this.formatDateShort(dateStr) + '?\nThis removes every preacher assigned that week.';
+            if (this.isDatePublished(dateStr)) msg += '\n\n⚠ This week is already PUBLISHED. Cleared slots go back to draft — leaders & preachers were already notified and won\'t be told it changed unless you re-publish.';
+            if (!confirm(msg)) return;
             try {
                 const r = await fetch('/api/admin/home-church/roster/clear-week', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
