@@ -279,21 +279,24 @@
                 </div>
             </div>
 
-            <!-- Reusable program notice / confirm dialog -->
-            <div id="programNoticeModal" class="hidden fixed inset-0 flex items-end sm:items-center justify-center" style="z-index: 70;">
-                <div class="absolute inset-0 bg-black/40" onclick="closeProgramNotice(false)"></div>
-                <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 sm:m-4">
-                    <div class="flex items-start gap-3">
-                        <div id="programNoticeIcon" class="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-xl"></div>
-                        <div class="min-w-0 flex-1">
-                            <div id="programNoticeTitle" class="font-bold text-gray-900 text-base"></div>
-                            <p id="programNoticeMsg" class="text-sm text-gray-600 mt-1 leading-relaxed"></p>
-                        </div>
+        </div>
+
+        <!-- Reusable program notice / confirm dialog — kept at top level (not
+             inside #formView) so it also shows from the programs LIST view,
+             e.g. when Publish is tapped on a card with unconfirmed people. -->
+        <div id="programNoticeModal" class="hidden fixed inset-0 flex items-end sm:items-center justify-center" style="z-index: 70;">
+            <div class="absolute inset-0 bg-black/40" onclick="closeProgramNotice(false)"></div>
+            <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 sm:m-4">
+                <div class="flex items-start gap-3">
+                    <div id="programNoticeIcon" class="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-xl"></div>
+                    <div class="min-w-0 flex-1">
+                        <div id="programNoticeTitle" class="font-bold text-gray-900 text-base"></div>
+                        <p id="programNoticeMsg" class="text-sm text-gray-600 mt-1 leading-relaxed"></p>
                     </div>
-                    <div class="mt-5 flex gap-2">
-                        <button id="programNoticeSecondary" type="button" onclick="closeProgramNotice(false)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300 transition-colors">Cancel</button>
-                        <button id="programNoticePrimary" type="button" onclick="closeProgramNotice(true)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">OK</button>
-                    </div>
+                </div>
+                <div class="mt-5 flex gap-2">
+                    <button id="programNoticeSecondary" type="button" onclick="closeProgramNotice(false)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300 transition-colors">Cancel</button>
+                    <button id="programNoticePrimary" type="button" onclick="closeProgramNotice(true)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">OK</button>
                 </div>
             </div>
         </div>
