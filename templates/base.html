@@ -121,7 +121,11 @@
                               '/verify-email', '/not-configured',
                               '/offline'].includes(path);
         var memberLoggedIn = assembly.configured === true;
-        if (memberLoggedIn && !isPortalHome && !isAdminOrDesk && !isPublicPage) {
+        // Don't float the Home pill over a page that has its own sticky bottom
+        // action bar (e.g. the Service Programs editor) — it would cover the
+        // Save button. Those pages carry their own back/close navigation.
+        var hasBottomBar = !!document.getElementById('bottomSaveBar');
+        if (memberLoggedIn && !isPortalHome && !isAdminOrDesk && !isPublicPage && !hasBottomBar) {
             btn.classList.remove('hidden');
         }
     })();

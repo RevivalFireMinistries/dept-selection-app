@@ -220,6 +220,25 @@
             Save Program
         </button>
     </div>
+
+    <!-- Participant confirmation dialog -->
+    <div id="participantConfirmModal" class="hidden fixed inset-0 flex items-end sm:items-center justify-center" style="z-index: 70;">
+        <div class="absolute inset-0 bg-black/40" onclick="closeParticipantConfirm(false)"></div>
+        <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 sm:m-4">
+            <div class="flex items-start gap-3">
+                <div class="w-11 h-11 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center flex-shrink-0 text-xl">🤝</div>
+                <div class="min-w-0 flex-1">
+                    <div class="font-bold text-gray-900 text-base">Confirm this person</div>
+                    <p class="text-sm text-gray-600 mt-1 leading-relaxed" id="participantConfirmMsg"></p>
+                    <p class="text-[11px] text-gray-400 mt-2">They'll be emailed their part when you publish the program.</p>
+                </div>
+            </div>
+            <div class="mt-5 flex gap-2">
+                <button type="button" onclick="closeParticipantConfirm(false)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300 transition-colors">Not yet</button>
+                <button type="button" onclick="closeParticipantConfirm(true)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 transition-colors">✓ Yes, confirmed</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Hidden shareable program card -->
@@ -264,7 +283,7 @@
 
 <style>
     /* Autocomplete */
-    .autocomplete-wrapper { position: relative; flex: 1; }
+    .autocomplete-wrapper { position: relative; flex: 1; min-width: 0; }
     .autocomplete-dropdown {
         position: fixed; z-index: 9999;
         background: white; border: 1px solid #d1d5db;
@@ -333,8 +352,10 @@
 
     /* Name slot */
     .part-name-slot {
-        display: flex; gap: 8px; align-items: center;
+        display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     }
+    .part-name-slot .part-confirm-btn,
+    .part-name-slot .btn-remove { flex: 0 0 auto; }
     .part-name-slot input {
         flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid #e5e7eb;
         border-radius: 10px; font-size: 14px; background: white;
@@ -1100,14 +1121,34 @@ function renderSlotConfirm(slot) {
     updatePendingBanner();
 }
 
-function toggleSlotConfirmed(btn) {
+let _participantConfirmResolve = null;
+function openParticipantConfirm(name, role) {
+    const modal = document.getElementById('participantConfirmModal');
+    const msg = document.getElementById('participantConfirmMsg');
+    if (msg) {
+        const who = `<span class="font-semibold text-gray-900">${escapeHtml(name)}</span>`;
+        const part = role ? ` the <span class="font-semibold text-gray-900">${escapeHtml(role)}</span> part` : ' this part';
+        msg.innerHTML = `Have you checked with ${who} that they'll take${part}?`;
+    }
+    modal.classList.remove('hidden');
+    return new Promise(resolve => { _participantConfirmResolve = resolve; });
+}
+function closeParticipantConfirm(result) {
+    const modal = document.getElementById('participantConfirmModal');
+    if (modal) modal.classList.add('hidden');
+    if (_participantConfirmResolve) { _participantConfirmResolve(result); _participantConfirmResolve = null; }
+}
+
+async function toggleSlotConfirmed(btn) {
     const slot = btn.closest('.part-name-slot');
     if (!slot) return;
     const name = ((slot.querySelector('.part-name') || {}).value || '').trim() || 'this person';
     if (slot.dataset.confirmed === 'true') {
         slot.dataset.confirmed = 'false';
     } else {
-        const ok = confirm(`Have you confirmed with "${name}" that they will take this part?\n\nOK = Yes, confirmed (they'll be emailed when you publish)\nCancel = Not yet`);
+        const group = slot.closest('.participant-group');
+        const role = group ? (getGroupRole(group) || '') : '';
+        const ok = await openParticipantConfirm(name, role);
         slot.dataset.confirmed = ok ? 'true' : 'false';
     }
     renderSlotConfirm(slot);
