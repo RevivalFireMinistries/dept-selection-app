@@ -278,6 +278,24 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Reusable program notice / confirm dialog -->
+            <div id="programNoticeModal" class="hidden fixed inset-0 flex items-end sm:items-center justify-center" style="z-index: 70;">
+                <div class="absolute inset-0 bg-black/40" onclick="closeProgramNotice(false)"></div>
+                <div class="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 sm:m-4">
+                    <div class="flex items-start gap-3">
+                        <div id="programNoticeIcon" class="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 text-xl"></div>
+                        <div class="min-w-0 flex-1">
+                            <div id="programNoticeTitle" class="font-bold text-gray-900 text-base"></div>
+                            <p id="programNoticeMsg" class="text-sm text-gray-600 mt-1 leading-relaxed"></p>
+                        </div>
+                    </div>
+                    <div class="mt-5 flex gap-2">
+                        <button id="programNoticeSecondary" type="button" onclick="closeProgramNotice(false)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300 transition-colors">Cancel</button>
+                        <button id="programNoticePrimary" type="button" onclick="closeProgramNotice(true)" class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors">OK</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Hidden shareable program card -->
@@ -1658,13 +1676,69 @@ async function deleteProgram(id) {
     }
 }
 
-async function publishProgram(id) {
-    if (!confirm('Publish this program and send notifications to all participants?')) return;
+// ---- Reusable styled notice / confirm dialog ----
+let _programNoticeResolve = null;
+function programNotice(opts) {
+    opts = opts || {};
+    const modal = document.getElementById('programNoticeModal');
+    const icon = document.getElementById('programNoticeIcon');
+    const title = document.getElementById('programNoticeTitle');
+    const msg = document.getElementById('programNoticeMsg');
+    const primary = document.getElementById('programNoticePrimary');
+    const secondary = document.getElementById('programNoticeSecondary');
+    const tones = {
+        warning: { emoji: '⚠️', bg: '#fef3c7', color: '#b45309', btn: 'bg-amber-500 hover:bg-amber-600' },
+        success: { emoji: '✅', bg: '#dcfce7', color: '#15803d', btn: 'bg-emerald-600 hover:bg-emerald-700' },
+        error:   { emoji: '⛔', bg: '#fee2e2', color: '#b91c1c', btn: 'bg-rose-600 hover:bg-rose-700' },
+        ask:     { emoji: '📢', bg: '#dbeafe', color: '#1d4ed8', btn: 'bg-blue-600 hover:bg-blue-700' },
+    };
+    const t = tones[opts.tone] || tones.warning;
+    icon.textContent = opts.emoji || t.emoji;
+    icon.style.background = t.bg; icon.style.color = t.color;
+    title.textContent = opts.title || '';
+    msg.innerHTML = opts.message || '';
+    primary.textContent = opts.confirmLabel || 'OK';
+    primary.className = 'flex-1 px-3 py-3 rounded-xl text-sm font-semibold text-white transition-colors ' + t.btn;
+    if (opts.cancelLabel) { secondary.textContent = opts.cancelLabel; secondary.style.display = ''; }
+    else { secondary.style.display = 'none'; }
+    modal.classList.remove('hidden');
+    return new Promise(resolve => { _programNoticeResolve = resolve; });
+}
+function closeProgramNotice(result) {
+    const modal = document.getElementById('programNoticeModal');
+    if (modal) modal.classList.add('hidden');
+    if (_programNoticeResolve) { _programNoticeResolve(result); _programNoticeResolve = null; }
+}
+
+async function publishProgram(id, pending) {
+    // Block early (no round-trip) when we already know people are unconfirmed.
+    if ((pending || 0) > 0) {
+        await programNotice({
+            tone: 'warning',
+            title: 'Confirm participants first',
+            message: `<span class="font-semibold text-gray-900">${pending}</span> participant${pending === 1 ? '' : 's'} still to confirm. Tap <span class="font-semibold text-amber-600">⚠ Confirm?</span> next to each person once you've checked they'll take their part — then you can publish.`,
+            confirmLabel: 'Got it',
+        });
+        return;
+    }
+    const go = await programNotice({
+        tone: 'ask',
+        title: 'Publish & notify?',
+        message: 'This finalises the program and emails every participant their part.',
+        confirmLabel: 'Publish now', cancelLabel: 'Not yet',
+    });
+    if (!go) return;
     const res = await fetch(`/api/admin/programs/${id}/publish${editorParam()}`, { method: 'POST' });
-    if (res.ok) { loadPrograms(); alert('Program published! Notifications sent.'); }
-    else {
-        const err = await res.json().catch(() => ({}));
-        alert(err.detail || 'Failed to publish program');
+    if (res.ok) {
+        loadPrograms();
+        await programNotice({ tone: 'success', title: 'Program published', message: 'Everyone on the program has been notified of their part.', confirmLabel: 'Done' });
+        return;
+    }
+    const err = await res.json().catch(() => ({}));
+    if (res.status === 400 && /confirm/i.test(err.detail || '')) {
+        await programNotice({ tone: 'warning', title: 'Confirm participants first', message: escapeHtml(err.detail || ''), confirmLabel: 'Got it' });
+    } else {
+        await programNotice({ tone: 'error', title: "Couldn't publish", message: escapeHtml(err.detail || 'Something went wrong. Please try again.'), confirmLabel: 'OK' });
     }
 }
 
@@ -1805,7 +1879,7 @@ async function loadPrograms() {
                 </div>` : ''}
                 <div class="px-4 pb-2 flex gap-2 justify-end flex-wrap">
                     ${canEditProgram(p) ? (p.status === 'draft'
-                        ? `<button onclick="publishProgram(${p.id})" class="program-action-btn" style="background:#ecfdf5;color:#059669;" title="Publish &amp; notify participants">
+                        ? `<button onclick="publishProgram(${p.id}, ${p.pending_confirmations || 0})" class="program-action-btn" style="background:#ecfdf5;color:#059669;" title="Publish &amp; notify participants">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             <span class="text-xs font-medium">Publish</span>
                           </button>`
