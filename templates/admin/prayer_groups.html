@@ -432,7 +432,7 @@
           <div class="text-[10px] uppercase tracking-widest text-rose-500 font-semibold">Prayer group</div>
           <h3 class="text-lg font-bold text-gray-900 truncate" x-text="viewGroup?.name"></h3>
           <div class="text-xs text-gray-400" x-show="viewGroup">
-            <span x-text="(viewGroup?.members.length || 0) + ' members'"></span>
+            <span x-text="(viewGroup?.members?.length || 0) + ' members'"></span>
             <span x-show="viewGroup && leaderCount(viewGroup) > 0" x-text="' · ' + leaderCount(viewGroup) + ' leader' + (leaderCount(viewGroup) === 1 ? '' : 's')"></span>
           </div>
         </div>
@@ -577,7 +577,7 @@ function prayerGroups() {
       if (i >= 0) this.form.criteria.splice(i, 1); else this.form.criteria.push(k);
     },
     otherGroups(id) { return (this.current?.groups || []).filter(x => x.id !== id); },
-    leaderCount(g)  { return (g.members || []).filter(m => m.is_leader).length; },
+    leaderCount(g)  { return ((g && g.members) || []).filter(m => m.is_leader).length; },
     totalMembers()  { return (this.current?.groups || []).reduce((t, g) => t + (g.members ? g.members.length : 0), 0); },
 
     weightColor(s) { s = s || 0; return s < 34 ? '#EF4444' : (s < 67 ? '#F59E0B' : '#10B981'); },
