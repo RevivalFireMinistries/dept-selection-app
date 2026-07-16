@@ -1020,6 +1020,17 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
     # member list (with contact details) is for leaders only.
     members = []
     if you_are_leader:
+        # Drop anyone deleted from the central roster before showing the list —
+        # otherwise a member removed in rfm-database lingers here. (Only done on
+        # leader views since that's the only place the member list is shown.)
+        try:
+            assembly_id = _assembly_id(request, db)
+            valid_ids = {str(x["external_member_id"]) for x in _fetch_pool(assembly_id, db)}
+            if valid_ids:  # guard against an empty/failed fetch wiping everyone
+                _reconcile_set(s, db, valid_ids)
+                db.refresh(g)
+        except Exception as exc:
+            print(f"[prayer-group] portal reconcile skipped: {exc}")
         members = [
             {"full_name": m.full_name, "is_leader": m.is_leader, "phone": m.phone}
             for m in sorted(g.members, key=lambda x: (not x.is_leader, (x.full_name or "").lower()))
