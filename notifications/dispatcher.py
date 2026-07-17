@@ -663,6 +663,21 @@ def dispatch_event(
         except Exception:
             pass
 
+    # ---- Per-event email toggle (admin Notifications page) ----
+    # Respect the email_enabled switch the admin sets for each event type.
+    # A missing config row means "enabled" (the historical default). This is
+    # what lets an admin turn off e.g. Meeting Reminder emails from the UI.
+    try:
+        from models import NotificationConfig
+        _cfg = db.query(NotificationConfig).filter(
+            NotificationConfig.event_type == event_type.value
+        ).first()
+        if _cfg is not None and not _cfg.email_enabled:
+            print(f"[dispatch_event] {event_type.value} email disabled in Notifications settings — skipping email.")
+            return
+    except Exception as _cfg_err:
+        print(f"[dispatch_event] email-toggle check failed for {event_type.value}: {_cfg_err}")
+
     # ---- Email via rfm-notify (post v1.2 migration) ----
     # We render the HTML locally as before (preserves all the existing
     # event-specific layouts) but ship it through rfm-notify instead of
