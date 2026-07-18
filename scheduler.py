@@ -483,9 +483,12 @@ def send_weekly_service_digest(manual: bool = False) -> Dict[str, Any]:
             print("[WeeklyDigest] No admin members with an email address")
             return {"success": False, "reason": "No admin members have an email address.", "sent": 0}
 
+        # The week ahead is always Monday → Sunday. weekday(): Mon=0 … Sun=6,
+        # so this lands on the next Monday (or today when today IS Monday) and
+        # runs through that week's Sunday — regardless of when it's triggered.
         today = datetime.now().date()
-        start = today + td(days=1)   # Monday
-        end = today + td(days=7)     # through the following Sunday
+        start = today + td(days=(7 - today.weekday()) % 7)  # Monday
+        end = start + td(days=6)                             # Sunday
 
         schedules = db.query(ServiceSchedule).options(
             joinedload(ServiceSchedule.template),
@@ -569,7 +572,7 @@ def send_weekly_service_digest(manual: bool = False) -> Dict[str, Any]:
         week_label = f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
         subject = f"Week ahead: service schedule ({week_label})"
 
-        app_url = os.getenv("APP_URL", "")
+        app_url = os.getenv("APP_URL", "").rstrip("/")
         button_html = ""
         if app_url:
             button_html = (f'<a href="{app_url}/admin/schedules" style="display:inline-block;background:#0d9488;color:#ffffff;'
@@ -665,7 +668,7 @@ def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manage
         message = f"The <strong>{day_name}</strong> service is in <strong>2 days</strong> and no program has been created yet. Please create and publish the program as soon as possible."
         accent = "#f59e0b"
 
-    app_url = os.getenv('APP_URL', '')
+    app_url = os.getenv('APP_URL', '').rstrip('/')
     programs_link = f"{app_url}/portal?phone={manager.phone}" if app_url and manager.phone else ""
     button_html = ""
     if programs_link:

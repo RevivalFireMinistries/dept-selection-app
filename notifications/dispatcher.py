@@ -625,6 +625,7 @@ def dispatch_event(
         app_url = f"https://{app_url}"
     if not app_url:
         app_url = os.getenv('APP_URL', '')
+    app_url = (app_url or '').rstrip('/')
 
     # ---- Web Push via rfm-notify (best-effort, non-blocking) ----
     # Push lives in rfm-notify now: VAPID keys, browser subscriptions, and
