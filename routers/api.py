@@ -7017,6 +7017,120 @@ def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, request: Requ
     return _schedule_to_dict(schedule)
 
 
+@router.post("/admin/schedules/{schedule_id}/draft-program")
+def create_draft_program_for_schedule(
+    schedule_id: int,
+    request: Request,
+    data: dict = Body(default={}),
+    db: Session = Depends(get_db),
+):
+    """Admin: create (or refresh) a DRAFT program for a scheduled service.
+
+    The person building the roster often already knows who preaches, who leads
+    prayer, etc. They pick the template and fill in those names here; we build
+    the programme skeleton from the template and pre-assign those participants,
+    creating the draft on behalf of the service manager so it lands in their
+    Programs list ready to finish."""
+    schedule = db.query(ServiceSchedule).filter(ServiceSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    template_id = data.get("template_id") or schedule.template_id
+    if not template_id:
+        raise HTTPException(status_code=400, detail="Pick a template first — the draft programme is built from it.")
+    tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    def _jload(val, fallback):
+        if isinstance(val, str):
+            try:
+                return json.loads(val or "[]")
+            except (ValueError, TypeError):
+                return fallback
+        return val if val is not None else fallback
+
+    tpl_items = _jload(tpl.program_items, [])
+    tpl_support = _jload(tpl.support_roles, [])
+
+    # Roles the template expects, in order: timed activities that need someone,
+    # then the off-schedule support roles (Projector, Livestreaming, …).
+    roles = [i.get("item") for i in tpl_items if i.get("requires_participant") and i.get("item")]
+    roles += [r for r in tpl_support if r]
+
+    # Names the admin filled in: [{role, name}]. Extra/custom roles are appended.
+    assigned: dict = {}
+    for p in (data.get("participants") or []):
+        role = (p.get("role") or "").strip()
+        name = (p.get("name") or "").strip()
+        if not role or not name:
+            continue
+        assigned.setdefault(role, []).append(name)
+    for role in assigned:
+        if role not in roles:
+            roles.append(role)
+
+    # Keep every template role as a slot (empty where unassigned) so the service
+    # manager sees the full skeleton, with the admin's picks already filled.
+    participants = []
+    for role in list(dict.fromkeys(roles)):
+        for nm in (assigned.get(role) or [""]):
+            participants.append({"role": role, "name": nm, "confirmed": False})
+
+    program_items = [{"time": i.get("time", ""), "item": i.get("item", "")} for i in tpl_items]
+
+    existing = None
+    if schedule.program_id:
+        existing = db.query(ServiceProgram).filter(ServiceProgram.id == schedule.program_id).first()
+    if existing and existing.status == "published":
+        raise HTTPException(status_code=400, detail="That service already has a published programme — unpublish it first.")
+
+    if existing:
+        # Merge, don't clobber: keep whatever the service manager has already
+        # filled in and only (re)set the roles the admin just specified.
+        current = _jload(existing.participants, [])
+        merged = [p for p in current if (p.get("role") or "").strip() not in assigned]
+        for role in assigned:
+            for nm in assigned[role]:
+                merged.append({"role": role, "name": nm, "confirmed": False})
+        have = {(p.get("role") or "").strip() for p in merged}
+        for role in roles:
+            if role not in have:
+                merged.append({"role": role, "name": "", "confirmed": False})
+        existing.participants = json.dumps(merged)
+        existing.template_id = tpl.id
+        program = existing
+        action = "update_draft_program_for_schedule"
+    else:
+        program = ServiceProgram(
+            title=tpl.title,
+            service_date=schedule.service_date,
+            location_type=tpl.location_type or "onsite",
+            program_items=json.dumps(program_items),
+            participants=json.dumps(participants),
+            admin_announcements=json.dumps(_jload(tpl.admin_announcements, [])),
+            pastors_announcements=json.dumps(_jload(tpl.pastors_announcements, [])),
+            prayer_points=json.dumps(_jload(tpl.prayer_points, [])),
+            template_id=tpl.id,
+            created_by_member_id=schedule.service_manager_id,
+            status="draft",
+        )
+        db.add(program)
+        db.flush()
+        schedule.program_id = program.id
+        action = "create_draft_program_for_schedule"
+
+    db.commit()
+    db.refresh(program)
+
+    filled = sum(1 for p in participants if p["name"])
+    _log_admin_action(request, db, action, "program", program.id,
+                      f"Draft programme for {schedule.service_date} from '{tpl.title}' ({filled} participant(s) pre-assigned)")
+    db.commit()
+
+    return _program_to_dict(program, db=db)
+
+
 @router.delete("/admin/schedules/{schedule_id}")
 def delete_schedule(schedule_id: int, request: Request, db: Session = Depends(get_db)):
     """Admin: delete a service schedule"""
