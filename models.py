@@ -1107,3 +1107,30 @@ class AssignmentResponse(Base):
 
     member = relationship("Member", foreign_keys=[member_id])
     suggested_member = relationship("Member", foreign_keys=[suggested_member_id])
+
+
+class ServiceRule(Base):
+    """A recurring service pattern autopilot keeps rostered.
+
+    Instead of creating each service by hand, define the pattern once — the
+    template (which carries the day of week), how often it repeats, and how far
+    ahead to keep filled. A nightly job tops up the horizon, optionally rotating
+    in a service manager and preparing the draft programme."""
+    __tablename__ = "service_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    template_id = Column(Integer, ForeignKey("program_templates.id", ondelete="CASCADE"), nullable=False)
+    # 1 = weekly, 2 = fortnightly, 4 = every four weeks
+    cadence_weeks = Column(Integer, nullable=False, server_default="1")
+    # Keeps fortnightly/4-weekly patterns aligned to a known service date.
+    anchor_date = Column(Date, nullable=True)
+    horizon_weeks = Column(Integer, nullable=False, server_default="8")
+    auto_assign_manager = Column(Boolean, nullable=False, server_default="true")
+    auto_create_draft = Column(Boolean, nullable=False, server_default="true")
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    template = relationship("ProgramTemplate", foreign_keys=[template_id])

@@ -7177,6 +7177,131 @@ def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, role
     return out
 
 
+def _rule_service_dates(rule, tpl, start, end) -> list:
+    """Every date this rule should cover between start and end.
+
+    The weekday comes from the template; cadence_weeks spaces them out, kept in
+    phase with anchor_date so a fortnightly pattern doesn't drift."""
+    dow = tpl.day_of_week if tpl and tpl.day_of_week is not None else 6
+    step = max(1, int(rule.cadence_weeks or 1))
+    d = start + timedelta(days=(dow - start.weekday()) % 7)
+    anchor = rule.anchor_date or d
+    # Align the anchor onto the same weekday so the modulo below is meaningful.
+    anchor = anchor + timedelta(days=(dow - anchor.weekday()) % 7)
+    out = []
+    while d <= end:
+        weeks_from_anchor = (d - anchor).days // 7
+        if (d - anchor).days % 7 == 0 and weeks_from_anchor % step == 0:
+            out.append(d)
+        d += timedelta(days=7)
+    return out
+
+
+def _autopilot_prepare_draft(db: Session, schedule, tpl):
+    """Build the draft programme for an autopilot-created service and ask the
+    people it auto-filled. Only ever creates — never touches an existing one."""
+    if schedule.program_id:
+        return None, 0
+
+    def _jl(v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v or "[]")
+            except (ValueError, TypeError):
+                return []
+        return v or []
+
+    tpl_items = _jl(tpl.program_items)
+    roles = [i.get("item") for i in tpl_items if i.get("requires_participant") and i.get("item")]
+    roles += [r for r in _jl(tpl.support_roles) if r]
+    roles = list(dict.fromkeys(roles))
+
+    auto = _resolve_role_defaults(tpl, db, schedule.service_date, roles)
+    participants = [{"role": r, "name": auto.get(r, ""), "confirmed": False} for r in roles]
+
+    program = ServiceProgram(
+        title=tpl.title,
+        service_date=schedule.service_date,
+        location_type=tpl.location_type or "onsite",
+        program_items=json.dumps([{"time": i.get("time", ""), "item": i.get("item", "")} for i in tpl_items]),
+        participants=json.dumps(participants),
+        admin_announcements=json.dumps(_jl(tpl.admin_announcements)),
+        pastors_announcements=json.dumps(_jl(tpl.pastors_announcements)),
+        prayer_points=json.dumps(_jl(tpl.prayer_points)),
+        template_id=tpl.id,
+        created_by_member_id=schedule.service_manager_id,
+        status="draft",
+    )
+    db.add(program)
+    db.flush()
+    schedule.program_id = program.id
+    db.commit()
+
+    asked = 0
+    for role, nm in auto.items():
+        if not nm:
+            continue
+        m = db.query(Member).filter(func.lower(Member.full_name) == _strip_name_title(nm).lower()).first()
+        if not m:
+            continue
+        ask = _create_assignment_ask(db, kind="role", member=m, service_date=schedule.service_date,
+                                     schedule=schedule, program=program, role=role)
+        if _send_assignment_ask(db, ask, m):
+            asked += 1
+    return program, asked
+
+
+def run_autopilot(db: Session) -> dict:
+    """Top up the rolling roster horizon for every active rule.
+
+    Creates any missing service dates, rotates in a manager, and prepares the
+    draft programme — asking each auto-filled person as it goes. Existing
+    services are never touched, so manual choices always survive."""
+    from models import ServiceRule
+    today = date.today()
+    summary = {"rules": 0, "created": 0, "managers": 0, "drafts": 0, "asked": 0, "unfilled": []}
+
+    for rule in db.query(ServiceRule).filter(ServiceRule.is_active == True).all():
+        tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == rule.template_id).first()
+        if not tpl:
+            continue
+        summary["rules"] += 1
+        end = today + timedelta(weeks=max(1, int(rule.horizon_weeks or 8)))
+        for svc_date in _rule_service_dates(rule, tpl, today, end):
+            existing = db.query(ServiceSchedule).filter(ServiceSchedule.service_date == svc_date).first()
+            if existing:
+                continue  # already on the roster — leave it alone
+            schedule = ServiceSchedule(service_date=svc_date, template_id=tpl.id)
+            db.add(schedule)
+            db.flush()
+            summary["created"] += 1
+
+            if rule.auto_assign_manager:
+                picked = _pick_service_manager(db, svc_date, exclude_schedule_id=schedule.id)
+                if picked:
+                    schedule.service_manager_id = picked.id
+                    db.commit()
+                    summary["managers"] += 1
+                    ask = _create_assignment_ask(db, kind="service_manager", member=picked,
+                                                 service_date=svc_date, schedule=schedule)
+                    if _send_assignment_ask(db, ask, picked):
+                        summary["asked"] += 1
+                else:
+                    summary["unfilled"].append({"date": svc_date.isoformat(), "what": "service manager"})
+            db.commit()
+
+            if rule.auto_create_draft:
+                program, asked = _autopilot_prepare_draft(db, schedule, tpl)
+                if program is not None:
+                    summary["drafts"] += 1
+                    summary["asked"] += asked
+
+        rule.last_run_at = datetime.utcnow()
+        db.commit()
+
+    return summary
+
+
 SERVICE_MANAGER_POOL_SETTING = "service_manager_pool_dept_id"
 _TITLE_WORDS = ("pastor", "elder", "deacon", "dr", "mr", "mrs", "rev", "bishop", "apostle", "prophet")
 
@@ -7424,6 +7549,58 @@ def _notify_admins_assignment_exception(db: Session, resp, reason: str) -> None:
         print(f"[assignment] exception notify failed: {exc}")
 
 
+def _notify_admins_decline(db: Session, resp, outcome: dict) -> None:
+    """Tell admins whenever someone turns a slot down, and what happened next.
+
+    People don't nominate replacements — the system reassigns where it can and
+    the admins stay informed either way."""
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        ch = RfmNotifyChannel()
+        slot = resp.role or "Service Manager"
+        when = resp.service_date.strftime("%A, %d %B %Y")
+        who = resp.member_name or "Someone"
+        kind = (outcome or {}).get("outcome")
+        if kind == "reassigned":
+            next_line = f"<strong>{(outcome or {}).get('to')}</strong> has been asked to take it instead."
+            tone, headline = "#0d9488", "Slot declined — cover arranged"
+        else:
+            next_line = "Autopilot couldn't reassign it, so this one needs you."
+            tone, headline = "#b45309", "Slot declined — needs your attention"
+        reason = f'<p style="margin:8px 0 0 0;color:#6b7280;font-size:13px;">Reason given: “{resp.note}”</p>' if resp.note else ""
+
+        if not ch.is_configured():
+            print(f"[assignment] DECLINE (no email configured): {who} declined {slot} on {when}")
+            return
+        admins = _admin_member_emails(db)
+        if not admins:
+            return
+        base = _assignment_base_url()
+        link = f'<a href="{base}/admin/schedules" style="color:{tone};">Open Service Management</a>' if base else ""
+        html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#fff;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
+<table role="presentation" width="100%"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" style="max-width:520px;"><tr><td>
+  <h2 style="margin:0 0 4px 0;color:{tone};font-size:18px;font-weight:700;">{headline}</h2>
+  <p style="margin:0 0 16px 0;color:#9ca3af;font-size:14px;">{when}</p>
+  <p style="margin:0 0 6px 0;color:#111827;font-size:15px;line-height:1.6;">
+    <strong>{who}</strong> can't take <strong>{slot}</strong> on <strong>{when}</strong>.
+  </p>
+  <p style="margin:0;color:#6b7280;font-size:14px;line-height:1.6;">{next_line}</p>
+  {reason}
+  <div style="margin-top:16px;">{link}</div>
+  <hr style="border:none;border-top:1px solid #f3f4f6;margin:24px 0 16px 0;">
+  <p style="margin:0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
+</td></tr></table></td></tr></table></body></html>'''
+        for (mid, name, email) in admins:
+            ch.send(email, f"Declined: {slot} — {when}", html,
+                    event_code="program.assignment_declined",
+                    recipient_id=mid, recipient_name=name,
+                    idempotency_key=f"assignment_declined:{resp.id}:{email}")
+    except Exception as exc:
+        print(f"[assignment] decline notify failed: {exc}")
+
+
 def _apply_assignment(db: Session, resp, member: Member) -> None:
     """Write an accepted/replacement person into the schedule or programme."""
     if resp.kind == "service_manager" and resp.schedule_id:
@@ -7484,18 +7661,11 @@ def _reassign_after_decline(db: Session, resp) -> dict:
     ).all()
     tried = {r.member_id for r in prior if r.member_id}
 
-    candidate = None
-    if resp.suggested_member_id:
-        candidate = db.query(Member).filter(Member.id == resp.suggested_member_id).first()
-        if candidate and candidate.id in _unavailable_member_ids(db, resp.service_date):
-            candidate = None  # they're on leave — fall through to rotation
-
-    if candidate is None:
-        if resp.kind == "service_manager":
-            candidate = _pick_service_manager(db, resp.service_date, exclude_ids=tried,
-                                              exclude_schedule_id=resp.schedule_id)
-        else:
-            candidate = _next_from_role_pool(db, resp, exclude_ids=tried)
+    if resp.kind == "service_manager":
+        candidate = _pick_service_manager(db, resp.service_date, exclude_ids=tried,
+                                          exclude_schedule_id=resp.schedule_id)
+    else:
+        candidate = _next_from_role_pool(db, resp, exclude_ids=tried)
 
     if candidate is None:
         _notify_admins_assignment_exception(
@@ -7561,29 +7731,6 @@ def get_assignment_ask(token: str, db: Session = Depends(get_db)):
     r = db.query(AssignmentResponse).filter(AssignmentResponse.token == token).first()
     if not r:
         raise HTTPException(status_code=404, detail="This link is no longer valid.")
-    # Eligible stand-ins to offer as a suggestion.
-    options = []
-    if r.kind == "service_manager":
-        pool = _pool_members(db, _service_manager_pool_dept_id(db), on_date=r.service_date)
-    else:
-        pool = []
-        cand = _next_from_role_pool(db, r, exclude_ids=[r.member_id])
-        if cand:
-            prog = db.query(ServiceProgram).filter(ServiceProgram.id == r.program_id).first()
-            tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == prog.template_id).first() if prog and prog.template_id else None
-            rules = getattr(tpl, "role_defaults", None) if tpl else None
-            if isinstance(rules, str):
-                try:
-                    rules = json.loads(rules or "[]")
-                except (ValueError, TypeError):
-                    rules = []
-            for rule in (rules or []):
-                if (rule.get("role") or "").strip().lower() == (r.role or "").strip().lower() and rule.get("pool_dept_id"):
-                    pool = _pool_members(db, rule["pool_dept_id"], on_date=r.service_date)
-                    break
-    for m in pool:
-        if m.id != r.member_id:
-            options.append({"id": m.id, "name": _get_titled_name(m)})
     return {
         "token": r.token,
         "status": r.status,
@@ -7591,7 +7738,6 @@ def get_assignment_ask(token: str, db: Session = Depends(get_db)):
         "role": r.role or "Service Manager",
         "service_date": r.service_date.isoformat(),
         "member_name": r.member_name,
-        "options": options,
     }
 
 
@@ -7620,21 +7766,13 @@ def respond_to_assignment(token: str, data: dict = Body(default={}), db: Session
         db.commit()
         return {"success": True, "outcome": "accepted"}
 
-    # Decline
+    # Decline — the person doesn't nominate anyone; we reassign where we can
+    # and the admins are told either way.
     r.status = "declined"
-    sug_id = data.get("suggested_member_id")
-    if sug_id:
-        try:
-            r.suggested_member_id = int(sug_id)
-            sm = db.query(Member).filter(Member.id == r.suggested_member_id).first()
-            r.suggested_name = _get_titled_name(sm) if sm else None
-        except (ValueError, TypeError):
-            r.suggested_member_id = None
-    elif (data.get("suggested_name") or "").strip():
-        r.suggested_name = data["suggested_name"].strip()[:200]
     db.commit()
 
     result = _reassign_after_decline(db, r)
+    _notify_admins_decline(db, r, result)
     return {"success": True, "outcome": "declined", **result}
 
 
@@ -7797,6 +7935,131 @@ def auto_assign_service_manager(schedule_id: int, request: Request, db: Session 
             "service_manager_name": _get_titled_name(picked),
             "emailed": emailed,
             "has_email": bool((picked.email or "").strip())}
+
+
+def _rule_to_dict(r, db: Session) -> dict:
+    tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == r.template_id).first()
+    return {
+        "id": r.id, "name": r.name,
+        "template_id": r.template_id,
+        "template_name": tpl.title if tpl else None,
+        "day_name": DAY_NAMES[tpl.day_of_week] if tpl and 0 <= tpl.day_of_week <= 6 else None,
+        "cadence_weeks": r.cadence_weeks,
+        "anchor_date": r.anchor_date.isoformat() if r.anchor_date else None,
+        "horizon_weeks": r.horizon_weeks,
+        "auto_assign_manager": bool(r.auto_assign_manager),
+        "auto_create_draft": bool(r.auto_create_draft),
+        "is_active": bool(r.is_active),
+        "last_run_at": r.last_run_at.isoformat() if r.last_run_at else None,
+    }
+
+
+@router.get("/admin/service-rules")
+def list_service_rules(request: Request, db: Session = Depends(get_db)):
+    """Autopilot rules + a summary of how far the roster is filled."""
+    from models import ServiceRule
+    _require_committee_or_admin(request, db)
+    rules = db.query(ServiceRule).order_by(ServiceRule.name).all()
+    today = date.today()
+    last = db.query(ServiceSchedule).filter(
+        ServiceSchedule.service_date >= today
+    ).order_by(ServiceSchedule.service_date.desc()).first()
+    return {
+        "rules": [_rule_to_dict(r, db) for r in rules],
+        "rostered_through": last.service_date.isoformat() if last else None,
+        "pool_set": bool(_service_manager_pool_dept_id(db)),
+    }
+
+
+@router.post("/admin/service-rules")
+def create_service_rule(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    from models import ServiceRule
+    _require_committee_or_admin(request, db)
+    try:
+        template_id = int(data["template_id"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="template_id is required")
+    tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    anchor = None
+    if data.get("anchor_date"):
+        try:
+            anchor = date.fromisoformat(str(data["anchor_date"]))
+        except ValueError:
+            anchor = None
+    rule = ServiceRule(
+        name=(data.get("name") or tpl.title or "Service").strip()[:150],
+        template_id=template_id,
+        cadence_weeks=max(1, int(data.get("cadence_weeks") or 1)),
+        anchor_date=anchor,
+        horizon_weeks=max(1, min(52, int(data.get("horizon_weeks") or 8))),
+        auto_assign_manager=bool(data.get("auto_assign_manager", True)),
+        auto_create_draft=bool(data.get("auto_create_draft", True)),
+        is_active=bool(data.get("is_active", True)),
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    _log_admin_action(request, db, "create_service_rule", "service_rule", rule.id, f"Autopilot rule '{rule.name}'")
+    db.commit()
+    return _rule_to_dict(rule, db)
+
+
+@router.put("/admin/service-rules/{rule_id}")
+def update_service_rule(rule_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    from models import ServiceRule
+    _require_committee_or_admin(request, db)
+    rule = db.query(ServiceRule).filter(ServiceRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    if "name" in data and data["name"]:
+        rule.name = str(data["name"]).strip()[:150]
+    if "cadence_weeks" in data:
+        rule.cadence_weeks = max(1, int(data["cadence_weeks"] or 1))
+    if "horizon_weeks" in data:
+        rule.horizon_weeks = max(1, min(52, int(data["horizon_weeks"] or 8)))
+    if "auto_assign_manager" in data:
+        rule.auto_assign_manager = bool(data["auto_assign_manager"])
+    if "auto_create_draft" in data:
+        rule.auto_create_draft = bool(data["auto_create_draft"])
+    if "is_active" in data:
+        rule.is_active = bool(data["is_active"])
+    if "anchor_date" in data:
+        try:
+            rule.anchor_date = date.fromisoformat(str(data["anchor_date"])) if data["anchor_date"] else None
+        except ValueError:
+            pass
+    db.commit()
+    _log_admin_action(request, db, "update_service_rule", "service_rule", rule.id, f"Updated autopilot rule '{rule.name}'")
+    db.commit()
+    return _rule_to_dict(rule, db)
+
+
+@router.delete("/admin/service-rules/{rule_id}")
+def delete_service_rule(rule_id: int, request: Request, db: Session = Depends(get_db)):
+    from models import ServiceRule
+    _require_committee_or_admin(request, db)
+    rule = db.query(ServiceRule).filter(ServiceRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    name = rule.name
+    db.delete(rule)
+    db.commit()
+    _log_admin_action(request, db, "delete_service_rule", "service_rule", rule_id, f"Removed autopilot rule '{name}'")
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/admin/service-rules/run")
+def run_autopilot_now(request: Request, db: Session = Depends(get_db)):
+    """Fill the horizon now rather than waiting for the nightly run."""
+    _require_committee_or_admin(request, db)
+    summary = run_autopilot(db)
+    _log_admin_action(request, db, "run_autopilot", "service_rule", None,
+                      f"Autopilot: {summary['created']} service(s) created, {summary['drafts']} draft(s)")
+    db.commit()
+    return summary
 
 
 @router.get("/admin/roster/contact-gaps")

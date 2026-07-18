@@ -28,6 +28,53 @@
         </div>
     </div>
 
+    <!-- Autopilot -->
+    <div class="mb-5 bg-white rounded-xl border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 flex items-center justify-between gap-2 flex-wrap border-b border-gray-100">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-lg">🛫</span>
+                <div class="min-w-0">
+                    <h3 class="font-semibold text-gray-900 text-sm">Autopilot</h3>
+                    <p id="autopilotStatus" class="text-xs text-gray-500">Loading…</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="runAutopilot()" id="autopilotRunBtn"
+                    class="px-3 py-1.5 bg-teal-600 text-white text-xs font-semibold rounded-lg hover:bg-teal-700">Fill roster now</button>
+                <button onclick="toggleAutopilotForm()" id="autopilotAddBtn"
+                    class="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50">+ Rule</button>
+            </div>
+        </div>
+
+        <div id="autopilotForm" class="hidden px-4 py-3 bg-gray-50 border-b border-gray-100">
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <select id="ruleTemplate" class="px-2 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option value="">Template…</option>
+                </select>
+                <select id="ruleCadence" class="px-2 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option value="1">Every week</option>
+                    <option value="2">Every 2 weeks</option>
+                    <option value="4">Every 4 weeks</option>
+                </select>
+                <select id="ruleHorizon" class="px-2 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option value="4">Keep 4 weeks ahead</option>
+                    <option value="8" selected>Keep 8 weeks ahead</option>
+                    <option value="12">Keep 12 weeks ahead</option>
+                </select>
+                <button onclick="saveRule()" class="px-3 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700">Add</button>
+            </div>
+            <label class="flex items-center gap-2 mt-2 text-xs text-gray-600">
+                <input type="checkbox" id="ruleAutoManager" checked class="rounded"> Rotate a service manager in
+            </label>
+            <label class="flex items-center gap-2 mt-1 text-xs text-gray-600">
+                <input type="checkbox" id="ruleAutoDraft" checked class="rounded"> Prepare the draft programme
+            </label>
+            <p id="ruleError" class="hidden text-xs text-rose-600 mt-1.5"></p>
+        </div>
+
+        <div id="autopilotRules" class="divide-y divide-gray-50"></div>
+    </div>
+
     <!-- Contact gaps: people on the roster who can't be emailed -->
     <div id="contactGaps" class="hidden mb-5 bg-amber-50 border border-amber-200 rounded-xl p-4">
         <div class="flex items-start gap-2">
@@ -243,6 +290,118 @@ async function init() {
 
     setView('upcoming');
     loadContactGaps();
+    loadAutopilot();
+}
+
+// ==================== AUTOPILOT ====================
+
+function toggleAutopilotForm() {
+    const f = document.getElementById('autopilotForm');
+    f.classList.toggle('hidden');
+    if (!f.classList.contains('hidden')) {
+        const sel = document.getElementById('ruleTemplate');
+        sel.innerHTML = '<option value="">Template…</option>' +
+            allTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.title)} (${escapeHtml(t.day_name)})</option>`).join('');
+    }
+}
+
+async function loadAutopilot() {
+    try {
+        const res = await fetch('/api/admin/service-rules');
+        if (!res.ok) return;
+        const d = await res.json();
+        const status = document.getElementById('autopilotStatus');
+        const active = (d.rules || []).filter(r => r.is_active).length;
+        const parts = [];
+        parts.push(active > 0 ? `${active} rule${active === 1 ? '' : 's'} active` : 'No rules yet — add one to go hands-free');
+        if (d.rostered_through) parts.push(`rostered through ${formatShort(d.rostered_through)}`);
+        if (!d.pool_set) parts.push('⚠ no service manager pool set');
+        status.textContent = parts.join(' · ');
+
+        const box = document.getElementById('autopilotRules');
+        if (!d.rules || d.rules.length === 0) { box.innerHTML = ''; return; }
+        box.innerHTML = d.rules.map(r => `
+            <div class="px-4 py-2.5 flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                    <div class="text-sm font-medium text-gray-900 truncate">
+                        ${escapeHtml(r.name)}
+                        ${r.is_active ? '' : '<span class="ml-1 text-[10px] font-bold text-gray-400 uppercase">paused</span>'}
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        ${escapeHtml(r.template_name || '—')} · ${r.day_name || ''} ·
+                        ${r.cadence_weeks === 1 ? 'weekly' : `every ${r.cadence_weeks} weeks`} ·
+                        keeps ${r.horizon_weeks}w ahead
+                        ${r.auto_assign_manager ? ' · rotates manager' : ''}${r.auto_create_draft ? ' · preps draft' : ''}
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                    <button onclick="toggleRule(${r.id}, ${!r.is_active})"
+                        class="px-2 py-1 text-xs font-medium rounded-lg border border-gray-200 hover:bg-gray-50">
+                        ${r.is_active ? 'Pause' : 'Resume'}
+                    </button>
+                    <button onclick="deleteRule(${r.id})" class="px-2 py-1 text-xs font-medium text-rose-600 rounded-lg hover:bg-rose-50">Remove</button>
+                </div>
+            </div>`).join('');
+    } catch (e) { /* non-critical */ }
+}
+
+async function saveRule() {
+    const err = document.getElementById('ruleError');
+    err.classList.add('hidden');
+    const templateId = document.getElementById('ruleTemplate').value;
+    if (!templateId) { err.textContent = 'Pick a template.'; err.classList.remove('hidden'); return; }
+    const tpl = allTemplates.find(t => String(t.id) === String(templateId));
+    const payload = {
+        template_id: parseInt(templateId),
+        name: tpl ? tpl.title : 'Service',
+        cadence_weeks: parseInt(document.getElementById('ruleCadence').value),
+        horizon_weeks: parseInt(document.getElementById('ruleHorizon').value),
+        auto_assign_manager: document.getElementById('ruleAutoManager').checked,
+        auto_create_draft: document.getElementById('ruleAutoDraft').checked,
+    };
+    const res = await fetch('/api/admin/service-rules', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        err.textContent = d.detail || 'Could not save.'; err.classList.remove('hidden'); return;
+    }
+    toggleAutopilotForm();
+    loadAutopilot();
+}
+
+async function toggleRule(id, makeActive) {
+    await fetch(`/api/admin/service-rules/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: makeActive })
+    });
+    loadAutopilot();
+}
+
+async function deleteRule(id) {
+    if (!confirm('Remove this autopilot rule?\n\nServices already on the roster stay — only future auto-filling stops.')) return;
+    await fetch(`/api/admin/service-rules/${id}`, { method: 'DELETE' });
+    loadAutopilot();
+}
+
+async function runAutopilot() {
+    const btn = document.getElementById('autopilotRunBtn');
+    btn.disabled = true; btn.textContent = 'Filling…';
+    try {
+        const res = await fetch('/api/admin/service-rules/run', { method: 'POST' });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { alert(d.detail || 'Could not run autopilot.'); }
+        else {
+            let msg = `Roster topped up.\n\n${d.created} service(s) created · ${d.managers} manager(s) rotated in · ${d.drafts} draft(s) prepared.`;
+            if (d.unfilled && d.unfilled.length) {
+                msg += `\n\n⚠ ${d.unfilled.length} slot(s) couldn't be filled:\n` +
+                    d.unfilled.slice(0, 5).map(u => `• ${u.what} on ${u.date}`).join('\n');
+            }
+            alert(msg);
+            loadSchedules(); loadAutopilot(); loadContactGaps();
+        }
+    } catch (e) { alert('Network error.'); }
+    btn.disabled = false; btn.textContent = 'Fill roster now';
 }
 
 // Flag anyone on the upcoming roster we can't email — a silent break in the

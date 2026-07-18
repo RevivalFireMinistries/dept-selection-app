@@ -590,6 +590,29 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (autopilot tables): {e}")
 
+        # Migration: service_rules (autopilot recurring roster)
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS service_rules (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(150) NOT NULL,
+                    template_id INTEGER NOT NULL REFERENCES program_templates(id) ON DELETE CASCADE,
+                    cadence_weeks INTEGER NOT NULL DEFAULT 1,
+                    anchor_date DATE,
+                    horizon_weeks INTEGER NOT NULL DEFAULT 8,
+                    auto_assign_manager BOOLEAN NOT NULL DEFAULT TRUE,
+                    auto_create_draft BOOLEAN NOT NULL DEFAULT TRUE,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    last_run_at TIMESTAMP WITH TIME ZONE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
+            conn.commit()
+            print("Migration: Ensured service_rules table")
+        except Exception as e:
+            print(f"Migration note (service_rules): {e}")
+
         # Migration: role_defaults on program_templates (per-role auto-fill)
         try:
             conn.execute(text("""

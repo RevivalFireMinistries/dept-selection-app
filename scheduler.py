@@ -90,6 +90,16 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # Autopilot roster horizon — nightly at 03:00. Tops up each active rule so
+    # services stay rostered ahead, rotating in managers and preparing drafts.
+    scheduler.add_job(
+        run_autopilot_horizon,
+        CronTrigger(hour=3, minute=0),
+        id="autopilot_horizon",
+        name="Autopilot Roster Horizon",
+        replace_existing=True
+    )
+
     # Week-ahead service digest to portal admins — Sunday 17:00.
     # Lists every service for the coming week with its manager, template and
     # assigned participants so admins can adjust before the week starts.
@@ -453,6 +463,23 @@ def check_service_schedules():
 
     except Exception as e:
         print(f"[Schedule] Check failed: {e}")
+    finally:
+        db.close()
+
+
+def run_autopilot_horizon() -> Dict[str, Any]:
+    """Nightly: keep every active service rule's roster horizon filled."""
+    db: Session = SessionLocal()
+    try:
+        from routers.api import run_autopilot
+        summary = run_autopilot(db)
+        print(f"[Autopilot] rules={summary['rules']} created={summary['created']} "
+              f"managers={summary['managers']} drafts={summary['drafts']} asked={summary['asked']} "
+              f"unfilled={len(summary['unfilled'])}")
+        return summary
+    except Exception as exc:
+        print(f"[Autopilot] Job failed: {exc}")
+        return {"success": False, "error": str(exc)}
     finally:
         db.close()
 
