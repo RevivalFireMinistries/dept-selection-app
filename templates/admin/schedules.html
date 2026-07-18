@@ -28,6 +28,18 @@
         </div>
     </div>
 
+    <!-- Contact gaps: people on the roster who can't be emailed -->
+    <div id="contactGaps" class="hidden mb-5 bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div class="flex items-start gap-2">
+            <span class="text-amber-600 text-lg leading-none">⚠</span>
+            <div class="min-w-0 flex-1">
+                <h3 class="font-semibold text-amber-900 text-sm">Some people on the roster can't be emailed</h3>
+                <p class="text-xs text-amber-700 mt-0.5">They won't get roster requests, reminders or their programme — please add an email address (or link the name to a member).</p>
+                <div id="contactGapsList" class="mt-2 space-y-1.5"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Summary Stats -->
     <div id="statsBar" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <div class="bg-white rounded-xl border border-gray-100 p-3">
@@ -230,6 +242,39 @@ async function init() {
     populateMonthFilter();
 
     setView('upcoming');
+    loadContactGaps();
+}
+
+// Flag anyone on the upcoming roster we can't email — a silent break in the
+// notification chain otherwise.
+async function loadContactGaps() {
+    try {
+        const res = await fetch('/api/admin/roster/contact-gaps?days=28');
+        if (!res.ok) return;
+        const { gaps } = await res.json();
+        const box = document.getElementById('contactGaps');
+        const list = document.getElementById('contactGapsList');
+        if (!gaps || gaps.length === 0) { box.classList.add('hidden'); return; }
+        list.innerHTML = gaps.map(g => {
+            const why = g.reason === 'no_email'
+                ? 'no email address'
+                : 'not linked to a member';
+            const where = g.slots.slice(0, 3).map(s => `${escapeHtml(s.detail)} · ${formatShort(s.date)}`).join(', ');
+            const more = g.count > 3 ? ` +${g.count - 3} more` : '';
+            return `<div class="text-xs text-amber-900">
+                <span class="font-semibold">${escapeHtml(g.name)}</span>
+                <span class="text-amber-700">— ${why}</span>
+                <div class="text-[11px] text-amber-600">${where}${more}</div>
+            </div>`;
+        }).join('');
+        box.classList.remove('hidden');
+    } catch (e) { /* non-critical */ }
+}
+
+function formatShort(iso) {
+    if (!iso) return '';
+    try { return new Date(iso + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }); }
+    catch (e) { return iso; }
 }
 
 function populateMonthFilter() {

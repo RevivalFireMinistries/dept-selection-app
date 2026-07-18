@@ -7067,9 +7067,25 @@ def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, request: Requ
     return _schedule_to_dict(schedule)
 
 
-def _pool_members(db: Session, dept_id: int) -> list:
+def _unavailable_member_ids(db: Session, on_date) -> set:
+    """Members who've blocked out `on_date` (leave, travel, …).
+
+    One shared eligibility check used by every rotation — service managers and
+    programme roles alike — so autopilot never rosters someone who's away."""
+    if not on_date:
+        return set()
+    from models import MemberUnavailability
+    rows = db.query(MemberUnavailability.member_id).filter(
+        MemberUnavailability.start_date <= on_date,
+        MemberUnavailability.end_date >= on_date,
+    ).distinct().all()
+    return {r[0] for r in rows}
+
+
+def _pool_members(db: Session, dept_id: int, on_date=None) -> list:
     """Active members approved into a department — the 'pool' a role draws from
-    (e.g. the Home Church Preachers group)."""
+    (e.g. the Home Church Preachers group). Anyone unavailable on `on_date`
+    is filtered out."""
     if not dept_id:
         return []
     rows = db.query(MemberDepartment.member_id).filter(
@@ -7079,6 +7095,11 @@ def _pool_members(db: Session, dept_id: int) -> list:
     ids = [r[0] for r in rows]
     if not ids:
         return []
+    away = _unavailable_member_ids(db, on_date)
+    if away:
+        ids = [i for i in ids if i not in away]
+        if not ids:
+            return []
     return db.query(Member).filter(Member.id.in_(ids), Member.is_active == True).order_by(Member.full_name).all()
 
 
@@ -7132,13 +7153,17 @@ def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, role
 
         if mode == "fixed":
             m = db.query(Member).filter(Member.id == rule.get("member_id")).first() if rule.get("member_id") else None
+            # A fixed default still yields to leave — better an empty slot the
+            # manager fills than someone rostered while they're away.
+            if m and m.id in _unavailable_member_ids(db, base_date):
+                continue
             if m:
                 out[role] = _get_titled_name(m)
             elif rule.get("member_name"):
                 out[role] = rule["member_name"]
             continue
 
-        pool = _pool_members(db, rule.get("pool_dept_id"))
+        pool = _pool_members(db, rule.get("pool_dept_id"), on_date=base_date)
         if not pool:
             continue
         usage = _recent_role_usage(db, role, lookback, exclude_program_id)
@@ -7150,6 +7175,642 @@ def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, role
 
         out[role] = _get_titled_name(sorted(pool, key=_score)[0])
     return out
+
+
+SERVICE_MANAGER_POOL_SETTING = "service_manager_pool_dept_id"
+_TITLE_WORDS = ("pastor", "elder", "deacon", "dr", "mr", "mrs", "rev", "bishop", "apostle", "prophet")
+
+
+def _strip_name_title(name: str) -> str:
+    n = (name or "").strip()
+    parts = n.split()
+    if parts and parts[0].lower().rstrip(".") in _TITLE_WORDS:
+        return " ".join(parts[1:]).strip()
+    return n
+
+
+def _service_manager_pool_dept_id(db: Session):
+    s = db.query(Settings).filter(Settings.key == SERVICE_MANAGER_POOL_SETTING).first()
+    try:
+        return int(s.value) if s and s.value else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _recent_manager_usage(db: Session, since, exclude_schedule_id=None) -> dict:
+    """member_id -> (times_managed, last_date) over recent services."""
+    usage: dict = {}
+    q = db.query(ServiceSchedule).filter(
+        ServiceSchedule.service_date >= since,
+        ServiceSchedule.service_manager_id.isnot(None),
+    )
+    for s in q.all():
+        if exclude_schedule_id and s.id == exclude_schedule_id:
+            continue
+        cnt, last = usage.get(s.service_manager_id, (0, None))
+        d = s.service_date
+        usage[s.service_manager_id] = (cnt + 1, d if (last is None or (d and d > last)) else last)
+    return usage
+
+
+def _pick_service_manager(db: Session, service_date, exclude_ids=None, exclude_schedule_id=None):
+    """Next service manager from the pool — least often, least recently, and
+    not on leave. Returns a Member, or None when nobody is eligible."""
+    dept_id = _service_manager_pool_dept_id(db)
+    if not dept_id:
+        return None
+    pool = _pool_members(db, dept_id, on_date=service_date)
+    if exclude_ids:
+        skip = {int(x) for x in exclude_ids if x is not None}
+        pool = [m for m in pool if m.id not in skip]
+    if not pool:
+        return None
+    base = service_date or date.today()
+    usage = _recent_manager_usage(db, base - timedelta(days=180), exclude_schedule_id)
+
+    def _score(m):
+        cnt, last = usage.get(m.id, (0, None))
+        return (cnt, last or date.min, (m.full_name or "").lower())
+
+    return sorted(pool, key=_score)[0]
+
+
+def _roster_contact_gaps(db: Session, start, end) -> list:
+    """Anyone on the roster between two dates who can't be emailed.
+
+    Two failure modes worth flagging to admins: a member with no email address,
+    and a participant name that doesn't match any member at all (so there's
+    nobody to notify). Either quietly breaks the notification chain."""
+    gaps: dict = {}
+
+    def flag(key, name, reason, when, detail):
+        entry = gaps.setdefault(key, {"name": name, "reason": reason, "slots": []})
+        entry["slots"].append({"date": when.isoformat() if when else None, "detail": detail})
+
+    schedules = db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.service_manager),
+        joinedload(ServiceSchedule.program),
+    ).filter(
+        ServiceSchedule.service_date >= start,
+        ServiceSchedule.service_date <= end,
+    ).order_by(ServiceSchedule.service_date).all()
+
+    # Index members once for participant-name matching.
+    all_members = db.query(Member).all()
+    by_plain = {}
+    for m in all_members:
+        by_plain.setdefault((m.full_name or "").strip().lower(), m)
+
+    for s in schedules:
+        mgr = s.service_manager
+        if mgr and not (mgr.email or "").strip():
+            flag(f"m{mgr.id}", mgr.full_name, "no_email", s.service_date, "Service manager")
+
+        program = s.program
+        if not program:
+            continue
+        parts = program.participants
+        if isinstance(parts, str):
+            try:
+                parts = json.loads(parts or "[]")
+            except (ValueError, TypeError):
+                parts = []
+        for p in (parts or []):
+            nm = (p.get("name") or "").strip()
+            if not nm:
+                continue
+            role = (p.get("role") or "").strip() or "Participant"
+            match = by_plain.get(_strip_name_title(nm).lower()) or by_plain.get(nm.lower())
+            if match is None:
+                flag(f"n:{nm.lower()}", nm, "not_a_member", s.service_date, role)
+            elif not (match.email or "").strip():
+                flag(f"m{match.id}", match.full_name, "no_email", s.service_date, role)
+
+    out = []
+    for v in gaps.values():
+        out.append({"name": v["name"], "reason": v["reason"], "slots": v["slots"], "count": len(v["slots"])})
+    out.sort(key=lambda x: (x["reason"], x["name"].lower()))
+    return out
+
+
+# Inside this many days of a service, autopilot stops reshuffling on a decline
+# and hands it to an admin instead — by then people have been told.
+ASSIGNMENT_FREEZE_DAYS = 2
+ASSIGNMENT_MAX_ATTEMPTS = 3
+
+
+def _assignment_base_url() -> str:
+    url = os.getenv("APP_URL") or os.getenv("PUBLIC_APP_URL") or ""
+    if not url:
+        rail = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+        if rail:
+            url = rail if rail.startswith("http") else f"https://{rail}"
+    return (url or "").rstrip("/")
+
+
+def _create_assignment_ask(db: Session, *, kind: str, member: Member, service_date,
+                           schedule=None, program=None, role=None, attempt: int = 1):
+    """Record a 'can you take this?' ask and return the row (token included)."""
+    from models import AssignmentResponse
+    import secrets
+    row = AssignmentResponse(
+        token=secrets.token_urlsafe(32)[:64],
+        kind=kind,
+        schedule_id=schedule.id if schedule is not None else None,
+        program_id=program.id if program is not None else None,
+        role=role,
+        service_date=service_date,
+        member_id=member.id if member else None,
+        member_name=_get_titled_name(member) if member else None,
+        status="pending",
+        attempt=attempt,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _send_assignment_ask(db: Session, resp, member: Member) -> bool:
+    """Email the one-click 'I'm on / Can't make it' ask. Returns True if sent."""
+    email = _member_email_with_central_fallback(member, db)
+    if not email:
+        print(f"[assignment] {member.full_name} has no email — cannot ask about {resp.service_date}")
+        return False
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        ch = RfmNotifyChannel()
+        if not ch.is_configured():
+            return False
+        base = _assignment_base_url()
+        link = f"{base}/respond/{resp.token}" if base else ""
+        slot = resp.role or "Service Manager"
+        when = resp.service_date.strftime("%A, %d %B %Y")
+        FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
+        buttons = ""
+        if link:
+            buttons = (
+                f'<a href="{link}?a=accept" style="display:inline-block;background:#059669;color:#fff;'
+                f'font-family:{FONT};font-size:14px;font-weight:600;text-decoration:none;padding:10px 22px;'
+                f'border-radius:10px;margin:0 8px 8px 0;">I\'m on</a>'
+                f'<a href="{link}?a=decline" style="display:inline-block;background:#ffffff;color:#b45309;'
+                f'border:1px solid #fde68a;font-family:{FONT};font-size:14px;font-weight:600;text-decoration:none;'
+                f'padding:10px 22px;border-radius:10px;">Can\'t make it</a>'
+            )
+        html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#fff;font-family:{FONT};">
+<table role="presentation" width="100%"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" style="max-width:520px;"><tr><td>
+  <h2 style="margin:0 0 4px 0;color:#111827;font-size:18px;font-weight:700;">You've been rostered</h2>
+  <p style="margin:0 0 16px 0;color:#9ca3af;font-size:14px;">{when}</p>
+  <p style="margin:0 0 14px 0;color:#111827;font-size:15px;">Hi <strong>{_get_titled_name(member)}</strong>,</p>
+  <p style="margin:0 0 16px 0;color:#6b7280;font-size:14px;line-height:1.6;">
+    You've been put down for <strong>{slot}</strong> on <strong>{when}</strong>.
+    Please let us know either way — if you can't make it you can suggest someone else.
+  </p>
+  {buttons}
+  <hr style="border:none;border-top:1px solid #f3f4f6;margin:24px 0 16px 0;">
+  <p style="margin:0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
+</td></tr></table></td></tr></table></body></html>'''
+        ok, err = ch.send(
+            email, f"Are you available? {slot} — {when}", html,
+            event_code="program.assignment_ask",
+            recipient_name=member.full_name,
+            idempotency_key=f"assignment_ask:{resp.token}",
+        )
+        if not ok:
+            print(f"[assignment] ask failed for {email}: {err}")
+        return bool(ok)
+    except Exception as exc:
+        print(f"[assignment] ask error for {member.full_name}: {exc}")
+        return False
+
+
+def _notify_admins_assignment_exception(db: Session, resp, reason: str) -> None:
+    """Autopilot couldn't resolve a slot — hand it to the admins, loudly."""
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+        ch = RfmNotifyChannel()
+        if not ch.is_configured():
+            print(f"[assignment] EXCEPTION (no email configured): {reason}")
+            return
+        admins = _admin_member_emails(db)
+        if not admins:
+            return
+        slot = resp.role or "Service Manager"
+        when = resp.service_date.strftime("%A, %d %B %Y")
+        base = _assignment_base_url()
+        link = f'<a href="{base}/admin/schedules" style="color:#0d9488;">Open Service Management</a>' if base else ""
+        html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#fff;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
+<table role="presentation" width="100%"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" style="max-width:520px;"><tr><td>
+  <h2 style="margin:0 0 4px 0;color:#b45309;font-size:18px;font-weight:700;">Needs your attention</h2>
+  <p style="margin:0 0 16px 0;color:#9ca3af;font-size:14px;">{when}</p>
+  <p style="margin:0 0 16px 0;color:#111827;font-size:15px;line-height:1.6;">
+    Autopilot couldn't fill <strong>{slot}</strong> for <strong>{when}</strong>.<br>
+    <span style="color:#6b7280;font-size:14px;">{reason}</span>
+  </p>
+  {link}
+  <hr style="border:none;border-top:1px solid #f3f4f6;margin:24px 0 16px 0;">
+  <p style="margin:0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
+</td></tr></table></td></tr></table></body></html>'''
+        for (mid, name, email) in admins:
+            ch.send(email, f"Action needed: {slot} — {when}", html,
+                    event_code="program.assignment_exception",
+                    recipient_id=mid, recipient_name=name,
+                    idempotency_key=f"assignment_exception:{resp.id}:{email}")
+    except Exception as exc:
+        print(f"[assignment] exception notify failed: {exc}")
+
+
+def _apply_assignment(db: Session, resp, member: Member) -> None:
+    """Write an accepted/replacement person into the schedule or programme."""
+    if resp.kind == "service_manager" and resp.schedule_id:
+        sc = db.query(ServiceSchedule).filter(ServiceSchedule.id == resp.schedule_id).first()
+        if sc:
+            sc.service_manager_id = member.id if member else None
+            db.commit()
+        return
+    if resp.program_id and resp.role:
+        prog = db.query(ServiceProgram).filter(ServiceProgram.id == resp.program_id).first()
+        if not prog:
+            return
+        parts = prog.participants
+        if isinstance(parts, str):
+            try:
+                parts = json.loads(parts or "[]")
+            except (ValueError, TypeError):
+                parts = []
+        target = (resp.role or "").strip().lower()
+        new_name = _get_titled_name(member) if member else ""
+        replaced = False
+        for p in (parts or []):
+            if (p.get("role") or "").strip().lower() == target and not replaced:
+                p["name"] = new_name
+                p["confirmed"] = False
+                replaced = True
+        if not replaced and new_name:
+            parts.append({"role": resp.role, "name": new_name, "confirmed": False})
+        prog.participants = json.dumps(parts)
+        db.commit()
+
+
+def _reassign_after_decline(db: Session, resp) -> dict:
+    """Work out who takes a declined slot: the suggested person, else the next
+    from rotation, else escalate. Returns a summary for the response page."""
+    today = date.today()
+    days_out = (resp.service_date - today).days
+
+    # Inside the freeze window we don't quietly reshuffle — a human decides.
+    if days_out <= ASSIGNMENT_FREEZE_DAYS:
+        _notify_admins_assignment_exception(
+            db, resp,
+            f"{resp.member_name or 'Someone'} declined and the service is only {days_out} day(s) away, "
+            f"so it wasn't reassigned automatically.")
+        return {"outcome": "escalated", "reason": "close_to_service"}
+
+    if resp.attempt >= ASSIGNMENT_MAX_ATTEMPTS:
+        _notify_admins_assignment_exception(
+            db, resp, f"Tried {resp.attempt} people for this slot and all declined.")
+        return {"outcome": "escalated", "reason": "too_many_attempts"}
+
+    # Who has already been asked (and said no) for this slot?
+    from models import AssignmentResponse
+    prior = db.query(AssignmentResponse).filter(
+        AssignmentResponse.service_date == resp.service_date,
+        AssignmentResponse.role == resp.role,
+        AssignmentResponse.kind == resp.kind,
+    ).all()
+    tried = {r.member_id for r in prior if r.member_id}
+
+    candidate = None
+    if resp.suggested_member_id:
+        candidate = db.query(Member).filter(Member.id == resp.suggested_member_id).first()
+        if candidate and candidate.id in _unavailable_member_ids(db, resp.service_date):
+            candidate = None  # they're on leave — fall through to rotation
+
+    if candidate is None:
+        if resp.kind == "service_manager":
+            candidate = _pick_service_manager(db, resp.service_date, exclude_ids=tried,
+                                              exclude_schedule_id=resp.schedule_id)
+        else:
+            candidate = _next_from_role_pool(db, resp, exclude_ids=tried)
+
+    if candidate is None:
+        _notify_admins_assignment_exception(
+            db, resp, "Nobody else in the pool is available for this slot.")
+        return {"outcome": "escalated", "reason": "pool_exhausted"}
+
+    nxt = _create_assignment_ask(
+        db, kind=resp.kind, member=candidate, service_date=resp.service_date,
+        schedule=db.query(ServiceSchedule).filter(ServiceSchedule.id == resp.schedule_id).first() if resp.schedule_id else None,
+        program=db.query(ServiceProgram).filter(ServiceProgram.id == resp.program_id).first() if resp.program_id else None,
+        role=resp.role, attempt=(resp.attempt or 1) + 1,
+    )
+    # Pencil them in immediately so the roster is never blank; the ask confirms.
+    _apply_assignment(db, nxt, candidate)
+    sent = _send_assignment_ask(db, nxt, candidate)
+    if not sent:
+        _notify_admins_assignment_exception(
+            db, nxt,
+            f"{candidate.full_name} was rotated in but couldn't be emailed (no address on file).")
+    return {"outcome": "reassigned", "to": _get_titled_name(candidate), "emailed": sent}
+
+
+def _next_from_role_pool(db: Session, resp, exclude_ids=None):
+    """Next eligible person for a programme role, using the template's pool rule."""
+    prog = db.query(ServiceProgram).filter(ServiceProgram.id == resp.program_id).first() if resp.program_id else None
+    tpl = None
+    if prog is not None and prog.template_id:
+        tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == prog.template_id).first()
+    if tpl is None:
+        return None
+    rules = getattr(tpl, "role_defaults", None)
+    if isinstance(rules, str):
+        try:
+            rules = json.loads(rules or "[]")
+        except (ValueError, TypeError):
+            rules = []
+    target = (resp.role or "").strip().lower()
+    for rule in (rules or []):
+        if (rule.get("role") or "").strip().lower() != target:
+            continue
+        if (rule.get("mode") or "").lower() != "pool":
+            return None  # a fixed default has no "next person"
+        pool = _pool_members(db, rule.get("pool_dept_id"), on_date=resp.service_date)
+        skip = {int(x) for x in (exclude_ids or []) if x is not None}
+        pool = [m for m in pool if m.id not in skip]
+        if not pool:
+            return None
+        usage = _recent_role_usage(db, resp.role, resp.service_date - timedelta(days=180))
+
+        def _score(m):
+            titled = _get_titled_name(m)
+            cnt, last = usage.get(titled, usage.get(m.full_name, (0, None)))
+            return (cnt, last or date.min, (m.full_name or "").lower())
+
+        return sorted(pool, key=_score)[0]
+    return None
+
+
+@router.get("/assignment/{token}")
+def get_assignment_ask(token: str, db: Session = Depends(get_db)):
+    """Details behind a one-click respond link (no login)."""
+    from models import AssignmentResponse
+    r = db.query(AssignmentResponse).filter(AssignmentResponse.token == token).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="This link is no longer valid.")
+    # Eligible stand-ins to offer as a suggestion.
+    options = []
+    if r.kind == "service_manager":
+        pool = _pool_members(db, _service_manager_pool_dept_id(db), on_date=r.service_date)
+    else:
+        pool = []
+        cand = _next_from_role_pool(db, r, exclude_ids=[r.member_id])
+        if cand:
+            prog = db.query(ServiceProgram).filter(ServiceProgram.id == r.program_id).first()
+            tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == prog.template_id).first() if prog and prog.template_id else None
+            rules = getattr(tpl, "role_defaults", None) if tpl else None
+            if isinstance(rules, str):
+                try:
+                    rules = json.loads(rules or "[]")
+                except (ValueError, TypeError):
+                    rules = []
+            for rule in (rules or []):
+                if (rule.get("role") or "").strip().lower() == (r.role or "").strip().lower() and rule.get("pool_dept_id"):
+                    pool = _pool_members(db, rule["pool_dept_id"], on_date=r.service_date)
+                    break
+    for m in pool:
+        if m.id != r.member_id:
+            options.append({"id": m.id, "name": _get_titled_name(m)})
+    return {
+        "token": r.token,
+        "status": r.status,
+        "kind": r.kind,
+        "role": r.role or "Service Manager",
+        "service_date": r.service_date.isoformat(),
+        "member_name": r.member_name,
+        "options": options,
+    }
+
+
+@router.post("/assignment/{token}")
+def respond_to_assignment(token: str, data: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Accept or decline a rostered slot. A decline may suggest a replacement."""
+    from models import AssignmentResponse
+    r = db.query(AssignmentResponse).filter(AssignmentResponse.token == token).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="This link is no longer valid.")
+    if r.status != "pending":
+        return {"success": True, "already": r.status, "outcome": "already_answered"}
+
+    action = (data.get("action") or "").strip().lower()
+    if action not in ("accept", "decline"):
+        raise HTTPException(status_code=400, detail="action must be 'accept' or 'decline'")
+
+    r.responded_at = datetime.utcnow()
+    r.note = (data.get("note") or "").strip()[:1000] or None
+
+    if action == "accept":
+        r.status = "accepted"
+        member = db.query(Member).filter(Member.id == r.member_id).first()
+        if member:
+            _apply_assignment(db, r, member)
+        db.commit()
+        return {"success": True, "outcome": "accepted"}
+
+    # Decline
+    r.status = "declined"
+    sug_id = data.get("suggested_member_id")
+    if sug_id:
+        try:
+            r.suggested_member_id = int(sug_id)
+            sm = db.query(Member).filter(Member.id == r.suggested_member_id).first()
+            r.suggested_name = _get_titled_name(sm) if sm else None
+        except (ValueError, TypeError):
+            r.suggested_member_id = None
+    elif (data.get("suggested_name") or "").strip():
+        r.suggested_name = data["suggested_name"].strip()[:200]
+    db.commit()
+
+    result = _reassign_after_decline(db, r)
+    return {"success": True, "outcome": "declined", **result}
+
+
+def _member_assignments(db: Session, member: Member, days: int = 90) -> dict:
+    """What this member is on the hook for: services they manage, programme
+    slots they're named in, and any outstanding 'can you take this?' asks."""
+    from models import AssignmentResponse, MemberUnavailability
+    today = date.today()
+    horizon = today + timedelta(days=days)
+
+    managing = []
+    for s in db.query(ServiceSchedule).options(
+        joinedload(ServiceSchedule.template), joinedload(ServiceSchedule.program)
+    ).filter(
+        ServiceSchedule.service_manager_id == member.id,
+        ServiceSchedule.service_date >= today,
+        ServiceSchedule.service_date <= horizon,
+    ).order_by(ServiceSchedule.service_date).all():
+        managing.append({
+            "schedule_id": s.id,
+            "service_date": s.service_date.isoformat(),
+            "template_name": s.template.title if s.template else None,
+            "program_id": s.program_id,
+            "program_status": s.program.status if s.program else None,
+        })
+
+    # Programme slots they're named in (participants are stored as names).
+    my_names = {(member.full_name or "").strip().lower(), _get_titled_name(member).strip().lower()}
+    serving = []
+    for p in db.query(ServiceProgram).filter(
+        ServiceProgram.service_date >= today,
+        ServiceProgram.service_date <= horizon,
+    ).order_by(ServiceProgram.service_date).all():
+        parts = p.participants
+        if isinstance(parts, str):
+            try:
+                parts = json.loads(parts or "[]")
+            except (ValueError, TypeError):
+                parts = []
+        for x in (parts or []):
+            nm = (x.get("name") or "").strip()
+            if not nm:
+                continue
+            if nm.lower() in my_names or _strip_name_title(nm).lower() in my_names:
+                serving.append({
+                    "program_id": p.id,
+                    "service_date": p.service_date.isoformat(),
+                    "title": p.title,
+                    "role": x.get("role"),
+                    "status": p.status,
+                    "confirmed": bool(x.get("confirmed")),
+                })
+
+    pending = []
+    for r in db.query(AssignmentResponse).filter(
+        AssignmentResponse.member_id == member.id,
+        AssignmentResponse.status == "pending",
+        AssignmentResponse.service_date >= today,
+    ).order_by(AssignmentResponse.service_date).all():
+        pending.append({
+            "token": r.token,
+            "kind": r.kind,
+            "role": r.role or "Service manager",
+            "service_date": r.service_date.isoformat(),
+        })
+
+    away = []
+    for u in db.query(MemberUnavailability).filter(
+        MemberUnavailability.member_id == member.id,
+        MemberUnavailability.end_date >= today,
+    ).order_by(MemberUnavailability.start_date).all():
+        away.append({
+            "id": u.id,
+            "start_date": u.start_date.isoformat(),
+            "end_date": u.end_date.isoformat(),
+            "reason": u.reason or "",
+        })
+
+    return {"managing": managing, "serving": serving, "pending": pending, "unavailable": away,
+            "has_email": bool((member.email or "").strip())}
+
+
+@router.get("/portal/my-service")
+def portal_my_service(request: Request, db: Session = Depends(get_db)):
+    """The member's own service view: what they're rostered for, outstanding
+    asks, and their booked-out dates."""
+    member = _require_logged_in_member(request, db)
+    return _member_assignments(db, member)
+
+
+@router.post("/portal/availability")
+def portal_add_unavailability(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Member blocks out a date range — rotation will skip them."""
+    from models import MemberUnavailability
+    member = _require_logged_in_member(request, db)
+    try:
+        start = date.fromisoformat(str(data.get("start_date")))
+        end = date.fromisoformat(str(data.get("end_date")))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Valid start_date and end_date are required")
+    if end < start:
+        raise HTTPException(status_code=400, detail="The end date can't be before the start date")
+    if (end - start).days > 366:
+        raise HTTPException(status_code=400, detail="Please block out a year or less at a time")
+
+    row = MemberUnavailability(
+        member_id=member.id, start_date=start, end_date=end,
+        reason=(data.get("reason") or "").strip()[:200] or None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"success": True, "id": row.id,
+            "start_date": row.start_date.isoformat(), "end_date": row.end_date.isoformat(),
+            "reason": row.reason or ""}
+
+
+@router.delete("/portal/availability/{block_id}")
+def portal_remove_unavailability(block_id: int, request: Request, db: Session = Depends(get_db)):
+    """Member removes one of their own blocked-out ranges."""
+    from models import MemberUnavailability
+    member = _require_logged_in_member(request, db)
+    row = db.query(MemberUnavailability).filter(
+        MemberUnavailability.id == block_id,
+        MemberUnavailability.member_id == member.id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(row)
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/admin/schedules/{schedule_id}/auto-assign-manager")
+def auto_assign_service_manager(schedule_id: int, request: Request, db: Session = Depends(get_db)):
+    """Rotate the next eligible service manager into this schedule."""
+    _require_committee_or_admin(request, db)
+    schedule = db.query(ServiceSchedule).filter(ServiceSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    if not _service_manager_pool_dept_id(db):
+        raise HTTPException(status_code=400, detail="No service manager pool set. Pick one in Settings first.")
+    picked = _pick_service_manager(db, schedule.service_date, exclude_schedule_id=schedule.id)
+    if not picked:
+        raise HTTPException(status_code=400, detail="Nobody in the service manager pool is available for that date.")
+    schedule.service_manager_id = picked.id
+    schedule.notified_at = None
+    schedule.reminded_at = None
+    db.commit()
+
+    # Ask them directly — they can accept, or decline and suggest someone else.
+    ask = _create_assignment_ask(db, kind="service_manager", member=picked,
+                                 service_date=schedule.service_date, schedule=schedule)
+    emailed = _send_assignment_ask(db, ask, picked)
+
+    _log_admin_action(request, db, "auto_assign_service_manager", "schedule", schedule.id,
+                      f"Rotated {picked.full_name} into {schedule.service_date} (asked: {emailed})")
+    db.commit()
+    return {"success": True, "service_manager_id": picked.id,
+            "service_manager_name": _get_titled_name(picked),
+            "emailed": emailed,
+            "has_email": bool((picked.email or "").strip())}
+
+
+@router.get("/admin/roster/contact-gaps")
+def get_roster_contact_gaps(
+    request: Request,
+    days: int = Query(28, ge=1, le=180),
+    db: Session = Depends(get_db),
+):
+    """People on the upcoming roster who can't be emailed — no address on file,
+    or a name that matches no member. Surfaced to admins so notifications don't
+    silently go nowhere."""
+    _require_committee_or_admin(request, db)
+    today = date.today()
+    return {"days": days, "gaps": _roster_contact_gaps(db, today, today + timedelta(days=days))}
 
 
 @router.get("/admin/templates/{template_id}/resolved-defaults")
@@ -7241,9 +7902,11 @@ def create_draft_program_for_schedule(
     # explicit picks always win; defaults only fill what they left blank.
     auto = _resolve_role_defaults(tpl, db, schedule.service_date, roles,
                                   exclude_program_id=schedule.program_id)
+    autofilled_roles = []
     for role, nm in auto.items():
         if role not in assigned and nm:
             assigned[role] = [nm]
+            autofilled_roles.append((role, nm))
 
     # Keep every template role as a slot (empty where unassigned) so the service
     # manager sees the full skeleton, with the admin's picks already filled.
@@ -7299,8 +7962,23 @@ def create_draft_program_for_schedule(
     db.refresh(program)
 
     filled = sum(1 for p in participants if p["name"])
+
+    # Ask everyone autopilot chose (not the admin's explicit picks) whether
+    # they can take it — they can decline and suggest a stand-in.
+    asked = 0
+    for role, nm in autofilled_roles:
+        m = db.query(Member).filter(func.lower(Member.full_name) == _strip_name_title(nm).lower()).first()
+        if not m:
+            continue
+        ask = _create_assignment_ask(db, kind="role", member=m,
+                                     service_date=schedule.service_date,
+                                     schedule=schedule, program=program, role=role)
+        if _send_assignment_ask(db, ask, m):
+            asked += 1
+
     _log_admin_action(request, db, action, "program", program.id,
-                      f"Draft programme for {schedule.service_date} from '{tpl.title}' ({filled} participant(s) pre-assigned)")
+                      f"Draft programme for {schedule.service_date} from '{tpl.title}' "
+                      f"({filled} participant(s) pre-assigned, {asked} asked to confirm)")
     db.commit()
 
     return _program_to_dict(program, db=db)

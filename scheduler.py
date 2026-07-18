@@ -569,6 +569,31 @@ def send_weekly_service_digest(manual: bool = False) -> Dict[str, Any]:
         else:
             body_html = "".join(blocks)
 
+        # Anyone rostered this week we can't reach — a silent break in the chain.
+        gaps_html = ""
+        try:
+            from routers.api import _roster_contact_gaps
+            gaps = _roster_contact_gaps(db, start, end)
+            if gaps:
+                rows = "".join(
+                    f'<li style="margin:0 0 4px 0;color:#92400e;font-size:13px;">'
+                    f'<strong>{esc(g["name"])}</strong> — '
+                    f'{"no email address" if g["reason"] == "no_email" else "not linked to a member"}'
+                    f' ({g["count"]} slot(s))</li>'
+                    for g in gaps
+                )
+                gaps_html = (
+                    f'<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:10px;'
+                    f'padding:14px;margin-bottom:12px;">'
+                    f'<p style="margin:0 0 6px 0;color:#92400e;font-size:14px;font-weight:700;">'
+                    f'⚠ {len(gaps)} person(s) on this roster can\'t be emailed</p>'
+                    f'<p style="margin:0 0 8px 0;color:#b45309;font-size:12px;">'
+                    f'They won\'t get roster requests, reminders or the programme.</p>'
+                    f'<ul style="margin:0;padding-left:18px;">{rows}</ul></div>'
+                )
+        except Exception as _gap_err:
+            print(f"[WeeklyDigest] contact-gap check failed: {_gap_err}")
+
         week_label = f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
         subject = f"Week ahead: service schedule ({week_label})"
 
@@ -591,6 +616,7 @@ def send_weekly_service_digest(manual: bool = False) -> Dict[str, Any]:
       Here's the service schedule for the coming week. If anything needs changing — the manager, the template,
       or who's taking part — please adjust it before the week starts.
     </p>
+    {gaps_html}
     {body_html}
     {button_html}
     <hr style="border:none;border-top:1px solid {BORDER};margin:24px 0 16px 0;">

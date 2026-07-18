@@ -1054,3 +1054,56 @@ class PrayerRequest(Base):
     acknowledged_by_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     # When the coordinators were nudged about this still-unacknowledged request
     reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class MemberUnavailability(Base):
+    """A date range a member can't serve — leave, travel, etc.
+
+    Autopilot's rotation skips anyone whose block overlaps the service date,
+    for every pool (service managers and programme roles alike)."""
+    __tablename__ = "member_unavailability"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False, index=True)
+    start_date = Column(Date, nullable=False, index=True)
+    end_date = Column(Date, nullable=False, index=True)
+    reason = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    member = relationship("Member", foreign_keys=[member_id])
+
+
+class AssignmentResponse(Base):
+    """One "are you able to take this?" ask for an auto-filled slot.
+
+    Covers both the service-manager slot and any programme role. The token
+    backs a no-login one-click accept/decline link in the email; a decline can
+    carry a suggested replacement, which the engine then asks in turn."""
+    __tablename__ = "assignment_responses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(64), unique=True, nullable=False, index=True)
+
+    # What the ask is for. kind: "service_manager" | "role"
+    kind = Column(String(20), nullable=False, server_default="role")
+    schedule_id = Column(Integer, ForeignKey("service_schedules.id", ondelete="CASCADE"), nullable=True, index=True)
+    program_id = Column(Integer, ForeignKey("service_programs.id", ondelete="CASCADE"), nullable=True, index=True)
+    role = Column(String(120), nullable=True)          # null for service_manager
+    service_date = Column(Date, nullable=False, index=True)
+
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=True, index=True)
+    member_name = Column(String(200), nullable=True)
+
+    # pending | accepted | declined | superseded
+    status = Column(String(20), nullable=False, server_default="pending", index=True)
+    suggested_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    suggested_name = Column(String(200), nullable=True)
+    note = Column(Text, nullable=True)
+    # How many times this slot has been re-asked, so we can stop ping-ponging.
+    attempt = Column(Integer, nullable=False, server_default="1")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+
+    member = relationship("Member", foreign_keys=[member_id])
+    suggested_member = relationship("Member", foreign_keys=[suggested_member_id])

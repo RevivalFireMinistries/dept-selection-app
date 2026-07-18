@@ -283,6 +283,15 @@ async def verify_email_page(request: Request):
     return templates.TemplateResponse("verify_email.html", {"request": request})
 
 
+@router.get("/respond/{token}")
+async def assignment_respond_page(request: Request, token: str):
+    """No-login landing page for the 'are you available?' roster link. The
+    email's buttons deep-link here with ?a=accept / ?a=decline."""
+    return templates.TemplateResponse(
+        "assignment_respond.html", {"request": request, "token": token}
+    )
+
+
 @router.get("/forgot-password")
 async def forgot_password_page(request: Request):
     """Forgot password page"""

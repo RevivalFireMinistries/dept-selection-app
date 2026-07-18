@@ -548,6 +548,48 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (home_churches rfm-db): {e}")
 
+        # Migration: availability + assignment responses (autopilot)
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS member_unavailability (
+                    id SERIAL PRIMARY KEY,
+                    member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    reason VARCHAR(200),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_member_unavail_member ON member_unavailability(member_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_member_unavail_dates ON member_unavailability(start_date, end_date)"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS assignment_responses (
+                    id SERIAL PRIMARY KEY,
+                    token VARCHAR(64) NOT NULL UNIQUE,
+                    kind VARCHAR(20) NOT NULL DEFAULT 'role',
+                    schedule_id INTEGER REFERENCES service_schedules(id) ON DELETE CASCADE,
+                    program_id INTEGER REFERENCES service_programs(id) ON DELETE CASCADE,
+                    role VARCHAR(120),
+                    service_date DATE NOT NULL,
+                    member_id INTEGER REFERENCES members(id) ON DELETE CASCADE,
+                    member_name VARCHAR(200),
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    suggested_member_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+                    suggested_name VARCHAR(200),
+                    note TEXT,
+                    attempt INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    responded_at TIMESTAMP WITH TIME ZONE
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assign_resp_token ON assignment_responses(token)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assign_resp_status ON assignment_responses(status)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_assign_resp_date ON assignment_responses(service_date)"))
+            conn.commit()
+            print("Migration: Ensured member_unavailability + assignment_responses tables")
+        except Exception as e:
+            print(f"Migration note (autopilot tables): {e}")
+
         # Migration: role_defaults on program_templates (per-role auto-fill)
         try:
             conn.execute(text("""

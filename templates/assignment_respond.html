@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Are you available? · RFM{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-start justify-center px-4 py-10" style="background-color: var(--color-paper);">
+  <div class="w-full max-w-md" x-data="respondApp()" x-init="init()">
+
+    <div x-show="loading" class="text-center text-gray-400 text-sm py-16">Loading…</div>
+
+    <!-- Invalid / expired -->
+    <div x-show="!loading && error" x-cloak class="bg-white rounded-2xl shadow-sm p-6 text-center border border-gray-100">
+      <div class="text-3xl mb-2">🔗</div>
+      <h1 class="font-bold text-gray-900 text-lg">This link isn't valid</h1>
+      <p class="text-sm text-gray-500 mt-1" x-text="error"></p>
+    </div>
+
+    <!-- Already answered -->
+    <div x-show="!loading && !error && data && data.status !== 'pending' && !done" x-cloak
+         class="bg-white rounded-2xl shadow-sm p-6 text-center border border-gray-100">
+      <div class="text-3xl mb-2">✅</div>
+      <h1 class="font-bold text-gray-900 text-lg">Already answered</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        You marked this <span class="font-semibold" x-text="data.status"></span>. Nothing more to do.
+      </p>
+    </div>
+
+    <!-- The ask -->
+    <div x-show="!loading && !error && data && data.status === 'pending' && !done" x-cloak
+         class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="px-6 pt-6 pb-4">
+        <div class="text-[11px] uppercase tracking-widest text-gray-400 font-bold">Revival Fire Ministries</div>
+        <h1 class="text-xl font-bold text-gray-900 mt-1">Are you available?</h1>
+        <p class="text-sm text-gray-500 mt-1" x-text="'Hi ' + (data.member_name || '') + ','"></p>
+
+        <div class="mt-4 rounded-xl bg-gray-50 border border-gray-100 p-4">
+          <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">You're down for</div>
+          <div class="text-lg font-bold text-gray-900 mt-0.5" x-text="data.role"></div>
+          <div class="text-sm text-gray-600 mt-1" x-text="prettyDate(data.service_date)"></div>
+        </div>
+      </div>
+
+      <!-- Decline detail -->
+      <div x-show="mode === 'decline'" x-cloak class="px-6 pb-2">
+        <label class="block text-xs font-semibold text-gray-700 mb-1">Suggest someone instead <span class="text-gray-400 font-normal">(optional)</span></label>
+        <select x-model="suggestedId" class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm">
+          <option value="">No suggestion — let the system pick</option>
+          <template x-for="o in data.options" :key="o.id">
+            <option :value="o.id" x-text="o.name"></option>
+          </template>
+        </select>
+        <label class="block text-xs font-semibold text-gray-700 mt-3 mb-1">Anything to add? <span class="text-gray-400 font-normal">(optional)</span></label>
+        <textarea x-model="note" rows="2" placeholder="e.g. away that weekend"
+                  class="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm"></textarea>
+      </div>
+
+      <div class="px-6 pb-6 pt-4 space-y-2">
+        <template x-if="mode !== 'decline'">
+          <div class="flex gap-2">
+            <button @click="respond('accept')" :disabled="busy"
+              class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50">I'm on</button>
+            <button @click="mode = 'decline'" :disabled="busy"
+              class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-white border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50">Can't make it</button>
+          </div>
+        </template>
+        <template x-if="mode === 'decline'">
+          <div class="flex gap-2">
+            <button @click="mode = null" :disabled="busy"
+              class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50">Back</button>
+            <button @click="respond('decline')" :disabled="busy"
+              class="flex-1 px-3 py-3 rounded-xl text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50">
+              <span x-text="busy ? 'Sending…' : 'Send'"></span>
+            </button>
+          </div>
+        </template>
+        <p class="text-[11px] text-gray-400 text-center pt-1">Your answer goes straight to the service team.</p>
+      </div>
+    </div>
+
+    <!-- Outcome -->
+    <div x-show="done" x-cloak class="bg-white rounded-2xl shadow-sm p-6 text-center border border-gray-100">
+      <div class="text-3xl mb-2" x-text="done.icon"></div>
+      <h1 class="font-bold text-gray-900 text-lg" x-text="done.title"></h1>
+      <p class="text-sm text-gray-500 mt-1" x-text="done.message"></p>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function respondApp() {
+  return {
+    token: "{{ token }}",
+    loading: true, error: '', data: null,
+    mode: null, suggestedId: '', note: '', busy: false, done: null,
+
+    async init() {
+      // The email's buttons pass ?a=accept / ?a=decline
+      const a = new URLSearchParams(location.search).get('a');
+      try {
+        const r = await fetch(`/api/assignment/${this.token}`);
+        if (!r.ok) {
+          const e = await r.json().catch(() => ({}));
+          this.error = e.detail || 'This link is no longer valid.';
+        } else {
+          this.data = await r.json();
+          if (this.data.status === 'pending') {
+            if (a === 'accept') { this.loading = false; return this.respond('accept'); }
+            if (a === 'decline') this.mode = 'decline';
+          }
+        }
+      } catch (e) { this.error = 'Could not load this request.'; }
+      this.loading = false;
+    },
+
+    prettyDate(iso) {
+      if (!iso) return '';
+      return new Date(iso + 'T00:00:00').toLocaleDateString('en-ZA',
+        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    },
+
+    async respond(action) {
+      this.busy = true;
+      try {
+        const body = { action };
+        if (action === 'decline') {
+          if (this.suggestedId) body.suggested_member_id = parseInt(this.suggestedId);
+          if (this.note) body.note = this.note;
+        }
+        const r = await fetch(`/api/assignment/${this.token}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { this.error = d.detail || 'Something went wrong.'; this.busy = false; return; }
+
+        if (d.outcome === 'accepted') {
+          this.done = { icon: '🙌', title: 'Thank you!', message: "You're confirmed — we'll send the details closer to the day." };
+        } else if (d.outcome === 'already_answered') {
+          this.done = { icon: '✅', title: 'Already answered', message: 'Thanks — we had your response.' };
+        } else if (d.outcome === 'reassigned') {
+          this.done = { icon: '👍', title: 'Thanks for letting us know', message: `We've asked ${d.to} to take it instead.` };
+        } else {
+          this.done = { icon: '👍', title: 'Thanks for letting us know', message: "The service team has been notified and will sort it out." };
+        }
+      } catch (e) {
+        this.error = 'Network error — please try again.';
+      }
+      this.busy = false;
+    },
+  };
+}
+</script>
+{% endblock %}
