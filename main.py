@@ -548,6 +548,17 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (home_churches rfm-db): {e}")
 
+        # Migration: role_defaults on program_templates (per-role auto-fill)
+        try:
+            conn.execute(text("""
+                ALTER TABLE program_templates
+                ADD COLUMN IF NOT EXISTS role_defaults TEXT NOT NULL DEFAULT '[]'
+            """))
+            conn.commit()
+            print("Migration: Added role_defaults to program_templates")
+        except Exception as e:
+            print(f"Migration note (program_templates role_defaults): {e}")
+
         # Migration: notified_at on home_church_roster (deferred publish emails)
         try:
             conn.execute(text("""

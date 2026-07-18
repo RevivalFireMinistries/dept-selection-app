@@ -300,6 +300,12 @@ class ProgramTemplate(Base):
     prayer_points = Column(Text, nullable=False, server_default="[]")
     # JSON array of support role names: ["Projector", "Livestreaming"]
     support_roles = Column(Text, nullable=False, server_default="[]")
+    # Per-role auto-fill rules, JSON:
+    #   [{"role": "Preacher", "mode": "fixed", "member_id": 6, "member_name": "..."},
+    #    {"role": "Worship",  "mode": "pool",  "pool_dept_id": 13}]
+    # mode: "fixed" = always this person; "pool" = rotate fairly through the
+    # members of a department (e.g. the Home Church Preachers group).
+    role_defaults = Column(Text, nullable=False, server_default="[]")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

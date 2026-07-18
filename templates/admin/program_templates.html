@@ -109,6 +109,21 @@
                 <div id="supportRoles" class="space-y-2"></div>
             </div>
 
+            <!-- Role auto-fill -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700">Role auto-fill</label>
+                    <button type="button" onclick="renderRoleDefaults()"
+                        class="text-sm text-blue-600 hover:text-blue-700 font-medium">↻ Refresh roles</button>
+                </div>
+                <p class="text-xs text-gray-500 mb-2">
+                    Give a role a default so every new programme starts filled in — either <strong>always the same person</strong>,
+                    or <strong>rotate from a pool</strong> (a department, e.g. the Home Church Preachers group). The rotation picks
+                    whoever has served that role least recently. Anything set on the roster still wins.
+                </p>
+                <div id="roleDefaults" class="space-y-2"></div>
+            </div>
+
             <div class="flex gap-3">
                 <button onclick="saveTemplate()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
@@ -255,6 +270,7 @@ function showCreateForm() {
     addProgramItem();
     addProgramItem();
     ensureCloseItem();
+    renderRoleDefaults([]);
     document.getElementById('formSection').classList.remove('hidden');
 }
 
@@ -282,6 +298,7 @@ function showEditForm(tpl) {
     (tpl.pastors_announcements || []).forEach(a => addAnnouncement('pastorsAnnouncements', a));
     (tpl.prayer_points || []).forEach(a => addAnnouncement('prayerPoints', a));
     (tpl.support_roles || []).forEach(r => addSupportRole(r));
+    renderRoleDefaults(tpl.role_defaults || []);
 
     document.getElementById('formSection').classList.remove('hidden');
 }
@@ -289,6 +306,110 @@ function showEditForm(tpl) {
 function hideForm() {
     document.getElementById('formSection').classList.add('hidden');
     editingId = null;
+}
+
+// ==================== ROLE AUTO-FILL ====================
+// A role can start pre-filled on every new programme: either a fixed person,
+// or rotated from a pool (a department, e.g. the Home Church Preachers group).
+
+let pickerMembers = [];
+let pickerDepartments = [];
+
+async function loadPickerData() {
+    try {
+        const [mRes, dRes] = await Promise.all([fetch('/api/members'), fetch('/api/departments')]);
+        const members = await mRes.json();
+        pickerMembers = (Array.isArray(members) ? members : []).map(m => ({
+            id: m.id, name: m.fullName || m.full_name || ''
+        })).sort((a, b) => a.name.localeCompare(b.name));
+        const depts = await dRes.json();
+        pickerDepartments = [];
+        (depts.categories || []).forEach(c => (c.departments || []).forEach(d => pickerDepartments.push(d)));
+        (depts.uncategorized || []).forEach(d => pickerDepartments.push(d));
+        pickerDepartments.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } catch (e) { console.error('Failed to load pickers', e); }
+}
+
+// Roles currently defined on the form: timed activities that need someone,
+// plus the support roles.
+function currentFormRoles() {
+    const roles = [];
+    document.querySelectorAll('.program-item-row').forEach(row => {
+        const item = row.querySelector('.prog-item-name').value.trim();
+        const chk = row.querySelector('.prog-item-needs-participant');
+        if (item && chk && chk.checked) roles.push(item);
+    });
+    document.querySelectorAll('.support-role-row').forEach(row => {
+        const name = row.querySelector('.support-role-name').value.trim();
+        if (name) roles.push(name);
+    });
+    return [...new Set(roles)];
+}
+
+function renderRoleDefaults(existing) {
+    const container = document.getElementById('roleDefaults');
+    // Preserve what's already on screen unless explicit data is passed in.
+    const current = existing !== undefined ? (existing || []) : collectRoleDefaults();
+    const byRole = {};
+    current.forEach(r => { if (r && r.role) byRole[r.role] = r; });
+
+    const roles = currentFormRoles();
+    if (roles.length === 0) {
+        container.innerHTML = '<p class="text-xs text-gray-400 italic">Tick "needs participant" on an activity, or add a support role, then refresh.</p>';
+        return;
+    }
+
+    container.innerHTML = roles.map(role => {
+        const cfg = byRole[role] || {};
+        const mode = cfg.mode || 'none';
+        const memberOpts = pickerMembers.map(m =>
+            `<option value="${m.id}" ${String(cfg.member_id) === String(m.id) ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
+        const deptOpts = pickerDepartments.map(d =>
+            `<option value="${d.id}" ${String(cfg.pool_dept_id) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
+        return `
+        <div class="role-default-row border border-gray-200 rounded-lg p-3" data-role="${escapeHtml(role)}">
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-sm font-medium text-gray-800 min-w-[110px] truncate" title="${escapeHtml(role)}">${escapeHtml(role)}</span>
+                <select class="rd-mode px-2 py-1.5 border border-gray-200 rounded-lg text-sm" onchange="onRoleModeChange(this)">
+                    <option value="none" ${mode === 'none' ? 'selected' : ''}>No default</option>
+                    <option value="fixed" ${mode === 'fixed' ? 'selected' : ''}>Always this person</option>
+                    <option value="pool" ${mode === 'pool' ? 'selected' : ''}>Rotate from pool</option>
+                </select>
+                <select class="rd-member flex-1 min-w-[160px] px-2 py-1.5 border border-gray-200 rounded-lg text-sm ${mode === 'fixed' ? '' : 'hidden'}">
+                    <option value="">Select person…</option>${memberOpts}
+                </select>
+                <select class="rd-pool flex-1 min-w-[160px] px-2 py-1.5 border border-gray-200 rounded-lg text-sm ${mode === 'pool' ? '' : 'hidden'}">
+                    <option value="">Select pool (department)…</option>${deptOpts}
+                </select>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function onRoleModeChange(sel) {
+    const row = sel.closest('.role-default-row');
+    const mode = sel.value;
+    row.querySelector('.rd-member').classList.toggle('hidden', mode !== 'fixed');
+    row.querySelector('.rd-pool').classList.toggle('hidden', mode !== 'pool');
+}
+
+function collectRoleDefaults() {
+    return [...document.querySelectorAll('.role-default-row')].map(row => {
+        const role = row.dataset.role;
+        const mode = row.querySelector('.rd-mode').value;
+        if (mode === 'fixed') {
+            const sel = row.querySelector('.rd-member');
+            const id = sel.value;
+            if (!id) return null;
+            return { role, mode: 'fixed', member_id: parseInt(id), member_name: sel.options[sel.selectedIndex].text };
+        }
+        if (mode === 'pool') {
+            const id = row.querySelector('.rd-pool').value;
+            if (!id) return null;
+            return { role, mode: 'pool', pool_dept_id: parseInt(id) };
+        }
+        return null;
+    }).filter(Boolean);
 }
 
 function collectFormData() {
@@ -330,7 +451,9 @@ function collectFormData() {
 
     const location_type = document.getElementById('tplLocationType').value;
 
-    return { title, day_of_week, location_type, program_items, participants: [], admin_announcements, pastors_announcements, prayer_points, support_roles };
+    const role_defaults = collectRoleDefaults();
+
+    return { title, day_of_week, location_type, program_items, participants: [], admin_announcements, pastors_announcements, prayer_points, support_roles, role_defaults };
 }
 
 async function saveTemplate() {
@@ -464,6 +587,7 @@ async function loadTemplates() {
     container.innerHTML = html;
 }
 
+loadPickerData();
 loadTemplates();
 </script>
 {% endblock %}

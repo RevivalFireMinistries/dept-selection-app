@@ -422,6 +422,7 @@ class ProgramTemplateCreate(BaseModel):
     pastors_announcements: List[str] = []
     prayer_points: List[str] = []
     support_roles: List[str] = []  # e.g. ["Projector", "Livestreaming"]
+    role_defaults: List[dict] = []  # per-role auto-fill rules
 
 class ProgramTemplateUpdate(BaseModel):
     title: Optional[str] = None
@@ -433,6 +434,7 @@ class ProgramTemplateUpdate(BaseModel):
     pastors_announcements: Optional[List[str]] = None
     prayer_points: Optional[List[str]] = None
     support_roles: Optional[List[str]] = None
+    role_defaults: Optional[List[dict]] = None
 
 class ServiceProgramCreate(BaseModel):
     title: str  # "SUNDAY SERVICE"

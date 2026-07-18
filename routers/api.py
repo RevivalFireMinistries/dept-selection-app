@@ -6697,6 +6697,7 @@ def _template_to_dict(template: ProgramTemplate) -> dict:
         "pastors_announcements": _parse_json(template.pastors_announcements),
         "prayer_points": _parse_json(template.prayer_points),
         "support_roles": _parse_json(template.support_roles),
+        "role_defaults": _parse_json(getattr(template, "role_defaults", None)),
         "location_type": template.location_type or "onsite",
         "created_at": template.created_at.isoformat() if template.created_at else None,
         "updated_at": template.updated_at.isoformat() if template.updated_at else None
@@ -6785,7 +6786,8 @@ def create_template(data: ProgramTemplateCreate, request: Request, db: Session =
         admin_announcements=json.dumps(data.admin_announcements or []),
         pastors_announcements=json.dumps(data.pastors_announcements or []),
         prayer_points=json.dumps(data.prayer_points or []),
-        support_roles=json.dumps(data.support_roles or [])
+        support_roles=json.dumps(data.support_roles or []),
+        role_defaults=json.dumps(data.role_defaults or [])
     )
     db.add(template)
     db.commit()
@@ -6824,6 +6826,8 @@ def update_template(template_id: int, data: ProgramTemplateUpdate, request: Requ
         template.prayer_points = json.dumps(data.prayer_points)
     if data.support_roles is not None:
         template.support_roles = json.dumps(data.support_roles)
+    if data.role_defaults is not None:
+        template.role_defaults = json.dumps(data.role_defaults)
 
     db.commit()
     db.refresh(template)
@@ -7017,6 +7021,123 @@ def update_schedule(schedule_id: int, data: ServiceScheduleUpdate, request: Requ
     return _schedule_to_dict(schedule)
 
 
+def _pool_members(db: Session, dept_id: int) -> list:
+    """Active members approved into a department — the 'pool' a role draws from
+    (e.g. the Home Church Preachers group)."""
+    if not dept_id:
+        return []
+    rows = db.query(MemberDepartment.member_id).filter(
+        MemberDepartment.department_id == dept_id,
+        MemberDepartment.status == "approved",
+    ).distinct().all()
+    ids = [r[0] for r in rows]
+    if not ids:
+        return []
+    return db.query(Member).filter(Member.id.in_(ids), Member.is_active == True).order_by(Member.full_name).all()
+
+
+def _recent_role_usage(db: Session, role: str, since: date, exclude_program_id=None) -> dict:
+    """name -> (times_served, last_date) for a role across recent programmes,
+    so pool rotation can favour whoever is least recently used."""
+    usage: dict = {}
+    target = (role or "").strip().lower()
+    for p in db.query(ServiceProgram).filter(ServiceProgram.service_date >= since).all():
+        if exclude_program_id and p.id == exclude_program_id:
+            continue
+        parts = p.participants
+        if isinstance(parts, str):
+            try:
+                parts = json.loads(parts or "[]")
+            except (ValueError, TypeError):
+                parts = []
+        for x in (parts or []):
+            if (x.get("role") or "").strip().lower() != target:
+                continue
+            nm = (x.get("name") or "").strip()
+            if not nm:
+                continue
+            cnt, last = usage.get(nm, (0, None))
+            d = p.service_date
+            usage[nm] = (cnt + 1, d if (last is None or (d and d > last)) else last)
+    return usage
+
+
+def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, roles: list, exclude_program_id=None) -> dict:
+    """{role: name} for template roles that carry an auto-fill rule.
+
+    mode "fixed" -> always that member; mode "pool" -> the pool member who has
+    served this role least (and least recently), so it rotates fairly."""
+    rules = getattr(tpl, "role_defaults", None)
+    if isinstance(rules, str):
+        try:
+            rules = json.loads(rules or "[]")
+        except (ValueError, TypeError):
+            rules = []
+    out: dict = {}
+    base_date = service_date or date.today()
+    lookback = base_date - timedelta(days=180)
+    role_set = {r.strip().lower() for r in roles}
+
+    for rule in (rules or []):
+        role = (rule.get("role") or "").strip()
+        mode = (rule.get("mode") or "").strip().lower()
+        if not role or role.strip().lower() not in role_set or mode not in ("fixed", "pool"):
+            continue
+
+        if mode == "fixed":
+            m = db.query(Member).filter(Member.id == rule.get("member_id")).first() if rule.get("member_id") else None
+            if m:
+                out[role] = _get_titled_name(m)
+            elif rule.get("member_name"):
+                out[role] = rule["member_name"]
+            continue
+
+        pool = _pool_members(db, rule.get("pool_dept_id"))
+        if not pool:
+            continue
+        usage = _recent_role_usage(db, role, lookback, exclude_program_id)
+
+        def _score(m):
+            titled = _get_titled_name(m)
+            cnt, last = usage.get(titled, usage.get(m.full_name, (0, None)))
+            return (cnt, last or date.min, (m.full_name or "").lower())
+
+        out[role] = _get_titled_name(sorted(pool, key=_score)[0])
+    return out
+
+
+@router.get("/admin/templates/{template_id}/resolved-defaults")
+def get_template_resolved_defaults(
+    template_id: int,
+    service_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Resolve a template's per-role auto-fill rules into concrete names, so the
+    programme editor can pre-fill them the same way the roster flow does."""
+    tpl = db.query(ProgramTemplate).filter(ProgramTemplate.id == template_id).first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    svc_date = None
+    if service_date:
+        try:
+            svc_date = date.fromisoformat(service_date)
+        except ValueError:
+            svc_date = None
+
+    def _jl(v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v or "[]")
+            except (ValueError, TypeError):
+                return []
+        return v or []
+
+    items = _jl(tpl.program_items)
+    roles = [i.get("item") for i in items if i.get("requires_participant") and i.get("item")]
+    roles += [r for r in _jl(tpl.support_roles) if r]
+    return {"defaults": _resolve_role_defaults(tpl, db, svc_date, list(dict.fromkeys(roles)))}
+
+
 @router.post("/admin/schedules/{schedule_id}/draft-program")
 def create_draft_program_for_schedule(
     schedule_id: int,
@@ -7069,6 +7190,14 @@ def create_draft_program_for_schedule(
     for role in assigned:
         if role not in roles:
             roles.append(role)
+
+    # Template auto-fill rules (fixed person / rotate from a pool). The admin's
+    # explicit picks always win; defaults only fill what they left blank.
+    auto = _resolve_role_defaults(tpl, db, schedule.service_date, roles,
+                                  exclude_program_id=schedule.program_id)
+    for role, nm in auto.items():
+        if role not in assigned and nm:
+            assigned[role] = [nm]
 
     # Keep every template role as a slot (empty where unassigned) so the service
     # manager sees the full skeleton, with the admin's picks already filled.
