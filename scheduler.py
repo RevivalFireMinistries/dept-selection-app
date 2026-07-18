@@ -90,6 +90,17 @@ def start_scheduler():
         replace_existing=True
     )
 
+    # Week-ahead service digest to portal admins — Sunday 17:00.
+    # Lists every service for the coming week with its manager, template and
+    # assigned participants so admins can adjust before the week starts.
+    scheduler.add_job(
+        send_weekly_service_digest,
+        CronTrigger(day_of_week="sun", hour=17, minute=0),
+        id="weekly_service_digest",
+        name="Weekly Service Digest (admins)",
+        replace_existing=True
+    )
+
     # Home church deferred publish notifications - runs daily at 08:00.
     # Sends the "roster published" emails for weeks that were published early,
     # once the meeting falls within ROSTER_NOTIFY_DAYS_BEFORE days.
@@ -446,6 +457,167 @@ def check_service_schedules():
         db.close()
 
 
+def send_weekly_service_digest():
+    """Sunday 17:00 — email portal admins the week ahead.
+
+    One digest listing every scheduled service for the coming week with its
+    service manager, template, programme status and the participants already
+    assigned, so admins can adjust anything before the week starts."""
+    db: Session = SessionLocal()
+    try:
+        import json
+        from datetime import timedelta as td
+        from routers.api import _admin_member_emails, _get_titled_name
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+
+        channel = RfmNotifyChannel()
+        if not channel.is_configured():
+            print("[WeeklyDigest] rfm-notify not configured — skipping")
+            return
+
+        admins = _admin_member_emails(db)
+        if not admins:
+            print("[WeeklyDigest] No admin members with an email address")
+            return
+
+        today = datetime.now().date()
+        start = today + td(days=1)   # Monday
+        end = today + td(days=7)     # through the following Sunday
+
+        schedules = db.query(ServiceSchedule).options(
+            joinedload(ServiceSchedule.template),
+            joinedload(ServiceSchedule.service_manager),
+            joinedload(ServiceSchedule.program),
+        ).filter(
+            ServiceSchedule.service_date >= start,
+            ServiceSchedule.service_date <= end,
+        ).order_by(ServiceSchedule.service_date).all()
+
+        FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif"
+        TEXT, MUTED, BORDER = "#111827", "#9ca3af", "#f3f4f6"
+
+        def esc(v):
+            return (str(v or "")
+                    .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+        blocks = []
+        for s in schedules:
+            svc_date = s.service_date
+            date_str = svc_date.strftime("%A, %d %B %Y")
+            manager = _get_titled_name(s.service_manager) if s.service_manager else "— not assigned —"
+            template_name = s.template.title if s.template else "— no template —"
+
+            program = s.program
+            if program is None:
+                status_label, status_colour = "No programme yet", "#b45309"
+            elif program.status == "published":
+                status_label, status_colour = "Published", "#059669"
+            else:
+                status_label, status_colour = "Draft", "#2563eb"
+
+            parts = []
+            if program is not None:
+                raw = program.participants
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw or "[]")
+                    except (ValueError, TypeError):
+                        raw = []
+                parts = raw or []
+            filled = [p for p in parts if (p.get("name") or "").strip()]
+            open_slots = len(parts) - len(filled)
+
+            if filled:
+                rows = "".join(
+                    f'<tr><td style="padding:3px 0;width:130px;"><span style="color:{MUTED};font-size:12px;">{esc(p.get("role"))}</span></td>'
+                    f'<td style="padding:3px 0;"><span style="color:{TEXT};font-size:13px;">{esc(p.get("name"))}</span></td></tr>'
+                    for p in filled
+                )
+                participants_html = f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{rows}</table>'
+            else:
+                participants_html = f'<p style="margin:0;color:{MUTED};font-size:13px;font-style:italic;">No participants set yet</p>'
+
+            open_note = (f'<p style="margin:6px 0 0 0;color:#b45309;font-size:12px;">{open_slots} slot(s) still open</p>'
+                         if open_slots > 0 else "")
+
+            blocks.append(f'''
+            <div style="border:1px solid {BORDER};border-radius:10px;padding:14px;margin-bottom:12px;">
+              <div style="display:block;margin-bottom:6px;">
+                <span style="color:{TEXT};font-size:15px;font-weight:700;">{esc(date_str)}</span>
+                <span style="color:{status_colour};font-size:11px;font-weight:700;margin-left:8px;">{status_label}</span>
+              </div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr><td style="padding:3px 0;width:130px;"><span style="color:{MUTED};font-size:12px;text-transform:uppercase;">Manager</span></td>
+                    <td style="padding:3px 0;"><span style="color:{TEXT};font-size:13px;font-weight:500;">{esc(manager)}</span></td></tr>
+                <tr><td style="padding:3px 0;"><span style="color:{MUTED};font-size:12px;text-transform:uppercase;">Template</span></td>
+                    <td style="padding:3px 0;"><span style="color:{TEXT};font-size:13px;">{esc(template_name)}</span></td></tr>
+              </table>
+              <p style="margin:10px 0 4px 0;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:0.5px;">Participants</p>
+              {participants_html}
+              {open_note}
+            </div>''')
+
+        if not blocks:
+            body_html = (f'<div style="border:1px dashed #e5e7eb;border-radius:10px;padding:18px;text-align:center;">'
+                         f'<p style="margin:0;color:{MUTED};font-size:14px;">No services are scheduled for the coming week.</p></div>')
+        else:
+            body_html = "".join(blocks)
+
+        week_label = f"{start.strftime('%d %b')} – {end.strftime('%d %b %Y')}"
+        subject = f"Week ahead: service schedule ({week_label})"
+
+        app_url = os.getenv("APP_URL", "")
+        button_html = ""
+        if app_url:
+            button_html = (f'<a href="{app_url}/admin/schedules" style="display:inline-block;background:#0d9488;color:#ffffff;'
+                           f'font-family:{FONT};font-size:14px;font-weight:600;text-decoration:none;padding:10px 24px;'
+                           f'border-radius:10px;margin-top:8px;">Open Service Management</a>')
+
+        html = f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:{FONT};">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;">
+  <tr><td>
+    <h2 style="margin:0 0 4px 0;color:{TEXT};font-size:18px;font-weight:700;">The Week Ahead</h2>
+    <p style="margin:0 0 18px 0;color:{MUTED};font-size:14px;">{week_label} &middot; {len(schedules)} service(s) scheduled</p>
+    <p style="margin:0 0 16px 0;color:#6b7280;font-size:14px;line-height:1.6;">
+      Here's the service schedule for the coming week. If anything needs changing — the manager, the template,
+      or who's taking part — please adjust it before the week starts.
+    </p>
+    {body_html}
+    {button_html}
+    <hr style="border:none;border-top:1px solid {BORDER};margin:24px 0 16px 0;">
+    <p style="margin:0;color:{MUTED};font-size:12px;">Revival Fire Ministries</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>'''
+
+        sent = 0
+        for (mid, name, email) in admins:
+            try:
+                ok, err = channel.send(
+                    email, subject, html,
+                    event_code="program.weekly_digest",
+                    recipient_id=mid,
+                    recipient_name=name,
+                    idempotency_key=f"weekly_service_digest:{start.isoformat()}:{email}",
+                )
+                if ok:
+                    sent += 1
+                else:
+                    print(f"[WeeklyDigest] Failed for {email}: {err}")
+            except Exception as e:
+                print(f"[WeeklyDigest] Failed for {email}: {e}")
+
+        print(f"[WeeklyDigest] Sent week-ahead digest ({week_label}) to {sent}/{len(admins)} admin(s), {len(schedules)} service(s)")
+    except Exception as exc:
+        print(f"[WeeklyDigest] Job failed: {exc}")
+    finally:
+        db.close()
+
+
 def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manager: "Member", notif_type: str):
     """Send a schedule assignment or reminder email to the service manager."""
     from notifications.dispatcher import get_email_settings
@@ -525,7 +697,10 @@ def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manage
             manager.email, subject, html,
             event_code="program.manager_reminder",
             recipient_name=getattr(manager, "full_name", None),
-            idempotency_key=f"program_manager_reminder:{getattr(meeting, 'id', '')}:{manager.email}",
+            # Was referencing an undefined `meeting` — NameError in production.
+            # Scope the key by notif_type so the assigned / draft-ready /
+            # reminder mails for one schedule don't dedupe against each other.
+            idempotency_key=f"program_manager_reminder:{notif_type}:{schedule.id}:{manager.email}",
         )
         if not success:
             raise Exception(error)
