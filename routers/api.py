@@ -6156,13 +6156,45 @@ def get_todays_programs(db: Session = Depends(get_db)):
     }
 
 
+# A roster-created draft stays out of the Programs list until the service is
+# this close, so managers see the one that's next up instead of a pile of
+# future drafts. Released drafts also trigger the "draft ready" email.
+PROGRAM_DRAFT_RELEASE_DAYS = 2
+
+
+def _unreleased_roster_draft_ids(db: Session) -> set:
+    """Programme ids created from the service roster that aren't due yet.
+
+    A programme is held back while it's still a draft AND its service is more
+    than PROGRAM_DRAFT_RELEASE_DAYS away. Programmes a manager made themselves
+    (no schedule link) and anything published are never hidden."""
+    cutoff = date.today() + timedelta(days=PROGRAM_DRAFT_RELEASE_DAYS)
+    rows = (
+        db.query(ServiceSchedule.program_id)
+        .join(ServiceProgram, ServiceSchedule.program_id == ServiceProgram.id)
+        .filter(
+            ServiceSchedule.program_id.isnot(None),
+            ServiceProgram.status != "published",
+            ServiceSchedule.service_date > cutoff,
+        )
+        .all()
+    )
+    return {r[0] for r in rows if r[0]}
+
+
 @router.get("/admin/programs")
-def get_all_programs(db: Session = Depends(get_db)):
+def get_all_programs(
+    include_unreleased: bool = Query(False, description="Include roster drafts that aren't due yet"),
+    db: Session = Depends(get_db),
+):
     """Admin: list all programs (upcoming and today)"""
     _cleanup_past_programs(db)
 
     from sqlalchemy.orm import joinedload
     programs = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).order_by(ServiceProgram.service_date).all()
+    if not include_unreleased:
+        hidden = _unreleased_roster_draft_ids(db)
+        programs = [p for p in programs if p.id not in hidden]
     return [_program_to_dict(p, db=db) for p in programs]
 
 

@@ -409,15 +409,16 @@ def check_service_schedules():
             except Exception as e:
                 print(f"[Schedule] Failed to notify {manager.full_name}: {e}")
 
-        # --- 2. Reminder notifications (2 days before, no program yet) ---
+        # --- 2. Two days before: either the roster's draft has just been
+        # released to the manager, or there's still no program at all. ---
         reminder_date = today + td(days=2)
         schedules_to_remind = db.query(ServiceSchedule).options(
             joinedload(ServiceSchedule.template),
-            joinedload(ServiceSchedule.service_manager)
+            joinedload(ServiceSchedule.service_manager),
+            joinedload(ServiceSchedule.program)
         ).filter(
             ServiceSchedule.service_date == reminder_date,
             ServiceSchedule.reminded_at.is_(None),
-            ServiceSchedule.program_id.is_(None),
             ServiceSchedule.service_manager_id.isnot(None)
         ).all()
 
@@ -425,13 +426,19 @@ def check_service_schedules():
             manager = schedule.service_manager
             if not manager or not manager.email:
                 continue
+            program = schedule.program
+            if program is not None and program.status == "published":
+                continue  # already done — nothing to chase
+            # A draft prepared from the roster becomes visible to the manager
+            # today, so tell them it's ready; otherwise nudge them to create one.
+            kind = "draft_ready" if program is not None else "reminder"
             try:
-                _send_schedule_notification(db, schedule, manager, "reminder")
+                _send_schedule_notification(db, schedule, manager, kind)
                 schedule.reminded_at = datetime.now()
                 db.commit()
-                print(f"[Schedule] Reminded {manager.full_name} for {schedule.service_date}")
+                print(f"[Schedule] Sent '{kind}' to {manager.full_name} for {schedule.service_date}")
             except Exception as e:
-                print(f"[Schedule] Failed to remind {manager.full_name}: {e}")
+                print(f"[Schedule] Failed to notify {manager.full_name}: {e}")
 
     except Exception as e:
         print(f"[Schedule] Check failed: {e}")
@@ -462,6 +469,15 @@ def _send_schedule_notification(db: Session, schedule: "ServiceSchedule", manage
         heading_text = "You've Been Assigned"
         message = f"You are the service manager for the upcoming <strong>{day_name}</strong> service. Please prepare the program using the assigned template."
         accent = "#4f46e5"
+    elif notif_type == "draft_ready":
+        subject = f"Your draft program for {day_name}'s service is ready"
+        heading_text = "Draft Program Ready"
+        message = (
+            f"A draft program for the <strong>{day_name}</strong> service is now available in your Programs list, "
+            "with the participants that have already been decided filled in. Please open it, complete the "
+            "remaining people, confirm everyone, and publish."
+        )
+        accent = "#0d9488"
     else:
         subject = f"Reminder: No program created for {day_name}'s service"
         heading_text = "Program Reminder"
