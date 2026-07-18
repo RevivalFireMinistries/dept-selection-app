@@ -5749,6 +5749,20 @@ def trigger_meeting_reminders(meeting_ids: Optional[List[int]] = Query(None)):
     return result
 
 
+@router.post("/admin/scheduler/weekly-digest/trigger")
+def trigger_weekly_service_digest(request: Request, db: Session = Depends(get_db)):
+    """Manually send the week-ahead service digest to portal admins.
+
+    Same email the Sunday 17:00 job sends; useful after changing the roster."""
+    _require_committee_or_admin(request, db)
+    from scheduler import send_weekly_service_digest
+    result = send_weekly_service_digest(manual=True) or {}
+    _log_admin_action(request, db, "trigger_weekly_service_digest", "schedule", None,
+                      f"Sent week-ahead digest to {result.get('sent', 0)} admin(s)")
+    db.commit()
+    return result
+
+
 @router.post("/admin/scheduler/reminders/preview")
 def preview_meeting_reminders(db: Session = Depends(get_db)):
     """

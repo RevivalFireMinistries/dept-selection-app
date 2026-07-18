@@ -457,8 +457,11 @@ def check_service_schedules():
         db.close()
 
 
-def send_weekly_service_digest():
+def send_weekly_service_digest(manual: bool = False) -> Dict[str, Any]:
     """Sunday 17:00 — email portal admins the week ahead.
+
+    `manual=True` is an admin pressing "Send now": the idempotency key gets a
+    timestamp so a repeat press actually resends instead of being deduped.
 
     One digest listing every scheduled service for the coming week with its
     service manager, template, programme status and the participants already
@@ -473,12 +476,12 @@ def send_weekly_service_digest():
         channel = RfmNotifyChannel()
         if not channel.is_configured():
             print("[WeeklyDigest] rfm-notify not configured — skipping")
-            return
+            return {"success": False, "reason": "Email is not configured (rfm-notify).", "sent": 0}
 
         admins = _admin_member_emails(db)
         if not admins:
             print("[WeeklyDigest] No admin members with an email address")
-            return
+            return {"success": False, "reason": "No admin members have an email address.", "sent": 0}
 
         today = datetime.now().date()
         start = today + td(days=1)   # Monday
@@ -602,7 +605,10 @@ def send_weekly_service_digest():
                     event_code="program.weekly_digest",
                     recipient_id=mid,
                     recipient_name=name,
-                    idempotency_key=f"weekly_service_digest:{start.isoformat()}:{email}",
+                    idempotency_key=(
+                        f"weekly_service_digest:{start.isoformat()}:{email}"
+                        + (f":manual:{int(datetime.now().timestamp())}" if manual else "")
+                    ),
                 )
                 if ok:
                     sent += 1
@@ -612,8 +618,11 @@ def send_weekly_service_digest():
                 print(f"[WeeklyDigest] Failed for {email}: {e}")
 
         print(f"[WeeklyDigest] Sent week-ahead digest ({week_label}) to {sent}/{len(admins)} admin(s), {len(schedules)} service(s)")
+        return {"success": True, "sent": sent, "admins": len(admins),
+                "services": len(schedules), "week_label": week_label}
     except Exception as exc:
         print(f"[WeeklyDigest] Job failed: {exc}")
+        return {"success": False, "reason": str(exc), "sent": 0}
     finally:
         db.close()
 

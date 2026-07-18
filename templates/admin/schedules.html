@@ -10,7 +10,13 @@
             <h1 class="text-xl font-bold text-gray-900">Service Schedule</h1>
             <p class="text-sm text-gray-500">Plan upcoming services and assign service managers</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="sendWeeklyDigest()" id="digestBtn"
+                class="px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 flex items-center gap-1.5"
+                title="Email portal admins the week-ahead schedule (managers, templates, participants)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                <span id="digestBtnLabel">Email week ahead</span>
+            </button>
             <button onclick="sharePDF()" class="px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 flex items-center gap-1.5">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                 Share PDF
@@ -703,6 +709,31 @@ async function saveSchedule() {
     } finally {
         btn.disabled = false;
         btn.textContent = 'Save';
+    }
+}
+
+// Send the week-ahead digest to portal admins on demand (same email the
+// Sunday 17:00 job sends) — handy right after changing the week's roster.
+async function sendWeeklyDigest() {
+    if (!confirm('Email the week-ahead schedule to all portal admins now?\n\nIt lists every service for the coming week with its manager, template and assigned participants.')) return;
+    const btn = document.getElementById('digestBtn');
+    const label = document.getElementById('digestBtnLabel');
+    const original = label.textContent;
+    btn.disabled = true;
+    label.textContent = 'Sending…';
+    try {
+        const res = await fetch('/api/admin/scheduler/weekly-digest/trigger', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+            alert(`Week-ahead digest sent to ${data.sent} admin(s).\n\n${data.week_label} · ${data.services} service(s).`);
+        } else {
+            alert(data.reason || data.detail || 'Could not send the digest.');
+        }
+    } catch (e) {
+        alert('Network error. Please try again.');
+    } finally {
+        btn.disabled = false;
+        label.textContent = original;
     }
 }
 
