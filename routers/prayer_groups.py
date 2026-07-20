@@ -557,10 +557,17 @@ def _set_dict(s: PrayerGroupSet) -> dict:
 
 def _plan_pair_couples(s: PrayerGroupSet) -> dict:
     """Work out the moves to reunite couples, touching couple members only.
-    Pure — reads the set and returns a plan; never mutates the database."""
+    Pure — reads the set and returns a plan; never mutates the database.
+
+    For a two-person couple exactly ONE spouse moves — chosen (with the group)
+    to keep both group sizes and group weight (commitment) as even as possible.
+    That makes couples in the same pair of groups naturally swap, and prefers
+    swapping people of similar weight so the balance the set was built with holds.
+    """
     from collections import Counter, defaultdict
 
     groups = sorted(s.groups, key=lambda g: g.sort_order)
+    gids = [g.id for g in groups]
     gname = {g.id: g.name for g in groups}
 
     M: dict = {}
@@ -577,8 +584,10 @@ def _plan_pair_couples(s: PrayerGroupSet) -> dict:
             }
     members = list(M.values())
     orig_gid = {e: d["gid"] for e, d in M.items()}
-    orig_size = {g.id: sum(1 for d in members if d["gid"] == g.id) for g in groups}
-    cur_size = dict(orig_size)  # running sizes as couples merge
+    orig_size = {gid: sum(1 for d in members if d["gid"] == gid) for gid in gids}
+    orig_weight = {gid: sum(d["score"] for d in members if d["gid"] == gid) for gid in gids}
+    size_delta = {gid: 0 for gid in gids}
+    weight_delta = {gid: 0 for gid in gids}
 
     fam_counts = Counter(d["family_id"] for d in members if d["family_id"])
     def is_couple(d): return bool(d["family_id"]) and fam_counts[d["family_id"]] >= 2
@@ -588,10 +597,29 @@ def _plan_pair_couples(s: PrayerGroupSet) -> dict:
         if is_couple(d):
             fam_members[d["family_id"]].append(d)
 
+    def apply_move(mover, target):
+        src = mover["gid"]
+        size_delta[src] -= 1; size_delta[target] += 1
+        weight_delta[src] -= mover["score"]; weight_delta[target] += mover["score"]
+        mover["gid"] = target
+
+    def spread_if(mover, target):
+        """Group size-spread and weight-spread if `mover` went to `target`."""
+        src = mover["gid"]
+        sizes, weights = [], []
+        for gid in gids:
+            bump_s = (1 if gid == target else 0) - (1 if gid == src else 0)
+            bump_w = (mover["score"] if gid == target else 0) - (mover["score"] if gid == src else 0)
+            sizes.append(orig_size[gid] + size_delta[gid] + bump_s)
+            weights.append(orig_weight[gid] + weight_delta[gid] + bump_w)
+        return (max(sizes) - min(sizes), max(weights) - min(weights))
+
     warnings = []
     split = 0
-    # Bigger splits first so the tighter constraints are placed while there's
-    # still room to balance.
+    forced = []      # [(mover, target)] — leaders / 3+ member families
+    free_pairs = []  # [(a, b)] — two-person couples where either may move
+
+    # Bigger splits first so tighter constraints land while there's room.
     for fid, fam in sorted(fam_members.items(),
                            key=lambda kv: (-len({m["gid"] for m in kv[1]}), kv[0])):
         present = {d["gid"] for d in fam}
@@ -603,23 +631,33 @@ def _plan_pair_couples(s: PrayerGroupSet) -> dict:
             label = (fam[0]["surname"] or (fam[0]["name"].split()[-1] if fam[0]["name"] else "")) or "This family"
             warnings.append(f"“{label}” has leaders in different groups — please place this family manually.")
             continue
-        if leader_gids:
-            target = next(iter(leader_gids))          # never move a leader
+        if len(fam) == 2 and not leader_gids:
+            free_pairs.append((fam[0], fam[1]))
         else:
-            # Consolidate where most of the family already is (fewest moves);
-            # break ties toward the smaller group to keep sizes even.
-            cnt = Counter(d["gid"] for d in fam)
-            target = sorted(present, key=lambda gid: (-cnt[gid], cur_size[gid], gid))[0]
+            if leader_gids:
+                target = next(iter(leader_gids))       # never move a leader
+            else:
+                cnt = Counter(d["gid"] for d in fam)
+                target = sorted(present, key=lambda gid: (-cnt[gid], orig_size[gid], gid))[0]
+            for mover in [d for d in fam if d["gid"] != target]:
+                forced.append((mover, target))
 
-        for mover in [d for d in fam if d["gid"] != target]:
-            cur_size[mover["gid"]] -= 1
-            cur_size[target] += 1
-            mover["gid"] = target
+    for mover, target in forced:
+        apply_move(mover, target)
+
+    # For each free couple, move whichever spouse keeps sizes (then weight) most
+    # even — this forms same-pair swaps and prefers similar-weight swaps.
+    for a, b in free_pairs:
+        c1 = spread_if(a, b["gid"]) + (a["name"].lower(),)   # a joins b
+        c2 = spread_if(b, a["gid"]) + (b["name"].lower(),)   # b joins a
+        if c1 <= c2:
+            apply_move(a, b["gid"])
+        else:
+            apply_move(b, a["gid"])
 
     moves = []
     for e, d in M.items():
         if d["gid"] != orig_gid[e]:
-            # By construction only couple members ever change group.
             moves.append({
                 "ext": e, "name": d["name"],
                 "from_group": gname[orig_gid[e]],
@@ -632,8 +670,18 @@ def _plan_pair_couples(s: PrayerGroupSet) -> dict:
         if len({orig_gid[d["ext"]] for d in fam}) > 1 and len({d["gid"] for d in fam}) == 1:
             reunited.append({"group": gname[fam[0]["gid"]], "members": [d["name"] for d in fam]})
 
-    sizes_before = {gname[g.id]: orig_size[g.id] for g in groups}
-    sizes_after = {gname[g.id]: cur_size[g.id] for g in groups}
+    sizes_before = {gname[gid]: orig_size[gid] for gid in gids}
+    sizes_after = {gname[gid]: orig_size[gid] + size_delta[gid] for gid in gids}
+    # Commitment spread = gap between the strongest and weakest group's average
+    # score, rounded (scores are stored 0–100).
+    weight_spread_before = round(max((orig_weight[g] / orig_size[g]) if orig_size[g] else 0 for g in gids)
+                                 - min((orig_weight[g] / orig_size[g]) if orig_size[g] else 0 for g in gids))
+    weight_spread_after = round(
+        max(((orig_weight[g] + weight_delta[g]) / (orig_size[g] + size_delta[g]))
+            if (orig_size[g] + size_delta[g]) else 0 for g in gids)
+        - min(((orig_weight[g] + weight_delta[g]) / (orig_size[g] + size_delta[g]))
+              if (orig_size[g] + size_delta[g]) else 0 for g in gids))
+
     return {
         "detected_couples": len(fam_members),
         "split_couples": split,
@@ -643,6 +691,8 @@ def _plan_pair_couples(s: PrayerGroupSet) -> dict:
         "sizes_before": sizes_before,
         "sizes_after": sizes_after,
         "sizes_changed": sizes_before != sizes_after,
+        "weight_spread_before": weight_spread_before,
+        "weight_spread_after": weight_spread_after,
         "final_gid": {e: d["gid"] for e, d in M.items()},
         "has_family_data": bool(fam_counts),
     }
