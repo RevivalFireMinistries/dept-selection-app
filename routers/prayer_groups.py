@@ -546,6 +546,179 @@ def _set_dict(s: PrayerGroupSet) -> dict:
     }
 
 
+# ── Couple co-location ───────────────────────────────────────────────────────
+#
+# After a set is running, couples sometimes ask to be in the same group as their
+# spouse. This moves family members (shared family_id) together WITHOUT reshuffling
+# everyone else and WITHOUT changing group sizes: each spouse pulled into a group
+# swaps places with an unpaired, non-leader member who moves the other way. To
+# keep the commitment balance the set was built with, the swap partner is chosen
+# to have the closest score to the person moving in.
+
+def _plan_pair_couples(s: PrayerGroupSet) -> dict:
+    """Work out the moves needed to reunite couples, size-preserving. Pure — it
+    reads the set and returns a plan; it never mutates the database."""
+    from collections import Counter, defaultdict
+
+    groups = sorted(s.groups, key=lambda g: g.sort_order)
+    gname = {g.id: g.name for g in groups}
+
+    M: dict = {}
+    for g in groups:
+        for m in g.members:
+            M[m.external_member_id] = {
+                "ext": m.external_member_id,
+                "name": m.full_name or "",
+                "gid": g.id,
+                "is_leader": bool(m.is_leader),
+                "family_id": str(m.family_id) if m.family_id else None,
+                "surname": (m.surname or ""),
+                "score": m.score or 0,
+            }
+    members = list(M.values())
+    orig_gid = {e: d["gid"] for e, d in M.items()}
+    orig_size = {g.id: sum(1 for d in members if d["gid"] == g.id) for g in groups}
+
+    fam_counts = Counter(d["family_id"] for d in members if d["family_id"])
+    def is_couple(d): return bool(d["family_id"]) and fam_counts[d["family_id"]] >= 2
+    def is_free(d): return (not d["is_leader"]) and (not is_couple(d))
+
+    gmembers = defaultdict(set)
+    for d in members:
+        gmembers[d["gid"]].add(d["ext"])
+
+    fam_members = defaultdict(list)
+    for d in members:
+        if is_couple(d):
+            fam_members[d["family_id"]].append(d)
+
+    warnings = []
+    split = 0
+    for fid, fam in sorted(fam_members.items()):
+        present = {d["gid"] for d in fam}
+        if len(present) == 1:
+            continue  # already together
+        split += 1
+        leader_gids = {d["gid"] for d in fam if d["is_leader"]}
+        if len(leader_gids) >= 2:
+            label = fam[0]["surname"] or fam[0]["name"].split()[-1] if fam[0]["name"] else "This family"
+            warnings.append(f"“{label}” has leaders in different groups — please place this family manually.")
+            continue
+        if leader_gids:
+            target = next(iter(leader_gids))          # never move a leader
+        else:
+            cnt = Counter(d["gid"] for d in fam)
+            target = sorted(present, key=lambda gid: (-cnt[gid], len(gmembers[gid]), gid))[0]
+
+        for mover in [d for d in fam if d["gid"] != target]:
+            src = mover["gid"]
+            victims = [M[e] for e in gmembers[target] if is_free(M[e])]
+            if victims:
+                def vkey(v):
+                    clash = 1 if (v["surname"] and any(
+                        M[e]["surname"].lower() == v["surname"].lower()
+                        for e in gmembers[src] if e != v["ext"])) else 0
+                    return (abs(v["score"] - mover["score"]), clash, v["name"].lower())
+                victim = sorted(victims, key=vkey)[0]
+                gmembers[target].discard(victim["ext"]); gmembers[src].add(victim["ext"]); victim["gid"] = src
+                gmembers[src].discard(mover["ext"]); gmembers[target].add(mover["ext"]); mover["gid"] = target
+            else:
+                # No free partner to swap — move anyway; the balance pass tidies up.
+                gmembers[src].discard(mover["ext"]); gmembers[target].add(mover["ext"]); mover["gid"] = target
+
+    # Restore original group sizes using only free members (never split a couple
+    # or move a leader to rebalance).
+    guard = 0
+    while guard < 2000:
+        guard += 1
+        cur = {g.id: len(gmembers[g.id]) for g in groups}
+        over = [gid for gid in cur if cur[gid] > orig_size[gid]]
+        under = [gid for gid in cur if cur[gid] < orig_size[gid]]
+        if not over or not under:
+            break
+        o, u = over[0], under[0]
+        freebies = [M[e] for e in gmembers[o] if is_free(M[e])]
+        if not freebies:
+            break
+        mv = sorted(freebies, key=lambda v: v["name"].lower())[0]
+        gmembers[o].discard(mv["ext"]); gmembers[u].add(mv["ext"]); mv["gid"] = u
+
+    moves = []
+    for e, d in M.items():
+        if d["gid"] != orig_gid[e]:
+            moves.append({
+                "ext": e, "name": d["name"],
+                "from_group": gname[orig_gid[e]],
+                "to_group": gname[d["gid"]],
+                "reason": "couple" if is_couple(d) else "balance",
+            })
+
+    reunited = []
+    for fid, fam in sorted(fam_members.items()):
+        if len({orig_gid[d["ext"]] for d in fam}) > 1 and len({d["gid"] for d in fam}) == 1:
+            reunited.append({"group": gname[fam[0]["gid"]], "members": [d["name"] for d in fam]})
+
+    return {
+        "detected_couples": len(fam_members),
+        "split_couples": split,
+        "moves": moves,
+        "reunited": reunited,
+        "warnings": warnings,
+        "sizes_before": {gname[g.id]: orig_size[g.id] for g in groups},
+        "sizes_after": {gname[g.id]: len(gmembers[g.id]) for g in groups},
+        "final_gid": {e: d["gid"] for e, d in M.items()},
+        "has_family_data": bool(fam_counts),
+    }
+
+
+@router.get("/admin/prayer-groups/{set_id}/couples-preview")
+def preview_pair_couples(set_id: int, request: Request, db: Session = Depends(get_db)):
+    """Dry-run: show which couples would be reunited and the moves involved."""
+    _require_admin(request)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+    plan = _plan_pair_couples(s)
+    plan.pop("final_gid", None)
+    return plan
+
+
+@router.post("/admin/prayer-groups/{set_id}/pair-couples")
+def pair_couples(set_id: int, request: Request, db: Session = Depends(get_db)):
+    """Apply the couple co-location plan to a running set, in place."""
+    _require_admin(request)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    plan = _plan_pair_couples(s)
+    final = plan["final_gid"]
+    groups_by_id = {g.id: g for g in s.groups}
+    moved = 0
+    for g in list(s.groups):
+        for m in list(g.members):
+            dest = final.get(m.external_member_id)
+            if dest and dest != m.group_id:
+                m.group_id = dest
+                tg = groups_by_id.get(dest)
+                m.is_leader = bool(tg and tg.leader_external_member_id == m.external_member_id)
+                moved += 1
+
+    if moved:
+        s.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(s)
+
+    return {
+        "success": True,
+        "moved": moved,
+        "reunited": plan["reunited"],
+        "warnings": plan["warnings"],
+        "sizes_after": plan["sizes_after"],
+        "set": _set_dict(s),
+    }
+
+
 # ── Admin endpoints ──────────────────────────────────────────────────────────
 
 @router.get("/admin/prayer-groups")
