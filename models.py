@@ -1138,3 +1138,21 @@ class ServiceRule(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     template = relationship("ProgramTemplate", foreign_keys=[template_id])
+
+
+class PrayerGroupSnapshot(Base):
+    """A saved arrangement of a prayer-group set — who's in which group, plus
+    the group leaders — so the admin can restore it if a reshuffle isn't right.
+
+    One is taken automatically before each couple-reunite (an undo point); the
+    admin can also save named checkpoints on demand. `data` is JSON keyed by
+    external_member_id → {group sort_order, is_leader}, with the per-group
+    leader ids alongside."""
+    __tablename__ = "prayer_group_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    set_id = Column(Integer, ForeignKey("prayer_group_sets.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(String(150), nullable=False)
+    kind = Column(String(20), nullable=False, server_default="manual")  # manual | auto
+    data = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

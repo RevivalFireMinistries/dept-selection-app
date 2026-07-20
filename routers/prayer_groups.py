@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import (
     Member, Settings,
-    PrayerGroupSet, PrayerGroup, PrayerGroupMember,
+    PrayerGroupSet, PrayerGroup, PrayerGroupMember, PrayerGroupSnapshot,
 )
 import rfm_api_client as _rfm
 
@@ -802,6 +802,14 @@ def pair_couples(set_id: int, request: Request, data: dict = Body(default={}), d
 
     plan = _plan_pair_couples(s)
     final = plan["final_gid"]
+
+    # Snapshot the current arrangement first so this reshuffle can be undone.
+    undo_snapshot_id = None
+    if plan["moves"]:
+        snap = _snapshot_set(s, f"Before reuniting couples · {datetime.now().strftime('%d %b %H:%M')}", "auto", db)
+        db.flush()
+        undo_snapshot_id = snap.id
+
     groups_by_id = {g.id: g for g in s.groups}
     moved = 0
     for g in list(s.groups):
@@ -831,9 +839,144 @@ def pair_couples(set_id: int, request: Request, data: dict = Body(default={}), d
         "warnings": plan["warnings"],
         "sizes_after": plan["sizes_after"],
         "emailed_leaders": emailed_leaders,
+        "undo_snapshot_id": undo_snapshot_id,
         "run_at": s.last_couple_run_at.isoformat() if s.last_couple_run_at else None,
         "set": _set_dict(s),
     }
+
+
+MAX_SNAPSHOTS_PER_SET = 20
+
+
+def _snapshot_set(s: PrayerGroupSet, label: str, kind: str, db: Session) -> "PrayerGroupSnapshot":
+    """Capture the set's current arrangement (who's where + group leaders)."""
+    groups = sorted(s.groups, key=lambda g: g.sort_order)
+    so_by_gid = {g.id: g.sort_order for g in groups}
+    data = {
+        "num_groups": len(groups),
+        "groups": [{"sort_order": g.sort_order, "leader": g.leader_external_member_id} for g in groups],
+        "members": {
+            m.external_member_id: {"g": so_by_gid[m.group_id], "leader": bool(m.is_leader)}
+            for g in groups for m in g.members
+        },
+    }
+    snap = PrayerGroupSnapshot(set_id=s.id, label=label[:150], kind=kind, data=json.dumps(data))
+    db.add(snap)
+    db.flush()
+    # Prune oldest beyond the cap so this doesn't grow forever.
+    extra = (
+        db.query(PrayerGroupSnapshot)
+        .filter(PrayerGroupSnapshot.set_id == s.id)
+        .order_by(PrayerGroupSnapshot.created_at.desc(), PrayerGroupSnapshot.id.desc())
+        .offset(MAX_SNAPSHOTS_PER_SET)
+        .all()
+    )
+    for old in extra:
+        db.delete(old)
+    return snap
+
+
+def _restore_snapshot(s: PrayerGroupSet, snap: PrayerGroupSnapshot, db: Session) -> int:
+    """Put every member back where the snapshot had them. Returns members moved.
+    Members added since the snapshot are left as-is; deleted ones are skipped."""
+    try:
+        data = json.loads(snap.data or "{}")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="This snapshot is unreadable.")
+    if data.get("num_groups") != len(s.groups):
+        raise HTTPException(status_code=400, detail="The group structure has changed since this snapshot — can't restore it.")
+
+    gid_by_so = {g.sort_order: g.id for g in s.groups}
+    for gi in data.get("groups", []):
+        g = next((x for x in s.groups if x.sort_order == gi["sort_order"]), None)
+        if g:
+            g.leader_external_member_id = gi.get("leader")
+
+    mem = data.get("members", {})
+    moved = 0
+    for g in list(s.groups):
+        for m in list(g.members):
+            info = mem.get(m.external_member_id)
+            if not info:
+                continue
+            dest = gid_by_so.get(info["g"])
+            if dest and dest != m.group_id:
+                m.group_id = dest
+                moved += 1
+            m.is_leader = bool(info.get("leader"))
+    s.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return moved
+
+
+def _snapshot_dict(snap: PrayerGroupSnapshot) -> dict:
+    try:
+        n = len(json.loads(snap.data or "{}").get("members", {}))
+    except (ValueError, TypeError):
+        n = 0
+    return {
+        "id": snap.id, "label": snap.label, "kind": snap.kind,
+        "members": n,
+        "created_at": snap.created_at.isoformat() if snap.created_at else None,
+    }
+
+
+@router.get("/admin/prayer-groups/{set_id}/snapshots")
+def list_snapshots(set_id: int, request: Request, db: Session = Depends(get_db)):
+    """Saved arrangements for this set, newest first."""
+    _require_admin(request)
+    rows = (
+        db.query(PrayerGroupSnapshot)
+        .filter(PrayerGroupSnapshot.set_id == set_id)
+        .order_by(PrayerGroupSnapshot.created_at.desc(), PrayerGroupSnapshot.id.desc())
+        .all()
+    )
+    return [_snapshot_dict(r) for r in rows]
+
+
+@router.post("/admin/prayer-groups/{set_id}/snapshots")
+def save_snapshot(set_id: int, request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Save the current arrangement as a named checkpoint to restore later."""
+    _require_admin(request)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+    label = (data.get("label") or "").strip() or f"Saved {datetime.now().strftime('%d %b %H:%M')}"
+    snap = _snapshot_set(s, label, "manual", db)
+    db.commit()
+    return _snapshot_dict(snap)
+
+
+@router.post("/admin/prayer-groups/{set_id}/snapshots/{snap_id}/restore")
+def restore_snapshot(set_id: int, snap_id: int, request: Request, db: Session = Depends(get_db)):
+    """Restore the set to a saved arrangement. Snapshots the current state first
+    (labelled 'Before restore') so this itself is undoable."""
+    _require_admin(request)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+    snap = db.query(PrayerGroupSnapshot).filter(
+        PrayerGroupSnapshot.id == snap_id, PrayerGroupSnapshot.set_id == set_id).first()
+    if not snap:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    _snapshot_set(s, f"Before restoring “{snap.label}”", "auto", db)
+    db.commit()
+    moved = _restore_snapshot(s, snap, db)
+    db.refresh(s)
+    return {"success": True, "moved": moved, "restored": snap.label, "set": _set_dict(s)}
+
+
+@router.delete("/admin/prayer-groups/{set_id}/snapshots/{snap_id}")
+def delete_snapshot(set_id: int, snap_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    snap = db.query(PrayerGroupSnapshot).filter(
+        PrayerGroupSnapshot.id == snap_id, PrayerGroupSnapshot.set_id == set_id).first()
+    if not snap:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    db.delete(snap)
+    db.commit()
+    return {"success": True}
 
 
 @router.get("/admin/prayer-groups/{set_id}/couple-changes.csv")

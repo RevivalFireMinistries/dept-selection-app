@@ -613,6 +613,24 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (service_rules): {e}")
 
+        # Migration: prayer group snapshots (undo / restore arrangements)
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS prayer_group_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    set_id INTEGER NOT NULL REFERENCES prayer_group_sets(id) ON DELETE CASCADE,
+                    label VARCHAR(150) NOT NULL,
+                    kind VARCHAR(20) NOT NULL DEFAULT 'manual',
+                    data TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pg_snapshots_set ON prayer_group_snapshots(set_id)"))
+            conn.commit()
+            print("Migration: Ensured prayer_group_snapshots table")
+        except Exception as e:
+            print(f"Migration note (prayer snapshots): {e}")
+
         # Migration: couple-reunite run record on prayer_group_sets
         try:
             conn.execute(text("""

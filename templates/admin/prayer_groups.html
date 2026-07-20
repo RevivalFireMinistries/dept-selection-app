@@ -113,6 +113,11 @@
                   class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
             💞 Reunite couples
           </button>
+          <button @click="openSnaps()" :disabled="busy"
+                  title="Save the current arrangement, or restore an earlier one"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+            🗂 Snapshots
+          </button>
           <button @click="exportExcel()"
                   class="px-3 py-2 text-sm font-semibold rounded-xl text-white" style="background:#3F7D58;">Excel</button>
           <button x-show="current.status !== 'published'" @click="publish()"
@@ -427,6 +432,66 @@
     </div>
   </div>
 
+  <!-- ── Snapshots / restore modal ──────────────────────────────── -->
+  <div x-show="snaps.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+       @keydown.escape.window="closeSnaps()">
+    <div class="absolute inset-0 bg-black/40" @click="closeSnaps()"></div>
+    <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+      <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-2xl">
+        <div>
+          <div class="text-[10px] uppercase tracking-widest text-rose-500 font-semibold">Prayer groups</div>
+          <h3 class="text-lg font-bold text-gray-900">Snapshots &amp; restore</h3>
+        </div>
+        <button @click="closeSnaps()" class="w-8 h-8 rounded-full hover:bg-gray-100 text-gray-400 text-lg">✕</button>
+      </div>
+
+      <div class="px-5 py-4 overflow-y-auto">
+        <p class="text-sm text-gray-500">Save the current arrangement so you can come back to it, or restore an earlier one. Restoring saves the current state first, so it's always reversible.</p>
+
+        <!-- Save current -->
+        <div class="mt-3 flex gap-2">
+          <input type="text" x-model="snaps.saveLabel" maxlength="150" placeholder="Name this arrangement (optional)"
+                 class="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-xl text-sm">
+          <button @click="saveSnap()" :disabled="snaps.busy==='save'"
+                  class="px-3 py-2 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50">
+            <span x-text="snaps.busy==='save' ? 'Saving…' : 'Save current'"></span>
+          </button>
+        </div>
+
+        <div x-show="snaps.loading" class="text-center text-gray-400 text-sm py-6">Loading…</div>
+        <div x-show="!snaps.loading && snaps.list.length === 0" x-cloak class="text-center text-gray-400 text-sm py-6">No saved arrangements yet.</div>
+
+        <div class="mt-4 space-y-2">
+          <template x-for="snap in snaps.list" :key="snap.id">
+            <div class="flex items-center justify-between gap-2 p-3 rounded-xl border border-gray-100 bg-gray-50">
+              <div class="min-w-0">
+                <div class="text-sm font-medium text-gray-900 truncate">
+                  <span x-text="snap.label"></span>
+                  <span x-show="snap.kind==='auto'" class="ml-1 text-[10px] font-bold uppercase text-gray-400">auto</span>
+                </div>
+                <div class="text-xs text-gray-400">
+                  <span x-text="snap.members"></span> members ·
+                  <span x-text="new Date(snap.created_at).toLocaleString('en-ZA', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})"></span>
+                </div>
+              </div>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button @click="restoreSnap(snap.id, snap.label)" :disabled="snaps.busy==='r'+snap.id"
+                        class="px-2.5 py-1 text-xs font-semibold rounded-lg border border-gray-200 hover:bg-white disabled:opacity-50">
+                  <span x-text="snaps.busy==='r'+snap.id ? 'Restoring…' : 'Restore'"></span>
+                </button>
+                <button @click="deleteSnap(snap.id)" class="px-2 py-1 text-xs font-medium text-rose-500 rounded-lg hover:bg-rose-50">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="border-t border-gray-100 px-5 py-3">
+        <button @click="closeSnaps()" class="w-full px-3 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Done</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Reunite couples modal ──────────────────────────────────── -->
   <div x-show="couples.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
        @keydown.escape.window="closeCouples()">
@@ -454,10 +519,17 @@
         <div x-show="couples.doneMsg" x-cloak class="mt-4 text-center">
           <div class="text-3xl mb-1">✅</div>
           <p class="text-sm font-medium text-gray-800" x-text="couples.doneMsg"></p>
-          <button @click="downloadCoupleChanges()"
-                  class="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 hover:bg-gray-50">
-            ⬇ Download the changes (CSV)
-          </button>
+          <div class="mt-3 flex items-center justify-center gap-2 flex-wrap">
+            <button @click="downloadCoupleChanges()"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 hover:bg-gray-50">
+              ⬇ Download the changes (CSV)
+            </button>
+            <button x-show="couples.undoId" @click="undoReshuffle()" :disabled="couples.undoing"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+              <span x-text="couples.undoing ? 'Undoing…' : '↩ Undo this reshuffle'"></span>
+            </button>
+          </div>
+          <p x-show="couples.undoId" class="text-[11px] text-gray-400 mt-2">Not happy with it? Undo puts everyone back exactly as they were.</p>
         </div>
 
         <template x-if="!couples.loading && couples.plan">
@@ -664,7 +736,67 @@ function prayerGroups() {
     viewGroup: null,
     unallocated: [], loadingUnalloc: false,
     chainDirty: false, chainSaving: false, chainSavedMsg: '',
-    couples: { open: false, loading: false, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '' },
+    couples: { open: false, loading: false, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '', undoId: null, undoing: false },
+    snaps: { open: false, loading: false, list: [], saveLabel: '', busy: '' },
+
+    // ---- snapshots / restore ----
+    async openSnaps() {
+      this.snaps = { open: true, loading: true, list: [], saveLabel: '', busy: '' };
+      await this.reloadSnaps();
+      this.snaps.loading = false;
+    },
+    closeSnaps() { this.snaps.open = false; },
+    async reloadSnaps() {
+      try {
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/snapshots`);
+        this.snaps.list = r.ok ? await r.json() : [];
+      } catch (e) { this.snaps.list = []; }
+    },
+    async saveSnap() {
+      this.snaps.busy = 'save';
+      try {
+        await fetch(`/api/admin/prayer-groups/${this.current.id}/snapshots`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label: this.snaps.saveLabel })
+        });
+        this.snaps.saveLabel = '';
+        await this.reloadSnaps();
+      } catch (e) {}
+      this.snaps.busy = '';
+    },
+    async restoreSnap(id, label) {
+      if (!confirm(`Restore the group arrangement to “${label}”?\n\nThe current arrangement is saved first, so you can undo this too.`)) return;
+      this.snaps.busy = 'r' + id;
+      try {
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/snapshots/${id}/restore`, { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(d.detail || 'Could not restore.'); }
+        else { if (d.set) this.current = d.set; await this.reloadSnaps(); }
+      } catch (e) { alert('Could not restore.'); }
+      this.snaps.busy = '';
+    },
+    async deleteSnap(id) {
+      if (!confirm('Delete this saved arrangement?')) return;
+      this.snaps.busy = 'd' + id;
+      try {
+        await fetch(`/api/admin/prayer-groups/${this.current.id}/snapshots/${id}`, { method: 'DELETE' });
+        await this.reloadSnaps();
+      } catch (e) {}
+      this.snaps.busy = '';
+    },
+    async undoReshuffle() {
+      if (!this.couples.undoId) return;
+      this.couples.undoing = true;
+      try {
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/snapshots/${this.couples.undoId}/restore`, { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { this.couples.error = d.detail || 'Could not undo.'; this.couples.undoing = false; return; }
+        if (d.set) this.current = d.set;
+        this.couples.doneMsg = 'Reshuffle undone — groups are back to how they were.';
+        this.couples.undoId = null;
+      } catch (e) { this.couples.error = 'Could not undo.'; }
+      this.couples.undoing = false;
+    },
 
     async openCouples() {
       this.couples = { open: true, loading: true, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '' };
@@ -689,8 +821,9 @@ function prayerGroups() {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { this.couples.error = d.detail || 'Could not apply.'; this.couples.applying = false; return; }
         if (d.set) this.current = d.set;
-        // Switch the modal into a "done" state so they can download the changes.
+        // Switch the modal into a "done" state so they can download / undo.
         this.couples.plan = null;
+        this.couples.undoId = d.undo_snapshot_id || null;
         let msg = `${d.moved} member(s) moved.`;
         if (this.couples.notifyLeaders) msg += ` ${d.emailed_leaders} group leader(s) emailed.`;
         this.couples.doneMsg = msg;
