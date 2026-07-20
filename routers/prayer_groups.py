@@ -525,6 +525,7 @@ def _set_dict(s: PrayerGroupSet) -> dict:
         },
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "published_at": s.published_at.isoformat() if s.published_at else None,
+        "last_couple_run_at": s.last_couple_run_at.isoformat() if getattr(s, "last_couple_run_at", None) else None,
         "groups": [
             {
                 "id": g.id,
@@ -710,9 +711,90 @@ def preview_pair_couples(set_id: int, request: Request, db: Session = Depends(ge
     return plan
 
 
+def _couple_changes_by_group(moves: list) -> dict:
+    """Per group: who's joining (incoming) and who's leaving (outgoing)."""
+    from collections import defaultdict
+    by_group = defaultdict(lambda: {"incoming": [], "outgoing": []})
+    for mv in moves:
+        by_group[mv["to_group"]]["incoming"].append(mv["name"])
+        by_group[mv["from_group"]]["outgoing"].append(mv["name"])
+    return by_group
+
+
+def _email_leaders_couple_changes(s: PrayerGroupSet, moves: list, run_at, db: Session) -> int:
+    """Email each affected group's leader their incomings and outgoings."""
+    try:
+        from notifications.channels.rfm_notify import RfmNotifyChannel
+    except Exception:
+        return 0
+    channel = RfmNotifyChannel()
+    if not channel.is_configured():
+        print("[prayer-couples] rfm-notify not configured — leaders not emailed")
+        return 0
+
+    by_group = _couple_changes_by_group(moves)
+    stamp = run_at.strftime("%Y%m%d%H%M%S")
+    FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
+    sent = 0
+    for g in s.groups:
+        ch = by_group.get(g.name)
+        if not ch or (not ch["incoming"] and not ch["outgoing"]):
+            continue
+        leader_pm = next((m for m in g.members if m.is_leader), None)
+        if not leader_pm:
+            continue
+        recips = _resolve_group_recipients([leader_pm], db)
+        if not recips:
+            print(f"[prayer-couples] no email for the leader of {g.name} — skipped")
+            continue
+        r = recips[0]
+
+        def _rows(names, colour, verb):
+            if not names:
+                return ""
+            items = "".join(f'<li style="margin:0 0 3px 0;color:#111827;font-size:14px;">{n}</li>' for n in names)
+            return (f'<p style="margin:14px 0 6px 0;font-size:11px;font-weight:700;color:{colour};'
+                    f'text-transform:uppercase;letter-spacing:0.5px;">{verb}</p>'
+                    f'<ul style="margin:0;padding-left:18px;">{items}</ul>')
+
+        html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#fff;font-family:{FONT};">
+<table role="presentation" width="100%"><tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" style="max-width:520px;"><tr><td>
+  <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;font-weight:700;">{s.name}</div>
+  <h2 style="margin:2px 0 4px 0;color:#111827;font-size:18px;font-weight:700;">{g.name}: some changes</h2>
+  <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;line-height:1.6;">
+    Hi <strong>{r.get("name") or "there"}</strong>, we've moved a few people so couples can pray together.
+    Here's what changed for your group:
+  </p>
+  {_rows(ch["incoming"], "#059669", "Joining your group")}
+  {_rows(ch["outgoing"], "#b45309", "Leaving your group")}
+  <hr style="border:none;border-top:1px solid #f3f4f6;margin:24px 0 16px 0;">
+  <p style="margin:0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
+</td></tr></table></td></tr></table></body></html>'''
+        try:
+            ok, err = channel.send(
+                r["email"], f"{g.name}: prayer group changes", html,
+                event_code="prayer_group.couple_changes",
+                recipient_id=r.get("id"), recipient_name=r.get("name"),
+                idempotency_key=f"prayer_couple_changes:{s.id}:{stamp}:{g.id}:{r['email']}",
+            )
+            if ok:
+                sent += 1
+            else:
+                print(f"[prayer-couples] leader email failed for {g.name}: {err}")
+        except Exception as exc:
+            print(f"[prayer-couples] leader email error for {g.name}: {exc}")
+    return sent
+
+
 @router.post("/admin/prayer-groups/{set_id}/pair-couples")
-def pair_couples(set_id: int, request: Request, db: Session = Depends(get_db)):
-    """Apply the couple co-location plan to a running set, in place."""
+def pair_couples(set_id: int, request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Apply the couple co-location plan to a running set, in place.
+
+    Idempotent: re-running once couples are together moves nobody and touches
+    nothing. Records the run so the changes can be downloaded later, and can
+    email each affected group's leader their incomings/outgoings."""
     _require_admin(request)
     s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
     if not s:
@@ -731,10 +813,16 @@ def pair_couples(set_id: int, request: Request, db: Session = Depends(get_db)):
                 m.is_leader = bool(tg and tg.leader_external_member_id == m.external_member_id)
                 moved += 1
 
+    emailed_leaders = 0
     if moved:
-        s.updated_at = datetime.now(timezone.utc)
+        run_at = datetime.now(timezone.utc)
+        s.updated_at = run_at
+        s.last_couple_run_at = run_at
+        s.last_couple_moves = json.dumps(plan["moves"])
         db.commit()
         db.refresh(s)
+        if data.get("notify_leaders"):
+            emailed_leaders = _email_leaders_couple_changes(s, plan["moves"], run_at, db)
 
     return {
         "success": True,
@@ -742,8 +830,45 @@ def pair_couples(set_id: int, request: Request, db: Session = Depends(get_db)):
         "reunited": plan["reunited"],
         "warnings": plan["warnings"],
         "sizes_after": plan["sizes_after"],
+        "emailed_leaders": emailed_leaders,
+        "run_at": s.last_couple_run_at.isoformat() if s.last_couple_run_at else None,
         "set": _set_dict(s),
     }
+
+
+@router.get("/admin/prayer-groups/{set_id}/couple-changes.csv")
+def download_couple_changes(set_id: int, request: Request, db: Session = Depends(get_db)):
+    """Download the last couple-reunite run as a CSV (who moved where)."""
+    from fastapi.responses import Response
+    _require_admin(request)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+    try:
+        moves = json.loads(s.last_couple_moves or "[]")
+    except (ValueError, TypeError):
+        moves = []
+
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Name", "Moved from", "Moved to"])
+    for m in moves:
+        w.writerow([m.get("name", ""), m.get("from_group", ""), m.get("to_group", "")])
+    # A per-group incoming/outgoing summary underneath.
+    if moves:
+        w.writerow([])
+        w.writerow(["Group", "Joining", "Leaving"])
+        for gn, ch in _couple_changes_by_group(moves).items():
+            w.writerow([gn, "; ".join(ch["incoming"]), "; ".join(ch["outgoing"])])
+
+    ts = (s.last_couple_run_at.strftime("%Y-%m-%d") if s.last_couple_run_at else "latest")
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in (s.name or "set"))
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{safe}-couple-changes-{ts}.csv"'},
+    )
 
 
 # ── Admin endpoints ──────────────────────────────────────────────────────────

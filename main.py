@@ -613,6 +613,18 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (service_rules): {e}")
 
+        # Migration: couple-reunite run record on prayer_group_sets
+        try:
+            conn.execute(text("""
+                ALTER TABLE prayer_group_sets
+                ADD COLUMN IF NOT EXISTS last_couple_moves TEXT,
+                ADD COLUMN IF NOT EXISTS last_couple_run_at TIMESTAMP WITH TIME ZONE
+            """))
+            conn.commit()
+            print("Migration: Added couple-reunite run columns to prayer_group_sets")
+        except Exception as e:
+            print(f"Migration note (prayer couple run): {e}")
+
         # Migration: role_defaults on program_templates (per-role auto-fill)
         try:
             conn.execute(text("""

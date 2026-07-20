@@ -994,6 +994,10 @@ class PrayerGroupSet(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     published_at = Column(DateTime(timezone=True), nullable=True)
+    # Last couple-reunite run: JSON list of moves + when it ran. Lets the admin
+    # re-download the changes and drives the "already done" idempotent state.
+    last_couple_moves = Column(Text, nullable=True)
+    last_couple_run_at = Column(DateTime(timezone=True), nullable=True)
 
     groups = relationship(
         "PrayerGroup", back_populates="set",

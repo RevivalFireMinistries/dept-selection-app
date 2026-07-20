@@ -450,6 +450,16 @@
         <div x-show="couples.loading" class="text-center text-gray-400 text-sm py-8">Working it out…</div>
         <div x-show="couples.error" x-cloak class="mt-3 text-sm text-rose-600" x-text="couples.error"></div>
 
+        <!-- Done: applied successfully -->
+        <div x-show="couples.doneMsg" x-cloak class="mt-4 text-center">
+          <div class="text-3xl mb-1">✅</div>
+          <p class="text-sm font-medium text-gray-800" x-text="couples.doneMsg"></p>
+          <button @click="downloadCoupleChanges()"
+                  class="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 hover:bg-gray-50">
+            ⬇ Download the changes (CSV)
+          </button>
+        </div>
+
         <template x-if="!couples.loading && couples.plan">
           <div class="mt-4 space-y-4">
             <!-- Nothing to do -->
@@ -460,6 +470,10 @@
                    x-text="!couples.plan.has_family_data
                      ? 'No family links found for this set — couples can\'t be detected automatically.'
                      : (couples.plan.split_couples === 0 ? 'Every couple is already together. Nothing to move.' : 'Nothing to move.')"></p>
+                <button x-show="current && current.last_couple_run_at" @click="downloadCoupleChanges()"
+                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-100">
+                  ⬇ Download the last run's changes
+                </button>
               </div>
             </template>
 
@@ -541,12 +555,21 @@
         </template>
       </div>
 
-      <div class="border-t border-gray-100 px-5 py-3 flex gap-2">
-        <button @click="closeCouples()" class="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Close</button>
-        <button x-show="couples.plan && couples.plan.moves.length > 0" @click="applyCouples()" :disabled="couples.applying"
-                class="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50">
-          <span x-text="couples.applying ? 'Applying…' : 'Apply moves'"></span>
-        </button>
+      <div class="border-t border-gray-100 px-5 py-3">
+        <label x-show="couples.plan && couples.plan.moves.length > 0 && !couples.doneMsg" x-cloak
+               class="flex items-center gap-2 mb-3 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" x-model="couples.notifyLeaders" class="rounded">
+          Email each affected group's leader who's joining and leaving
+        </label>
+        <div class="flex gap-2">
+          <button @click="closeCouples()" class="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">
+            <span x-text="couples.doneMsg ? 'Done' : 'Close'"></span>
+          </button>
+          <button x-show="couples.plan && couples.plan.moves.length > 0 && !couples.doneMsg" @click="applyCouples()" :disabled="couples.applying"
+                  class="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50">
+            <span x-text="couples.applying ? 'Applying…' : 'Apply moves'"></span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -641,10 +664,10 @@ function prayerGroups() {
     viewGroup: null,
     unallocated: [], loadingUnalloc: false,
     chainDirty: false, chainSaving: false, chainSavedMsg: '',
-    couples: { open: false, loading: false, applying: false, plan: null, error: '' },
+    couples: { open: false, loading: false, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '' },
 
     async openCouples() {
-      this.couples = { open: true, loading: true, applying: false, plan: null, error: '' };
+      this.couples = { open: true, loading: true, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '' };
       try {
         const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/couples-preview`);
         if (!r.ok) { const e = await r.json().catch(() => ({})); this.couples.error = e.detail || 'Could not build a preview.'; }
@@ -653,14 +676,24 @@ function prayerGroups() {
       this.couples.loading = false;
     },
     closeCouples() { this.couples.open = false; },
+    downloadCoupleChanges() {
+      window.open(`/api/admin/prayer-groups/${this.current.id}/couple-changes.csv`, '_blank');
+    },
     async applyCouples() {
-      this.couples.applying = true;
+      this.couples.applying = true; this.couples.error = '';
       try {
-        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/pair-couples`, { method: 'POST' });
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/pair-couples`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notify_leaders: this.couples.notifyLeaders })
+        });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { this.couples.error = d.detail || 'Could not apply.'; this.couples.applying = false; return; }
         if (d.set) this.current = d.set;
-        this.couples.open = false;
+        // Switch the modal into a "done" state so they can download the changes.
+        this.couples.plan = null;
+        let msg = `${d.moved} member(s) moved.`;
+        if (this.couples.notifyLeaders) msg += ` ${d.emailed_leaders} group leader(s) emailed.`;
+        this.couples.doneMsg = msg;
       } catch (e) { this.couples.error = 'Could not apply.'; }
       this.couples.applying = false;
     },
