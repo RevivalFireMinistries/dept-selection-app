@@ -442,8 +442,9 @@
 
       <div class="px-5 py-4 overflow-y-auto">
         <p class="text-sm text-gray-500">
-          Puts spouses in the same group without reshuffling everyone else. Group sizes stay the same —
-          each person pulled in swaps with one unpaired member. Leaders aren't moved.
+          Puts spouses in the same group. <span class="font-medium text-gray-700">Only couples are moved</span> —
+          no one else is touched. Each couple merges into the group a spouse is already in, so group sizes shift only
+          as couples come together. Leaders aren't moved.
         </p>
 
         <div x-show="couples.loading" class="text-center text-gray-400 text-sm py-8">Working it out…</div>
@@ -504,10 +505,19 @@
 
                 <!-- Balance check -->
                 <div class="rounded-xl bg-gray-50 border border-gray-100 p-3">
-                  <div class="text-[11px] uppercase tracking-wider text-gray-400 font-bold mb-1">Group sizes (unchanged)</div>
+                  <div class="text-[11px] uppercase tracking-wider text-gray-400 font-bold mb-1"
+                       x-text="couples.plan.sizes_changed ? 'Group sizes (before → after)' : 'Group sizes (unchanged)'"></div>
                   <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
                     <template x-for="(n, gn) in couples.plan.sizes_after" :key="'sz-'+gn">
-                      <span><span class="font-medium text-gray-800" x-text="gn"></span>: <span x-text="n"></span></span>
+                      <span>
+                        <span class="font-medium text-gray-800" x-text="gn"></span>:
+                        <template x-if="couples.plan.sizes_changed && couples.plan.sizes_before[gn] !== n">
+                          <span><span class="text-gray-400" x-text="couples.plan.sizes_before[gn]"></span> → <span class="font-semibold" x-text="n"></span></span>
+                        </template>
+                        <template x-if="!couples.plan.sizes_changed || couples.plan.sizes_before[gn] === n">
+                          <span x-text="n"></span>
+                        </template>
+                      </span>
                     </template>
                   </div>
                 </div>
