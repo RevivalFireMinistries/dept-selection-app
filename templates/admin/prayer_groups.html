@@ -831,7 +831,7 @@ function prayerGroups() {
     viewGroup: null,
     unallocated: [], loadingUnalloc: false,
     chainDirty: false, chainSaving: false, chainSavedMsg: '',
-    couples: { open: false, loading: false, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '', undoId: null, undoing: false },
+    couples: { open: false, loading: false, applying: false, plan: null, error: '', notifyLeaders: true, doneMsg: '', undoId: null, undoing: false },
     report: { open: false, loading: false, error: '', data: null },
     snaps: { open: false, loading: false, list: [], saveLabel: '', busy: '' },
 
@@ -895,7 +895,7 @@ function prayerGroups() {
     },
 
     async openCouples() {
-      this.couples = { open: true, loading: true, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '' };
+      this.couples = { open: true, loading: true, applying: false, plan: null, error: '', notifyLeaders: true, doneMsg: '' };
       try {
         const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/couples-preview`);
         if (!r.ok) { const e = await r.json().catch(() => ({})); this.couples.error = e.detail || 'Could not build a preview.'; }

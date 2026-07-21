@@ -843,7 +843,8 @@ def pair_couples(set_id: int, request: Request, data: dict = Body(default={}), d
         s.last_couple_moves = json.dumps(plan["moves"])
         db.commit()
         db.refresh(s)
-        if data.get("notify_leaders"):
+        # Notify leaders by default; callers must pass notify_leaders=false to skip.
+        if data.get("notify_leaders", True):
             emailed_leaders = _email_leaders_couple_changes(s, plan["moves"], run_at, db)
 
     return {
