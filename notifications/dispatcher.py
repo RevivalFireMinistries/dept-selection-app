@@ -535,7 +535,7 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
                 {greeting(data.get('recipient_name', 'Leader'))}
                 {paragraph(f"You're leading <strong>{data.get('group_name', 'your group')}</strong> on the prayer chain. Here are your group's prayer slots — please share these times with your group and make sure each one is covered:")}
                 {section_heading("Your group's prayer slots")}
-                {''.join(f'<div style="margin:0 0 10px 0;padding-left:12px;border-left:3px solid #B8541C;"><p style="margin:0;color:{TEXT};font-size:16px;font-weight:600;line-height:1.4;">{s.get("start","")} – {s.get("end","")}</p>' + (f'<p style="margin:2px 0 0 0;color:{TEXT_SECONDARY};font-size:13px;line-height:1.4;">🙏 {s.get("prayer_point")}</p>' if s.get("prayer_point") else '') + '</div>' for s in data.get('slots', [])) or paragraph("No specific slots have been set yet.")}
+                {''.join(f'<div style="margin:0 0 10px 0;padding-left:12px;border-left:3px solid #B8541C;"><p style="margin:0;color:{TEXT};font-size:16px;font-weight:600;line-height:1.4;">{s.get("start","")} – {s.get("end","")}</p>' + ''.join(f'<p style="margin:2px 0 0 0;color:{TEXT_SECONDARY};font-size:13px;line-height:1.4;">🙏 {p}</p>' for p in (s.get("prayer_points") or ([s.get("prayer_point")] if s.get("prayer_point") else [])) if p) + '</div>' for s in data.get('slots', [])) or paragraph("No specific slots have been set yet.")}
                 {divider()}
                 {paragraph("Let's keep the chain unbroken. Rally your group, confirm who covers each slot, and lead them in prayer at the set times.")}
             ''',

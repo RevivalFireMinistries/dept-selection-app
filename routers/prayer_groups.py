@@ -440,12 +440,23 @@ def _clean_text(s: str) -> str:
 
 
 def _chain_prayer_points_list(s: PrayerGroupSet) -> list:
-    """Stored prayer points (one per round), cleaned; empty if unset/invalid."""
+    """Stored prayer points per round — a list-of-lists (each round may carry
+    several points). Legacy rows stored a single string per round; those coerce
+    to a one-element list. Empty strings are dropped. Empty if unset/invalid."""
     try:
         v = json.loads(s.chain_prayer_points) if getattr(s, "chain_prayer_points", None) else []
-        return [_clean_text(str(x or "")) for x in v] if isinstance(v, list) else []
     except (ValueError, TypeError):
         return []
+    if not isinstance(v, list):
+        return []
+    out = []
+    for round_pts in v:
+        if isinstance(round_pts, list):
+            cleaned = [_clean_text(str(x or "")) for x in round_pts]
+        else:  # legacy: one string per round
+            cleaned = [_clean_text(str(round_pts or ""))]
+        out.append([p for p in cleaned if p])
+    return out
 
 
 def _chain_rounds_count(s: PrayerGroupSet) -> int:
@@ -462,9 +473,9 @@ def _chain_schedule(s: PrayerGroupSet) -> list:
     """Assign groups to the chain-prayer time slots. Uses the admin's explicit
     (randomised / hand-edited) assignment in `chain_slots` when it's valid for
     the current slot count + groups; otherwise falls back to round-robin order.
-    Each slot also carries its round index + the round's shared prayer point.
-    Returns ordered
-    [{start, end, group_id, group_name, sort_order, round, prayer_point}]."""
+    Each slot also carries its round index + the round's shared prayer point(s).
+    Returns ordered [{start, end, group_id, group_name, sort_order, round,
+    prayer_points (list), prayer_point (joined string)}]."""
     times = _chain_slot_times(s)
     if not times:
         return []
@@ -489,11 +500,14 @@ def _chain_schedule(s: PrayerGroupSet) -> list:
     for i, (st, en) in enumerate(times):
         g = gmap[slot_ids[i]] if use_explicit else groups[i % len(groups)]
         rnd = i // len(groups)  # one full pass through the groups = one round
+        rnd_points = points[rnd] if rnd < len(points) else []
         out.append({
             "start": st, "end": en,
             "group_id": g.id, "group_name": g.name, "sort_order": g.sort_order,
             "round": rnd,
-            "prayer_point": points[rnd] if rnd < len(points) else "",
+            "prayer_points": rnd_points,
+            # Joined single-string kept for legacy consumers (emails, portal fallbacks).
+            "prayer_point": " · ".join(rnd_points),
         })
     return out
 
@@ -1297,7 +1311,15 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
         if "prayer_points" in chain:
             pts = chain.get("prayer_points")
             if isinstance(pts, list):
-                s.chain_prayer_points = json.dumps([_clean_text(str(p or "").strip()) for p in pts])
+                # Each round is a list of points; accept a legacy bare string too.
+                norm = []
+                for rp in pts:
+                    if isinstance(rp, list):
+                        cleaned = [_clean_text(str(p or "").strip()) for p in rp]
+                    else:
+                        cleaned = [_clean_text(str(rp or "").strip())]
+                    norm.append([p for p in cleaned if p])
+                s.chain_prayer_points = json.dumps(norm)
             else:
                 s.chain_prayer_points = None
 
@@ -1359,7 +1381,8 @@ def _notify_leaders_of_schedule(s: PrayerGroupSet, db: Session) -> int:
     for slot in schedule:
         by_group.setdefault(slot["group_id"], []).append(
             {"start": slot["start"], "end": slot["end"],
-             "prayer_point": slot.get("prayer_point") or ""}
+             "prayer_point": slot.get("prayer_point") or "",
+             "prayer_points": slot.get("prayer_points") or []}
         )
 
     date_display = _long_date(s.chain_date) if getattr(s, "chain_date", None) else ""
@@ -1513,7 +1536,9 @@ def my_prayer_group(request: Request, db: Session = Depends(get_db)):
         for x in full
     ]
     my_slots = [
-        {"start": x["start"], "end": x["end"], "prayer_point": x.get("prayer_point") or ""}
+        {"start": x["start"], "end": x["end"],
+         "prayer_point": x.get("prayer_point") or "",
+         "prayer_points": x.get("prayer_points") or []}
         for x in full if x["group_id"] == g.id
     ]
 

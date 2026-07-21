@@ -50,7 +50,9 @@
               <span class="inline-flex items-center text-base font-bold px-3 py-1.5 rounded-lg text-white" style="background-color:var(--color-ember);">
                 <span x-text="slot.start"></span><span class="px-1 opacity-60">–</span><span x-text="slot.end"></span>
               </span>
-              <div x-show="slot.prayer_point" class="text-[13px] mt-1.5 pl-1" style="color:#9a3412;">🙏 <span x-text="slot.prayer_point"></span></div>
+              <template x-for="(pp, ppi) in ((slot.prayer_points && slot.prayer_points.length) ? slot.prayer_points : (slot.prayer_point ? [slot.prayer_point] : []))" :key="ppi">
+                <div class="text-[13px] mt-1.5 pl-1" style="color:#9a3412;">🙏 <span x-text="pp"></span></div>
+              </template>
             </div>
           </template>
         </div>
@@ -186,7 +188,10 @@
           doc.text(`${s.start}–${s.end}`, M, y);
           doc.setTextColor(0, 0, 0);
           y += 2;
-          y = s.prayer_point ? this._prayerBanner(doc, s.prayer_point, y, M, contentW) : (y + 4);
+          const ptText = (s.prayer_points && s.prayer_points.length)
+            ? (s.prayer_points.length > 1 ? s.prayer_points.map(p => '• ' + p).join('\n') : s.prayer_points[0])
+            : (s.prayer_point || '');
+          y = ptText ? this._prayerBanner(doc, ptText, y, M, contentW) : (y + 4);
           y += 4;
         }
         const gname = (this.group && this.group.name) || 'group';
