@@ -777,6 +777,13 @@
               </div>
               <span class="text-[10px] font-semibold tabular-nums w-7 text-right" :style="`color:${weightColor(m.score)}`" x-text="(m.score || 0) + '%'"></span>
             </div>
+            <select @change="moveMember(m, $event.target.value); $event.target.value=''"
+                    class="text-[11px] border border-gray-200 rounded px-1 py-0.5 text-gray-500 bg-white flex-shrink-0">
+              <option value="">move…</option>
+              <template x-for="og in otherGroups(viewGroup.id)" :key="og.id">
+                <option :value="og.id" x-text="'→ ' + og.name"></option>
+              </template>
+            </select>
           </div>
         </template>
       </div>
@@ -1603,7 +1610,14 @@ function prayerGroups() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ move: { external_member_id: m.external_member_id, to_group_id: parseInt(toGroupId) } }),
       });
-      if (r.ok) this.current = await r.json();
+      if (r.ok) {
+        this.current = await r.json();
+        // If the full-group modal is open, re-bind it to the refreshed group so
+        // the moved member drops out of the list right away.
+        if (this.viewGroup) {
+          this.viewGroup = (this.current.groups || []).find(g => g.id === this.viewGroup.id) || null;
+        }
+      }
     },
 
     async publish() {
