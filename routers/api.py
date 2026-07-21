@@ -3505,6 +3505,84 @@ def remove_department_hod(
     return {"success": True, "message": "HOD removed"}
 
 
+@router.get("/admin/departments/{department_id}/members")
+def list_department_members(department_id: int, request: Request, db: Session = Depends(get_db)):
+    """Approved members of a department (for the admin 'manage members' view)."""
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    rows = (
+        db.query(Member)
+        .join(MemberDepartment, MemberDepartment.member_id == Member.id)
+        .filter(MemberDepartment.department_id == department_id,
+                MemberDepartment.status == "approved")
+        .order_by(Member.full_name)
+        .all()
+    )
+    return [{"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email} for m in rows]
+
+
+@router.post("/admin/departments/{department_id}/members")
+def add_department_member(department_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Admin adds a member to a department — immediately active (approved)."""
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    try:
+        member_id = int(data["member_id"])
+    except (KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="member_id required")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    md = db.query(MemberDepartment).filter(
+        MemberDepartment.member_id == member_id,
+        MemberDepartment.department_id == department_id,
+    ).first()
+    if md:
+        # Already linked — just make sure it's active.
+        if md.status != "approved":
+            md.status = "approved"
+            md.source = "admin"
+            md.status_changed_at = datetime.now()
+    else:
+        db.add(MemberDepartment(
+            member_id=member_id, department_id=department_id,
+            source="admin", status="approved", status_changed_at=datetime.now(),
+        ))
+    db.commit()
+
+    # Keep the central record in step (best-effort) — admin-added == approved.
+    api_sync = _sync_member_departments_to_central(member_id, db)
+    log_msg = f"Added {member.full_name} to '{dept.name}' (active)"
+    if api_sync.get("attempted"):
+        log_msg += f" (central: {'synced' if api_sync['ok'] else 'failed'})"
+    _log_admin_action(request, db, "add_department_member", "department", department_id, log_msg)
+    db.commit()
+    return {"success": True, "member": {"id": member.id, "full_name": member.full_name,
+                                        "phone": member.phone, "email": member.email}}
+
+
+@router.delete("/admin/departments/{department_id}/members/{member_id}")
+def remove_department_member(department_id: int, member_id: int, request: Request, db: Session = Depends(get_db)):
+    """Remove a member from a department."""
+    md = db.query(MemberDepartment).filter(
+        MemberDepartment.member_id == member_id,
+        MemberDepartment.department_id == department_id,
+    ).first()
+    member = db.query(Member).filter(Member.id == member_id).first()
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if md:
+        db.delete(md)
+        db.commit()
+        _sync_member_departments_to_central(member_id, db)
+    _log_admin_action(request, db, "remove_department_member", "department", department_id,
+                      f"Removed {member.full_name if member else member_id} from '{dept.name if dept else department_id}'")
+    db.commit()
+    return {"success": True}
+
+
 @router.get("/hod/departments")
 def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
     """Get departments where this member is HOD, with member lists and statuses"""
