@@ -805,7 +805,7 @@ function pdfPrayerBox(doc, pt, y, M, contentW) {
   doc.setFillColor(255, 243, 224); doc.setDrawColor(245, 158, 11); doc.setLineWidth(0.4);
   doc.roundedRect(M, y, contentW, boxH, 2, 2, 'FD');
   doc.setFontSize(7.5); doc.setTextColor(180, 83, 9);
-  doc.text('PRAYER POINT', M + padX, y + padTop + 2.5);
+  doc.text(/^\s*1\.\s/.test(String(pt || '')) ? 'PRAYER POINTS' : 'PRAYER POINT', M + padX, y + padTop + 2.5);
   doc.setFontSize(12); doc.setTextColor(17, 24, 39);
   let ty = y + padTop + labelH + 4;
   for (const ln of lines) {
@@ -1361,10 +1361,10 @@ function prayerGroups() {
       });
     },
 
-    // One point -> plain string; several -> bulleted lines for the PDF banner.
+    // One point -> plain string; several -> numbered lines for the PDF banner.
     _pointsBannerText(points) {
       if (!points || !points.length) return '';
-      return points.length > 1 ? points.map(p => '• ' + p).join('\n') : points[0];
+      return points.length > 1 ? points.map((p, i) => (i + 1) + '. ' + p).join('\n') : points[0];
     },
 
     // Build the schedule PDF — a single time-ordered flow (no duplicate

@@ -155,7 +155,7 @@
         doc.setFillColor(255, 243, 224); doc.setDrawColor(245, 158, 11); doc.setLineWidth(0.4);
         doc.roundedRect(M, y, contentW, boxH, 2, 2, 'FD');
         doc.setFontSize(7.5); doc.setTextColor(180, 83, 9);
-        doc.text('PRAYER POINT', M + padX, y + padTop + 2.5);
+        doc.text(/^\s*1\.\s/.test(String(pt || '')) ? 'PRAYER POINTS' : 'PRAYER POINT', M + padX, y + padTop + 2.5);
         doc.setFontSize(12); doc.setTextColor(17, 24, 39);
         let ty = y + padTop + labelH + 4;
         for (const ln of lines) {
@@ -189,7 +189,7 @@
           doc.setTextColor(0, 0, 0);
           y += 2;
           const ptText = (s.prayer_points && s.prayer_points.length)
-            ? (s.prayer_points.length > 1 ? s.prayer_points.map(p => '• ' + p).join('\n') : s.prayer_points[0])
+            ? (s.prayer_points.length > 1 ? s.prayer_points.map((p, i) => (i + 1) + '. ' + p).join('\n') : s.prayer_points[0])
             : (s.prayer_point || '');
           y = ptText ? this._prayerBanner(doc, ptText, y, M, contentW) : (y + 4);
           y += 4;
