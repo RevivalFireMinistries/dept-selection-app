@@ -778,7 +778,7 @@ def _email_leaders_couple_changes(s: PrayerGroupSet, moves: list, run_at, db: Se
   <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;font-weight:700;">{s.name}</div>
   <h2 style="margin:2px 0 4px 0;color:#111827;font-size:18px;font-weight:700;">{g.name}: some changes</h2>
   <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;line-height:1.6;">
-    Hi <strong>{r.get("name") or "there"}</strong>, we've moved a few people so couples can pray together.
+    Hi <strong>{r.get("name") or "there"}</strong>, we've moved a few people so families can pray together.
     Here's what changed for your group:
   </p>
   {_rows(ch["incoming"], "#059669", "Joining your group")}
@@ -1026,6 +1026,41 @@ def download_couple_changes(set_id: int, request: Request, db: Session = Depends
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{safe}-couple-changes-{ts}.csv"'},
     )
+
+
+@router.get("/admin/prayer-groups/{set_id}/family-changes")
+def family_changes_report(set_id: int, request: Request, db: Session = Depends(get_db)):
+    """The last family-reunite run as a per-group changes report (JSON).
+
+    Powers both the on-screen report and the client-side PDF: each affected
+    group with who joined (incoming) and who left (outgoing)."""
+    _require_admin(request)
+    s = db.query(PrayerGroupSet).filter(PrayerGroupSet.id == set_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Set not found")
+    try:
+        moves = json.loads(s.last_couple_moves or "[]")
+    except (ValueError, TypeError):
+        moves = []
+
+    by_group = _couple_changes_by_group(moves)
+    # Order affected groups by the set's own group order where names still match,
+    # then any others alphabetically (a group may have been renamed since the run).
+    order = {g.name: g.sort_order for g in s.groups}
+    names = sorted(by_group.keys(), key=lambda n: (order.get(n, 10_000), n.lower()))
+    groups = [
+        {"name": n,
+         "incoming": by_group[n]["incoming"],
+         "outgoing": by_group[n]["outgoing"]}
+        for n in names
+    ]
+    return {
+        "set_name": s.name,
+        "has_run": bool(getattr(s, "last_couple_run_at", None)),
+        "run_at": s.last_couple_run_at.isoformat() if getattr(s, "last_couple_run_at", None) else None,
+        "total_moves": len(moves),
+        "groups": groups,
+    }
 
 
 # ── Admin endpoints ──────────────────────────────────────────────────────────

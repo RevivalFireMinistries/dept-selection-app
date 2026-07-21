@@ -109,9 +109,14 @@
             ↻ Regenerate<span x-show="current.status === 'published'"> 🔒</span>
           </button>
           <button @click="openCouples()" :disabled="busy"
-                  title="Move couples into the same group without reshuffling everyone or changing group sizes"
+                  title="Move family members into the same group without reshuffling everyone or changing group sizes"
                   class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
-            💞 Reunite couples
+            👨‍👩‍👧 Reunite families
+          </button>
+          <button x-show="current.last_couple_run_at" @click="openReport()" :disabled="busy"
+                  title="A group-by-group report of the last family reunite — who joined and who left each group"
+                  class="px-3 py-2 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+            📋 Changes report
           </button>
           <button @click="openSnaps()" :disabled="busy"
                   title="Save the current arrangement, or restore an earlier one"
@@ -506,7 +511,7 @@
     </div>
   </div>
 
-  <!-- ── Reunite couples modal ──────────────────────────────────── -->
+  <!-- ── Reunite families modal ──────────────────────────────────── -->
   <div x-show="couples.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
        @keydown.escape.window="closeCouples()">
     <div class="absolute inset-0 bg-black/40" @click="closeCouples()"></div>
@@ -514,16 +519,16 @@
       <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-2xl">
         <div>
           <div class="text-[10px] uppercase tracking-widest text-rose-500 font-semibold">Prayer groups</div>
-          <h3 class="text-lg font-bold text-gray-900">Reunite couples</h3>
+          <h3 class="text-lg font-bold text-gray-900">Reunite families</h3>
         </div>
         <button @click="closeCouples()" class="w-8 h-8 rounded-full hover:bg-gray-100 text-gray-400 text-lg">✕</button>
       </div>
 
       <div class="px-5 py-4 overflow-y-auto">
         <p class="text-sm text-gray-500">
-          Puts spouses in the same group. <span class="font-medium text-gray-700">Only couples are moved</span> —
-          no one else is touched. Each couple merges into the group a spouse is already in, so group sizes shift only
-          as couples come together. Leaders aren't moved.
+          Puts family members in the same group. <span class="font-medium text-gray-700">Only family members are moved</span> —
+          no one else is touched. Each family merges into the group a member is already in, so group sizes shift only
+          as families come together. Leaders aren't moved.
         </p>
 
         <div x-show="couples.loading" class="text-center text-gray-400 text-sm py-8">Working it out…</div>
@@ -534,6 +539,10 @@
           <div class="text-3xl mb-1">✅</div>
           <p class="text-sm font-medium text-gray-800" x-text="couples.doneMsg"></p>
           <div class="mt-3 flex items-center justify-center gap-2 flex-wrap">
+            <button @click="openReport()"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700">
+              📋 Group-by-group report
+            </button>
             <button @click="downloadCoupleChanges()"
                     class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 hover:bg-gray-50">
               ⬇ Download the changes (CSV)
@@ -551,11 +560,11 @@
             <!-- Nothing to do -->
             <template x-if="couples.plan.moves.length === 0">
               <div class="rounded-xl bg-gray-50 border border-gray-100 p-4 text-center">
-                <div class="text-2xl mb-1">💞</div>
+                <div class="text-2xl mb-1">👨‍👩‍👧</div>
                 <p class="text-sm font-medium text-gray-800"
                    x-text="!couples.plan.has_family_data
-                     ? 'No family links found for this set — couples can\'t be detected automatically.'
-                     : (couples.plan.split_couples === 0 ? 'Every couple is already together. Nothing to move.' : 'Nothing to move.')"></p>
+                     ? 'No family links found for this set — families can\'t be detected automatically.'
+                     : (couples.plan.split_couples === 0 ? 'Every family is already together. Nothing to move.' : 'Nothing to move.')"></p>
                 <button x-show="current && current.last_couple_run_at" @click="downloadCoupleChanges()"
                         class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-100">
                   ⬇ Download the last run's changes
@@ -567,7 +576,7 @@
               <div class="space-y-4">
                 <div class="text-sm text-gray-700">
                   <span class="font-semibold" x-text="couples.plan.split_couples"></span>
-                  couple(s) will be reunited with
+                  family/families will be reunited with
                   <span class="font-semibold" x-text="couples.plan.moves.length"></span>
                   move(s).
                 </div>
@@ -595,7 +604,7 @@
                           <span x-text="m.name"></span>
                           <span class="text-[10px] font-bold uppercase ml-1"
                                 :class="m.reason === 'couple' ? 'text-rose-500' : 'text-gray-400'"
-                                x-text="m.reason === 'couple' ? 'couple' : 'balance'"></span>
+                                x-text="m.reason === 'couple' ? 'family' : 'balance'"></span>
                         </span>
                         <span class="text-xs text-gray-500 flex-shrink-0" x-text="m.from_group + ' → ' + m.to_group"></span>
                       </div>
@@ -656,6 +665,78 @@
             <span x-text="couples.applying ? 'Applying…' : 'Apply moves'"></span>
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Family-reunite changes report modal ─────────────────────── -->
+  <div x-show="report.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+       @keydown.escape.window="closeReport()">
+    <div class="absolute inset-0 bg-black/40" @click="closeReport()"></div>
+    <div class="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+      <div class="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-2xl">
+        <div class="min-w-0">
+          <div class="text-[10px] uppercase tracking-widest text-rose-500 font-semibold">Family reunite</div>
+          <h3 class="text-lg font-bold text-gray-900">Changes report</h3>
+          <div class="text-xs text-gray-400" x-show="report.data && report.data.run_at"
+               x-text="'Run ' + fmtRunAt(report.data.run_at) + ' · ' + (report.data.total_moves || 0) + ' move(s)'"></div>
+        </div>
+        <button @click="closeReport()" class="w-8 h-8 rounded-full hover:bg-gray-100 text-gray-400 text-lg flex-shrink-0">✕</button>
+      </div>
+
+      <div class="px-5 py-4 overflow-y-auto">
+        <div x-show="report.loading" class="text-center text-gray-400 text-sm py-8">Loading…</div>
+        <div x-show="report.error" x-cloak class="mt-1 text-sm text-rose-600" x-text="report.error"></div>
+
+        <template x-if="!report.loading && report.data">
+          <div>
+            <template x-if="!report.data.groups.length">
+              <div class="rounded-xl bg-gray-50 border border-gray-100 p-4 text-center text-sm text-gray-500">
+                No changes to report yet — run a family reunite first.
+              </div>
+            </template>
+
+            <div class="space-y-4" x-show="report.data.groups.length">
+              <template x-for="(g, gi) in report.data.groups" :key="'rep-'+gi">
+                <div class="rounded-xl border border-gray-100 p-3.5">
+                  <div class="font-semibold text-gray-900 text-sm mb-2" x-text="g.name"></div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <div class="text-[10px] uppercase tracking-wider text-emerald-600 font-bold mb-1">Joining ↓</div>
+                      <template x-if="g.incoming.length">
+                        <div class="space-y-0.5">
+                          <template x-for="(n, ni) in g.incoming" :key="'in-'+gi+'-'+ni">
+                            <div class="text-[13px] text-gray-800" x-text="n"></div>
+                          </template>
+                        </div>
+                      </template>
+                      <div x-show="!g.incoming.length" class="text-[13px] text-gray-300">—</div>
+                    </div>
+                    <div>
+                      <div class="text-[10px] uppercase tracking-wider text-amber-600 font-bold mb-1">Leaving ↑</div>
+                      <template x-if="g.outgoing.length">
+                        <div class="space-y-0.5">
+                          <template x-for="(n, ni) in g.outgoing" :key="'out-'+gi+'-'+ni">
+                            <div class="text-[13px] text-gray-800" x-text="n"></div>
+                          </template>
+                        </div>
+                      </template>
+                      <div x-show="!g.outgoing.length" class="text-[13px] text-gray-300">—</div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="border-t border-gray-100 px-5 py-3 flex gap-2">
+        <button @click="closeReport()" class="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">Close</button>
+        <button x-show="report.data && report.data.groups.length" @click="downloadCoupleChanges()"
+                class="px-3 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 hover:bg-gray-50">⬇ CSV</button>
+        <button x-show="report.data && report.data.groups.length" @click="downloadReportPdf()"
+                class="px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700">📄 PDF</button>
       </div>
     </div>
   </div>
@@ -751,6 +832,7 @@ function prayerGroups() {
     unallocated: [], loadingUnalloc: false,
     chainDirty: false, chainSaving: false, chainSavedMsg: '',
     couples: { open: false, loading: false, applying: false, plan: null, error: '', notifyLeaders: false, doneMsg: '', undoId: null, undoing: false },
+    report: { open: false, loading: false, error: '', data: null },
     snaps: { open: false, loading: false, list: [], saveLabel: '', busy: '' },
 
     // ---- snapshots / restore ----
@@ -824,6 +906,76 @@ function prayerGroups() {
     closeCouples() { this.couples.open = false; },
     downloadCoupleChanges() {
       window.open(`/api/admin/prayer-groups/${this.current.id}/couple-changes.csv`, '_blank');
+    },
+
+    // ── Family-reunite changes report (per-group) ──
+    fmtRunAt(iso) {
+      if (!iso) return '';
+      try {
+        return new Date(iso).toLocaleString(undefined,
+          { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      } catch (e) { return iso; }
+    },
+    async openReport() {
+      this.report = { open: true, loading: true, error: '', data: null };
+      try {
+        const r = await fetch(`/api/admin/prayer-groups/${this.current.id}/family-changes`);
+        if (!r.ok) { const e = await r.json().catch(() => ({})); this.report.error = e.detail || 'Could not load the report.'; }
+        else { this.report.data = await r.json(); }
+      } catch (e) { this.report.error = 'Could not load the report.'; }
+      this.report.loading = false;
+    },
+    closeReport() { this.report.open = false; },
+    async downloadReportPdf() {
+      const out = this._buildReportPdf();
+      if (out) await this._sharePdfBlob(out);
+    },
+    _buildReportPdf() {
+      const d = this.report.data;
+      if (!d || !d.groups || !d.groups.length) { alert('No changes to report yet.'); return null; }
+      if (!(window.jspdf && window.jspdf.jsPDF)) { alert('PDF library still loading — try again.'); return null; }
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const M = 14;
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+
+      const title = 'Family Reunite — Changes Report';
+      const sub = [d.set_name, d.run_at ? this.fmtRunAt(d.run_at) : '', `${d.total_moves || 0} move(s)`]
+        .filter(Boolean).join('  ·  ');
+      doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(title, M, 18);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 100, 87);
+      doc.text(`Revival Fire Ministries${sub ? '  ·  ' + sub : ''}`, M, 25);
+      doc.setTextColor(0, 0, 0);
+
+      let y = 33;
+      for (const g of d.groups) {
+        if (y > pageH - 40) { doc.addPage(); y = 20; }
+        doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(184, 84, 28);
+        doc.text(g.name, M, y);
+        doc.setTextColor(0, 0, 0);
+        y += 3;
+        doc.autoTable({
+          startY: y,
+          theme: 'grid',
+          head: [['Joining', 'Leaving']],
+          body: [[
+            g.incoming && g.incoming.length ? g.incoming.join('\n') : '—',
+            g.outgoing && g.outgoing.length ? g.outgoing.join('\n') : '—',
+          ]],
+          styles: { fontSize: 10, cellPadding: 3, valign: 'top', lineColor: [184, 84, 28], lineWidth: 0.3 },
+          headStyles: { fillColor: [31, 27, 22], textColor: 255, fontStyle: 'bold', lineColor: [184, 84, 28], lineWidth: 0.3 },
+          columnStyles: { 0: { cellWidth: (pageW - M * 2) / 2 } },
+          margin: { left: M, right: M },
+        });
+        y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : y) + 8;
+      }
+
+      const parts = [d.set_name, d.run_at ? d.run_at.slice(0, 10) : 'latest', 'family-changes']
+        .filter(Boolean)
+        .map(s => String(s).trim().replace(/[^\w\-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''));
+      const filename = (parts.join('-') || 'family-changes') + '.pdf';
+      return { blob: doc.output('blob'), filename, title, sub };
     },
     async applyCouples() {
       this.couples.applying = true; this.couples.error = '';
