@@ -3505,6 +3505,43 @@ def remove_department_hod(
     return {"success": True, "message": "HOD removed"}
 
 
+def _ensure_local_member_from_external(external_id: str, db: Session, hint: dict = None) -> Optional[Member]:
+    """Return the local Member for a central rfm-database id, creating a linked
+    local row from the central record if one doesn't exist yet. Used by admin
+    'add member' pickers that search the central directory. Returns None only
+    if central integration is off/unreachable and there's no local match."""
+    external_id = (external_id or "").strip()
+    if not external_id:
+        return None
+    m = db.query(Member).filter(Member.external_member_id == external_id).first()
+    if m:
+        return m
+    if not (_rfm.is_enabled(db) and _rfm.is_configured(db)):
+        return None
+    hint = hint or {}
+    rec = {}
+    try:
+        r = _rfm.get_member(external_id, db=db)
+        if r.ok and isinstance(r.data, dict):
+            rec = r.data
+    except Exception:
+        rec = {}
+    full_name = _rfm.fullname_from_member(rec) or (hint.get("full_name") or "").strip() or "Unknown"
+    phone = _rfm._clean_phone_for_display(rec.get("phone")) or (hint.get("phone") or "").strip() or ""
+    email = (rec.get("email") or hint.get("email") or "").strip()
+    address = _rfm.address_from_member(rec) or (hint.get("address") or "").strip() or ""
+    from datetime import datetime as _dt
+    m = Member(
+        full_name=full_name, phone=phone, email=email, address=address, is_active=True,
+        external_member_id=external_id, external_assembly_id=rec.get("assembly_id"),
+        external_match_status="manual", external_synced_at=_dt.utcnow(),
+    )
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return m
+
+
 @router.get("/admin/departments/{department_id}/members")
 def list_department_members(department_id: int, request: Request, db: Session = Depends(get_db)):
     """Approved members of a department (for the admin 'manage members' view)."""
@@ -3519,22 +3556,39 @@ def list_department_members(department_id: int, request: Request, db: Session = 
         .order_by(Member.full_name)
         .all()
     )
-    return [{"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email} for m in rows]
+    return [{"id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email,
+             "external_member_id": m.external_member_id} for m in rows]
 
 
 @router.post("/admin/departments/{department_id}/members")
 def add_department_member(department_id: int, request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
-    """Admin adds a member to a department — immediately active (approved)."""
+    """Admin adds a member to a department — immediately active (approved).
+
+    Accepts a local `member_id`, or an `external_member_id` from the central
+    directory (a local member is created/linked on the fly if needed)."""
     dept = db.query(Department).filter(Department.id == department_id).first()
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
-    try:
-        member_id = int(data["member_id"])
-    except (KeyError, ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="member_id required")
-    member = db.query(Member).filter(Member.id == member_id).first()
+
+    member = None
+    if data.get("member_id") not in (None, ""):
+        try:
+            member = db.query(Member).filter(Member.id == int(data["member_id"])).first()
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="member_id must be an integer")
+    elif (data.get("external_member_id") or "").strip():
+        member = _ensure_local_member_from_external(
+            data["external_member_id"], db,
+            hint={"full_name": data.get("full_name"), "phone": data.get("phone"),
+                  "email": data.get("email"), "address": data.get("address")})
+        if not member:
+            raise HTTPException(status_code=400, detail="Central member directory is unavailable — try again, or search a local member.")
+    else:
+        raise HTTPException(status_code=400, detail="member_id or external_member_id required")
+
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
+    member_id = member.id
 
     md = db.query(MemberDepartment).filter(
         MemberDepartment.member_id == member_id,

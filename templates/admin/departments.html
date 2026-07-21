@@ -96,10 +96,10 @@
         <div class="p-6 pb-3 border-b border-gray-100">
             <h3 class="text-lg font-semibold text-gray-900 mb-1">Members of <span id="membersDeptName"></span></h3>
             <p class="text-sm text-gray-500">Add a member and they're active in this department straight away.</p>
-            <input type="text" id="memberAddSearch" placeholder="Search members to add..."
+            <input type="text" id="memberAddSearch" placeholder="Search the member directory…"
                 class="w-full mt-3 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                oninput="filterAddMembers()">
-            <div id="memberAddList" class="mt-1 max-h-40 overflow-y-auto"></div>
+                oninput="onAddSearchInput()">
+            <div id="memberAddList" class="mt-1 max-h-44 overflow-y-auto"></div>
         </div>
         <div class="p-6 pt-3 overflow-y-auto flex-1">
             <div class="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mb-2">
@@ -434,7 +434,7 @@ async function loadDeptMembers() {
         currentDeptMembers = r.ok ? await r.json() : [];
     } catch (e) { currentDeptMembers = []; }
     renderDeptMembers();
-    filterAddMembers();  // refresh the add list so already-added members drop out
+    searchDirectoryToAdd();  // refresh the add list so already-added members drop out
 }
 
 function renderDeptMembers() {
@@ -455,33 +455,65 @@ function renderDeptMembers() {
         </div>`).join('');
 }
 
-function filterAddMembers() {
-    const q = (document.getElementById('memberAddSearch').value || '').trim().toLowerCase();
-    const list = document.getElementById('memberAddList');
-    if (q.length < 2) { list.innerHTML = ''; return; }
-    const have = new Set(currentDeptMembers.map(m => m.id));
-    const matches = allMembers
-        .filter(m => !have.has(m.id) && ((m.fullName || '').toLowerCase().includes(q) || (m.phone || '').includes(q)))
-        .slice(0, 15);
-    if (matches.length === 0) { list.innerHTML = '<p class="text-xs text-gray-400 px-1 py-1">No matches.</p>'; return; }
-    list.innerHTML = matches.map(m => `
-        <button onclick="addDeptMember(${m.id})"
-            class="w-full text-left px-3 py-2 rounded-lg hover:bg-teal-50 flex items-center justify-between">
-            <span class="text-sm text-gray-800 truncate">${m.fullName} <span class="text-xs text-gray-400">${m.phone || ''}</span></span>
-            <span class="text-xs font-semibold text-teal-600 flex-shrink-0">+ Add</span>
-        </button>`).join('');
+let addSearchTimer = null;
+let addSearchToken = 0;
+let addDirectoryResults = [];
+
+function onAddSearchInput() {
+    clearTimeout(addSearchTimer);
+    addSearchTimer = setTimeout(searchDirectoryToAdd, 250);
 }
 
-async function addDeptMember(memberId) {
+function escHtml(s) {
+    const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML;
+}
+
+async function searchDirectoryToAdd() {
+    const q = (document.getElementById('memberAddSearch').value || '').trim();
+    const list = document.getElementById('memberAddList');
+    if (q.length < 2) { list.innerHTML = ''; return; }
+    list.innerHTML = '<p class="text-xs text-gray-400 px-1 py-1">Searching directory…</p>';
+    const tok = ++addSearchToken;
+    try {
+        const r = await fetch('/api/admin/members/directory-search?q=' + encodeURIComponent(q));
+        const d = await r.json().catch(() => ({}));
+        if (tok !== addSearchToken) return;  // a newer search superseded this one
+        if (!r.ok) { list.innerHTML = `<p class="text-xs text-rose-500 px-1 py-1">${escHtml(d.detail || 'Search failed')}</p>`; return; }
+        if (d.enabled === false || d.configured === false) {
+            list.innerHTML = '<p class="text-xs text-amber-600 px-1 py-1">Member directory isn\'t available (central database not configured).</p>';
+            return;
+        }
+        // Drop anyone already in this department.
+        const have = new Set(currentDeptMembers.map(m => m.external_member_id).filter(Boolean));
+        addDirectoryResults = (d.results || []).filter(m => !have.has(m.external_member_id)).slice(0, 20);
+        if (addDirectoryResults.length === 0) { list.innerHTML = '<p class="text-xs text-gray-400 px-1 py-1">No matches in the directory.</p>'; return; }
+        list.innerHTML = addDirectoryResults.map((m, i) => `
+            <button onclick="addDeptMember(${i})"
+                class="w-full text-left px-3 py-2 rounded-lg hover:bg-teal-50 flex items-center justify-between">
+                <span class="text-sm text-gray-800 truncate">${escHtml(m.full_name)} <span class="text-xs text-gray-400">${escHtml(m.phone || '')}</span></span>
+                <span class="text-xs font-semibold text-teal-600 flex-shrink-0">+ Add</span>
+            </button>`).join('');
+    } catch (e) {
+        if (tok === addSearchToken) list.innerHTML = '<p class="text-xs text-rose-500 px-1 py-1">Network error.</p>';
+    }
+}
+
+async function addDeptMember(index) {
     if (!membersDeptId) return;
+    const m = addDirectoryResults[index];
+    if (!m) return;
     try {
         const res = await fetch(`/api/admin/departments/${membersDeptId}/members`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ member_id: memberId })
+            body: JSON.stringify({
+                external_member_id: m.external_member_id,
+                full_name: m.full_name, phone: m.phone, email: m.email, address: m.address
+            })
         });
         if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.detail || 'Could not add member.'); return; }
         document.getElementById('memberAddSearch').value = '';
         document.getElementById('memberAddList').innerHTML = '';
+        addDirectoryResults = [];
         await loadDeptMembers();
     } catch (e) { alert('Could not add member.'); }
 }
