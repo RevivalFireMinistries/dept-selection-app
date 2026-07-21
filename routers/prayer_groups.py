@@ -772,6 +772,24 @@ def _send_group_change_emails(s: PrayerGroupSet, by_group: dict, run_at, db: Ses
                 f'text-transform:uppercase;letter-spacing:0.5px;">{verb}</p>'
                 f'<ul style="margin:0;padding-left:18px;">{items}</ul>')
 
+    def _subject(gname, inc, out):
+        """Natural, count-aware subject that fits a single change or a batch."""
+        ni, no = len(inc), len(out)
+        if ni and not no:
+            return f"{gname}: {inc[0]} joined your group" if ni == 1 else f"{gname}: {ni} people joined your group"
+        if no and not ni:
+            return f"{gname}: {out[0]} left your group" if no == 1 else f"{gname}: {no} people left your group"
+        return f"{gname}: some changes to your group"
+
+    def _summary(inc, out):
+        """A short human sentence naming the size/shape of the change."""
+        parts = []
+        if inc:
+            parts.append("1 person joined" if len(inc) == 1 else f"{len(inc)} people joined")
+        if out:
+            parts.append("1 person left" if len(out) == 1 else f"{len(out)} people left")
+        return " and ".join(parts) + "." if parts else ""
+
     for g in s.groups:
         ch = by_group.get(g.name)
         if not ch or (not ch["incoming"] and not ch["outgoing"]):
@@ -784,25 +802,32 @@ def _send_group_change_emails(s: PrayerGroupSet, by_group: dict, run_at, db: Ses
             print(f"[{log_tag}] no email for the leader(s) of {g.name} — skipped")
             continue
 
+        subject = _subject(g.name, ch["incoming"], ch["outgoing"])
+        summary = _summary(ch["incoming"], ch["outgoing"])
+        closing = ("Please make anyone joining feel welcome, and keep your group list up to date."
+                   if ch["incoming"] else "Please keep your group list up to date.")
         for r in recips:
             html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#fff;font-family:{FONT};">
 <table role="presentation" width="100%"><tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" style="max-width:520px;"><tr><td>
-  <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;font-weight:700;">{s.name}</div>
-  <h2 style="margin:2px 0 4px 0;color:#111827;font-size:18px;font-weight:700;">{g.name}: some changes</h2>
-  <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;line-height:1.6;">
-    Hi <strong>{r.get("name") or "there"}</strong>, {intro}
+  <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;font-weight:700;">{s.name} · Prayer group update</div>
+  <h2 style="margin:2px 0 4px 0;color:#111827;font-size:18px;font-weight:700;">{g.name}</h2>
+  <p style="margin:0 0 4px 0;color:#6b7280;font-size:14px;line-height:1.6;">
+    Hi <strong>{r.get("name") or "there"}</strong>, {intro}{(' ' + summary) if summary else ''}
     Here's what changed for your group:
   </p>
   {_rows(ch["incoming"], "#059669", "Joining your group")}
   {_rows(ch["outgoing"], "#b45309", "Leaving your group")}
+  <p style="margin:18px 0 0 0;color:#6b7280;font-size:14px;line-height:1.6;">
+    {closing} Thank you for leading well.
+  </p>
   <hr style="border:none;border-top:1px solid #f3f4f6;margin:24px 0 16px 0;">
   <p style="margin:0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
 </td></tr></table></td></tr></table></body></html>'''
             try:
                 ok, err = channel.send(
-                    r["email"], f"{g.name}: prayer group changes", html,
+                    r["email"], subject, html,
                     event_code=event_code,
                     recipient_id=r.get("id"), recipient_name=r.get("name"),
                     idempotency_key=f"{idem_prefix}:{s.id}:{stamp}:{g.id}:{r['email']}",
@@ -821,7 +846,7 @@ def _email_leaders_couple_changes(s: PrayerGroupSet, moves: list, run_at, db: Se
     family reunite."""
     return _send_group_change_emails(
         s, _couple_changes_by_group(moves), run_at, db,
-        intro="we've moved a few people so families can pray together.",
+        intro="we've reunited some families, so a few members have moved between groups.",
         event_code="prayer_group.couple_changes",
         idem_prefix="prayer_couple_changes",
         log_tag="prayer-couples",
@@ -839,7 +864,7 @@ def _notify_group_membership_changes(s: PrayerGroupSet, moves: list, db: Session
         return 0
     return _send_group_change_emails(
         s, by_group, datetime.now(timezone.utc), db,
-        intro="your prayer group's membership has changed.",
+        intro="your group's membership has been updated.",
         # Reuse the couple-changes route so no new rfm-notify event route is needed.
         event_code="prayer_group.couple_changes",
         idem_prefix="prayer_membership_change",
