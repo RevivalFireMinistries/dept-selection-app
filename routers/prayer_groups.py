@@ -726,59 +726,73 @@ def preview_pair_couples(set_id: int, request: Request, db: Session = Depends(ge
 
 
 def _couple_changes_by_group(moves: list) -> dict:
-    """Per group: who's joining (incoming) and who's leaving (outgoing)."""
+    """Per group: who's joining (incoming) and who's leaving (outgoing).
+
+    A move may name only one side — an add has no from_group, a removal no
+    to_group — so blank/absent group names are skipped rather than bucketed
+    under an empty-string group."""
     from collections import defaultdict
     by_group = defaultdict(lambda: {"incoming": [], "outgoing": []})
     for mv in moves:
-        by_group[mv["to_group"]]["incoming"].append(mv["name"])
-        by_group[mv["from_group"]]["outgoing"].append(mv["name"])
-    return by_group
+        name = mv.get("name") or ""
+        to_g = (mv.get("to_group") or "").strip()
+        from_g = (mv.get("from_group") or "").strip()
+        if to_g:
+            by_group[to_g]["incoming"].append(name)
+        if from_g:
+            by_group[from_g]["outgoing"].append(name)
+    return dict(by_group)
 
 
-def _email_leaders_couple_changes(s: PrayerGroupSet, moves: list, run_at, db: Session) -> int:
-    """Email each affected group's leader their incomings and outgoings."""
+def _send_group_change_emails(s: PrayerGroupSet, by_group: dict, run_at, db: Session,
+                              *, intro: str, event_code: str, idem_prefix: str, log_tag: str) -> int:
+    """Email each affected group's leader(s) their incomings and outgoings.
+
+    `by_group` is {group_name: {"incoming": [...], "outgoing": [...]}}. Best-
+    effort — a no-op when rfm-notify isn't configured. All leaders of a group
+    are emailed, not just the first."""
     try:
         from notifications.channels.rfm_notify import RfmNotifyChannel
     except Exception:
         return 0
     channel = RfmNotifyChannel()
     if not channel.is_configured():
-        print("[prayer-couples] rfm-notify not configured — leaders not emailed")
+        print(f"[{log_tag}] rfm-notify not configured — leaders not emailed")
         return 0
 
-    by_group = _couple_changes_by_group(moves)
     stamp = run_at.strftime("%Y%m%d%H%M%S")
     FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif"
     sent = 0
+
+    def _rows(names, colour, verb):
+        if not names:
+            return ""
+        items = "".join(f'<li style="margin:0 0 3px 0;color:#111827;font-size:14px;">{n}</li>' for n in names)
+        return (f'<p style="margin:14px 0 6px 0;font-size:11px;font-weight:700;color:{colour};'
+                f'text-transform:uppercase;letter-spacing:0.5px;">{verb}</p>'
+                f'<ul style="margin:0;padding-left:18px;">{items}</ul>')
+
     for g in s.groups:
         ch = by_group.get(g.name)
         if not ch or (not ch["incoming"] and not ch["outgoing"]):
             continue
-        leader_pm = next((m for m in g.members if m.is_leader), None)
-        if not leader_pm:
+        leaders = [m for m in g.members if m.is_leader]
+        if not leaders:
             continue
-        recips = _resolve_group_recipients([leader_pm], db)
+        recips = _resolve_group_recipients(leaders, db)
         if not recips:
-            print(f"[prayer-couples] no email for the leader of {g.name} — skipped")
+            print(f"[{log_tag}] no email for the leader(s) of {g.name} — skipped")
             continue
-        r = recips[0]
 
-        def _rows(names, colour, verb):
-            if not names:
-                return ""
-            items = "".join(f'<li style="margin:0 0 3px 0;color:#111827;font-size:14px;">{n}</li>' for n in names)
-            return (f'<p style="margin:14px 0 6px 0;font-size:11px;font-weight:700;color:{colour};'
-                    f'text-transform:uppercase;letter-spacing:0.5px;">{verb}</p>'
-                    f'<ul style="margin:0;padding-left:18px;">{items}</ul>')
-
-        html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+        for r in recips:
+            html = f'''<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#fff;font-family:{FONT};">
 <table role="presentation" width="100%"><tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" style="max-width:520px;"><tr><td>
   <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;font-weight:700;">{s.name}</div>
   <h2 style="margin:2px 0 4px 0;color:#111827;font-size:18px;font-weight:700;">{g.name}: some changes</h2>
   <p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;line-height:1.6;">
-    Hi <strong>{r.get("name") or "there"}</strong>, we've moved a few people so families can pray together.
+    Hi <strong>{r.get("name") or "there"}</strong>, {intro}
     Here's what changed for your group:
   </p>
   {_rows(ch["incoming"], "#059669", "Joining your group")}
@@ -786,20 +800,51 @@ def _email_leaders_couple_changes(s: PrayerGroupSet, moves: list, run_at, db: Se
   <hr style="border:none;border-top:1px solid #f3f4f6;margin:24px 0 16px 0;">
   <p style="margin:0;color:#9ca3af;font-size:12px;">Revival Fire Ministries</p>
 </td></tr></table></td></tr></table></body></html>'''
-        try:
-            ok, err = channel.send(
-                r["email"], f"{g.name}: prayer group changes", html,
-                event_code="prayer_group.couple_changes",
-                recipient_id=r.get("id"), recipient_name=r.get("name"),
-                idempotency_key=f"prayer_couple_changes:{s.id}:{stamp}:{g.id}:{r['email']}",
-            )
-            if ok:
-                sent += 1
-            else:
-                print(f"[prayer-couples] leader email failed for {g.name}: {err}")
-        except Exception as exc:
-            print(f"[prayer-couples] leader email error for {g.name}: {exc}")
+            try:
+                ok, err = channel.send(
+                    r["email"], f"{g.name}: prayer group changes", html,
+                    event_code=event_code,
+                    recipient_id=r.get("id"), recipient_name=r.get("name"),
+                    idempotency_key=f"{idem_prefix}:{s.id}:{stamp}:{g.id}:{r['email']}",
+                )
+                if ok:
+                    sent += 1
+                else:
+                    print(f"[{log_tag}] leader email failed for {g.name}: {err}")
+            except Exception as exc:
+                print(f"[{log_tag}] leader email error for {g.name}: {exc}")
     return sent
+
+
+def _email_leaders_couple_changes(s: PrayerGroupSet, moves: list, run_at, db: Session) -> int:
+    """Email each affected group's leader(s) their incomings/outgoings after a
+    family reunite."""
+    return _send_group_change_emails(
+        s, _couple_changes_by_group(moves), run_at, db,
+        intro="we've moved a few people so families can pray together.",
+        event_code="prayer_group.couple_changes",
+        idem_prefix="prayer_couple_changes",
+        log_tag="prayer-couples",
+    )
+
+
+def _notify_group_membership_changes(s: PrayerGroupSet, moves: list, db: Session) -> int:
+    """Email affected group leader(s) when members are added, moved, or removed
+    outside of a full reunite run (single moves, allocating new members).
+
+    `moves` is [{name, from_group, to_group}] — from_group omitted for an add,
+    to_group omitted for a pure removal. Best-effort."""
+    by_group = _couple_changes_by_group(moves)
+    if not by_group:
+        return 0
+    return _send_group_change_emails(
+        s, by_group, datetime.now(timezone.utc), db,
+        intro="your prayer group's membership has changed.",
+        # Reuse the couple-changes route so no new rfm-notify event route is needed.
+        event_code="prayer_group.couple_changes",
+        idem_prefix="prayer_membership_change",
+        log_tag="prayer-membership",
+    )
 
 
 @router.post("/admin/prayer-groups/{set_id}/pair-couples")
@@ -1187,6 +1232,8 @@ def allocate(set_id: int, request: Request, data: dict = Body(...), db: Session 
     if not groups:
         raise HTTPException(status_code=400, detail="This set has no groups.")
 
+    added_notices = []  # {name, to_group} for leader notifications after commit
+
     def _add(x, grp):
         is_leader = (s.leader_mode == "auto" and bool(set(x["roles"]) & LEADER_ROLES))
         db.add(PrayerGroupMember(
@@ -1196,6 +1243,7 @@ def allocate(set_id: int, request: Request, data: dict = Body(...), db: Session 
             is_leader=is_leader, score=int(round(x["score"] * 100)),
             surname=x.get("surname"), family_id=x.get("family_id"),
         ))
+        added_notices.append({"name": x["full_name"], "from_group": None, "to_group": grp.name})
 
     if data.get("mode") == "auto":
         # Respect the keep-apart rules, seeded from existing members.
@@ -1237,6 +1285,14 @@ def allocate(set_id: int, request: Request, data: dict = Body(...), db: Session 
     s.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(s)
+
+    # Notify the leader(s) of each group that gained members. Best-effort.
+    if added_notices:
+        try:
+            _notify_group_membership_changes(s, added_notices, db)
+        except Exception as exc:
+            print(f"[prayer-membership] allocate notify error: {exc}")
+
     return {"added": added, "set": _set_dict(s)}
 
 
@@ -1386,6 +1442,7 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
             pm.is_leader = bool(sl.get("is_leader"))
 
     # Move a member: {external_member_id, to_group_id}
+    membership_move = None  # {name, from_group, to_group} to notify leaders after commit
     mv = data.get("move")
     if mv and mv.get("external_member_id") and mv.get("to_group_id"):
         pm = (
@@ -1397,12 +1454,24 @@ def update_set(set_id: int, request: Request, data: dict = Body(...), db: Sessio
         )
         target = db.query(PrayerGroup).filter(
             PrayerGroup.id == mv["to_group_id"], PrayerGroup.set_id == s.id).first()
-        if pm and target:
+        if pm and target and pm.group_id != target.id:
+            from_group = db.query(PrayerGroup).filter(PrayerGroup.id == pm.group_id).first()
+            membership_move = {"name": pm.full_name,
+                               "from_group": from_group.name if from_group else None,
+                               "to_group": target.name}
             pm.group_id = target.id
             pm.is_leader = (target.leader_external_member_id == pm.external_member_id)
 
     db.commit()
     db.refresh(s)
+
+    # Tell the affected group leader(s) who joined / left. Best-effort.
+    if membership_move:
+        try:
+            _notify_group_membership_changes(s, [membership_move], db)
+        except Exception as exc:
+            print(f"[prayer-membership] move notify error: {exc}")
+
     return _set_dict(s)
 
 
