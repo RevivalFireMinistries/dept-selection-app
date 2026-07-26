@@ -10571,10 +10571,39 @@ def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session
         if push.ok:
             pushed_fields = list(push_fields.keys())
 
+    # Pull the authoritative record DOWN into the local row so the portal shows
+    # the central name/details — not the old local values. Once linked, central
+    # is the source of truth: for any field the admin pushed up, the API now
+    # holds the local value, so re-reading keeps both sides consistent either
+    # way. Without this the profile keeps rendering the stale local full_name.
+    pulled_fields = []
+    if _rfm.is_enabled(db) and _rfm.is_configured(db):
+        fresh = _rfm.get_member(external_id, db=db)
+        if fresh.ok and isinstance(fresh.data, dict):
+            rec = fresh.data
+            new_name = _rfm.fullname_from_member(rec)
+            if new_name and new_name != member.full_name:
+                member.full_name = new_name
+                pulled_fields.append("full_name")
+            new_email = (rec.get("email") or "").strip()
+            if new_email and new_email != (member.email or ""):
+                member.email = new_email
+                pulled_fields.append("email")
+            new_phone = _rfm._clean_phone_for_display(rec.get("phone"))
+            if new_phone and new_phone != (member.phone or ""):
+                member.phone = new_phone
+                pulled_fields.append("phone")
+            new_addr = _rfm.address_from_member(rec)
+            if new_addr and new_addr != (member.address or ""):
+                member.address = new_addr
+                pulled_fields.append("address")
+            member.external_synced_at = _dt.utcnow()
+
     _log_admin_action(
         request, db, "rfm_sync_manual_match", "member", member.id,
         f"Manually matched {member.full_name} -> external {external_id}"
-        + (f" (pushed to API: {', '.join(pushed_fields)})" if pushed_fields else ""),
+        + (f" (pushed to API: {', '.join(pushed_fields)})" if pushed_fields else "")
+        + (f" (pulled from API: {', '.join(pulled_fields)})" if pulled_fields else ""),
     )
     db.commit()
     return {
@@ -10582,6 +10611,8 @@ def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session
         "member_id": member.id,
         "external_member_id": external_id,
         "pushed_fields": pushed_fields,
+        "pulled_fields": pulled_fields,
+        "full_name": member.full_name,
     }
 
 
