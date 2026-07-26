@@ -36,6 +36,11 @@
                         class="px-3 py-1.5 text-xs bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium disabled:opacity-60">
                         <span x-text="syncingMemberships ? 'Syncing…' : '📋 Sync all memberships'"></span>
                     </button>
+                    <button x-show="status.enabled && status.configured" @click="refreshLinked()" :disabled="refreshing"
+                        title="Re-read every linked member from central and update their local name/email/phone/address to match"
+                        class="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-60">
+                        <span x-text="refreshing ? 'Refreshing…' : '🔄 Refresh names from central'"></span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -116,6 +121,30 @@
                 </template>
             </div>
             <button @click="lastMembershipSync = null" class="opacity-60 hover:opacity-100">✕</button>
+        </div>
+    </template>
+
+    <template x-if="lastRefresh">
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm flex items-start justify-between gap-3">
+            <div class="text-emerald-800">
+                <div class="font-medium mb-1">🔄 Refresh from central</div>
+                <div>
+                    Updated <strong x-text="lastRefresh.summary.updated"></strong>/<strong x-text="lastRefresh.summary.scanned"></strong> linked members
+                    · <strong x-text="lastRefresh.summary.unchanged"></strong> already up to date
+                    <span x-show="lastRefresh.summary.missing > 0"> · <strong x-text="lastRefresh.summary.missing"></strong> not found in central</span>
+                    <span x-show="lastRefresh.summary.errors > 0" class="text-rose-700"> · <strong x-text="lastRefresh.summary.errors"></strong> error(s)</span>
+                </div>
+                <div class="text-[11px] text-emerald-700 mt-1"
+                     x-text="'Fields changed — names ' + lastRefresh.field_counts.full_name + ', emails ' + lastRefresh.field_counts.email + ', phones ' + lastRefresh.field_counts.phone + ', addresses ' + lastRefresh.field_counts.address"></div>
+                <template x-if="lastRefresh.sample && lastRefresh.sample.length > 0">
+                    <ul class="mt-2 text-[11px] font-mono">
+                        <template x-for="s in lastRefresh.sample" :key="s.member_id">
+                            <li x-text="s.name + ' (' + s.fields.join(', ') + ')'"></li>
+                        </template>
+                    </ul>
+                </template>
+            </div>
+            <button @click="lastRefresh = null" class="text-emerald-600 hover:text-emerald-800">✕</button>
         </div>
     </template>
 
@@ -440,6 +469,8 @@ function rfmSyncApp() {
         lastRunSummary: null,
         syncingMemberships: false,
         lastMembershipSync: null,
+        refreshing: false,
+        lastRefresh: null,
         review: { open: false, loading: false, member: null, result: null, error: null, confirming: false },
         search: { query: '', running: false, attempted: false, results: [], error: null },
         // Two-step confirm: when admin clicks "Use this" / "Link this" we open
@@ -580,6 +611,31 @@ function rfmSyncApp() {
                 alert('Error: ' + e.message);
             } finally {
                 this.syncingMemberships = false;
+            }
+        },
+
+        async refreshLinked() {
+            if (this.refreshing) return;
+            if (!confirm('Re-read every linked member from the central database and update their local name, email, phone and address to match?\n\nUse this to repair members still showing an old local name. One lookup per linked member — may take a moment.')) return;
+            this.refreshing = true;
+            this.lastRefresh = null;
+            try {
+                const r = await fetch('/api/admin/rfm-sync/refresh-linked', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Refresh failed');
+                }
+                this.lastRefresh = await r.json();
+                await this.loadStatus();
+                await this.loadMembers();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                this.refreshing = false;
             }
         },
 

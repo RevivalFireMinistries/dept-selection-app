@@ -10493,6 +10493,76 @@ def admin_rfm_sync_match_all(request: Request, data: dict = Body(default={}), db
     }
 
 
+@router.post("/admin/rfm-sync/refresh-linked")
+def admin_rfm_sync_refresh_linked(request: Request, data: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Re-read every already-linked member's central record and pull the
+    authoritative name / email / phone / address DOWN into the local row.
+
+    Central is the source of truth for linked members; this repairs rows that
+    were linked before confirm-match started pulling values down (e.g. a member
+    still showing an old local name like "Mrs Phiri" instead of the matched
+    "Kudakwashe Phiri"). One GET per linked member — a maintenance action."""
+    _require_committee_or_admin(request, db)
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured (URL/key missing)")
+
+    from datetime import datetime as _dt
+    members = db.query(Member).filter(Member.external_member_id.isnot(None)).all()
+    summary = {"scanned": 0, "updated": 0, "unchanged": 0, "missing": 0, "errors": 0}
+    field_counts = {"full_name": 0, "email": 0, "phone": 0, "address": 0}
+    sample = []
+
+    for m in members:
+        summary["scanned"] += 1
+        try:
+            res = _rfm.get_member(m.external_member_id, db=db)
+        except Exception:
+            summary["errors"] += 1
+            continue
+        if not (res.ok and isinstance(res.data, dict)):
+            summary["missing"] += 1  # central couldn't return this id
+            continue
+        rec = res.data
+        changed = []
+        new_name = _rfm.fullname_from_member(rec)
+        if new_name and new_name != m.full_name:
+            m.full_name = new_name
+            changed.append("full_name")
+        new_email = (rec.get("email") or "").strip()
+        if new_email and new_email != (m.email or ""):
+            m.email = new_email
+            changed.append("email")
+        new_phone = _rfm._clean_phone_for_display(rec.get("phone"))
+        if new_phone and new_phone != (m.phone or ""):
+            m.phone = new_phone
+            changed.append("phone")
+        new_addr = _rfm.address_from_member(rec)
+        if new_addr and new_addr != (m.address or ""):
+            m.address = new_addr
+            changed.append("address")
+        if changed:
+            m.external_synced_at = _dt.utcnow()
+            summary["updated"] += 1
+            for f in changed:
+                field_counts[f] += 1
+            if len(sample) < 10:
+                sample.append({"member_id": m.id, "name": m.full_name, "fields": changed})
+        else:
+            summary["unchanged"] += 1
+
+    db.commit()
+    _log_admin_action(
+        request, db, "rfm_sync_refresh_linked", "members", None,
+        f"Refreshed {summary['updated']} of {summary['scanned']} linked members from central "
+        f"(names {field_counts['full_name']}, emails {field_counts['email']}, "
+        f"phones {field_counts['phone']}, addresses {field_counts['address']})",
+    )
+    db.commit()
+    return {"summary": summary, "field_counts": field_counts, "sample": sample}
+
+
 @router.post("/admin/rfm-sync/confirm")
 def admin_rfm_sync_confirm(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
     """Manually link a local member to a specific external_member_id and
