@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Body
 from sqlalchemy.orm import Session
@@ -274,9 +274,15 @@ def _generate(set_obj: PrayerGroupSet, db: Session, assembly_id: str):
 # ── Chain prayer scheduling ──────────────────────────────────────────────────
 
 def _expire_chain_if_past(s: PrayerGroupSet, db: Session) -> bool:
-    """Clear the chain-prayer schedule once its event date has passed, so the
+    """Clear the chain-prayer schedule once the whole window has finished, so the
     admin form goes blank and they can schedule a fresh one. Returns True if it
-    was cleared. A schedule with no date never auto-expires."""
+    was cleared. A schedule with no date never auto-expires.
+
+    The window can cross midnight — e.g. a 24-hour chain running 18:00 to the
+    next day's 18:00. In that case it finishes the day AFTER chain_date, so we
+    expire against the window's END day, not its start date. Expiring on the
+    start date would wipe a still-running overnight chain at midnight, hiding the
+    prayer points and slots from members for the rest of the event."""
     d = getattr(s, "chain_date", None)
     if not d:
         return False
@@ -284,8 +290,22 @@ def _expire_chain_if_past(s: PrayerGroupSet, db: Session) -> bool:
         event = datetime.strptime(str(d), "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return False
-    if event >= datetime.now(timezone.utc).date():
-        return False  # today or future — keep it
+
+    # When chain_end is at or before chain_start the window runs past midnight,
+    # so the schedule's last day is the day after chain_date.
+    def _to_min(t):
+        try:
+            hh, mm = str(t).split(":")
+            return int(hh) * 60 + int(mm)
+        except Exception:
+            return None
+    start_min, end_min = _to_min(s.chain_start), _to_min(s.chain_end)
+    end_day = event
+    if start_min is not None and end_min is not None and end_min <= start_min:
+        end_day = event + timedelta(days=1)
+
+    if end_day >= datetime.now(timezone.utc).date():
+        return False  # the window's final day is today or still ahead — keep it
     s.chain_enabled = False
     s.chain_label = None
     s.chain_date = None
