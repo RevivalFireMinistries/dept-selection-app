@@ -1109,7 +1109,7 @@ function addNameSlot(groupId, name = '', confirmed = false) {
     slot.dataset.confirmed = confirmed ? 'true' : 'false';
     slot.innerHTML = `
         <div class="autocomplete-wrapper" style="flex:1;">
-            <input type="text" value="${escapeHtml(name)}" placeholder="Search or type name..."
+            <input type="text" value="${escapeHtml(name)}" placeholder="Search for a name…"
                 id="${id}" class="part-name" autocomplete="off" oninput="renderSlotConfirm(this.closest('.part-name-slot'))">
         </div>
         <button type="button" onclick="toggleSlotConfirmed(this)" class="part-confirm-btn"></button>
@@ -1232,6 +1232,40 @@ function setupAutocomplete(input) {
     let filtered = [];        // unified list shown — each item has source: 'local' | 'central'
     let lastQuery = "";
 
+    // Participant names must be a real pick from the list — typing only filters.
+    // `selectedValue` is the last committed pick; anything typed that isn't a
+    // pick (or an exact match of a listed member) is discarded on blur/Enter.
+    // Seed it from the initial value so existing saved names survive editing.
+    if (input.dataset.selectedValue === undefined) {
+        input.dataset.selectedValue = (input.value || '').trim();
+    }
+
+    function commit(value) {
+        input.value = value;
+        input.dataset.selectedValue = value;
+        const slot = input.closest('.part-name-slot');
+        if (slot) renderSlotConfirm(slot);
+        updateCounts();
+    }
+
+    function revertToSelection() {
+        const typed = (input.value || '').trim();
+        const committed = input.dataset.selectedValue || '';
+        if (typed === '') {            // cleared — allowed; forget prior pick
+            if (committed !== '') commit('');
+            return;
+        }
+        if (typed === committed) return;   // unchanged valid pick
+        // An exact (case-insensitive) match of a listed local member counts as
+        // a pick — no need to force a click for a fully-typed existing name.
+        const t = typed.toLowerCase();
+        const hit = allMembers.find(m =>
+            (m.titledName || '').toLowerCase() === t || (m.fullName || '').toLowerCase() === t);
+        if (hit) { commit(hit.titledName || hit.fullName); return; }
+        // Otherwise it's new free text — discard it, restore the last valid pick.
+        commit(committed);
+    }
+
     function showDropdown(items) {
         closeAllDropdowns();
         filtered = items;
@@ -1291,11 +1325,11 @@ function setupAutocomplete(input) {
 
     function selectMember(m) {
         // Participant fields just store the name (no member id); for both
-        // local and central matches we just put the display name in.
+        // local and central matches we just put the display name in. This is
+        // the ONLY path that commits a value — typing alone never does.
         const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
-        input.value = display;
+        commit(display);
         hideDropdown();
-        updateCounts();
     }
 
     function updateHighlight() {
@@ -1332,15 +1366,27 @@ function setupAutocomplete(input) {
     });
 
     input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            // Enter always resolves to a pick — the highlighted item, else the
+            // top match — and never leaves raw typed text as the value.
+            e.preventDefault();
+            if (dropdown && filtered.length) {
+                selectMember(filtered[selectedIndex >= 0 ? selectedIndex : 0]);
+            } else {
+                hideDropdown();
+                revertToSelection();
+            }
+            return;
+        }
         if (!dropdown) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1); updateHighlight(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); updateHighlight(); }
-        else if (e.key === 'Enter') { e.preventDefault(); if (selectedIndex >= 0 && filtered[selectedIndex]) selectMember(filtered[selectedIndex]); else hideDropdown(); }
-        else if (e.key === 'Escape') hideDropdown();
+        else if (e.key === 'Escape') { hideDropdown(); revertToSelection(); }
     });
 
-    input.addEventListener('blur', () => { setTimeout(hideDropdown, 200); });
-    input.addEventListener('change', updateCounts);
+    // On blur, discard any un-picked free text (the 200ms delay lets a click on
+    // a dropdown item commit first).
+    input.addEventListener('blur', () => { setTimeout(() => { hideDropdown(); revertToSelection(); }, 200); });
 }
 
 function closeAllDropdowns() {
