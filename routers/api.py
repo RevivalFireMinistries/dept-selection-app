@@ -7383,14 +7383,34 @@ def _autopilot_prepare_draft(db: Session, schedule, tpl):
     return program, asked
 
 
+AUTOPILOT_LEAD_SETTING = "autopilot_create_lead_days"
+
+
+def _autopilot_create_lead_days(db: Session) -> int:
+    """How many days before a service its draft programme is created. Draft
+    programmes are made lazily — one at a time as each service approaches —
+    rather than the whole horizon up front, so drafts don't pile up. Default 3
+    (reliably at least 2 days' notice, and before the 2-days-before reminder)."""
+    s = db.query(Settings).filter(Settings.key == AUTOPILOT_LEAD_SETTING).first()
+    try:
+        v = int(s.value) if s and s.value else 3
+    except (ValueError, TypeError):
+        v = 3
+    return max(0, min(60, v))
+
+
 def run_autopilot(db: Session) -> dict:
     """Top up the rolling roster horizon for every active rule.
 
-    Creates any missing service dates, rotates in a manager, and prepares the
-    draft programme — asking each auto-filled person as it goes. Existing
-    services are never touched, so manual choices always survive."""
+    Roster dates + service-manager rotation are planned across the whole
+    horizon, but the draft PROGRAMME for each service is only built once the
+    service is within the creation lead window (see _autopilot_create_lead_days)
+    and nobody has already made a programme for that date — so provisional
+    programmes are created one at a time as services approach, not all at once.
+    Existing services and manual choices are never touched."""
     from models import ServiceRule
     today = date.today()
+    lead_days = _autopilot_create_lead_days(db)
     summary = {"rules": 0, "created": 0, "managers": 0, "drafts": 0, "asked": 0, "unfilled": []}
 
     for rule in db.query(ServiceRule).filter(ServiceRule.is_active == True).all():
@@ -7400,33 +7420,46 @@ def run_autopilot(db: Session) -> dict:
         summary["rules"] += 1
         end = today + timedelta(weeks=max(1, int(rule.horizon_weeks or 8)))
         for svc_date in _rule_service_dates(rule, tpl, today, end):
-            existing = db.query(ServiceSchedule).filter(ServiceSchedule.service_date == svc_date).first()
-            if existing:
-                continue  # already on the roster — leave it alone
-            schedule = ServiceSchedule(service_date=svc_date, template_id=tpl.id)
-            db.add(schedule)
-            db.flush()
-            summary["created"] += 1
+            schedule = db.query(ServiceSchedule).filter(ServiceSchedule.service_date == svc_date).first()
+            if schedule is None:
+                # New roster date — create the schedule and rotate in a manager.
+                schedule = ServiceSchedule(service_date=svc_date, template_id=tpl.id)
+                db.add(schedule)
+                db.flush()
+                summary["created"] += 1
 
-            if rule.auto_assign_manager:
-                picked = _pick_service_manager(db, svc_date, exclude_schedule_id=schedule.id)
-                if picked:
-                    schedule.service_manager_id = picked.id
-                    db.commit()
-                    summary["managers"] += 1
-                    ask = _create_assignment_ask(db, kind="service_manager", member=picked,
-                                                 service_date=svc_date, schedule=schedule)
-                    if _send_assignment_ask(db, ask, picked):
-                        summary["asked"] += 1
-                else:
-                    summary["unfilled"].append({"date": svc_date.isoformat(), "what": "service manager"})
-            db.commit()
+                if rule.auto_assign_manager:
+                    picked = _pick_service_manager(db, svc_date, exclude_schedule_id=schedule.id)
+                    if picked:
+                        schedule.service_manager_id = picked.id
+                        db.commit()
+                        summary["managers"] += 1
+                        ask = _create_assignment_ask(db, kind="service_manager", member=picked,
+                                                     service_date=svc_date, schedule=schedule)
+                        if _send_assignment_ask(db, ask, picked):
+                            summary["asked"] += 1
+                    else:
+                        summary["unfilled"].append({"date": svc_date.isoformat(), "what": "service manager"})
+                db.commit()
 
-            if rule.auto_create_draft:
-                program, asked = _autopilot_prepare_draft(db, schedule, tpl)
-                if program is not None:
-                    summary["drafts"] += 1
-                    summary["asked"] += asked
+            # Draft programme — created lazily, one at a time: only when the
+            # service is within the lead window and no programme exists for that
+            # date yet (manual programmes don't link to the schedule, so we check
+            # by date too). Runs for both new and previously-created schedules.
+            if rule.auto_create_draft and not schedule.program_id:
+                days_out = (svc_date - today).days
+                if 0 <= days_out <= lead_days:
+                    existing_prog = db.query(ServiceProgram).filter(
+                        ServiceProgram.service_date == svc_date).first()
+                    if existing_prog is None:
+                        program, asked = _autopilot_prepare_draft(db, schedule, tpl)
+                        if program is not None:
+                            summary["drafts"] += 1
+                            summary["asked"] += asked
+                    else:
+                        # Someone already made one — adopt it so we never duplicate.
+                        schedule.program_id = existing_prog.id
+                        db.commit()
 
         rule.last_run_at = datetime.utcnow()
         db.commit()
