@@ -203,6 +203,8 @@
                 <svg class="w-5 h-5 text-gray-400 section-chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
             <div id="prayerBody" class="border-t border-gray-100 p-4 pt-3 hidden">
+                <div id="prayerLinkBanner" style="display:none;" class="mb-3 px-3 py-2.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200"></div>
+                <p class="text-[11px] text-gray-400 mb-2">Each prayer point must be linked to a prayer slot in the order of service before you can publish.</p>
                 <div id="prayerPoints" class="space-y-2"></div>
                 <button type="button" onclick="addPrayerPoint()"
                     class="mt-2 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-500 hover:border-rose-300 hover:text-rose-600 active:bg-rose-50 transition-colors">
@@ -956,6 +958,7 @@ function confirmRemovePrayerPoint(btn) {
     if (text && !confirm(`Remove this prayer point?\n\n"${text}"`)) return;
     row.remove();
     updateCounts();
+    updatePrayerLinkBanner();
 }
 
 function confirmRemoveParticipantGroup(btn) {
@@ -1449,7 +1452,7 @@ function addPrayerPoint(text = '', linkedActivity = '') {
             `<option value="${escapeHtml(a)}" ${a === linkedActivity ? 'selected' : ''}>${escapeHtml(a)}</option>`
         ).join('');
         selectHtml = `
-            <select class="prayer-linked-activity flex-shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" style="max-width: 140px;">
+            <select onchange="updatePrayerLinkBanner()" class="prayer-linked-activity flex-shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" style="max-width: 140px;">
                 <option value="">No link</option>
                 ${opts}
             </select>`;
@@ -1457,7 +1460,7 @@ function addPrayerPoint(text = '', linkedActivity = '') {
 
     row.innerHTML = `
         <div class="flex-1">
-            <input type="text" value="${escapeHtml(text)}" placeholder="Type prayer point..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
+            <input type="text" value="${escapeHtml(text)}" placeholder="Type prayer point..." oninput="updatePrayerLinkBanner()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500">
         </div>
         ${selectHtml}
         <button type="button" onclick="confirmRemovePrayerPoint(this)" class="btn-remove flex-shrink-0 mt-1" title="Remove">
@@ -1467,6 +1470,34 @@ function addPrayerPoint(text = '', linkedActivity = '') {
     container.appendChild(row);
     row.querySelector('input').focus();
     updateCounts();
+    updatePrayerLinkBanner();
+}
+
+// Warn (and block publish) while any prayer point has text but no linked slot.
+// Returns the number of unlinked points.
+function updatePrayerLinkBanner() {
+    const activities = getPrayerActivities();
+    let unlinked = 0;
+    document.querySelectorAll('#prayerPoints .prayer-point-row').forEach(row => {
+        const text = ((row.querySelector('input') || {}).value || '').trim();
+        const sel = row.querySelector('.prayer-linked-activity');
+        const linked = sel ? sel.value : '';
+        const bad = !!text && !linked;
+        if (bad) unlinked++;
+        if (sel) sel.style.borderColor = bad ? '#f59e0b' : '';
+    });
+    const banner = document.getElementById('prayerLinkBanner');
+    if (banner) {
+        if (unlinked > 0) {
+            banner.style.display = '';
+            banner.textContent = activities.length > 0
+                ? `⚠ ${unlinked} prayer point${unlinked === 1 ? '' : 's'} not linked to a slot — pick a slot from the dropdown next to each (instead of "No link") before you can publish.`
+                : `⚠ ${unlinked} prayer point${unlinked === 1 ? '' : 's'} can't be linked yet — add a prayer slot to the order of service (an item with "prayer" in its name) first, then link each point.`;
+        } else {
+            banner.style.display = 'none';
+        }
+    }
+    return unlinked;
 }
 
 function refreshPrayerActivityDropdowns() {
@@ -1480,7 +1511,7 @@ function refreshPrayerActivityDropdowns() {
                 `<option value="${escapeHtml(a)}" ${a === currentVal ? 'selected' : ''}>${escapeHtml(a)}</option>`
             ).join('');
             const selectHtml = `
-                <select class="prayer-linked-activity flex-shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" style="max-width: 140px;">
+                <select onchange="updatePrayerLinkBanner()" class="prayer-linked-activity flex-shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-xs bg-gray-50 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" style="max-width: 140px;">
                     <option value="">No link</option>
                     ${opts}
                 </select>`;
@@ -1494,6 +1525,7 @@ function refreshPrayerActivityDropdowns() {
             existingSelect.remove();
         }
     });
+    updatePrayerLinkBanner();
 }
 
 // ==================== FORM SHOW/HIDE ====================
@@ -1885,7 +1917,7 @@ function closeProgramNotice(result) {
     if (_programNoticeResolve) { _programNoticeResolve(result); _programNoticeResolve = null; }
 }
 
-async function publishProgram(id, pending) {
+async function publishProgram(id, pending, unlinkedPrayer, hasPrayerSlot) {
     // Block early (no round-trip) when we already know people are unconfirmed.
     if ((pending || 0) > 0) {
         await programNotice({
@@ -1894,6 +1926,14 @@ async function publishProgram(id, pending) {
             message: `<span class="font-semibold text-gray-900">${pending}</span> participant${pending === 1 ? '' : 's'} still to confirm. Tap <span class="font-semibold text-amber-600">⚠ Confirm?</span> next to each person once you've checked they'll take their part — then you can publish.`,
             confirmLabel: 'Got it',
         });
+        return;
+    }
+    // Block early when any prayer point isn't linked to a prayer slot.
+    if ((unlinkedPrayer || 0) > 0) {
+        const msg = hasPrayerSlot
+            ? `<span class="font-semibold text-gray-900">${unlinkedPrayer}</span> prayer point${unlinkedPrayer === 1 ? " isn't" : "s aren't"} linked to a prayer slot. Open the program, and next to each prayer point choose a slot from the dropdown (instead of <span class="font-semibold">No link</span>) — then you can publish.`
+            : `<span class="font-semibold text-gray-900">${unlinkedPrayer}</span> prayer point${unlinkedPrayer === 1 ? '' : 's'} can't be published unlinked, and the order of service has no prayer slot to link to. Add a prayer slot to the order of service (an item with <span class="font-semibold">“prayer”</span> in its name), then link each prayer point.`;
+        await programNotice({ tone: 'warning', title: 'Link prayer points first', message: msg, confirmLabel: 'Got it' });
         return;
     }
     const go = await programNotice({
@@ -1910,7 +1950,9 @@ async function publishProgram(id, pending) {
         return;
     }
     const err = await res.json().catch(() => ({}));
-    if (res.status === 400 && /confirm/i.test(err.detail || '')) {
+    if (res.status === 400 && /prayer point/i.test(err.detail || '')) {
+        await programNotice({ tone: 'warning', title: 'Link prayer points first', message: escapeHtml(err.detail || ''), confirmLabel: 'Got it' });
+    } else if (res.status === 400 && /confirm/i.test(err.detail || '')) {
         await programNotice({ tone: 'warning', title: 'Confirm participants first', message: escapeHtml(err.detail || ''), confirmLabel: 'Got it' });
     } else {
         await programNotice({ tone: 'error', title: "Couldn't publish", message: escapeHtml(err.detail || 'Something went wrong. Please try again.'), confirmLabel: 'OK' });
@@ -1975,6 +2017,16 @@ async function loadPrograms() {
                 <span class="text-gray-800 ml-1">${names.map(n => escapeHtml(n)).join(', ')}</span>
             </div>`
         ).join('');
+
+        // Prayer points that carry text but aren't linked to a slot — publishing
+        // is blocked until each is linked.
+        const unlinkedPrayer = (p.prayer_points || []).filter(pp =>
+            typeof pp === 'string'
+                ? pp.trim() !== ''
+                : (pp && (pp.text || '').trim() && !((pp.linked_activity || '').trim()))
+        ).length;
+        // Whether the order of service has any prayer slot to link to.
+        const hasPrayerSlot = (p.program_items || []).some(it => ((it.item || '').toLowerCase().includes('pray')));
 
         // Summary counts for collapsed view
         const itemCount = (p.program_items || []).length;
@@ -2048,7 +2100,7 @@ async function loadPrograms() {
                 </div>` : ''}
                 <div class="px-4 pb-2 flex gap-2 justify-end flex-wrap">
                     ${p.status === 'draft'
-                        ? `<button onclick="publishProgram(${p.id}, ${p.pending_confirmations || 0})" class="program-action-btn" style="background:#ecfdf5;color:#059669;" title="Publish &amp; notify participants">
+                        ? `<button onclick="publishProgram(${p.id}, ${p.pending_confirmations || 0}, ${unlinkedPrayer}, ${hasPrayerSlot})" class="program-action-btn" style="background:#ecfdf5;color:#059669;" title="Publish &amp; notify participants">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             <span class="text-xs font-medium">Publish</span>
                           </button>`

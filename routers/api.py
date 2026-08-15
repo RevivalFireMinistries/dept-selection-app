@@ -6793,6 +6793,34 @@ def publish_program(program_id: int, request: Request, editor_member_id: int = N
             detail=f"{len(_pending)} participant(s) still to be confirmed — {_names}. Mark everyone as confirmed before publishing.",
         )
 
+    # Every prayer point must be linked to a prayer slot before publishing, so
+    # the finalised programme shows which slot each point belongs to. A point is
+    # "unlinked" when it's stored as a bare string, or as an object with no
+    # linked_activity.
+    _pp = json.loads(program.prayer_points) if isinstance(program.prayer_points, str) else (program.prayer_points or [])
+    _unlinked = []
+    for pp in _pp:
+        if isinstance(pp, str):
+            if pp.strip():
+                _unlinked.append(pp.strip())
+        elif isinstance(pp, dict):
+            _text = (pp.get("text") or "").strip()
+            if _text and not (pp.get("linked_activity") or "").strip():
+                _unlinked.append(_text)
+    if _unlinked:
+        _preview = "; ".join((t[:40] + "…") if len(t) > 40 else t for t in _unlinked[:5])
+        _items = json.loads(program.program_items) if isinstance(program.program_items, str) else (program.program_items or [])
+        _has_prayer_slot = any("pray" in ((it or {}).get("item") or "").lower() for it in _items)
+        if _has_prayer_slot:
+            _detail = (f"{len(_unlinked)} prayer point(s) aren't linked to a prayer slot — {_preview}. "
+                       f"Open the programme and pick a slot from the dropdown next to each prayer point "
+                       f"(instead of “No link”) before publishing.")
+        else:
+            _detail = (f"{len(_unlinked)} prayer point(s) can't be published unlinked, and the order of "
+                       f"service has no prayer slot to link them to. Add a prayer slot to the order of "
+                       f"service (an item with “prayer” in its name), then link each prayer point before publishing.")
+        raise HTTPException(status_code=400, detail=_detail)
+
     program.status = "published"
     db.commit()
     db.refresh(program)
