@@ -1867,12 +1867,39 @@ async function saveProgram() {
         if (res.ok) {
             hideForm();
             loadPrograms();
+        } else if (res.status === 409) {
+            // A programme already exists for this service + date — offer to open it.
+            const err = await res.json().catch(() => ({}));
+            const d = (err && err.detail) || {};
+            const existingId = d.existing_program_id;
+            const go = await programNotice({
+                tone: 'warning',
+                title: 'Programme already exists',
+                message: escapeHtml(d.message || 'A programme already exists for this service and date.'),
+                confirmLabel: existingId ? 'Open existing' : 'OK',
+                cancelLabel: existingId ? 'Cancel' : '',
+            });
+            if (go && existingId) await openProgramById(existingId);
         } else {
-            const err = await res.json();
-            alert(err.detail || 'Failed to save program');
+            const err = await res.json().catch(() => ({}));
+            const detail = err && err.detail;
+            alert((typeof detail === 'string' ? detail : (detail && detail.message)) || 'Failed to save program');
         }
     } finally {
         btn.forEach(b => { b.disabled = false; b.textContent = 'Save'; });
+    }
+}
+
+// Load a single programme by id from the list and open it in the edit form.
+async function openProgramById(id) {
+    try {
+        const res = await fetch('/api/admin/programs');
+        const programs = await res.json();
+        const p = programs.find(x => x.id === id);
+        if (p) { showEditForm(p); }
+        else { hideForm(); loadPrograms(); }
+    } catch (e) {
+        hideForm(); loadPrograms();
     }
 }
 

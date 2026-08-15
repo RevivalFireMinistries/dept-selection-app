@@ -6486,6 +6486,28 @@ def create_program(data: ServiceProgramCreate, request: Request, db: Session = D
     if not data.program_items:
         raise HTTPException(status_code=400, detail="At least one program item is required")
 
+    # One programme per service per date. Block a second one for the same date so
+    # an autopilot draft and a hand-made programme (or two managers) never pile up
+    # — the same service on the same day is the same programme. Match on the
+    # template (the "service") when the new one has one, otherwise on location
+    # type so an onsite + online pair on one date is still allowed. The existing
+    # programme's id is returned so the UI can open it to edit instead.
+    _dupe_q = db.query(ServiceProgram).filter(ServiceProgram.service_date == data.service_date)
+    if data.template_id:
+        _dupe = _dupe_q.filter(ServiceProgram.template_id == data.template_id).first()
+    else:
+        _dupe = _dupe_q.filter(ServiceProgram.location_type == (data.location_type or "onsite")).first()
+    if _dupe:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "duplicate_program",
+                "existing_program_id": _dupe.id,
+                "message": (f"A programme already exists for this service on {data.service_date} "
+                            f"(“{_dupe.title}”). Open and edit that one instead of creating a second."),
+            },
+        )
+
     # Resolve who's creating this program. Priority order:
     #   1. Explicit created_by_member_id in the request payload (portal sends this)
     #   2. The admin identity cookie (set when an admin logs in via /admin/login)
@@ -7412,6 +7434,16 @@ def _autopilot_prepare_draft(db: Session, schedule, tpl):
 
 
 AUTOPILOT_LEAD_SETTING = "autopilot_create_lead_days"
+AUTOPILOT_DRAFTS_SETTING = "autopilot_auto_create_drafts"
+
+
+def _autopilot_auto_create_drafts(db: Session) -> bool:
+    """Whether autopilot builds the draft programme itself. Default OFF — the
+    service manager creates the programme, so an autopilot draft can never
+    collide with a hand-made one (the source of duplicate provisional
+    programmes). Roster dates + service-manager rotation still run regardless."""
+    s = db.query(Settings).filter(Settings.key == AUTOPILOT_DRAFTS_SETTING).first()
+    return bool(s and str(s.value).strip().lower() in ("1", "true", "yes", "on"))
 
 
 def _autopilot_create_lead_days(db: Session) -> int:
@@ -7439,6 +7471,7 @@ def run_autopilot(db: Session) -> dict:
     from models import ServiceRule
     today = date.today()
     lead_days = _autopilot_create_lead_days(db)
+    drafts_enabled = _autopilot_auto_create_drafts(db)
     summary = {"rules": 0, "created": 0, "managers": 0, "drafts": 0, "asked": 0, "unfilled": []}
 
     for rule in db.query(ServiceRule).filter(ServiceRule.is_active == True).all():
@@ -7474,7 +7507,7 @@ def run_autopilot(db: Session) -> dict:
             # service is within the lead window and no programme exists for that
             # date yet (manual programmes don't link to the schedule, so we check
             # by date too). Runs for both new and previously-created schedules.
-            if rule.auto_create_draft and not schedule.program_id:
+            if drafts_enabled and rule.auto_create_draft and not schedule.program_id:
                 days_out = (svc_date - today).days
                 if 0 <= days_out <= lead_days:
                     existing_prog = db.query(ServiceProgram).filter(
