@@ -656,6 +656,91 @@
                 {% endif %}
 
                 <!-- Upcoming meetings -->
+                {% if features.events %}
+                <!-- ==================== EVENTS ====================
+                     Not registered → the event, with a prompt to register.
+                     Registered     → a countdown, what's outstanding, and
+                                      any announcements posted for it. -->
+                <template x-for="ev in dashboardEvents" :key="ev.id">
+                    <section class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <!-- ?v=updated_at so a replaced poster isn't masked by the
+                             hour-long cache on the image response. -->
+                        <img x-show="ev.has_poster"
+                             :src="`/api/events/${ev.id}/poster?v=${encodeURIComponent(ev.updated_at || '')}`" alt=""
+                             class="w-full h-32 object-cover" loading="lazy">
+                        <div class="p-5">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Upcoming event</h2>
+                                    <div class="font-semibold text-gray-900 mt-1" x-text="ev.title"></div>
+                                    <div class="text-xs text-gray-500" x-text="eventDates(ev)"></div>
+                                    <div x-show="ev.venue" class="text-xs text-gray-500" x-text="'📍 ' + ev.venue"></div>
+                                </div>
+                                <!-- Countdown — only meaningful once they're coming -->
+                                <div x-show="ev.my_registration && countdown(ev)"
+                                     class="shrink-0 text-center bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+                                    <div class="text-xl font-bold text-orange-700" x-text="countdown(ev)?.days"></div>
+                                    <div class="text-[10px] uppercase tracking-wider text-orange-600"
+                                         x-text="countdown(ev)?.label"></div>
+                                </div>
+                            </div>
+
+                            <!-- NOT registered -->
+                            <template x-if="!ev.my_registration">
+                                <div class="mt-3">
+                                    <p class="text-sm text-gray-600" x-text="ev.cost ? `${ev.currency} ${Number(ev.cost).toLocaleString('en-ZA', {minimumFractionDigits: 2})} per person` : 'Free to attend'"></p>
+                                    <a :href="`/events/${ev.id}`"
+                                       class="mt-3 block text-center bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-orange-700">
+                                        Register now
+                                    </a>
+                                </div>
+                            </template>
+
+                            <!-- Registered -->
+                            <template x-if="ev.my_registration">
+                                <div class="mt-3">
+                                    <div class="flex items-center gap-2 text-sm">
+                                        <span class="text-emerald-700 font-medium">You're registered ✓</span>
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider"
+                                              :class="registrationBadgeClass(ev.my_registration.status)"
+                                              x-text="registrationLabel(ev.my_registration.status)"></span>
+                                    </div>
+                                    <p x-show="ev.my_registration.balance > 0" class="text-xs text-amber-700 mt-1"
+                                       x-text="`Balance outstanding: ${ev.currency} ${Number(ev.my_registration.balance).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`"></p>
+
+                                    <!-- Announcements for people who are coming -->
+                                    <div x-show="ev.announcements && ev.announcements.length" class="mt-3 pt-3 border-t border-gray-100">
+                                        <div class="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style="color: var(--color-mute);">Event notes</div>
+                                        <div class="space-y-2">
+                                            <template x-for="a in ev.announcements.slice(0, expandedEventNotes[ev.id] ? 99 : 2)" :key="a.id">
+                                                <div class="p-3 rounded-xl border"
+                                                     :class="a.is_pinned ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'">
+                                                    <div class="flex items-start gap-2">
+                                                        <span x-show="a.is_pinned" class="text-amber-600 text-xs">📌</span>
+                                                        <div class="min-w-0">
+                                                            <div class="text-sm font-semibold text-gray-900" x-text="a.title"></div>
+                                                            <div class="text-xs text-gray-600 mt-0.5 whitespace-pre-line" x-text="a.body"></div>
+                                                            <div class="text-[10px] text-gray-400 mt-1"
+                                                                 x-text="(a.created_by_name ? a.created_by_name + ' · ' : '') + eventNoteWhen(a)"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <button x-show="ev.announcements.length > 2"
+                                                @click="expandedEventNotes[ev.id] = !expandedEventNotes[ev.id]"
+                                                class="mt-2 text-xs font-medium text-orange-600"
+                                                x-text="expandedEventNotes[ev.id] ? 'Show fewer' : `View all ${ev.announcements.length} notes`"></button>
+                                    </div>
+
+                                    <a :href="`/events/${ev.id}`" class="mt-3 block text-center text-sm font-medium text-orange-600">View event details</a>
+                                </div>
+                            </template>
+                        </div>
+                    </section>
+                </template>
+                {% endif %}
+
                 {% if features.meetings %}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                     <div class="flex items-center justify-between mb-3">
@@ -1167,6 +1252,31 @@
                 </div>
                 <span class="text-gray-300">›</span>
             </a>
+
+            {% if features.events %}
+            <!-- Events — open to every member -->
+            <a href="/events" class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center text-sm">🏕️</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Events</div>
+                    <div class="text-[11px] text-gray-500">Camps, conferences &amp; registration</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            <!-- Event admin — only for members who manage an event. The list
+                 is fetched on load; an empty list hides this entirely. -->
+            <a x-show="managedEvents.length" x-cloak
+               :href="managedEvents.length === 1 ? `/events/${managedEvents[0].id}/manage` : '/events'"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center text-sm">🎟️</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Event admin</div>
+                    <div class="text-[11px] text-gray-500"
+                         x-text="managedEvents.length === 1 ? managedEvents[0].title : managedEvents.length + ' events to manage'"></div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
+            {% endif %}
 
             {% if features.reading_plans %}
             <!-- Reading plans -->
@@ -1998,6 +2108,11 @@ function memberPortal() {
         selectedYear: new Date().getFullYear(),
         selectedMonth: new Date().getMonth() + 1,  // 1-12
 
+        // Events — dashboard card + the manager-only menu entry
+        dashboardEvents: [],
+        managedEvents: [],
+        expandedEventNotes: {},
+
         // Push notifications
         pushOpen: false,
         pushState: 'loading',  // unsupported | ios-need-install | server-not-configured | denied | ready | subscribed | loading
@@ -2027,8 +2142,71 @@ function memberPortal() {
                 this.onTabEnter(this.tab);
                 // Quietly determine push state so the soft-prompt can render
                 this.refreshPushState().catch(() => {});
+                // Events load in the background — the dashboard must never
+                // wait on, or break because of, church-manager.
+                this.loadEvents();
             } catch (e) { console.error(e); }
             this.loading = false;
+        },
+
+        // ---- Events ----
+        async loadEvents() {
+            // Two independent calls so a failure in one can't blank the
+            // other: the dashboard card and the Event admin menu entry.
+            try {
+                const r = await fetch('/api/events/dashboard/summary');
+                if (r.ok) this.dashboardEvents = (await r.json()).events || [];
+            } catch (e) { /* card simply doesn't render */ }
+            try {
+                const r = await fetch('/api/events/mine/managed');
+                if (r.ok) this.managedEvents = (await r.json()).events || [];
+            } catch (e) { /* menu entry stays hidden */ }
+        },
+        countdown(ev) {
+            // Count down to whichever milestone is still ahead. An event
+            // that has already opened (start_date is also its launch date)
+            // counts down to closing instead, which is the date that still
+            // matters to someone who's registered.
+            if (!ev) return null;
+            const toStart = ev.days_until_start;
+            const toEnd = ev.days_until_end;
+            if (typeof toStart === 'number' && toStart > 0) {
+                return { days: toStart, label: toStart === 1 ? 'day to go' : 'days to go' };
+            }
+            if (typeof toEnd === 'number' && toEnd >= 0) {
+                return { days: toEnd, label: toEnd === 1 ? 'day left' : 'days left' };
+            }
+            return null;
+        },
+        // NB: named eventDates, not eventWhen — the calendar section already
+        // defines eventWhen() further down this same object, and the later
+        // definition silently wins.
+        eventDates(ev) {
+            const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+            const s = new Date(ev.start_date + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+            const e = new Date(ev.end_date + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+            return s === e ? s : `${s} – ${e}`;
+        },
+        eventNoteWhen(a) {
+            if (!a.created_at) return '';
+            return new Date(a.created_at).toLocaleDateString('en-ZA',
+                { day: 'numeric', month: 'short' });
+        },
+        registrationLabel(status) {
+            return ({
+                INTENT_TO_ATTEND: 'Payment due',
+                PARTIALLY_PAID: 'Part-paid',
+                FULLY_PAID: 'Paid up',
+                CANCELLED: 'Cancelled',
+            })[status] || status;
+        },
+        registrationBadgeClass(status) {
+            return ({
+                INTENT_TO_ATTEND: 'bg-amber-100 text-amber-700',
+                PARTIALLY_PAID: 'bg-blue-100 text-blue-700',
+                FULLY_PAID: 'bg-emerald-100 text-emerald-700',
+                CANCELLED: 'bg-gray-200 text-gray-600',
+            })[status] || 'bg-gray-100 text-gray-700';
         },
 
         // ---- Push prompt soft-banner ----

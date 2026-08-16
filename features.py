@@ -72,6 +72,17 @@ FEATURES: dict[str, dict] = {
         "default": True,
         "description": "Monthly and yearly view of personal service attendance.",
     },
+    "events": {
+        "label": "Events & Registration",
+        "group": "Member Portal — Core",
+        "default": True,
+        "description": (
+            "Camp meetings and conferences created in church-manager: members "
+            "register themselves (or as a guest), and members marked as event "
+            "managers get a registry view to add people, capture payments and "
+            "download reports."
+        ),
+    },
 
     # ── Member Portal — Content ──────────────────────────────────────────────
     "devotionals": {

@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+{% block title %}Event Registration - Revival Fire{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto px-4 py-6">
+    <a href="/events" class="text-sm text-blue-600 hover:underline">&larr; All events</a>
+
+    <div id="loading" class="py-16 text-center text-gray-400 text-sm">Loading…</div>
+    <div id="error" class="hidden mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"></div>
+
+    <!-- Success page — replaces everything once they're on the list -->
+    <div id="success" class="hidden py-8 text-center">
+        <div class="mx-auto w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-3xl">✓</div>
+        <h1 class="text-2xl font-bold text-gray-900 mt-4">You're registered!</h1>
+        <p id="successName" class="text-gray-600 mt-1"></p>
+
+        <div class="mt-5 bg-white rounded-xl border border-gray-200 p-4 text-left">
+            <p id="successEvent" class="font-semibold text-gray-900"></p>
+            <p id="successWhen" class="text-sm text-gray-500 mt-0.5"></p>
+            <p id="successVenue" class="text-sm text-gray-500"></p>
+            <div id="successCost" class="hidden mt-3 pt-3 border-t border-gray-100">
+                <p class="text-sm text-gray-700">Cost: <span id="successAmount" class="font-semibold"></span></p>
+                <p class="text-xs text-gray-500 mt-1">
+                    Payment can be made to an event manager — your status updates once it's received.
+                </p>
+            </div>
+        </div>
+
+        <p class="text-xs text-gray-500 mt-4">
+            A confirmation has been emailed to you, and the event team has been notified.
+        </p>
+
+        <div class="mt-5 space-y-2">
+            <a href="/events" class="block bg-blue-600 text-white font-medium py-2.5 rounded-xl hover:bg-blue-700">Back to events</a>
+            <a href="/portal" class="block text-sm text-gray-500">Go to my portal</a>
+        </div>
+    </div>
+
+    <div id="event" class="hidden mt-4">
+        <img id="poster" class="hidden w-full rounded-xl mb-4" alt="">
+        <h1 id="title" class="text-2xl font-bold text-gray-900"></h1>
+        <p id="dates" class="text-sm text-gray-500 mt-1"></p>
+        <p id="venue" class="text-sm text-gray-500"></p>
+        <p id="cost" class="text-base font-semibold text-gray-800 mt-3"></p>
+        <p id="description" class="text-sm text-gray-600 mt-3 whitespace-pre-line"></p>
+
+        <!-- Already registered -->
+        <div id="registered" class="hidden mt-6 rounded-xl border border-green-200 bg-green-50 p-4">
+            <p class="font-semibold text-green-900">You're registered ✓</p>
+            <p id="regStatus" class="text-sm text-green-800 mt-1"></p>
+            <p id="regBalance" class="text-sm text-green-800"></p>
+            <p id="countdown" class="text-sm font-medium text-green-900 mt-2"></p>
+        </div>
+
+        <!-- Event notes -->
+        <div id="notes" class="hidden mt-6">
+            <h2 class="text-sm font-semibold text-gray-900 mb-2">Event notes</h2>
+            <div id="notesList" class="space-y-2"></div>
+        </div>
+
+        <!-- Registration form -->
+        <div id="form" class="hidden mt-6 bg-white rounded-xl border border-gray-200 p-4">
+            <h2 class="font-semibold text-gray-900 mb-1">Register</h2>
+            <p id="formIntro" class="text-sm text-gray-500 mb-4"></p>
+
+            <!-- Signed out: find yourself in the directory first -->
+            <div id="lookup" class="hidden">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Find your name</label>
+                <input id="searchInput" type="text" autocomplete="off" placeholder="Type your name…"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <div id="searchResults" class="mt-2 space-y-1"></div>
+                <button type="button" id="guestBtn"
+                        class="mt-3 text-sm text-blue-600 hover:underline">
+                    I'm not on the list — register as a guest
+                </button>
+            </div>
+
+            <!-- Already on the list (found via the directory search) -->
+            <div id="alreadyRegistered" class="hidden rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p class="font-semibold text-amber-900">Already registered</p>
+                <p id="alreadyText" class="text-sm text-amber-800 mt-1"></p>
+                <button type="button" id="alreadyBack"
+                        class="mt-3 text-sm font-medium text-amber-900 underline">Search for someone else</button>
+            </div>
+
+            <div id="fields" class="hidden space-y-3">
+                <div id="identityNote" class="hidden text-sm bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-blue-900"></div>
+
+                <!-- Contact fields are only for people we don't already hold
+                     details for. A signed-in member's name, phone and email
+                     come from their account, so we show them read-only rather
+                     than asking them to retype what we know. -->
+                <div id="knownDetails" class="hidden rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"></div>
+
+                <div id="contactFields" class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+                        <input id="fullName" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                        <input id="phone" type="tel" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input id="email" type="email" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                </div>
+
+                <button id="submitBtn" type="button"
+                        class="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg hover:bg-blue-700">
+                    Confirm registration
+                </button>
+                <p id="formError" class="hidden text-sm text-red-600"></p>
+            </div>
+        </div>
+
+        <div id="managerLink" class="hidden mt-6">
+            <a href="#" id="manageHref"
+               class="block text-center bg-amber-500 text-white font-medium py-2.5 rounded-lg hover:bg-amber-600">
+                Manage this event
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+const EVENT_ID = {{ event_id | tojson }};
+let EVENT = null;
+let picked = null;      // {external_member_id, full_name} chosen from the directory
+let guestMode = false;
+
+const STATUS_LABELS = {
+    INTENT_TO_ATTEND: 'Registered — payment outstanding',
+    PARTIALLY_PAID: 'Part-paid',
+    FULLY_PAID: 'Paid in full',
+    CANCELLED: 'Cancelled',
+};
+
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+    ));
+}
+function $(id) { return document.getElementById(id); }
+
+function fmtDates(start, end) {
+    const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+    const s = new Date(start + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+    const e = new Date(end + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+    return s === e ? s : `${s} – ${e}`;
+}
+function money(a, c) {
+    const n = Number(a || 0);
+    return n ? `${c || 'ZAR'} ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : 'Free';
+}
+
+async function load() {
+    try {
+        const res = await fetch(`/api/events/${EVENT_ID}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'This event is not available');
+        }
+        EVENT = await res.json();
+    } catch (e) {
+        $('loading').classList.add('hidden');
+        $('error').textContent = e.message;
+        $('error').classList.remove('hidden');
+        return;
+    }
+
+    $('loading').classList.add('hidden');
+    $('event').classList.remove('hidden');
+    $('title').textContent = EVENT.title;
+    $('dates').textContent = fmtDates(EVENT.start_date, EVENT.end_date);
+    if (EVENT.venue) $('venue').textContent = '📍 ' + EVENT.venue;
+    $('cost').textContent = EVENT.cost ? money(EVENT.cost, EVENT.currency) + ' per person' : 'Free';
+    if (EVENT.description) $('description').textContent = EVENT.description;
+    if (EVENT.has_poster) {
+        // Version the URL so a replaced poster isn't hidden behind the
+        // hour-long image cache.
+        $('poster').src = `/api/events/${EVENT_ID}/poster?v=${encodeURIComponent(EVENT.updated_at || '')}`;
+        $('poster').classList.remove('hidden');
+    }
+    if (EVENT.is_manager) {
+        $('manageHref').href = `/events/${EVENT_ID}/manage`;
+        $('managerLink').classList.remove('hidden');
+    }
+
+    // Notes are posted by managers and admins; anyone who can see the event
+    // can read them.
+    const notes = EVENT.announcements || [];
+    if (notes.length) {
+        $('notesList').innerHTML = notes.map(n => `
+            <div class="rounded-xl border p-3 ${n.is_pinned ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}">
+                <p class="text-sm font-semibold text-gray-900">${n.is_pinned ? '📌 ' : ''}${esc(n.title)}</p>
+                <p class="text-sm text-gray-600 mt-1 whitespace-pre-line">${esc(n.body)}</p>
+                <p class="text-[11px] text-gray-400 mt-1">${esc(n.created_by_name || '')}</p>
+            </div>`).join('');
+        $('notes').classList.remove('hidden');
+    }
+
+    if (EVENT.my_registration) {
+        const reg = EVENT.my_registration;
+        $('regStatus').textContent = STATUS_LABELS[reg.status] || reg.status;
+        if (EVENT.cost) {
+            const bal = Math.max(0, Number(EVENT.cost) - Number(reg.amount_paid || 0));
+            $('regBalance').textContent = bal > 0
+                ? `Balance outstanding: ${money(bal, EVENT.currency)}`
+                : 'Nothing outstanding.';
+        }
+        const days = Math.ceil((new Date(EVENT.start_date + 'T00:00:00') - new Date()) / 86400000);
+        if (days > 0) $('countdown').textContent = `${days} day${days === 1 ? '' : 's'} to go`;
+        else if (days === 0) $('countdown').textContent = 'Today!';
+        $('registered').classList.remove('hidden');
+        return;
+    }
+
+    $('form').classList.remove('hidden');
+    if (EVENT.signed_in && EVENT.me) {
+        // Signed in: we already hold their name, phone and email, so don't
+        // ask for any of it — just show what we have and let them confirm.
+        $('formIntro').textContent = 'Confirm your registration.';
+        const bits = [EVENT.me.phone, EVENT.me.email].filter(Boolean).join(' · ');
+        $('knownDetails').innerHTML =
+            `<span class="font-medium text-gray-900">${esc(EVENT.me.full_name || '')}</span>` +
+            (bits ? `<br><span class="text-gray-500">${esc(bits)}</span>` : '');
+        $('knownDetails').classList.remove('hidden');
+        $('contactFields').classList.add('hidden');
+        $('fields').classList.remove('hidden');
+    } else {
+        $('formIntro').textContent = 'Find your name in the church directory, or register as a guest.';
+        $('lookup').classList.remove('hidden');
+    }
+}
+
+function showSuccess(name) {
+    $('event').classList.add('hidden');
+    $('successName').textContent = name ? `See you there, ${name.split(' ')[0]}.` : '';
+    $('successEvent').textContent = EVENT.title;
+    $('successWhen').textContent = fmtDates(EVENT.start_date, EVENT.end_date);
+    if (EVENT.venue) $('successVenue').textContent = '📍 ' + EVENT.venue;
+    if (EVENT.cost) {
+        $('successAmount').textContent = money(EVENT.cost, EVENT.currency);
+        $('successCost').classList.remove('hidden');
+    }
+    $('success').classList.remove('hidden');
+    window.scrollTo({ top: 0 });
+}
+
+function showAlreadyRegistered(info) {
+    const when = info.registered_on
+        ? new Date(info.registered_on).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })
+        : null;
+    $('alreadyText').textContent =
+        `${info.full_name || 'That person'} is already on the list for this event`
+        + (when ? `, registered on ${when}.` : '.')
+        + ' No need to register again.';
+    $('lookup').classList.add('hidden');
+    $('fields').classList.add('hidden');
+    $('alreadyRegistered').classList.remove('hidden');
+}
+
+$('alreadyBack').addEventListener('click', () => {
+    $('alreadyRegistered').classList.add('hidden');
+    $('searchInput').value = '';
+    $('searchResults').innerHTML = '';
+    picked = null;
+    $('lookup').classList.remove('hidden');
+});
+
+let searchTimer = null;
+$('searchInput').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = $('searchInput').value.trim();
+    if (q.length < 2) { $('searchResults').innerHTML = ''; return; }
+    searchTimer = setTimeout(async () => {
+        $('searchResults').innerHTML = '<p class="text-xs text-gray-400 px-1">Searching…</p>';
+        try {
+            const r = await fetch(`/api/events/${EVENT_ID}/directory-search?q=${encodeURIComponent(q)}`);
+            const data = await r.json();
+            const rows = data.results || [];
+            if (!rows.length) {
+                $('searchResults').innerHTML =
+                    '<p class="text-xs text-gray-500 px-1">No match — you can register as a guest below.</p>';
+                return;
+            }
+            $('searchResults').innerHTML = rows.map(m => `
+                <button type="button" data-id="${esc(m.external_member_id)}" data-name="${esc(m.full_name)}"
+                        class="pick w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:bg-blue-50 text-sm">
+                    ${esc(m.full_name)}
+                    <span class="text-gray-400 text-xs ml-2">${esc(m.phone_hint || '')}</span>
+                </button>`).join('');
+            document.querySelectorAll('.pick').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    picked = { external_member_id: btn.dataset.id, full_name: btn.dataset.name };
+                    guestMode = false;
+
+                    // Tell them up front if this person is already on the
+                    // list, rather than letting them fill the form and hit
+                    // a duplicate error on submit.
+                    try {
+                        const r = await fetch(
+                            `/api/events/${EVENT_ID}/registration-status?member_id=${encodeURIComponent(picked.external_member_id)}`);
+                        if (r.ok) {
+                            const info = await r.json();
+                            if (info.registered) { showAlreadyRegistered(info); return; }
+                        }
+                    } catch (e) { /* fall through — register will be the authority */ }
+
+                    $('lookup').classList.add('hidden');
+                    $('identityNote').textContent = `Registering as ${picked.full_name}`;
+                    $('identityNote').classList.remove('hidden');
+                    $('fullName').value = picked.full_name;
+                    $('fullName').readOnly = true;
+                    $('fullName').classList.add('bg-gray-50');
+                    $('fields').classList.remove('hidden');
+                });
+            });
+        } catch (e) {
+            $('searchResults').innerHTML =
+                '<p class="text-xs text-amber-700 px-1">Directory unavailable — you can still register as a guest.</p>';
+        }
+    }, 350);
+});
+
+$('guestBtn').addEventListener('click', () => {
+    guestMode = true;
+    picked = null;
+    $('lookup').classList.add('hidden');
+    $('identityNote').textContent = 'Registering as a guest.';
+    $('identityNote').classList.remove('hidden');
+    $('fullName').readOnly = false;
+    $('fullName').classList.remove('bg-gray-50');
+    $('fields').classList.remove('hidden');
+});
+
+$('submitBtn').addEventListener('click', async () => {
+    const btn = $('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Registering…';
+    $('formError').classList.add('hidden');
+    try {
+        const res = await fetch(`/api/events/${EVENT_ID}/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                external_member_id: picked ? picked.external_member_id : null,
+                full_name: $('fullName').value.trim(),
+                phone: $('phone').value.trim(),
+                email: $('email').value.trim(),
+            }),
+        });
+        if (res.status === 409) {
+            // Someone else registered them between the check and the submit,
+            // or they double-tapped — say so plainly rather than "failed".
+            showAlreadyRegistered({ full_name: (picked && picked.full_name) || $('fullName').value });
+            return;
+        }
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Registration failed');
+        }
+        const created = await res.json().catch(() => ({}));
+        showSuccess(created.full_name || $('fullName').value);
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Confirm registration';
+        $('formError').textContent = e.message;
+        $('formError').classList.remove('hidden');
+    }
+});
+
+load();
+</script>
+{% endblock %}

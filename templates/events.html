@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Events - Revival Fire{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-6">
+    <div class="flex items-center justify-between mb-5">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Events</h1>
+            <p class="text-sm text-gray-500">Camps, conferences and gatherings you can register for.</p>
+        </div>
+        <a href="/" class="text-sm text-blue-600 hover:underline">&larr; Portal</a>
+    </div>
+
+    <div id="managedBanner" class="hidden mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <p class="text-sm font-semibold text-amber-900 mb-2">You manage these events</p>
+        <div id="managedList" class="space-y-2"></div>
+    </div>
+
+    <div id="loading" class="py-16 text-center text-gray-400 text-sm">Loading events…</div>
+    <div id="error" class="hidden rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"></div>
+    <div id="empty" class="hidden py-16 text-center">
+        <div class="text-4xl mb-3">📅</div>
+        <p class="text-gray-500 text-sm">No events are open for registration right now.</p>
+    </div>
+    <div id="list" class="space-y-4"></div>
+</div>
+
+<script>
+const STATUS_LABELS = {
+    INTENT_TO_ATTEND: 'Registered — payment outstanding',
+    PARTIALLY_PAID: 'Part-paid',
+    FULLY_PAID: 'Paid in full',
+    CANCELLED: 'Cancelled',
+};
+const STATUS_CLASS = {
+    INTENT_TO_ATTEND: 'bg-amber-100 text-amber-800',
+    PARTIALLY_PAID: 'bg-blue-100 text-blue-800',
+    FULLY_PAID: 'bg-green-100 text-green-800',
+    CANCELLED: 'bg-gray-200 text-gray-600',
+};
+
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+    ));
+}
+
+function fmtDates(start, end) {
+    const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+    const s = new Date(start + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+    const e = new Date(end + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+    return s === e ? s : `${s} – ${e}`;
+}
+
+function money(amount, currency) {
+    if (amount === null || amount === undefined || amount === '') return null;
+    const n = Number(amount);
+    if (!n) return 'Free';
+    return `${currency || 'ZAR'} ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+}
+
+function card(ev) {
+    const cost = money(ev.cost, ev.currency);
+    const mine = ev.my_registration;
+    const badge = mine
+        ? `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CLASS[mine.status] || 'bg-gray-100 text-gray-700'}">${esc(STATUS_LABELS[mine.status] || mine.status)}</span>`
+        : '';
+    // ?v=updated_at — the poster response is cached for an hour, so without a
+    // version in the URL a replaced poster keeps showing the old image.
+    const poster = ev.has_poster
+        ? `<img src="/api/events/${ev.id}/poster?v=${encodeURIComponent(ev.updated_at || '')}" alt="" class="w-full h-40 object-cover rounded-t-xl" loading="lazy">`
+        : '';
+    return `
+    <a href="/events/${ev.id}" class="block bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-sm transition overflow-hidden">
+        ${poster}
+        <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+                <h2 class="font-semibold text-gray-900">${esc(ev.title)}</h2>
+                ${badge}
+            </div>
+            <p class="text-sm text-gray-500 mt-1">${esc(fmtDates(ev.start_date, ev.end_date))}</p>
+            ${ev.venue ? `<p class="text-sm text-gray-500">📍 ${esc(ev.venue)}</p>` : ''}
+            ${cost ? `<p class="text-sm font-medium text-gray-700 mt-2">${esc(cost)}</p>` : ''}
+            ${ev.is_manager ? '<p class="text-xs text-amber-700 mt-2 font-medium">You manage this event</p>' : ''}
+        </div>
+    </a>`;
+}
+
+async function load() {
+    try {
+        const res = await fetch('/api/events');
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Could not load events (${res.status})`);
+        }
+        const data = await res.json();
+        document.getElementById('loading').classList.add('hidden');
+        const events = data.events || [];
+        if (!events.length) {
+            document.getElementById('empty').classList.remove('hidden');
+        } else {
+            document.getElementById('list').innerHTML = events.map(card).join('');
+        }
+    } catch (e) {
+        document.getElementById('loading').classList.add('hidden');
+        const box = document.getElementById('error');
+        box.textContent = e.message;
+        box.classList.remove('hidden');
+    }
+
+    // Managed events are a separate call so a manager-lookup failure can
+    // never stop the main list from rendering.
+    try {
+        const r = await fetch('/api/events/mine/managed');
+        if (!r.ok) return;
+        const managed = (await r.json()).events || [];
+        if (!managed.length) return;
+        document.getElementById('managedList').innerHTML = managed.map(ev => `
+            <a href="/events/${ev.id}/manage" class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-amber-200">
+                <span class="text-sm font-medium text-gray-800">${esc(ev.title)}</span>
+                <span class="text-xs text-gray-500">${ev.stats ? ev.stats.attending_count : 0} registered →</span>
+            </a>`).join('');
+        document.getElementById('managedBanner').classList.remove('hidden');
+    } catch (e) { /* menu extra only — never block the page */ }
+}
+
+load();
+</script>
+{% endblock %}

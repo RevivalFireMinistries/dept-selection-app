@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+{% block title %}Manage Event - Revival Fire{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 py-6">
+    <a href="/events" class="text-sm text-blue-600 hover:underline">&larr; Events</a>
+
+    <div id="error" class="hidden mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"></div>
+    <div id="loading" class="py-16 text-center text-gray-400 text-sm">Loading registry…</div>
+
+    <div id="wrap" class="hidden mt-3">
+        <h1 id="title" class="text-2xl font-bold text-gray-900"></h1>
+        <p id="sub" class="text-sm text-gray-500"></p>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4" id="stats"></div>
+
+        <div class="flex gap-2 mt-4">
+            <button id="addBtn" class="flex-1 bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg hover:bg-blue-700">+ Add person</button>
+            <button id="shareBtn" class="flex-1 bg-emerald-600 text-white text-sm font-medium py-2.5 rounded-lg hover:bg-emerald-700">Share</button>
+            <a id="csvBtn" class="flex-1 text-center bg-white border border-gray-300 text-gray-700 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50">CSV</a>
+        </div>
+
+        <!-- Share the registration link -->
+        <div id="sharePanel" class="hidden mt-3 bg-white rounded-xl border border-gray-200 p-4">
+            <p class="font-semibold text-sm text-gray-900">Share registration</p>
+            <p class="text-xs text-gray-500 mt-0.5">Anyone with this link can register — they don't need an account.</p>
+
+            <div class="flex items-center gap-2 mt-3">
+                <input id="shareUrl" type="text" readonly
+                       class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs bg-gray-50">
+                <button id="copyBtn" class="px-3 py-2 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg">Copy</button>
+            </div>
+
+            <div class="flex gap-2 mt-3">
+                <a id="waBtn" target="_blank" rel="noopener"
+                   class="flex-1 text-center bg-[#25D366] text-white text-sm font-medium py-2.5 rounded-lg">
+                    Share on WhatsApp
+                </a>
+                <button id="qrShareBtn" class="flex-1 bg-gray-800 text-white text-sm font-medium py-2.5 rounded-lg">Share QR</button>
+            </div>
+
+            <div class="mt-4 text-center">
+                <img id="qrImg" alt="Registration QR code"
+                     class="mx-auto w-44 h-44 border border-gray-200 rounded-lg bg-white p-2">
+                <a id="qrDownload" download
+                   class="inline-block mt-2 text-xs font-medium text-blue-600 hover:underline">Download QR image</a>
+                <p class="text-[11px] text-gray-400 mt-1">Print it on a poster or project it in the service.</p>
+            </div>
+        </div>
+
+        <!-- Add person -->
+        <div id="addPanel" class="hidden mt-3 bg-white rounded-xl border border-gray-200 p-4">
+            <p class="font-semibold text-sm text-gray-900 mb-2">Add someone to the registry</p>
+            <input id="addSearch" type="text" placeholder="Search the church directory…" autocomplete="off"
+                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <div id="addResults" class="mt-2 space-y-1"></div>
+            <div id="addFields" class="hidden mt-3 space-y-2">
+                <div id="addIdentity" class="text-sm bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-blue-900"></div>
+                <input id="addName" type="text" placeholder="Full name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <input id="addPhone" type="tel" placeholder="Phone" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <input id="addEmail" type="email" placeholder="Email" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <div class="flex gap-2">
+                    <button id="addSave" class="flex-1 bg-blue-600 text-white text-sm font-medium py-2 rounded-lg">Add</button>
+                    <button id="addCancel" class="px-4 bg-gray-100 text-gray-700 text-sm rounded-lg">Cancel</button>
+                </div>
+                <p id="addError" class="hidden text-sm text-red-600"></p>
+            </div>
+            <button id="addGuest" class="mt-2 text-sm text-blue-600 hover:underline">Not in the directory — add as guest</button>
+        </div>
+
+        <!-- Event notes -->
+        <div class="mt-4 bg-white rounded-xl border border-gray-200 p-4">
+            <div class="flex items-center justify-between">
+                <p class="font-semibold text-sm text-gray-900">Event notes</p>
+                <button id="noteToggle" class="text-sm text-blue-600 hover:underline">+ Post a note</button>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">Everyone registered sees these on their portal home.</p>
+
+            <div id="notePanel" class="hidden mt-3 space-y-2">
+                <input id="noteTitle" type="text" placeholder="Title (e.g. Bus departure times)"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <textarea id="noteBody" rows="3" placeholder="What do they need to know?"
+                          class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"></textarea>
+                <label class="flex items-center gap-2 text-sm text-gray-600">
+                    <input id="notePinned" type="checkbox" class="rounded">
+                    Pin to the top
+                </label>
+                <div class="flex gap-2">
+                    <button id="noteSave" class="flex-1 bg-blue-600 text-white text-sm font-medium py-2 rounded-lg">Post note</button>
+                    <button id="noteCancel" class="px-4 bg-gray-100 text-gray-700 text-sm rounded-lg">Cancel</button>
+                </div>
+                <p id="noteError" class="hidden text-sm text-red-600"></p>
+            </div>
+
+            <div id="notesList" class="mt-3 space-y-2"></div>
+        </div>
+
+        <input id="filter" type="search" placeholder="Filter the registry…"
+               class="w-full mt-4 px-3 py-2 border border-gray-300 rounded-lg text-sm">
+
+        <div id="rows" class="mt-3 space-y-2"></div>
+    </div>
+</div>
+
+<script>
+const EVENT_ID = {{ event_id | tojson }};
+let DATA = null;
+let addPick = null;
+
+const STATUS_LABELS = {
+    INTENT_TO_ATTEND: 'Intent to attend',
+    PARTIALLY_PAID: 'Part-paid',
+    FULLY_PAID: 'Paid in full',
+    CANCELLED: 'Cancelled',
+};
+const STATUS_CLASS = {
+    INTENT_TO_ATTEND: 'bg-amber-100 text-amber-800',
+    PARTIALLY_PAID: 'bg-blue-100 text-blue-800',
+    FULLY_PAID: 'bg-green-100 text-green-800',
+    CANCELLED: 'bg-gray-200 text-gray-600',
+};
+
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+    ));
+}
+function $(id) { return document.getElementById(id); }
+function money(a, c) {
+    return `${c || 'ZAR'} ${Number(a || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+}
+function showError(msg) {
+    $('error').textContent = msg;
+    $('error').classList.remove('hidden');
+}
+
+function statCard(label, value) {
+    return `<div class="bg-white rounded-lg border border-gray-200 px-3 py-2">
+        <p class="text-xs text-gray-500">${esc(label)}</p>
+        <p class="text-lg font-semibold text-gray-900">${esc(value)}</p>
+    </div>`;
+}
+
+function row(r) {
+    const cur = DATA.event.currency;
+    return `
+    <div class="bg-white rounded-xl border ${r.removed ? 'border-gray-200 opacity-60' : 'border-gray-200'} p-3" data-name="${esc((r.full_name||'').toLowerCase())}">
+        <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+                <p class="font-medium text-gray-900 truncate">${esc(r.full_name)}
+                    ${r.is_guest ? '<span class="text-xs text-gray-500 font-normal">(guest)</span>' : ''}
+                    ${r.removed ? '<span class="text-xs text-red-600 font-normal">removed</span>' : ''}
+                </p>
+                <p class="text-xs text-gray-500">${esc(r.phone || '')}${r.email ? ' · ' + esc(r.email) : ''}</p>
+                <p class="text-xs text-gray-400 mt-0.5">Added by ${esc(r.registered_by || '—')}</p>
+            </div>
+            <span class="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CLASS[r.status] || 'bg-gray-100'}">${esc(STATUS_LABELS[r.status] || r.status)}</span>
+        </div>
+        <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+            <p class="text-xs text-gray-600">Paid ${esc(money(r.amount_paid, cur))}${r.balance > 0 ? ` · owing ${esc(money(r.balance, cur))}` : ''}</p>
+            ${r.removed ? '' : `
+            <div class="flex gap-2">
+                <button class="pay text-xs font-medium text-blue-600 hover:underline" data-id="${r.id}" data-name="${esc(r.full_name)}" data-bal="${r.balance}">Payment</button>
+                <button class="rm text-xs font-medium text-red-600 hover:underline" data-id="${r.id}" data-name="${esc(r.full_name)}">Remove</button>
+            </div>`}
+        </div>
+    </div>`;
+}
+
+function render() {
+    const ev = DATA.event, s = DATA.stats;
+    $('title').textContent = ev.title;
+    $('sub').textContent = `${ev.start_date} – ${ev.end_date}` + (ev.venue ? ` · ${ev.venue}` : '');
+    $('csvBtn').href = `/api/events/${EVENT_ID}/registry.csv`;
+    $('stats').innerHTML =
+        statCard('Registered', s.attending_count) +
+        statCard('Paid in full', s.fully_paid_count) +
+        statCard('Collected', money(s.total_collected, ev.currency)) +
+        statCard('Outstanding', money(s.total_outstanding, ev.currency));
+    $('rows').innerHTML = DATA.registrations.map(row).join('');
+
+    document.querySelectorAll('.pay').forEach(b => b.addEventListener('click', () => takePayment(b.dataset.id, b.dataset.name, b.dataset.bal)));
+    document.querySelectorAll('.rm').forEach(b => b.addEventListener('click', () => removePerson(b.dataset.id, b.dataset.name)));
+}
+
+async function load() {
+    try {
+        const res = await fetch(`/api/events/${EVENT_ID}/registry`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Could not load the registry');
+        }
+        DATA = await res.json();
+        $('loading').classList.add('hidden');
+        $('wrap').classList.remove('hidden');
+        render();
+        loadNotes();
+    } catch (e) {
+        $('loading').classList.add('hidden');
+        showError(e.message);
+    }
+}
+
+async function takePayment(id, name, balance) {
+    const suggested = Number(balance) > 0 ? Number(balance).toFixed(2) : '';
+    const input = prompt(`Payment amount for ${name}:`, suggested);
+    if (input === null) return;
+    const amount = parseFloat(input);
+    if (!amount || amount <= 0) { alert('Enter an amount greater than zero.'); return; }
+    const method = prompt('Method (cash / eft / card):', 'cash') || null;
+    try {
+        const res = await fetch(`/api/events/${EVENT_ID}/registry/${id}/payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount, method }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Could not record the payment');
+        }
+        await load();
+    } catch (e) { alert(e.message); }
+}
+
+async function removePerson(id, name) {
+    if (!confirm(`Remove ${name} from this event?\n\nThe record is kept and can be restored by an admin.`)) return;
+    try {
+        const res = await fetch(`/api/events/${EVENT_ID}/registry/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Could not remove them');
+        }
+        await load();
+    } catch (e) { alert(e.message); }
+}
+
+// ── Sharing ───────────────────────────────────────────────────────────────────
+let SHARE = null;
+
+async function loadShare() {
+    try {
+        const r = await fetch(`/api/events/${EVENT_ID}/share`);
+        if (!r.ok) return;
+        SHARE = await r.json();
+        $('shareUrl').value = SHARE.url;
+        $('waBtn').href = SHARE.whatsapp_url;
+        $('qrImg').src = SHARE.qr_url;
+        $('qrDownload').href = SHARE.qr_url + '?download=true';
+    } catch (e) { /* share panel just stays empty */ }
+}
+
+$('shareBtn').addEventListener('click', () => {
+    $('sharePanel').classList.toggle('hidden');
+    if (SHARE === null) loadShare();
+});
+
+$('copyBtn').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText($('shareUrl').value);
+        $('copyBtn').textContent = 'Copied';
+        setTimeout(() => ($('copyBtn').textContent = 'Copy'), 1500);
+    } catch (e) {
+        // Clipboard API needs a secure context; select the text instead so
+        // the manager can copy it by hand.
+        $('shareUrl').select();
+    }
+});
+
+// Share the QR as an actual image file where the platform supports it
+// (Android/iOS share sheets, WhatsApp included). Everywhere else, fall back
+// to downloading the PNG so it can still be attached manually.
+$('qrShareBtn').addEventListener('click', async () => {
+    if (!SHARE) return;
+    try {
+        const res = await fetch(SHARE.qr_url);
+        const blob = await res.blob();
+        const file = new File([blob], 'event-qr.png', { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+                files: [file],
+                title: SHARE.title || 'Event registration',
+                text: SHARE.message,
+            });
+            return;
+        }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'event-qr.png';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    } catch (e) {
+        if (e && e.name === 'AbortError') return;   // user dismissed the sheet
+        alert('Could not share the QR code: ' + e.message);
+    }
+});
+
+// ── Event notes ───────────────────────────────────────────────────────────────
+async function loadNotes() {
+    try {
+        const r = await fetch(`/api/events/${EVENT_ID}/announcements`);
+        if (!r.ok) return;
+        const notes = (await r.json()).announcements || [];
+        $('notesList').innerHTML = notes.length
+            ? notes.map(n => `
+                <div class="rounded-lg border p-3 ${n.is_pinned ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-gray-900">${n.is_pinned ? '📌 ' : ''}${esc(n.title)}</p>
+                            <p class="text-xs text-gray-600 mt-0.5 whitespace-pre-line">${esc(n.body)}</p>
+                            <p class="text-[10px] text-gray-400 mt-1">${esc(n.created_by_name || '')}</p>
+                        </div>
+                        <button class="delNote text-xs text-red-600 hover:underline shrink-0" data-id="${n.id}">Delete</button>
+                    </div>
+                </div>`).join('')
+            : '<p class="text-sm text-gray-500">No notes posted yet.</p>';
+        document.querySelectorAll('.delNote').forEach(b => b.addEventListener('click', () => deleteNote(b.dataset.id)));
+    } catch (e) { /* notes are supplementary — never block the registry */ }
+}
+
+async function deleteNote(id) {
+    if (!confirm('Delete this note? Registrants will no longer see it.')) return;
+    try {
+        const r = await fetch(`/api/events/${EVENT_ID}/announcements/${id}`, { method: 'DELETE' });
+        if (!r.ok) throw new Error('Could not delete the note');
+        await loadNotes();
+    } catch (e) { alert(e.message); }
+}
+
+$('noteToggle').addEventListener('click', () => $('notePanel').classList.toggle('hidden'));
+$('noteCancel').addEventListener('click', () => $('notePanel').classList.add('hidden'));
+$('noteSave').addEventListener('click', async () => {
+    $('noteError').classList.add('hidden');
+    const title = $('noteTitle').value.trim();
+    const body = $('noteBody').value.trim();
+    if (!title || !body) {
+        $('noteError').textContent = 'A title and a message are both required';
+        $('noteError').classList.remove('hidden');
+        return;
+    }
+    try {
+        const r = await fetch(`/api/events/${EVENT_ID}/announcements`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body, is_pinned: $('notePinned').checked }),
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            throw new Error(err.detail || 'Could not post the note');
+        }
+        $('noteTitle').value = ''; $('noteBody').value = ''; $('notePinned').checked = false;
+        $('notePanel').classList.add('hidden');
+        await loadNotes();
+    } catch (e) {
+        $('noteError').textContent = e.message;
+        $('noteError').classList.remove('hidden');
+    }
+});
+
+$('filter').addEventListener('input', () => {
+    const q = $('filter').value.trim().toLowerCase();
+    document.querySelectorAll('#rows > div').forEach(el => {
+        el.style.display = !q || el.dataset.name.includes(q) ? '' : 'none';
+    });
+});
+
+// ── Add person ────────────────────────────────────────────────────────────────
+$('addBtn').addEventListener('click', () => $('addPanel').classList.toggle('hidden'));
+$('addCancel').addEventListener('click', () => {
+    $('addFields').classList.add('hidden');
+    $('addPanel').classList.add('hidden');
+    addPick = null;
+});
+
+let addTimer = null;
+$('addSearch').addEventListener('input', () => {
+    clearTimeout(addTimer);
+    const q = $('addSearch').value.trim();
+    if (q.length < 2) { $('addResults').innerHTML = ''; return; }
+    addTimer = setTimeout(async () => {
+        try {
+            const r = await fetch(`/api/events/${EVENT_ID}/directory-search?q=${encodeURIComponent(q)}`);
+            const rows = (await r.json()).results || [];
+            $('addResults').innerHTML = rows.length
+                ? rows.map(m => `<button type="button" class="apick w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:bg-blue-50 text-sm"
+                        data-id="${esc(m.external_member_id)}" data-name="${esc(m.full_name)}">${esc(m.full_name)}</button>`).join('')
+                : '<p class="text-xs text-gray-500 px-1">No match in the directory.</p>';
+            document.querySelectorAll('.apick').forEach(b => b.addEventListener('click', () => {
+                addPick = { id: b.dataset.id, name: b.dataset.name };
+                $('addIdentity').textContent = `Adding ${addPick.name}`;
+                $('addName').value = addPick.name;
+                $('addFields').classList.remove('hidden');
+                $('addResults').innerHTML = '';
+            }));
+        } catch (e) {
+            $('addResults').innerHTML = '<p class="text-xs text-amber-700 px-1">Directory unavailable.</p>';
+        }
+    }, 350);
+});
+
+$('addGuest').addEventListener('click', () => {
+    addPick = null;
+    $('addIdentity').textContent = 'Adding as a guest (not in the directory).';
+    $('addName').value = '';
+    $('addFields').classList.remove('hidden');
+});
+
+$('addSave').addEventListener('click', async () => {
+    $('addError').classList.add('hidden');
+    const name = $('addName').value.trim();
+    if (!name) { $('addError').textContent = 'Name is required'; $('addError').classList.remove('hidden'); return; }
+    try {
+        const res = await fetch(`/api/events/${EVENT_ID}/registry/add`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                external_member_id: addPick ? addPick.id : null,
+                full_name: name,
+                phone: $('addPhone').value.trim(),
+                email: $('addEmail').value.trim(),
+            }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Could not add them');
+        }
+        $('addSearch').value = ''; $('addName').value = ''; $('addPhone').value = ''; $('addEmail').value = '';
+        $('addFields').classList.add('hidden');
+        $('addPanel').classList.add('hidden');
+        addPick = null;
+        await load();
+    } catch (e) {
+        $('addError').textContent = e.message;
+        $('addError').classList.remove('hidden');
+    }
+});
+
+load();
+</script>
+{% endblock %}

@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from database import engine
 import models
-from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals, kg, clerk, prayer_groups, prayer_requests
+from routers import api, pages, display, songlist, payments, reading_plans, push, external, connect, devotionals, kg, clerk, prayer_groups, prayer_requests, events
 
 
 def run_migrations():
@@ -1079,8 +1079,13 @@ app.include_router(devotionals.router, prefix="/api", tags=["devotionals"])
 app.include_router(prayer_groups.router, prefix="/api", tags=["prayer-groups"])
 app.include_router(prayer_requests.router, prefix="/api", tags=["prayer-requests"])
 app.include_router(display.router, prefix="/api/display", tags=["display"])
+# Events — church-manager owns the data; these are the portal's pages and
+# the proxy the browser talks to. api_router carries its own /api/events
+# prefix, so it is included without one.
+app.include_router(events.api_router, tags=["events"])
 app.include_router(songlist.router, tags=["songlist"])
 app.include_router(kg.router, tags=["kingdom-gateway"])
+app.include_router(events.router, tags=["events-pages"])
 app.include_router(pages.router, tags=["pages"])
 
 
