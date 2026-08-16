@@ -409,8 +409,14 @@ class ProgramItem(BaseModel):
 
 class Participant(BaseModel):
     role: str  # "Prayer"
-    name: str  # "Dcns Gohodo"
+    name: str  # "Dcns Gohodo" — display snapshot, NOT the identity
     confirmed: bool = False  # Has the service manager confirmed with this person?
+    # The participant's identity: their member UUID in the central
+    # rfm-database. `name` is only what that member was called when the
+    # program was saved. Optional because programs created before linking
+    # carry a name and nothing else — those stay editable rather than
+    # blocking on data we can't retroactively invent.
+    external_member_id: Optional[str] = None
 
 class ProgramTemplateCreate(BaseModel):
     title: str

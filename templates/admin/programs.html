@@ -517,52 +517,49 @@ async function loadMembers() {
 }
 
 // ---- Central rfm-database search helpers (used by name pickers) ----
-// General member searches (anywhere a name is being looked up freely) call
-// the central database and merge results with local. Constrained pickers
-// (HOD list, dept members) stay local because they reference local-only data.
+// Person pickers (participants, service manager) search rfm-database and
+// nothing else — it is the source of truth for who someone is. Constrained
+// pickers (HOD list, dept members) stay local because they select among
+// local-only data rather than identifying a person.
 
-let _centralSearchCache = new Map();  // query -> results (debounce identical queries)
-const _centralSearchTokens = new Map();  // input-id -> latest token (race protection)
+// Participant pickers search rfm-database and nothing else — it is the source
+// of truth for who a person is. Returns {ok, results, message} rather than a
+// bare array so the caller can tell "no such member" apart from "the directory
+// is unreachable" and say so instead of showing an empty list.
+//
+// Uses /directory-search, NOT /external-search: the latter deliberately hides
+// members already linked into the portal (it exists for importing new people),
+// which is most of the congregation.
+const _directorySearchCache = new Map();
 
-async function searchCentralMembers(query) {
+async function searchDirectory(query) {
     const q = (query || '').trim();
-    if (q.length < 2) return [];
-    if (_centralSearchCache.has(q)) return _centralSearchCache.get(q);
-    try {
-        const r = await fetch('/api/admin/members/external-search?q=' + encodeURIComponent(q));
-        if (!r.ok) return [];
-        const data = await r.json();
-        if (!data.enabled) return [];
-        const results = data.results || [];
-        // Cap cache to avoid memory bloat over a long session
-        if (_centralSearchCache.size > 50) {
-            const oldest = _centralSearchCache.keys().next().value;
-            _centralSearchCache.delete(oldest);
-        }
-        _centralSearchCache.set(q, results);
-        return results;
-    } catch (e) {
-        return [];
-    }
-}
+    if (q.length < 2) return { ok: true, results: [] };
+    if (_directorySearchCache.has(q)) return _directorySearchCache.get(q);
 
-// Import a central member into the local DB (no department), return the
-// new local member object so callers can use the local id. Used by ID-based
-// pickers (service manager, etc.) — name-only pickers (participants) just
-// display the central name without importing.
-async function importCentralMember(externalId, phoneOverride) {
-    const body = { external_member_id: externalId };
-    if (phoneOverride) body.phone = phoneOverride;
-    const r = await fetch('/api/admin/members/import-from-external', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-        const e = await r.json().catch(() => ({}));
-        throw new Error(e.detail || ('Import failed (HTTP ' + r.status + ')'));
+    let out;
+    try {
+        const r = await fetch('/api/admin/members/directory-search?q=' + encodeURIComponent(q));
+        if (!r.ok) {
+            return { ok: false, results: [], message: `Directory search failed (HTTP ${r.status})` };
+        }
+        const data = await r.json();
+        if (!data.enabled) {
+            return { ok: false, results: [], message: 'rfm-database integration is switched off — participants cannot be linked' };
+        }
+        if (data.configured === false) {
+            return { ok: false, results: [], message: 'rfm-database is not configured (missing URL or API key)' };
+        }
+        out = { ok: true, results: data.results || [] };
+    } catch (e) {
+        return { ok: false, results: [], message: 'Could not reach rfm-database — check the connection and retry' };
     }
-    return await r.json();
+
+    if (_directorySearchCache.size > 50) {
+        _directorySearchCache.delete(_directorySearchCache.keys().next().value);
+    }
+    _directorySearchCache.set(q, out);
+    return out;
 }
 
 // Track the logged-in admin so we can default the Service Manager picker.
@@ -611,23 +608,35 @@ function setupServiceManagerAutocomplete() {
         if (items.length === 0) return;
         dropdown = document.createElement('div');
         dropdown.className = 'autocomplete-dropdown';
-        let lastSource = null;
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'padding:4px 10px; font-size:10px; font-weight:600; color:#0369a1; background:#f0f9ff; text-transform:uppercase; letter-spacing:0.5px;';
+        hdr.textContent = '🌐 rfm-database';
+        dropdown.appendChild(hdr);
         items.forEach((m) => {
-            if (m.source === 'central' && lastSource !== 'central') {
-                const hdr = document.createElement('div');
-                hdr.style.cssText = 'padding:4px 10px; font-size:10px; font-weight:600; color:#0369a1; background:#f0f9ff; text-transform:uppercase; letter-spacing:0.5px;';
-                hdr.textContent = '🌐 Central database';
-                dropdown.appendChild(hdr);
-            }
-            lastSource = m.source;
             const div = document.createElement('div');
             div.className = 'ac-item';
-            const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
-            div.innerHTML = `${escapeHtml(display)}<span class="ac-phone">${escapeHtml(m.phone || '')}</span>`;
+            div.innerHTML = `${escapeHtml(m.full_name || '')}<span class="ac-phone">${escapeHtml(m.phone || '')}</span>`;
             div.addEventListener('mousedown', (e) => { e.preventDefault(); pick(m); });
             div.addEventListener('touchstart', () => pick(m), { passive: true });
             dropdown.appendChild(div);
         });
+        document.body.appendChild(dropdown);
+        positionFixed(dropdown, input);
+        window.addEventListener('scroll', repos, true);
+        window.addEventListener('resize', repos);
+    }
+
+    // Status row shown instead of results. `filtered` stays empty so Enter
+    // and the arrow keys can never "pick" a message.
+    function message(text, isWarning) {
+        hide();
+        filtered = [];
+        dropdown = document.createElement('div');
+        dropdown.className = 'autocomplete-dropdown';
+        const div = document.createElement('div');
+        div.style.cssText = 'padding:8px 10px; font-size:12px; color:' + (isWarning ? '#b45309' : '#6b7280') + ';';
+        div.textContent = text;
+        dropdown.appendChild(div);
         document.body.appendChild(dropdown);
         positionFixed(dropdown, input);
         window.addEventListener('scroll', repos, true);
@@ -642,26 +651,33 @@ function setupServiceManagerAutocomplete() {
         selectedIndex = -1;
     }
     async function pick(m) {
-        // Local: just use their existing id.
-        // Central: import them first to get a local id, then use it.
-        if (m.source === 'central') {
-            const display = m.full_name;
-            input.value = display + ' (importing…)';
-            try {
-                const result = await importCentralMember(m.id);
-                // Refresh the local member cache so they appear in subsequent searches
-                await loadMembers();
-                setServiceManager(result.member_id, display);
-            } catch (e) {
-                alert('Failed to import: ' + e.message);
-                input.value = '';
-                hidden.value = '';
-            }
-            hide();
-            return;
-        }
-        setServiceManager(m.id, m.titledName || m.fullName);
+        // Everyone comes from rfm-database, but service_manager_id is an FK to
+        // the LOCAL members table — so resolve the central member to their
+        // local mirror row (find-or-create) and use that id. Idempotent:
+        // already-linked members resolve to their existing row.
+        const display = m.full_name;
+        input.value = display + ' (linking…)';
         hide();
+        try {
+            const r = await fetch('/api/admin/members/resolve-from-external', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ external_member_id: m.external_member_id }),
+            });
+            if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${r.status}`);
+            }
+            const result = await r.json();
+            // Keep the local cache fresh — other parts of the page still read it.
+            await loadMembers();
+            setServiceManager(result.member_id, display);
+        } catch (e) {
+            alert('Could not link this member: ' + e.message);
+            input.value = '';
+            hidden.value = '';
+            resetServiceManagerToCurrentUser();
+        }
     }
 
     input.addEventListener('input', async () => {
@@ -670,19 +686,14 @@ function setupServiceManagerAutocomplete() {
         const query = input.value.trim();
         lastQuery = query;
         if (query.length < 1) { hide(); return; }
-        const q = query.toLowerCase();
-        const local = allMembers.filter(m =>
-            m.fullName.toLowerCase().includes(q) ||
-            (m.titledName && m.titledName.toLowerCase().includes(q)) ||
-            m.phone.includes(q)
-        ).slice(0, 8).map(m => ({ ...m, source: 'local' }));
-        show(local);
-        if (query.length >= 2) {
-            const central = await searchCentralMembers(query);
-            if (lastQuery !== query) return;
-            const merged = local.concat(central.slice(0, 8).map(c => ({ ...c, source: 'central' })));
-            show(merged);
-        }
+        if (query.length < 2) { message('Keep typing to search the directory…'); return; }
+
+        message('Searching the central directory…');
+        const res = await searchDirectory(query);
+        if (lastQuery !== query) return;   // superseded by a later keystroke
+        if (!res.ok) { message(res.message, true); return; }
+        if (!res.results.length) { message(`No member matching “${query}” in rfm-database`, true); return; }
+        show(res.results);
     });
     input.addEventListener('keydown', (e) => {
         if (!dropdown) return;
@@ -1097,12 +1108,13 @@ function addParticipantGroup(role = '', names = ['']) {
     names.forEach(n => {
         const nm = (typeof n === 'string') ? n : (n && n.name) || '';
         const cf = (typeof n === 'object' && n) ? !!n.confirmed : false;
-        addNameSlot(groupId, nm, cf);
+        const ext = (typeof n === 'object' && n) ? (n.external_member_id || '') : '';
+        addNameSlot(groupId, nm, cf, ext);
     });
     updateCounts();
 }
 
-function addNameSlot(groupId, name = '', confirmed = false) {
+function addNameSlot(groupId, name = '', confirmed = false, externalMemberId = '') {
     const group = document.getElementById(groupId);
     if (!group) return;
     const namesList = group.querySelector('.part-names-list');
@@ -1121,7 +1133,12 @@ function addNameSlot(groupId, name = '', confirmed = false) {
         </button>
     `;
     namesList.appendChild(slot);
-    setupAutocomplete(slot.querySelector('#' + id));
+    const inp = slot.querySelector('#' + id);
+    // Seed the central id before setup so an existing participant keeps its
+    // link through an edit. Legacy rows arrive with no id and keep their name
+    // untouched — we don't destroy data that predates linking.
+    if (externalMemberId) inp.dataset.externalMemberId = externalMemberId;
+    setupAutocomplete(inp);
     renderSlotConfirm(slot);
 }
 
@@ -1232,24 +1249,39 @@ function getGroupRole(group) {
 function setupAutocomplete(input) {
     let dropdown = null;
     let selectedIndex = -1;
-    let filtered = [];        // unified list shown — each item has source: 'local' | 'central'
+    let filtered = [];        // results from the central directory
     let lastQuery = "";
+    let lastResults = [];     // most recent directory hits, for exact-match resolve
 
-    // Participant names must be a real pick from the list — typing only filters.
-    // `selectedValue` is the last committed pick; anything typed that isn't a
-    // pick (or an exact match of a listed member) is discarded on blur/Enter.
-    // Seed it from the initial value so existing saved names survive editing.
+    // Participants are identified by their rfm-database member UUID, never by
+    // the typed string. `selectedValue` is the last committed pick and
+    // `externalMemberId` is that pick's central id; anything typed that isn't
+    // a pick is discarded on blur/Enter. Both are seeded from the initial
+    // value so a saved participant survives editing untouched — including
+    // legacy rows that predate linking and carry no id.
     if (input.dataset.selectedValue === undefined) {
         input.dataset.selectedValue = (input.value || '').trim();
     }
 
-    function commit(value) {
+    function commit(value, externalMemberId) {
         input.value = value;
         input.dataset.selectedValue = value;
+        if (value === '') {
+            delete input.dataset.externalMemberId;
+        } else if (externalMemberId) {
+            input.dataset.externalMemberId = externalMemberId;
+        }
         const slot = input.closest('.part-name-slot');
         if (slot) renderSlotConfirm(slot);
         updateCounts();
     }
+
+    // Let the save path resolve a half-typed name synchronously. The blur
+    // handler defers revertToSelection by 200ms (so a dropdown click can
+    // land first), but clicking Save straight from the field runs
+    // collectFormData well inside that window — without this flush the raw
+    // typed text goes into the payload even though nothing was picked.
+    input._flushPick = revertToSelection;
 
     function revertToSelection() {
         const typed = (input.value || '').trim();
@@ -1259,14 +1291,14 @@ function setupAutocomplete(input) {
             return;
         }
         if (typed === committed) return;   // unchanged valid pick
-        // An exact (case-insensitive) match of a listed local member counts as
-        // a pick — no need to force a click for a fully-typed existing name.
+        // An exact (case-insensitive) match of a directory result counts as a
+        // pick, so a fully-typed name doesn't force a click. Matched against
+        // the central results only — never the local member list.
         const t = typed.toLowerCase();
-        const hit = allMembers.find(m =>
-            (m.titledName || '').toLowerCase() === t || (m.fullName || '').toLowerCase() === t);
-        if (hit) { commit(hit.titledName || hit.fullName); return; }
-        // Otherwise it's new free text — discard it, restore the last valid pick.
-        commit(committed);
+        const hit = lastResults.find(m => (m.full_name || '').toLowerCase() === t);
+        if (hit) { commit(hit.full_name, hit.external_member_id); return; }
+        // Otherwise it's free text — discard it, restore the last valid pick.
+        commit(committed, input.dataset.externalMemberId);
     }
 
     function showDropdown(items) {
@@ -1277,22 +1309,15 @@ function setupAutocomplete(input) {
 
         dropdown = document.createElement('div');
         dropdown.className = 'autocomplete-dropdown';
-        let lastSource = null;
+        const hdr = document.createElement('div');
+        hdr.className = 'ac-section';
+        hdr.style.cssText = 'padding:4px 10px; font-size:10px; font-weight:600; color:#0369a1; background:#f0f9ff; text-transform:uppercase; letter-spacing:0.5px;';
+        hdr.textContent = '🌐 rfm-database';
+        dropdown.appendChild(hdr);
         items.forEach((m) => {
-            // Section header when crossing local→central boundary
-            if (m.source === 'central' && lastSource !== 'central') {
-                const hdr = document.createElement('div');
-                hdr.className = 'ac-section';
-                hdr.style.cssText = 'padding:4px 10px; font-size:10px; font-weight:600; color:#0369a1; background:#f0f9ff; text-transform:uppercase; letter-spacing:0.5px;';
-                hdr.textContent = '🌐 Central database';
-                dropdown.appendChild(hdr);
-            }
-            lastSource = m.source;
             const div = document.createElement('div');
             div.className = 'ac-item';
-            const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
-            const phoneStr = m.phone || '';
-            div.innerHTML = `${escapeHtml(display)}<span class="ac-phone">${escapeHtml(phoneStr)}</span>`;
+            div.innerHTML = `${escapeHtml(m.full_name || '')}<span class="ac-phone">${escapeHtml(m.phone || '')}</span>`;
             div.addEventListener('mousedown', (e) => { e.preventDefault(); selectMember(m); });
             div.addEventListener('touchstart', (e) => { selectMember(m); }, { passive: true });
             dropdown.appendChild(div);
@@ -1326,12 +1351,30 @@ function setupAutocomplete(input) {
         dropdown = null; activeDropdown = null; selectedIndex = -1;
     }
 
+    // A non-selectable status row in place of results: "searching…", "no
+    // match", or a directory error. `filtered` stays empty so Enter/arrows
+    // can never pick a message.
+    function showMessage(text, isWarning) {
+        closeAllDropdowns();
+        filtered = [];
+        selectedIndex = -1;
+        dropdown = document.createElement('div');
+        dropdown.className = 'autocomplete-dropdown';
+        const div = document.createElement('div');
+        div.style.cssText = 'padding:8px 10px; font-size:12px; color:' + (isWarning ? '#b45309' : '#6b7280') + ';';
+        div.textContent = text;
+        dropdown.appendChild(div);
+        document.body.appendChild(dropdown);
+        positionDropdown();
+        window.addEventListener('scroll', positionDropdown, true);
+        window.addEventListener('resize', positionDropdown);
+        activeDropdown = dropdown;
+    }
+
     function selectMember(m) {
-        // Participant fields just store the name (no member id); for both
-        // local and central matches we just put the display name in. This is
-        // the ONLY path that commits a value — typing alone never does.
-        const display = m.source === 'central' ? m.full_name : (m.titledName || m.fullName);
-        commit(display);
+        // Commits the central UUID alongside the display name. This is the
+        // ONLY path that commits a value — typing alone never does.
+        commit(m.full_name, m.external_member_id);
         hideDropdown();
     }
 
@@ -1342,30 +1385,27 @@ function setupAutocomplete(input) {
         if (selectedIndex >= 0 && items[selectedIndex]) items[selectedIndex].scrollIntoView({ block: 'nearest' });
     }
 
-    function buildLocalMatches(query) {
-        const q = query.toLowerCase();
-        return allMembers.filter(m =>
-            m.fullName.toLowerCase().includes(q) || (m.titledName && m.titledName.toLowerCase().includes(q)) || m.phone.includes(q)
-        ).slice(0, 8).map(m => ({ ...m, source: 'local' }));
-    }
-
     input.addEventListener('input', async () => {
         const query = input.value.trim();
         lastQuery = query;
         if (query.length < 1) { hideDropdown(); return; }
+        if (query.length < 2) { showMessage('Keep typing to search the directory…'); return; }
 
-        // 1) instant local matches
-        const local = buildLocalMatches(query);
-        showDropdown(local);
+        showMessage('Searching the central directory…');
+        const res = await searchDirectory(query);
+        if (lastQuery !== query) return;   // user kept typing; a later search owns the dropdown
 
-        // 2) central matches — search in parallel, append when results arrive
-        if (query.length >= 2) {
-            const central = await searchCentralMembers(query);
-            // Bail if user kept typing
-            if (lastQuery !== query) return;
-            const merged = local.concat(central.slice(0, 8).map(c => ({ ...c, source: 'central' })));
-            showDropdown(merged);
+        if (!res.ok) {
+            // Never fail silently to an empty list — an unreachable directory
+            // looks identical to "no such member", and the admin would just
+            // retype the name forever.
+            showMessage(res.message, true);
+            lastResults = [];
+            return;
         }
+        lastResults = res.results;
+        if (!res.results.length) { showMessage(`No member matching “${query}” in rfm-database`, true); return; }
+        showDropdown(res.results);
     });
 
     input.addEventListener('keydown', (e) => {
@@ -1789,13 +1829,30 @@ function collectFormData() {
         if (time && item) program_items.push({ time, item });
     });
 
+    // Resolve any half-typed name BEFORE reading values. The blur handler
+    // defers its revert by 200ms so a dropdown click can land first, and
+    // clicking Save straight from a name field runs this well inside that
+    // window — without the flush, unpicked free text reaches the payload.
+    document.querySelectorAll('.part-name').forEach(inp => {
+        if (typeof inp._flushPick === 'function') inp._flushPick();
+    });
+
     const participants = [];
     document.querySelectorAll('.participant-group').forEach(group => {
         const role = getGroupRole(group);
         if (!role) return;
         group.querySelectorAll('.part-name-slot').forEach(slot => {
-            const name = slot.querySelector('.part-name').value.trim();
-            if (name) participants.push({ role, name, confirmed: slot.dataset.confirmed === 'true' });
+            const inp = slot.querySelector('.part-name');
+            const name = inp.value.trim();
+            if (!name) return;
+            participants.push({
+                role,
+                name,
+                // The central rfm-database UUID — the participant's real
+                // identity. Absent only on legacy rows saved before linking.
+                external_member_id: inp.dataset.externalMemberId || null,
+                confirmed: slot.dataset.confirmed === 'true',
+            });
         });
     });
 

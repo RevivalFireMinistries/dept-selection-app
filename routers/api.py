@@ -6372,18 +6372,26 @@ def _get_prayer_points_for_role(prayer_points: list, role: str) -> list:
     return result
 
 
-def _notify_program_participants(db: Session, program_title: str, service_date, participant_names: list, participant_roles: dict, created_by_name: str = None, program_id: int = None, prayer_points: list = None, admin_announcements: list = None, pastors_announcements: list = None):
-    """Notify participants who are members in the database about their program roles.
-    participant_roles is a dict mapping lowercase name -> list of role strings.
-    A person with multiple roles gets one email summarising all their roles.
-    Admin-role participants get admin_announcements; Preacher-role participants get pastors_announcements."""
+def _notify_program_participants(db: Session, program_title: str, service_date, participants: list, created_by_name: str = None, program_id: int = None, prayer_points: list = None, admin_announcements: list = None, pastors_announcements: list = None):
+    """Notify programme participants about their roles.
+
+    `participants` is the stored list of {role, name, external_member_id}.
+    Recipients are resolved by external_member_id — the member's UUID in the
+    central rfm-database — so the right person is emailed even when two
+    members share a name, a name is stored with a title, or someone has been
+    renamed centrally since the programme was saved. Participants stored
+    before linking existed carry no id and still fall back to name matching.
+
+    A person with multiple roles gets one email summarising all of them.
+    Admin-role participants get admin_announcements; Preacher-role
+    participants get pastors_announcements."""
     from notifications.dispatcher import dispatch_event
     from notifications.events import EventType
 
-    if not participant_names:
+    if not participants:
         return
 
-    # Strip title prefixes for DB lookup
+    # Strip title prefixes for the legacy name lookup
     title_prefixes = ("pastor ", "elder ", "deacon ", "dr ", "mr ", "mrs ")
     def _strip_title(name):
         lower = name.lower()
@@ -6392,37 +6400,55 @@ def _notify_program_participants(db: Session, program_title: str, service_date, 
                 return name[len(prefix):]
         return name
 
-    # Build lookup names (both titled and plain) for matching
-    plain_names = [_strip_title(n).lower() for n in participant_names]
+    # ── Resolve recipients ────────────────────────────────────────────────
+    # Preferred: exact match on the central member UUID.
+    ext_ids = {p.get("external_member_id") for p in participants if p.get("external_member_id")}
+    by_ext = {}
+    if ext_ids:
+        for m in db.query(Member).filter(Member.external_member_id.in_(list(ext_ids))).all():
+            by_ext[m.external_member_id] = m
 
-    # Find members whose names match participants (case-insensitive, using plain names)
-    members = db.query(Member).filter(
-        func.lower(Member.full_name).in_(plain_names)
-    ).all()
+    # Legacy only: participants saved before ids were captured. A name can
+    # match several members, and we can't tell which was meant — so notify
+    # every match, as this did before ids existed. Better an extra email to a
+    # namesake than silence for the person actually rostered.
+    by_name: dict = {}
+    legacy_names = [
+        _strip_title((p.get("name") or "").strip()).lower()
+        for p in participants if not p.get("external_member_id")
+    ]
+    legacy_names = [n for n in legacy_names if n]
+    if legacy_names:
+        for m in db.query(Member).filter(func.lower(Member.full_name).in_(legacy_names)).all():
+            by_name.setdefault(m.full_name.lower(), []).append(m)
 
-    if not members:
+    # Group roles per resolved member so nobody gets two emails for one
+    # programme just because they serve in two slots.
+    resolved = {}   # member.id -> (member, [roles])
+    for p in participants:
+        ext = p.get("external_member_id")
+        if ext:
+            matches = [by_ext[ext]] if ext in by_ext else []
+        else:
+            matches = by_name.get(_strip_title((p.get("name") or "").strip()).lower(), [])
+        role = (p.get("role") or "").strip() or "Participant"
+        for member in matches:
+            entry = resolved.setdefault(member.id, (member, []))
+            if role not in entry[1]:
+                entry[1].append(role)
+
+    if not resolved:
         return
 
     date_str = service_date.strftime("%A, %d %B %Y") if hasattr(service_date, 'strftime') else str(service_date)
-
-    # Build a role lookup that works with both titled and plain name keys
-    def _get_roles_for_member(member):
-        name_lower = member.full_name.lower()
-        titled_lower = _get_titled_name(member).lower()
-        return (participant_roles.get(name_lower)
-                or participant_roles.get(titled_lower)
-                or ["Participant"])
 
     # Role keywords that qualify for announcements
     admin_keywords = {"admin", "administrator", "mc", "emcee"}
     preacher_keywords = {"preach", "preacher", "preaching", "sermon", "pastor", "word", "minister", "ministering"}
 
-    for member in members:
+    for member, roles in resolved.values():
         if not member.email:
             continue
-        roles = _get_roles_for_member(member)
-        if isinstance(roles, str):
-            roles = [roles]
 
         # Collect prayer points linked to any of this participant's roles
         linked_prayer_points = []
@@ -6648,11 +6674,6 @@ def _send_program_notifications(db: Session, program: ServiceProgram):
     if not participants:
         return
 
-    names = list({p.get("name", "") for p in participants})
-    roles = {}
-    for p in participants:
-        roles.setdefault((p.get("name") or "").lower(), []).append(p.get("role", ""))
-
     from sqlalchemy.orm import joinedload
     prog = db.query(ServiceProgram).options(joinedload(ServiceProgram.created_by)).filter(ServiceProgram.id == program.id).first()
     creator_name = _get_titled_name(prog.created_by) if prog and prog.created_by_member_id and prog.created_by else None
@@ -6662,7 +6683,7 @@ def _send_program_notifications(db: Session, program: ServiceProgram):
     pastor_ann = json.loads(program.pastors_announcements or "[]") if isinstance(program.pastors_announcements, str) else (program.pastors_announcements or [])
 
     _notify_program_participants(
-        db, program.title, program.service_date, names, roles,
+        db, program.title, program.service_date, participants,
         created_by_name=creator_name, program_id=program.id,
         prayer_points=pp, admin_announcements=admin_ann, pastors_announcements=pastor_ann
     )
@@ -7311,11 +7332,17 @@ def _recent_role_usage(db: Session, role: str, since: date, exclude_program_id=N
     return usage
 
 
-def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, roles: list, exclude_program_id=None) -> dict:
+def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, roles: list, exclude_program_id=None, members_out: dict = None) -> dict:
     """{role: name} for template roles that carry an auto-fill rule.
 
     mode "fixed" -> always that member; mode "pool" -> the pool member who has
-    served this role least (and least recently), so it rotates fairly."""
+    served this role least (and least recently), so it rotates fairly.
+
+    Pass `members_out` to also receive {role: Member} for the rules that
+    resolved to a real member row. Callers that then need to notify or link
+    that person should use it rather than re-matching on the returned name —
+    the name is a display string (titled, and free text for member_name
+    rules), so round-tripping it through a lookup loses the identity."""
     rules = getattr(tpl, "role_defaults", None)
     if isinstance(rules, str):
         try:
@@ -7341,6 +7368,8 @@ def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, role
                 continue
             if m:
                 out[role] = _get_titled_name(m)
+                if members_out is not None:
+                    members_out[role] = m
             elif rule.get("member_name"):
                 out[role] = rule["member_name"]
             continue
@@ -7355,7 +7384,10 @@ def _resolve_role_defaults(tpl: ProgramTemplate, db: Session, service_date, role
             cnt, last = usage.get(titled, usage.get(m.full_name, (0, None)))
             return (cnt, last or date.min, (m.full_name or "").lower())
 
-        out[role] = _get_titled_name(sorted(pool, key=_score)[0])
+        chosen = sorted(pool, key=_score)[0]
+        out[role] = _get_titled_name(chosen)
+        if members_out is not None:
+            members_out[role] = chosen
     return out
 
 
@@ -7398,8 +7430,16 @@ def _autopilot_prepare_draft(db: Session, schedule, tpl):
     roles += [r for r in _jl(tpl.support_roles) if r]
     roles = list(dict.fromkeys(roles))
 
-    auto = _resolve_role_defaults(tpl, db, schedule.service_date, roles)
-    participants = [{"role": r, "name": auto.get(r, ""), "confirmed": False} for r in roles]
+    auto_members: dict = {}
+    auto = _resolve_role_defaults(tpl, db, schedule.service_date, roles, members_out=auto_members)
+    # Carry the central UUID of whoever autopilot chose, so downstream
+    # notifications address a member id rather than re-matching a name.
+    participants = [{
+        "role": r,
+        "name": auto.get(r, ""),
+        "external_member_id": getattr(auto_members.get(r), "external_member_id", None),
+        "confirmed": False,
+    } for r in roles]
 
     program = ServiceProgram(
         title=tpl.title,
@@ -7423,7 +7463,11 @@ def _autopilot_prepare_draft(db: Session, schedule, tpl):
     for role, nm in auto.items():
         if not nm:
             continue
-        m = db.query(Member).filter(func.lower(Member.full_name) == _strip_name_title(nm).lower()).first()
+        # Prefer the member the rule actually resolved to; only fall back to
+        # matching the display name for free-text member_name rules.
+        m = auto_members.get(role)
+        if not m:
+            m = db.query(Member).filter(func.lower(Member.full_name) == _strip_name_title(nm).lower()).first()
         if not m:
             continue
         ask = _create_assignment_ask(db, kind="role", member=m, service_date=schedule.service_date,
@@ -8375,34 +8419,51 @@ def create_draft_program_for_schedule(
     roles = [i.get("item") for i in tpl_items if i.get("requires_participant") and i.get("item")]
     roles += [r for r in tpl_support if r]
 
-    # Names the admin filled in: [{role, name}]. Extra/custom roles are appended.
+    # People the admin filled in: [{role, name, external_member_id}]. Extra /
+    # custom roles are appended. Each entry keeps its central UUID — the
+    # picker captured it, and dropping it here would put us right back to
+    # identifying people by a name string.
     assigned: dict = {}
     for p in (data.get("participants") or []):
         role = (p.get("role") or "").strip()
         name = (p.get("name") or "").strip()
         if not role or not name:
             continue
-        assigned.setdefault(role, []).append(name)
+        assigned.setdefault(role, []).append({
+            "name": name,
+            "external_member_id": p.get("external_member_id"),
+        })
     for role in assigned:
         if role not in roles:
             roles.append(role)
 
     # Template auto-fill rules (fixed person / rotate from a pool). The admin's
     # explicit picks always win; defaults only fill what they left blank.
+    auto_members: dict = {}
     auto = _resolve_role_defaults(tpl, db, schedule.service_date, roles,
-                                  exclude_program_id=schedule.program_id)
+                                  exclude_program_id=schedule.program_id,
+                                  members_out=auto_members)
     autofilled_roles = []
     for role, nm in auto.items():
         if role not in assigned and nm:
-            assigned[role] = [nm]
-            autofilled_roles.append((role, nm))
+            chosen = auto_members.get(role)
+            assigned[role] = [{
+                "name": nm,
+                "external_member_id": getattr(chosen, "external_member_id", None),
+            }]
+            autofilled_roles.append((role, nm, chosen))
 
     # Keep every template role as a slot (empty where unassigned) so the service
     # manager sees the full skeleton, with the admin's picks already filled.
     participants = []
     for role in list(dict.fromkeys(roles)):
-        for nm in (assigned.get(role) or [""]):
-            participants.append({"role": role, "name": nm, "confirmed": False})
+        for entry in (assigned.get(role) or [None]):
+            participants.append({
+                "role": role,
+                "name": (entry or {}).get("name", ""),
+                "external_member_id": (entry or {}).get("external_member_id"),
+                "confirmed": False,
+            })
 
     program_items = [{"time": i.get("time", ""), "item": i.get("item", "")} for i in tpl_items]
 
@@ -8418,12 +8479,17 @@ def create_draft_program_for_schedule(
         current = _jload(existing.participants, [])
         merged = [p for p in current if (p.get("role") or "").strip() not in assigned]
         for role in assigned:
-            for nm in assigned[role]:
-                merged.append({"role": role, "name": nm, "confirmed": False})
+            for entry in assigned[role]:
+                merged.append({
+                    "role": role,
+                    "name": entry.get("name", ""),
+                    "external_member_id": entry.get("external_member_id"),
+                    "confirmed": False,
+                })
         have = {(p.get("role") or "").strip() for p in merged}
         for role in roles:
             if role not in have:
-                merged.append({"role": role, "name": "", "confirmed": False})
+                merged.append({"role": role, "name": "", "external_member_id": None, "confirmed": False})
         existing.participants = json.dumps(merged)
         existing.template_id = tpl.id
         program = existing
@@ -8455,8 +8521,12 @@ def create_draft_program_for_schedule(
     # Ask everyone autopilot chose (not the admin's explicit picks) whether
     # they can take it — they can decline and suggest a stand-in.
     asked = 0
-    for role, nm in autofilled_roles:
-        m = db.query(Member).filter(func.lower(Member.full_name) == _strip_name_title(nm).lower()).first()
+    for role, nm, chosen in autofilled_roles:
+        # Use the member the rule resolved to; the name lookup is only for
+        # free-text member_name rules that never had a member row.
+        m = chosen
+        if not m:
+            m = db.query(Member).filter(func.lower(Member.full_name) == _strip_name_title(nm).lower()).first()
         if not m:
             continue
         ask = _create_assignment_ask(db, kind="role", member=m,
@@ -11048,6 +11118,109 @@ def admin_members_directory_search(
     }
 
 
+def _create_local_member_from_external(db: Session, external_id: str, phone_override: str = None) -> Member:
+    """Fetch a central member record and create the local mirror row for it.
+
+    Shared by the import and resolve endpoints so both build the local row
+    the same way. Caller is responsible for having already checked that no
+    local row links to this external_id.
+    """
+    api_result = _rfm.get_member(external_id, db=db)
+    if not api_result.ok or not isinstance(api_result.data, dict):
+        raise HTTPException(
+            status_code=502,
+            detail=api_result.error or "Could not fetch central member record",
+        )
+    rec = api_result.data
+
+    full_name = _rfm.fullname_from_member(rec) or "Unknown"
+    central_phone = _rfm._clean_phone_for_display(rec.get("phone"))
+    override = (phone_override or "").strip()
+    if override:
+        phone = _rfm.to_sa_canonical_mobile(override) or override
+    else:
+        phone = central_phone
+    if not phone:
+        raise HTTPException(
+            status_code=400,
+            detail="Central record has no phone — provide one in the request body",
+        )
+
+    from datetime import datetime as _dt
+    member = Member(
+        full_name=full_name,
+        phone=phone,
+        email=(rec.get("email") or "").strip() or "",
+        address=_rfm.address_from_member(rec) or "",
+        is_active=True,
+        external_member_id=external_id,
+        external_assembly_id=rec.get("assembly_id"),
+        external_match_status="manual",
+        external_synced_at=_dt.utcnow(),
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+@router.post("/admin/members/resolve-from-external")
+def admin_members_resolve_from_external(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Find-or-create the local member row for a central rfm-database member.
+
+    Pickers that must end up with a LOCAL member id (service manager,
+    created_by, anything with an FK to members.id) call this after the admin
+    picks someone from the central directory. rfm-database stays the source
+    of truth for who the person is; the local row is just the mirror that
+    satisfies the foreign key — the same pattern church-manager uses for
+    assemblies.
+
+    Unlike /import-from-external this is idempotent: an already-linked
+    member resolves to their existing local row instead of 409-ing, which is
+    what a picker needs since the directory lists linked and unlinked people
+    alike.
+
+    Body: external_member_id (required), phone (optional override)
+    Returns: {member_id, external_member_id, full_name, created}
+    """
+    _require_committee_or_admin(request, db)
+
+    if not _rfm.is_enabled(db):
+        raise HTTPException(status_code=400, detail="rfm-db integration is disabled")
+    if not _rfm.is_configured(db):
+        raise HTTPException(status_code=400, detail="rfm-db API not configured")
+
+    external_id = (data.get("external_member_id") or "").strip()
+    if not external_id:
+        raise HTTPException(status_code=400, detail="external_member_id required")
+
+    existing = db.query(Member).filter(Member.external_member_id == external_id).first()
+    if existing:
+        return {
+            "member_id": existing.id,
+            "external_member_id": external_id,
+            "full_name": existing.full_name,
+            "created": False,
+        }
+
+    member = _create_local_member_from_external(db, external_id, data.get("phone"))
+    _log_admin_action(
+        request, db, "resolve_member_from_external", "member", member.id,
+        f"Linked {member.full_name} from central database (external {external_id})",
+    )
+    db.commit()
+    return {
+        "member_id": member.id,
+        "external_member_id": external_id,
+        "full_name": member.full_name,
+        "created": True,
+    }
+
+
 @router.post("/admin/members/import-from-external")
 def admin_members_import_from_external(
     request: Request,
@@ -11092,47 +11265,7 @@ def admin_members_import_from_external(
             detail=f"Already imported as local member id {existing.id} ({existing.full_name})",
         )
 
-    # Fetch the canonical record
-    api_result = _rfm.get_member(external_id, db=db)
-    if not api_result.ok or not isinstance(api_result.data, dict):
-        raise HTTPException(
-            status_code=502,
-            detail=api_result.error or "Could not fetch central member record",
-        )
-    rec = api_result.data
-
-    full_name = _rfm.fullname_from_member(rec) or "Unknown"
-    central_phone = _rfm._clean_phone_for_display(rec.get("phone"))
-    override_phone = (data.get("phone") or "").strip()
-    if override_phone:
-        canonical = _rfm.to_sa_canonical_mobile(override_phone)
-        phone = canonical or override_phone
-    else:
-        phone = central_phone
-    if not phone:
-        raise HTTPException(
-            status_code=400,
-            detail="Central record has no phone — provide one in the request body",
-        )
-
-    email = (rec.get("email") or "").strip()
-    address = _rfm.address_from_member(rec)
-
-    from datetime import datetime as _dt
-    member = Member(
-        full_name=full_name,
-        phone=phone,
-        email=email or "",
-        address=address or "",
-        is_active=True,
-        external_member_id=external_id,
-        external_assembly_id=rec.get("assembly_id"),
-        external_match_status="manual",
-        external_synced_at=_dt.utcnow(),
-    )
-    db.add(member)
-    db.commit()
-    db.refresh(member)
+    member = _create_local_member_from_external(db, external_id, data.get("phone"))
 
     assigned_department = None
     department_id = data.get("department_id")
