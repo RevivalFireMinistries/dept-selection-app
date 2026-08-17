@@ -13,7 +13,9 @@ reportlab==4.1.0
 pywebpush==2.0.0
 # Phase 5a — Clerk auth (staff-dogfood). httpx fetches JWKS;
 # python-jose[cryptography] validates RS256 JWT signatures.
-httpx>=0.27.0
+# Upper bound is starlette's, not ours: the TestClient bundled with
+# fastapi 0.109 passes `app=` to httpx.Client, which httpx removed in 0.28.
+httpx>=0.27.0,<0.28
 python-jose[cryptography]>=3.3.0
 # Event registration QR codes — rendered server-side so the share sheet gets a
 # real PNG file and the page needs no third-party script.
