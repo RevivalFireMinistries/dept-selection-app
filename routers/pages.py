@@ -190,12 +190,36 @@ def get_current_member(request: Request, db: Session) -> Optional[Member]:
                     "[auth] Clerk member resolution failed, falling back to session"
                 )
 
-    # 2. Legacy session-cookie path (unchanged)
+    # 2. Legacy session-cookie path (unchanged — this is the rollback)
     token = request.cookies.get(MEMBER_COOKIE_NAME)
     member_id = _verify_member_session(token)
     if member_id:
         member = db.query(Member).filter(Member.id == member_id, Member.is_active == True).first()
-        return member
+        if member:
+            return member
+
+    # 3. RFM single sign-on. Checked LAST so a member already signed in to
+    #    the portal keeps their existing session untouched; this only picks
+    #    up people who signed in on another RFM app and arrived here with
+    #    the shared cookie.
+    try:
+        import sso_auth
+        if sso_auth.is_configured():
+            cookie_header = request.headers.get("cookie")
+            if cookie_header and "rfm_session" in cookie_header:
+                payload = sso_auth.exchange_session_cookie(cookie_header)
+                if payload and payload.get("access_token"):
+                    claims = sso_auth.verify_token(payload["access_token"])
+                    member = sso_auth.resolve_member(claims, db)
+                    if member and member.is_active:
+                        return member
+    except Exception:
+        # Never let SSO trouble lock a member out of a portal they could
+        # otherwise reach — fall through to "not signed in".
+        import logging
+        logging.getLogger(__name__).exception(
+            "[auth] SSO member resolution failed, treating as signed out"
+        )
     return None
 
 
@@ -319,8 +343,12 @@ async def setup_password_page(request: Request):
 
 
 @router.get("/logout")
-async def member_logout():
-    """Log out the member from BOTH the legacy session AND Clerk.
+async def member_logout(request: Request):
+    """Log out the member from the legacy session, RFM SSO, and Clerk.
+
+    Ending the shared SSO session matters: without it, signing out here
+    leaves the member signed in to every other RFM app, and simply
+    revisiting the portal would sign them straight back in.
 
     Two-step: clear the portal session cookie (server-side, via the
     response headers), then return a small HTML page that loads the
@@ -334,13 +362,25 @@ async def member_logout():
     """
     from fastapi.responses import HTMLResponse
 
+    # End the shared RFM session first, whichever path follows.
+    sso_cookies: list[str] = []
+    try:
+        import sso_auth
+        if sso_auth.is_configured():
+            sso_cookies = sso_auth.end_session(request.headers.get("cookie"))
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("[auth] SSO sign-out failed")
+
     pub_key = os.getenv("CLERK_PUBLISHABLE_KEY") or ""
     frontend_api = (os.getenv("CLERK_FRONTEND_API") or "").rstrip("/")
 
     if not pub_key or not frontend_api:
-        # No Clerk configured — just the legacy logout.
+        # No Clerk configured — legacy + SSO logout.
         response = RedirectResponse(url="/", status_code=302)
         response.delete_cookie(key=MEMBER_COOKIE_NAME)
+        for cookie in sso_cookies:
+            response.raw_headers.append((b"set-cookie", cookie.encode()))
         return response
 
     html = f"""<!doctype html>

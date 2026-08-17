@@ -56,7 +56,57 @@ def _hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def _verify_password(password: str, hashed: str) -> bool:
+    if not hashed:
+        return False
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+
+def _push_credential_to_sso(member, plain_password: str) -> bool:
+    """Mirror a newly-set password to the identity provider.
+
+    Called wherever the portal sets a password so the member ends up with
+    ONE credential that works across every RFM app — which is the whole
+    point of an invite creating an identity rather than a portal login.
+
+    Best-effort: a member who has just set a password must not see an
+    error because a downstream service was slow. The local hash is written
+    either way, so they can always sign in here.
+    """
+    import json as _json
+    import logging as _logging
+    import os as _os
+    import urllib.request as _urlreq
+
+    log = _logging.getLogger(__name__)
+    external_id = getattr(member, "external_member_id", None)
+    if not external_id:
+        log.info("[sso] member %s is not linked centrally — password stays local", member.id)
+        return False
+
+    base = (_os.environ.get("SSO_INTERNAL_URL") or _os.environ.get("RFM_API_URL") or "").rstrip("/")
+    api_key = _os.environ.get("RFM_API_KEY") or ""
+    if not base or not api_key:
+        return False
+
+    req = _urlreq.Request(
+        f"{base}/api/v1/auth/member-credential",
+        data=_json.dumps({
+            "external_member_id": external_id,
+            "password": plain_password,
+            "full_name": member.full_name,
+            "email": member.email or None,
+            "phone": member.phone or None,
+        }).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json", "X-API-Key": api_key},
+    )
+    try:
+        with _urlreq.urlopen(req, timeout=10) as resp:
+            log.info("[sso] credential synced for member %s (HTTP %s)", member.id, resp.status)
+            return True
+    except Exception as e:
+        log.warning("[sso] could not sync credential for member %s: %s", member.id, e)
+        return False
 
 
 def _mask_email(email: str) -> str:
@@ -541,8 +591,43 @@ def login_member(
     if not member:
         raise HTTPException(status_code=401, detail="No account found with this phone number")
 
+    # ── Single sign-on, tried FIRST ───────────────────────────────────────
+    # Before any local-password logic, because the two populations differ:
+    #
+    #   existing members  have a local hash and keep using it — the local
+    #                     check below still runs if this doesn't match.
+    #   new members       have a central credential and NO local hash. If
+    #                     the first-time branch ran first they'd be told
+    #                     "use your phone number as your password" and be
+    #                     locked out of an account whose password is
+    #                     perfectly valid.
+    #
+    # Whichever credential the person actually has, one of the two paths
+    # lets them in. Nobody is denied for holding the "wrong" one.
+    sso_cookies: list[str] = []
+    sso_ok = False
+    if password:
+        try:
+            import sso_auth
+            if sso_auth.is_configured():
+                sso_ok, sso_cookies = sso_auth.start_session(
+                    phone=member.phone, email=member.email, password=password
+                )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "[auth] SSO sign-in failed, falling back to the local password"
+            )
+
+    if sso_ok and not member.password_hash:
+        # Their password lives centrally and this portal has never held one.
+        # Mirror it so a future outage of the identity provider can't lock
+        # them out of a portal they were signing into a minute ago.
+        member.password_hash = _hash_password(password)
+        db.commit()
+
     # First-time login: member has no password yet — phone number is the default password
-    if not member.password_hash:
+    if not sso_ok and not member.password_hash:
         # Verify they entered their phone number as the password
         phone_digits = member.phone.strip().replace(" ", "").replace("-", "")
         password_digits = password.strip().replace(" ", "").replace("-", "")
@@ -571,7 +656,10 @@ def login_member(
     if not password:
         raise HTTPException(status_code=401, detail="Please enter your password")
 
-    if not _verify_password(password, member.password_hash):
+    # SSO was already attempted above. The local hash is the other way in:
+    # an existing member whose password never left this portal signs in
+    # exactly as they always have.
+    if not sso_ok and not _verify_password(password, member.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
 
     # Check if account is active (admin approved)
@@ -594,6 +682,12 @@ def login_member(
         max_age=SESSION_MAX_AGE,
         samesite="lax"
     )
+    # Pass the identity provider's session cookie on to the browser. The
+    # provider set it on our server-side call, so unless we re-emit it the
+    # member is signed in here but nowhere else — which would make this
+    # single sign-on in name only.
+    for cookie in sso_cookies:
+        response.raw_headers.append((b"set-cookie", cookie.encode()))
     return response
 
 
@@ -1100,6 +1194,12 @@ def reset_password(
         member.email = new_email
 
     db.commit()
+
+    # Push it to the identity provider so this is the member's password
+    # everywhere, not only here. Both are written: the local hash stays as
+    # the fallback while SSO is being rolled out, and the two are the same
+    # value so neither can drift.
+    _push_credential_to_sso(member, new_password)
 
     return {"success": True, "message": "Password has been set successfully. You can now sign in."}
 
@@ -10445,6 +10545,106 @@ def admin_home_church_history(
 # ============================================================================
 
 import rfm_api_client as _rfm
+
+
+@router.post("/admin/sso/export-identities")
+def admin_sso_export_identities(
+    request: Request,
+    dry_run: bool = Query(True, description="Report what would be sent, change nothing"),
+    db: Session = Depends(get_db),
+):
+    """One-off SSO migration: send member credentials to the identity
+    provider so the password they already use here works everywhere.
+
+    Exposed as an endpoint rather than a shell script on purpose.
+    `railway run` executes on the operator's machine, which can't reach
+    Railway's internal hostnames — so a script needing both this database
+    and the identity provider is painful to run against production. Here,
+    both are already reachable.
+
+    Bcrypt hashes are sent verbatim, so nobody resets a password. Members
+    with no password, or not yet linked to the central directory, are
+    skipped and counted — an unlinked member has no person record to
+    attach a login to.
+
+    Defaults to a dry run. Idempotent — safe to re-run.
+    """
+    _require_committee_or_admin(request, db)
+
+    identities: list[dict] = []
+    skipped = {"no_password": 0, "not_linked": 0, "inactive": 0}
+    for m in db.query(Member).all():
+        if not m.password_hash:
+            skipped["no_password"] += 1
+            continue
+        if not m.external_member_id:
+            skipped["not_linked"] += 1
+            continue
+        if not m.is_active:
+            skipped["inactive"] += 1
+            continue
+        identities.append({
+            "external_member_id": m.external_member_id,
+            "password_hash": m.password_hash,
+            "full_name": m.full_name,
+            "email": (m.email or "").strip() or None,
+            "phone": (m.phone or "").strip() or None,
+            "role": "MEMBER",
+        })
+
+    summary = {"dry_run": dry_run, "eligible": len(identities), "skipped": skipped}
+    if dry_run:
+        summary["would_send"] = [
+            {"name": i["full_name"], "login": i["phone"] or i["email"]} for i in identities
+        ]
+        return summary
+    if not identities:
+        summary["result"] = {"created": 0, "linked": 0, "skipped": 0}
+        return summary
+
+    import json as _json
+    import urllib.error as _urlerr
+    import urllib.request as _urlreq
+
+    base = (os.environ.get("SSO_INTERNAL_URL") or os.environ.get("RFM_API_URL") or "").rstrip("/")
+    api_key = os.environ.get("RFM_API_KEY") or ""
+    if not base or not api_key:
+        summary["error"] = "RFM_API_URL / RFM_API_KEY are not configured"
+        return summary
+
+    # Exchange this service's API key for a token, rather than requiring an
+    # admin password in the environment.
+    try:
+        req = _urlreq.Request(
+            f"{base}/api/v1/auth/service-token",
+            data=_json.dumps({"api_key": api_key}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=30) as resp:
+            token = (_json.loads(resp.read()).get("data") or {}).get("access_token")
+    except Exception as e:
+        summary["error"] = f"Could not authenticate to the identity provider: {e}"
+        return summary
+
+    try:
+        # /member-credentials, not /import-identities: this one forces
+        # role=MEMBER, so the portal's key can create member logins and
+        # nothing else. /import-identities can set any role and is
+        # deliberately superadmin-only.
+        req = _urlreq.Request(
+            f"{base}/api/v1/auth/member-credentials",
+            data=_json.dumps({"source": "portal", "identities": identities}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=180) as resp:
+            result = _json.loads(resp.read())
+        summary["result"] = result.get("data", result)
+    except _urlerr.HTTPError as e:
+        summary["error"] = f"Import rejected (HTTP {e.code}): {e.read()[:300].decode(errors='replace')}"
+    except Exception as e:
+        summary["error"] = str(e)
+    return summary
 
 
 @router.get("/admin/rfm-sync/status")
