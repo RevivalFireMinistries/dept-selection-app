@@ -465,6 +465,23 @@ def run_migrations():
                     ), {"event_type": event_type})
                     conn.commit()
                     print(f"Migration: Added notification config for {event_type}")
+    # Migration: event fees paid by card. Nullable, so existing giving
+    # transactions are untouched and the columns simply stay empty for them.
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE payment_transactions "
+                "ADD COLUMN IF NOT EXISTS event_id VARCHAR(36), "
+                "ADD COLUMN IF NOT EXISTS event_registration_id VARCHAR(36)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_payment_transactions_event_id "
+                "ON payment_transactions (event_id)"
+            ))
+            conn.commit()
+        print("Migration: Added event columns to payment_transactions")
+    except Exception as e:
+        print(f"Migration note (event payments): {e}")
 
 
         # Migration: Add actor_type column to admin_audit_logs

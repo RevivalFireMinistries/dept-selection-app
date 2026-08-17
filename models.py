@@ -713,6 +713,11 @@ class PaymentTransaction(Base):
     # For diagnostics — last webhook payload type/details
     last_event_type = Column(String(60), nullable=True)
     last_event_at = Column(DateTime(timezone=True), nullable=True)
+    # Event fees. When these are set the money belongs to an event registry in
+    # church-manager rather than to a contribution, so the webhook routes it
+    # there instead of to rfm-database. Both are church-manager UUIDs.
+    event_id = Column(String(36), nullable=True, index=True)
+    event_registration_id = Column(String(36), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

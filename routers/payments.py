@@ -17,11 +17,15 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+import logging
+
 from database import get_db
 import yoco
 import rfm_api_client as _rfm
 from models import Member, PaymentTransaction, Settings
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -297,6 +301,40 @@ def get_transaction_status(txn_id: int, request: Request, db: Session = Depends(
     }
 
 
+def _push_event_payment(txn: PaymentTransaction, db: Session) -> None:
+    """Report a settled card payment to the event registry.
+
+    Best-effort by design: the money is already Yoco's problem solved, and
+    a failure here must not turn a successful payment into a 500 back to
+    the gateway — Yoco would retry, and the member would see nothing useful
+    either way. The error is recorded so it can be replayed.
+
+    church-manager makes this idempotent on the checkout id, which matters
+    because webhook retries are normal.
+    """
+    import events_client
+
+    try:
+        member = db.query(Member).filter(Member.id == txn.member_id).first() if txn.member_id else None
+        result = events_client.record_gateway_payment(
+            str(txn.event_id),
+            str(txn.event_registration_id),
+            amount=(txn.amount_cents or 0) / 100.0,
+            reference=txn.external_reference,
+            member_id=getattr(member, "external_member_id", None),
+            name=getattr(member, "full_name", None),
+        )
+        if result.ok:
+            txn.central_pushed_at = datetime.utcnow()
+            txn.central_push_error = None
+        else:
+            txn.central_push_error = (result.error or "unknown error")[:500]
+            logger.warning("[payments] event payment not recorded: %s", result.error)
+    except Exception as e:
+        txn.central_push_error = str(e)[:500]
+        logger.exception("[payments] could not report event payment")
+
+
 def _push_to_central(txn: PaymentTransaction, db: Session) -> None:
     """Best-effort: record the captured contribution in the central rfm-database.
     Failures are logged on the txn so an admin can retry; webhook still 200s."""
@@ -556,7 +594,12 @@ async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
 
     if event_type == "payment.succeeded" and txn.status == "pending":
         txn.status = "captured"
-        _push_to_central(txn, db)
+        if txn.event_id:
+            # Event fees belong to a registry in church-manager, not to a
+            # contribution in rfm-database. Same webhook, different home.
+            _push_event_payment(txn, db)
+        else:
+            _push_to_central(txn, db)
         # Notify the giver (best-effort)
         try:
             import push_service

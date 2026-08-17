@@ -469,3 +469,169 @@ def poster(event_id: str):
             )
     except Exception:
         raise HTTPException(status_code=404, detail="No poster for this event")
+
+
+# ── Paying for an event ───────────────────────────────────────────────────────
+#
+# Two routes for a member's money. A card payment goes through the portal's
+# existing Yoco checkout and lands already settled. An EFT is a claim until
+# a manager has seen it in the bank, so the upload creates a pending payment
+# and the manager's confirm step is what makes it count.
+
+
+@api_router.post("/{event_id}/pay")
+def start_card_payment(event_id: str, payload: dict = Body(default={}),
+                       request: Request = None, db: Session = Depends(get_db)):
+    """Begin a Yoco checkout for what this member still owes on an event.
+
+    The amount is taken from the registration's balance rather than from the
+    request: letting the browser name its own price is how someone pays R1
+    for a R500 camp.
+    """
+    import yoco
+    from models import PaymentTransaction
+
+    member = _member(request, db)
+    ext = _external_id(member)
+    if not member or not ext:
+        raise HTTPException(status_code=401, detail="Please sign in")
+
+    data = _unwrap(events_client.get_event(event_id, ext))
+    if "YOCO" not in (data.get("payment_methods") or []):
+        raise HTTPException(status_code=400,
+                            detail="Card payment isn't offered for this event")
+
+    reg = data.get("my_registration")
+    if not reg:
+        raise HTTPException(status_code=400, detail="Register for the event first")
+
+    cost = float(data.get("cost") or 0)
+    paid = float(reg.get("amount_paid") or 0)
+    outstanding = max(0.0, cost - paid)
+    if outstanding <= 0:
+        raise HTTPException(status_code=400, detail="Nothing outstanding on this event")
+
+    # A part-payment is allowed, but never more than is owed.
+    try:
+        requested = float(payload.get("amount") or outstanding)
+    except (TypeError, ValueError):
+        requested = outstanding
+    amount = min(max(requested, 1.0), outstanding)
+    amount_cents = int(round(amount * 100))
+
+    secret_key = yoco.get_setting(db, "yoco_secret_key")
+    if not secret_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Card payments aren't set up yet — please use the bank details shown.",
+        )
+
+    base = str(request.base_url).rstrip("/")
+    try:
+        checkout = yoco.create_checkout(
+            secret_key=secret_key,
+            amount_cents=amount_cents,
+            success_url=f"{base}/events/{event_id}?paid=1",
+            cancel_url=f"{base}/events/{event_id}",
+            failure_url=f"{base}/events/{event_id}?failed=1",
+            metadata={"kind": "event", "event_id": event_id,
+                      "registration_id": reg["id"], "member_id": ext},
+        )
+    except yoco.YocoError as e:
+        logger.warning("[events] Yoco checkout failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not start the card payment")
+
+    # Recorded before the redirect so the webhook has something to match
+    # against whichever way the member's browser goes next.
+    txn = PaymentTransaction(
+        member_id=member.id,
+        external_reference=checkout.checkout_id,
+        provider="yoco",
+        status="pending",
+        amount_cents=amount_cents,
+        currency=data.get("currency") or "ZAR",
+        category="EVENT",
+        custom_label=data.get("title"),
+        event_id=event_id,
+        event_registration_id=reg["id"],
+    )
+    db.add(txn)
+    db.commit()
+
+    return {"redirect_url": checkout.redirect_url, "amount": amount}
+
+
+@api_router.post("/{event_id}/proof")
+async def upload_proof_of_payment(event_id: str, request: Request,
+                                  amount: float = Query(..., gt=0),
+                                  reference: str | None = Query(None),
+                                  filename: str | None = Query(None),
+                                  db: Session = Depends(get_db)):
+    """A member uploads proof of an EFT.
+
+    The image is forwarded as a raw body, same as the event poster — see
+    events_client._request for why multipart is avoided here.
+    """
+    member = _member(request, db)
+    ext = _external_id(member)
+    if not member or not ext:
+        raise HTTPException(status_code=401, detail="Please sign in")
+
+    data = _unwrap(events_client.get_event(event_id, ext))
+    reg = data.get("my_registration")
+    if not reg:
+        raise HTTPException(status_code=400, detail="Register for the event first")
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="No file received")
+    content_type = (request.headers.get("content-type") or "").split(";")[0].strip()
+
+    return _unwrap(events_client.submit_proof(
+        event_id, reg["id"], member_id=ext, amount=amount,
+        reference=reference, filename=filename,
+        data=body, content_type=content_type,
+    ))
+
+
+@api_router.get("/{event_id}/payments/pending")
+def list_pending_payments(event_id: str, request: Request = None,
+                          db: Session = Depends(get_db)):
+    """The manager's queue of claims to check against the bank."""
+    member, ext = _require_manager_identity(request, db)
+    return _unwrap(events_client.pending_payments(event_id, ext))
+
+
+@api_router.get("/{event_id}/payments/{payment_id}/proof")
+def view_proof(event_id: str, payment_id: str, request: Request = None,
+               db: Session = Depends(get_db)):
+    """Stream the uploaded proof to the manager.
+
+    Proxied rather than linked so the shared secret never reaches the page,
+    and so church-manager can keep checking that the viewer really manages
+    this event.
+    """
+    member, ext = _require_manager_identity(request, db)
+    fetched = events_client.fetch_proof(event_id, payment_id, ext)
+    if not fetched:
+        raise HTTPException(status_code=404, detail="No proof available")
+    body, content_type = fetched
+    return Response(content=body, media_type=content_type,
+                    headers={"Cache-Control": "private, max-age=300"})
+
+
+@api_router.post("/{event_id}/payments/{payment_id}/confirm")
+def confirm_payment(event_id: str, payment_id: str, request: Request = None,
+                    db: Session = Depends(get_db)):
+    member, ext = _require_manager_identity(request, db)
+    return _unwrap(events_client.confirm_payment(
+        event_id, payment_id, member_id=ext, manager_name=member.full_name))
+
+
+@api_router.post("/{event_id}/payments/{payment_id}/reject")
+def reject_payment(event_id: str, payment_id: str, payload: dict = Body(default={}),
+                   request: Request = None, db: Session = Depends(get_db)):
+    member, ext = _require_manager_identity(request, db)
+    return _unwrap(events_client.reject_payment(
+        event_id, payment_id, member_id=ext, manager_name=member.full_name,
+        reason=(payload.get("reason") or "").strip() or None))

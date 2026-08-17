@@ -57,7 +57,8 @@ class Result:
 
 
 def _request(method: str, path: str, *, params: dict | None = None,
-             body: dict | None = None) -> Result:
+             body: dict | None = None, raw_body: bytes | None = None,
+             content_type: str | None = None) -> Result:
     if not is_configured():
         return Result(False, error="church-manager is not configured")
 
@@ -67,14 +68,23 @@ def _request(method: str, path: str, *, params: dict | None = None,
         if clean:
             url += "?" + urllib.parse.urlencode(clean)
 
-    data = json.dumps(body).encode() if body is not None else None
+    # Proof-of-payment images go up as a raw body, like the event poster:
+    # multipart adds a CSRF surface and buys nothing when the portal is
+    # already authenticating with a shared secret.
+    if raw_body is not None:
+        data = raw_body
+        ctype = content_type or "application/octet-stream"
+    else:
+        data = json.dumps(body).encode() if body is not None else None
+        ctype = "application/json"
+
     req = urllib.request.Request(
         url,
         data=data,
         method=method,
         headers={
             "X-Portal-API-Key": _api_key(),
-            "Content-Type": "application/json",
+            "Content-Type": ctype,
             "Accept": "application/json",
         },
     )
@@ -217,3 +227,73 @@ def registry_csv_url(event_id: str, member_id: str) -> str:
 def poster_url(event_id: str) -> str:
     """Public poster image URL — no key needed, carries no personal data."""
     return f"{_base_url()}/api/events/{event_id}/poster"
+
+
+# ── Paying for an event ───────────────────────────────────────────────────────
+
+def submit_proof(event_id: str, registration_id: str, *, member_id: str,
+                 amount: float, reference: str | None, filename: str | None,
+                 data: bytes, content_type: str) -> Result:
+    """Upload a member's proof of an EFT. Creates a PENDING payment there."""
+    return _request(
+        "POST",
+        f"/api/portal/events/{event_id}/registrations/{registration_id}/proof",
+        params={"amount": amount, "member_id": member_id,
+                "reference": reference, "filename": filename},
+        raw_body=data, content_type=content_type,
+    )
+
+
+def pending_payments(event_id: str, member_id: str) -> Result:
+    """The queue of claims a manager still has to check."""
+    return _request("GET", f"/api/portal/events/{event_id}/payments/pending",
+                    params={"member_id": member_id})
+
+
+def confirm_payment(event_id: str, payment_id: str, *, member_id: str,
+                    manager_name: str | None = None) -> Result:
+    return _request("POST", f"/api/portal/events/{event_id}/payments/{payment_id}/confirm",
+                    params={"member_id": member_id, "manager_name": manager_name})
+
+
+def reject_payment(event_id: str, payment_id: str, *, member_id: str,
+                   manager_name: str | None = None, reason: str | None = None) -> Result:
+    return _request("POST", f"/api/portal/events/{event_id}/payments/{payment_id}/reject",
+                    params={"member_id": member_id, "manager_name": manager_name},
+                    body={"reason": reason})
+
+
+def proof_url(event_id: str, payment_id: str, member_id: str) -> str:
+    """Where the portal proxies the proof image from."""
+    return (f"{_base_url()}/api/portal/events/{event_id}/payments/{payment_id}/proof"
+            f"?{urllib.parse.urlencode({'member_id': member_id})}")
+
+
+def fetch_proof(event_id: str, payment_id: str, member_id: str):
+    """Stream a proof image back. Returns (bytes, content_type) or None."""
+    url = proof_url(event_id, payment_id, member_id)
+    req = urllib.request.Request(url, headers={"X-Portal-API-Key": _api_key()})
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            return resp.read(), resp.headers.get("Content-Type", "application/octet-stream")
+    except Exception as e:
+        logger.info("[events_client] could not fetch proof: %s", e)
+        return None
+
+
+def record_gateway_payment(event_id: str, registration_id: str, *, amount: float,
+                           reference: str, member_id: str | None,
+                           name: str | None) -> Result:
+    """Tell church-manager a card payment settled. Idempotent on reference."""
+    return _request(
+        "POST",
+        f"/api/portal/events/{event_id}/registrations/{registration_id}/gateway-payment",
+        body={
+            "amount": amount,
+            "method": "YOCO",
+            "reference": reference,
+            "note": "Paid by card through the portal",
+            "captured_by_member_id": member_id,
+            "captured_by_name": name,
+        },
+    )
