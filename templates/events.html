@@ -78,7 +78,7 @@ function card(ev) {
                 <h2 class="font-semibold text-gray-900">${esc(ev.title)}</h2>
                 ${badge}
             </div>
-            <p class="text-sm text-gray-500 mt-1">${esc(fmtDates(ev.start_date, ev.end_date))}</p>
+            <p class="text-sm text-gray-500 mt-1">${esc(fmtDates(ev.runs_from || ev.start_date, ev.runs_to || ev.end_date))}</p>
             ${ev.venue ? `<p class="text-sm text-gray-500">📍 ${esc(ev.venue)}</p>` : ''}
             ${cost ? `<p class="text-sm font-medium text-gray-700 mt-2">${esc(cost)}</p>` : ''}
             ${ev.is_manager ? '<p class="text-xs text-amber-700 mt-2 font-medium">You manage this event</p>' : ''}

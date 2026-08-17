@@ -144,6 +144,12 @@ function esc(s) {
 }
 function $(id) { return document.getElementById(id); }
 
+// The dates an event RUNS on, which is what a member is being told.
+// runs_from/runs_to are resolved server-side and fall back to the
+// registration window for events created before run dates existed.
+function runDates(ev) {
+    return [ev.runs_from || ev.start_date, ev.runs_to || ev.end_date];
+}
 function fmtDates(start, end) {
     const opts = { day: 'numeric', month: 'short', year: 'numeric' };
     const s = new Date(start + 'T00:00:00').toLocaleDateString('en-ZA', opts);
@@ -173,7 +179,7 @@ async function load() {
     $('loading').classList.add('hidden');
     $('event').classList.remove('hidden');
     $('title').textContent = EVENT.title;
-    $('dates').textContent = fmtDates(EVENT.start_date, EVENT.end_date);
+    $('dates').textContent = fmtDates(...runDates(EVENT));
     if (EVENT.venue) $('venue').textContent = '📍 ' + EVENT.venue;
     $('cost').textContent = EVENT.cost ? money(EVENT.cost, EVENT.currency) + ' per person' : 'Free';
     if (EVENT.description) $('description').textContent = EVENT.description;
@@ -210,7 +216,9 @@ async function load() {
                 ? `Balance outstanding: ${money(bal, EVENT.currency)}`
                 : 'Nothing outstanding.';
         }
-        const days = Math.ceil((new Date(EVENT.start_date + 'T00:00:00') - new Date()) / 86400000);
+        // Counts down to the event itself, not to the registration
+        // deadline — that's the date someone who has registered cares about.
+        const days = Math.ceil((new Date(runDates(EVENT)[0] + 'T00:00:00') - new Date()) / 86400000);
         if (days > 0) $('countdown').textContent = `${days} day${days === 1 ? '' : 's'} to go`;
         else if (days === 0) $('countdown').textContent = 'Today!';
         $('registered').classList.remove('hidden');
@@ -239,7 +247,7 @@ function showSuccess(name) {
     $('event').classList.add('hidden');
     $('successName').textContent = name ? `See you there, ${name.split(' ')[0]}.` : '';
     $('successEvent').textContent = EVENT.title;
-    $('successWhen').textContent = fmtDates(EVENT.start_date, EVENT.end_date);
+    $('successWhen').textContent = fmtDates(...runDates(EVENT));
     if (EVENT.venue) $('successVenue').textContent = '📍 ' + EVENT.venue;
     if (EVENT.cost) {
         $('successAmount').textContent = money(EVENT.cost, EVENT.currency);

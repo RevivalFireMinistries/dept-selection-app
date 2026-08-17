@@ -404,9 +404,14 @@ def share_links(event_id: str, request: Request = None, db: Session = Depends(ge
     data = _unwrap(events_client.get_event(event_id, _external_id(member)))
     url = _registration_url(request, event_id)
 
-    when = data.get("start_date", "")
-    if data.get("end_date") and data["end_date"] != when:
-        when = f"{when} to {data['end_date']}"
+    # The dates the event RUNS on, not the registration window. Sharing
+    # "1 August to 20 September" for a three-day camp is how this read
+    # before run dates existed; runs_from/runs_to fall back to the
+    # registration window for events that predate them.
+    when = data.get("runs_from") or data.get("start_date", "")
+    runs_to = data.get("runs_to") or data.get("end_date")
+    if runs_to and runs_to != when:
+        when = f"{when} to {runs_to}"
     cost = data.get("cost")
     lines = [
         f"*{data.get('title', 'Event')}*",
