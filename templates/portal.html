@@ -58,10 +58,102 @@
                     </div>
                 </section>
 
+                <!-- Upcoming meetings -->
+                {% if features.events %}
+                <!-- ==================== EVENTS ====================
+                     Not registered → the event, with a prompt to register.
+                     Registered     → a countdown, what's outstanding, and
+                                      any announcements posted for it. -->
+                <template x-for="ev in dashboardEvents" :key="ev.id">
+                    <section class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <!-- ?v=updated_at so a replaced poster isn't masked by the
+                             hour-long cache on the image response. -->
+                        <img x-show="ev.has_poster"
+                             :src="`/api/events/${ev.id}/poster?v=${encodeURIComponent(ev.updated_at || '')}`" alt=""
+                             class="w-full h-32 object-cover" loading="lazy">
+                        <div class="p-5">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Upcoming event</h2>
+                                    <div class="font-semibold text-gray-900 mt-1" x-text="ev.title"></div>
+                                    <div class="text-xs text-gray-500" x-text="eventDates(ev)"></div>
+                                    <div x-show="ev.venue" class="text-xs text-gray-500" x-text="'📍 ' + ev.venue"></div>
+                                </div>
+                                <!-- Countdown — only meaningful once they're coming -->
+                                <div x-show="ev.my_registration && countdown(ev)"
+                                     class="shrink-0 text-center bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+                                    <div class="text-xl font-bold text-orange-700" x-text="countdown(ev)?.days"></div>
+                                    <div class="text-[10px] uppercase tracking-wider text-orange-600"
+                                         x-text="countdown(ev)?.label"></div>
+                                </div>
+                            </div>
+
+                            <!-- NOT registered -->
+                            <template x-if="!ev.my_registration">
+                                <div class="mt-3">
+                                    <p class="text-sm text-gray-600" x-text="ev.cost ? `${ev.currency} ${Number(ev.cost).toLocaleString('en-ZA', {minimumFractionDigits: 2})} per person` : 'Free to attend'"></p>
+                                    <a :href="`/events/${ev.id}`"
+                                       class="mt-3 block text-center bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-orange-700">
+                                        Register now
+                                    </a>
+                                </div>
+                            </template>
+
+                            <!-- Registered -->
+                            <template x-if="ev.my_registration">
+                                <div class="mt-3">
+                                    <div class="flex items-center gap-2 text-sm">
+                                        <span class="text-emerald-700 font-medium">You're registered ✓</span>
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider"
+                                              :class="registrationBadgeClass(ev.my_registration.status)"
+                                              x-text="registrationLabel(ev.my_registration.status)"></span>
+                                    </div>
+                                    <p x-show="ev.my_registration.balance > 0" class="text-xs text-amber-700 mt-1"
+                                       x-text="`Balance outstanding: ${ev.currency} ${Number(ev.my_registration.balance).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`"></p>
+
+                                    <!-- Announcements for people who are coming -->
+                                    <div x-show="ev.announcements && ev.announcements.length" class="mt-3 pt-3 border-t border-gray-100">
+                                        <div class="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style="color: var(--color-mute);">Event notes</div>
+                                        <div class="space-y-2">
+                                            <template x-for="a in ev.announcements.slice(0, expandedEventNotes[ev.id] ? 99 : 2)" :key="a.id">
+                                                <div class="p-3 rounded-xl border"
+                                                     :class="a.is_pinned ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'">
+                                                    <div class="flex items-start gap-2">
+                                                        <span x-show="a.is_pinned" class="text-amber-600 text-xs">📌</span>
+                                                        <div class="min-w-0">
+                                                            <div class="text-sm font-semibold text-gray-900" x-text="a.title"></div>
+                                                            <div class="text-xs text-gray-600 mt-0.5 whitespace-pre-line" x-text="a.body"></div>
+                                                            <div class="text-[10px] text-gray-400 mt-1"
+                                                                 x-text="(a.created_by_name ? a.created_by_name + ' · ' : '') + eventNoteWhen(a)"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
+                                        <button x-show="ev.announcements.length > 2"
+                                                @click="expandedEventNotes[ev.id] = !expandedEventNotes[ev.id]"
+                                                class="mt-2 text-xs font-medium text-orange-600"
+                                                x-text="expandedEventNotes[ev.id] ? 'Show fewer' : `View all ${ev.announcements.length} notes`"></button>
+                                    </div>
+
+                                    <a :href="`/events/${ev.id}`" class="mt-3 block text-center text-sm font-medium text-orange-600">View event details</a>
+                                </div>
+                            </template>
+                        </div>
+                    </section>
+                </template>
+                {% endif %}
+
                 {% if features.prayer_groups %}
-                <!-- Your prayer group — top item. Ordinary members see only their
-                     group name + chain-prayer times (not the member list). -->
-                <section x-show="prayerGroup && prayerGroup.group" x-cloak class="rounded-2xl shadow-sm overflow-hidden text-white" style="background-color: var(--color-ink);">
+                <!-- Your prayer group. Ordinary members see only their group
+                     name + chain-prayer times (not the member list).
+
+                     Shown only when there is something to act on: a chain-prayer
+                     slot assigned to you, or the leader's link to their members.
+                     Belonging to a group is not news; a card that only repeats
+                     the group's name every day trains people to scroll past the
+                     dashboard. -->
+                <section x-show="prayerGroupHasAnything()" x-cloak class="rounded-2xl shadow-sm overflow-hidden text-white" style="background-color: var(--color-ink);">
                     <div class="px-5 py-4">
                         <div class="text-[10px] uppercase tracking-[0.2em] text-white/60">Your prayer group</div>
                         <h2 class="font-display text-2xl mt-0.5" x-text="prayerGroup?.group?.name"></h2>
@@ -104,7 +196,7 @@
                 {% endif %}
 
                 <!-- My service: what I'm rostered for, asks awaiting me, and my leave -->
-                <section x-show="myService && (myServiceHasAnything() || true)" x-cloak
+                <section x-show="myService && (myServiceHasAnything() || awayForm.open)" x-cloak
                          class="bg-white rounded-2xl shadow-sm p-5" style="border: 1px solid var(--color-border);">
                     <div class="flex items-center justify-between gap-2">
                         <h2 class="font-bold text-gray-900">My service</h2>
@@ -208,19 +300,10 @@
                     </div>
                 </section>
 
-                {% if features.prayer_requests %}
-                <!-- Solicit prayer requests -->
-                <a href="/prayer-request" class="block bg-white rounded-2xl shadow-sm p-4 hover:shadow transition" style="border:1px solid var(--color-border);">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0" style="background-color:rgba(184,84,28,0.10);">🙏</div>
-                        <div class="flex-1 min-w-0">
-                            <div class="text-sm font-semibold" style="color:var(--color-ink);">Need prayer?</div>
-                            <div class="text-[12px]" style="color:var(--color-mute);">Submit a prayer request — we'll pray with you.</div>
-                        </div>
-                        <span style="color:var(--color-mute);">›</span>
-                    </div>
-                </a>
-                {% endif %}
+                <!-- "Need prayer?" used to sit here. It is a standing invitation
+                     rather than something that happened, so it belongs in the
+                     menu (where it still is) and not on a dashboard people scan
+                     for what is new. -->
 
                 <!-- Kingdom Gateway: EXAM IS OPEN — prominent "Take exam now"
                      card. Only shown when the member has an exam_available_at
@@ -655,91 +738,6 @@
                 </section>
                 {% endif %}
 
-                <!-- Upcoming meetings -->
-                {% if features.events %}
-                <!-- ==================== EVENTS ====================
-                     Not registered → the event, with a prompt to register.
-                     Registered     → a countdown, what's outstanding, and
-                                      any announcements posted for it. -->
-                <template x-for="ev in dashboardEvents" :key="ev.id">
-                    <section class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                        <!-- ?v=updated_at so a replaced poster isn't masked by the
-                             hour-long cache on the image response. -->
-                        <img x-show="ev.has_poster"
-                             :src="`/api/events/${ev.id}/poster?v=${encodeURIComponent(ev.updated_at || '')}`" alt=""
-                             class="w-full h-32 object-cover" loading="lazy">
-                        <div class="p-5">
-                            <div class="flex items-start justify-between gap-3">
-                                <div class="min-w-0">
-                                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold" style="color: var(--color-mute);">Upcoming event</h2>
-                                    <div class="font-semibold text-gray-900 mt-1" x-text="ev.title"></div>
-                                    <div class="text-xs text-gray-500" x-text="eventDates(ev)"></div>
-                                    <div x-show="ev.venue" class="text-xs text-gray-500" x-text="'📍 ' + ev.venue"></div>
-                                </div>
-                                <!-- Countdown — only meaningful once they're coming -->
-                                <div x-show="ev.my_registration && countdown(ev)"
-                                     class="shrink-0 text-center bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
-                                    <div class="text-xl font-bold text-orange-700" x-text="countdown(ev)?.days"></div>
-                                    <div class="text-[10px] uppercase tracking-wider text-orange-600"
-                                         x-text="countdown(ev)?.label"></div>
-                                </div>
-                            </div>
-
-                            <!-- NOT registered -->
-                            <template x-if="!ev.my_registration">
-                                <div class="mt-3">
-                                    <p class="text-sm text-gray-600" x-text="ev.cost ? `${ev.currency} ${Number(ev.cost).toLocaleString('en-ZA', {minimumFractionDigits: 2})} per person` : 'Free to attend'"></p>
-                                    <a :href="`/events/${ev.id}`"
-                                       class="mt-3 block text-center bg-orange-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-orange-700">
-                                        Register now
-                                    </a>
-                                </div>
-                            </template>
-
-                            <!-- Registered -->
-                            <template x-if="ev.my_registration">
-                                <div class="mt-3">
-                                    <div class="flex items-center gap-2 text-sm">
-                                        <span class="text-emerald-700 font-medium">You're registered ✓</span>
-                                        <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider"
-                                              :class="registrationBadgeClass(ev.my_registration.status)"
-                                              x-text="registrationLabel(ev.my_registration.status)"></span>
-                                    </div>
-                                    <p x-show="ev.my_registration.balance > 0" class="text-xs text-amber-700 mt-1"
-                                       x-text="`Balance outstanding: ${ev.currency} ${Number(ev.my_registration.balance).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`"></p>
-
-                                    <!-- Announcements for people who are coming -->
-                                    <div x-show="ev.announcements && ev.announcements.length" class="mt-3 pt-3 border-t border-gray-100">
-                                        <div class="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style="color: var(--color-mute);">Event notes</div>
-                                        <div class="space-y-2">
-                                            <template x-for="a in ev.announcements.slice(0, expandedEventNotes[ev.id] ? 99 : 2)" :key="a.id">
-                                                <div class="p-3 rounded-xl border"
-                                                     :class="a.is_pinned ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'">
-                                                    <div class="flex items-start gap-2">
-                                                        <span x-show="a.is_pinned" class="text-amber-600 text-xs">📌</span>
-                                                        <div class="min-w-0">
-                                                            <div class="text-sm font-semibold text-gray-900" x-text="a.title"></div>
-                                                            <div class="text-xs text-gray-600 mt-0.5 whitespace-pre-line" x-text="a.body"></div>
-                                                            <div class="text-[10px] text-gray-400 mt-1"
-                                                                 x-text="(a.created_by_name ? a.created_by_name + ' · ' : '') + eventNoteWhen(a)"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                        </div>
-                                        <button x-show="ev.announcements.length > 2"
-                                                @click="expandedEventNotes[ev.id] = !expandedEventNotes[ev.id]"
-                                                class="mt-2 text-xs font-medium text-orange-600"
-                                                x-text="expandedEventNotes[ev.id] ? 'Show fewer' : `View all ${ev.announcements.length} notes`"></button>
-                                    </div>
-
-                                    <a :href="`/events/${ev.id}`" class="mt-3 block text-center text-sm font-medium text-orange-600">View event details</a>
-                                </div>
-                            </template>
-                        </div>
-                    </section>
-                </template>
-                {% endif %}
 
                 {% if features.meetings %}
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -1289,6 +1287,20 @@
                 <span class="text-gray-300">›</span>
             </a>
             {% endif %}
+
+            <!-- Block out dates. Lives here as well as on the card because the
+                 card only appears once you're rostered for something, and the
+                 person who needs to say "I'm away next month" usually isn't
+                 yet. -->
+            <a href="#" @click.prevent="setTab('home'); awayForm.open = true; menuOpen = false"
+               class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 border-b border-gray-100">
+                <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm">📅</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900">Block out dates</div>
+                    <div class="text-[11px] text-gray-500">Tell us when you're not available to serve</div>
+                </div>
+                <span class="text-gray-300">›</span>
+            </a>
 
             {% if features.prayer_requests %}
             <!-- Submit a prayer request (everyone) -->
@@ -2163,16 +2175,19 @@ function memberPortal() {
             } catch (e) { /* menu entry stays hidden */ }
         },
         countdown(ev) {
-            // Count down to whichever milestone is still ahead. An event
-            // that has already opened (start_date is also its launch date)
-            // counts down to closing instead, which is the date that still
-            // matters to someone who's registered.
+            // Days until the event itself. Someone who has registered is
+            // waiting for the camp, not for the registration deadline —
+            // counting to the latter told them "34 days left" for a camp
+            // 32 days away.
             if (!ev) return null;
-            const toStart = ev.days_until_start;
-            const toEnd = ev.days_until_end;
-            if (typeof toStart === 'number' && toStart > 0) {
-                return { days: toStart, label: toStart === 1 ? 'day to go' : 'days to go' };
+            const toEvent = ev.days_until_event;
+            if (typeof toEvent === 'number' && toEvent > 0) {
+                return { days: toEvent, label: toEvent === 1 ? 'day to go' : 'days to go' };
             }
+            if (toEvent === 0) return { days: 0, label: 'today' };
+            // Older payloads had no days_until_event; fall back to what the
+            // card used to show rather than dropping the countdown.
+            const toEnd = ev.days_until_end;
             if (typeof toEnd === 'number' && toEnd >= 0) {
                 return { days: toEnd, label: toEnd === 1 ? 'day left' : 'days left' };
             }
@@ -2182,9 +2197,14 @@ function memberPortal() {
         // defines eventWhen() further down this same object, and the later
         // definition silently wins.
         eventDates(ev) {
+            // The dates the event RUNS on. runs_from/runs_to are resolved by
+            // church-manager and fall back to the registration window for
+            // events created before run dates existed.
             const opts = { day: 'numeric', month: 'short', year: 'numeric' };
-            const s = new Date(ev.start_date + 'T00:00:00').toLocaleDateString('en-ZA', opts);
-            const e = new Date(ev.end_date + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+            const from = ev.runs_from || ev.start_date;
+            const to = ev.runs_to || ev.end_date;
+            const s = new Date(from + 'T00:00:00').toLocaleDateString('en-ZA', opts);
+            const e = new Date(to + 'T00:00:00').toLocaleDateString('en-ZA', opts);
             return s === e ? s : `${s} – ${e}`;
         },
         eventNoteWhen(a) {
@@ -3069,6 +3089,14 @@ function memberPortal() {
                 const r = await fetch('/api/portal/my-service');
                 this.myService = r.ok ? await r.json() : null;
             } catch (e) { this.myService = null; }
+        },
+        prayerGroupHasAnything() {
+            // Being in a group isn't news. The card earns its place only when
+            // it carries something to act on: a chain-prayer slot that's
+            // yours, or the leader's link through to their members.
+            const g = this.prayerGroup;
+            if (!g || !g.group) return false;
+            return Boolean(g.you_are_leader) || (g.chain?.my_slots || []).length > 0;
         },
         myServiceHasAnything() {
             const s = this.myService;
