@@ -181,11 +181,12 @@ def events_i_manage(member_id: str) -> Result:
 
 
 def registry(event_id: str, member_id: str, *, include_removed: bool = False,
-             search: str | None = None) -> Result:
+             search: str | None = None, method: str | None = None) -> Result:
     return _request("GET", f"/api/portal/events/{event_id}/registry",
                     params={"member_id": member_id,
                             "include_removed": str(include_removed).lower(),
-                            "search": search})
+                            "search": search,
+                            "method": method})
 
 
 def add_payment(event_id: str, registration_id: str, member_id: str, *,

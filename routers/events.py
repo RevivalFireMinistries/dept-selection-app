@@ -261,10 +261,11 @@ def _require_manager_identity(request: Request, db: Session) -> tuple[Member, st
 
 @api_router.get("/{event_id}/registry")
 def registry(event_id: str, include_removed: bool = False, search: str | None = None,
+             method: str | None = None,
              request: Request = None, db: Session = Depends(get_db)):
     member, ext = _require_manager_identity(request, db)
     return _unwrap(events_client.registry(
-        event_id, ext, include_removed=include_removed, search=search
+        event_id, ext, include_removed=include_removed, search=search, method=method
     ))
 
 

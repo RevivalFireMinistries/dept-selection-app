@@ -95,6 +95,14 @@
             <div id="notesList" class="mt-3 space-y-2"></div>
         </div>
 
+        <!-- What came in, by which door. A single "collected" total can't be
+             matched against a bank statement or a Yoco settlement; this can. -->
+        <div id="methodBox" class="hidden mt-4 bg-white rounded-xl border border-gray-200 p-4">
+            <h2 class="text-sm font-semibold text-gray-900">Money received, by method</h2>
+            <table class="w-full text-sm mt-2"><tbody id="methodRows"></tbody></table>
+            <p id="methodFilterNote" class="hidden text-xs text-blue-800 mt-3"></p>
+        </div>
+
         <!-- Payments waiting to be checked against the bank. Hidden entirely
              when there are none — an empty queue is not news. -->
         <div id="pendingBox" class="hidden mt-4 bg-amber-50 rounded-xl border border-amber-200 p-4">
@@ -203,7 +211,8 @@ function render() {
 
 async function load() {
     try {
-        const res = await fetch(`/api/events/${EVENT_ID}/registry`);
+        const qs = METHOD_FILTER ? `?method=${encodeURIComponent(METHOD_FILTER)}` : '';
+        const res = await fetch(`/api/events/${EVENT_ID}/registry${qs}`);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || 'Could not load the registry');
@@ -212,12 +221,75 @@ async function load() {
         $('loading').classList.add('hidden');
         $('wrap').classList.remove('hidden');
         render();
+        renderMethods();
         loadNotes();
         loadPending();
     } catch (e) {
         $('loading').classList.add('hidden');
         showError(e.message);
     }
+}
+
+// ── Reconciliation ───────────────────────────────────────────────────────────
+//
+// Tapping a method narrows the registry to the people who actually paid
+// that way, so the list can be walked against a statement line by line.
+
+const METHOD_LABELS = {
+    YOCO: 'Card (Yoco)',
+    EFT: 'EFT',
+    CASH: 'Cash',
+    CARD_AT_DESK: 'Card at the desk',
+    UNSPECIFIED: 'Not specified',
+};
+
+let METHOD_FILTER = '';
+
+function renderMethods() {
+    const s = DATA.stats, cur = DATA.event.currency;
+    const rows = Object.entries(s.by_method || {})
+        .map(([key, r]) => ({ key, ...r }))
+        .sort((a, b) => Number(b.total) - Number(a.total));
+
+    if (!rows.length && !s.pending_count) {
+        $('methodBox').classList.add('hidden');
+        return;
+    }
+
+    $('methodRows').innerHTML = rows.map(r => `
+        <tr class="border-b border-gray-50">
+            <td class="py-1.5">
+                <button class="methodPick text-left ${METHOD_FILTER === r.key ? 'font-semibold text-blue-700' : 'text-gray-900'}"
+                        data-key="${esc(r.key)}">${esc(METHOD_LABELS[r.key] || r.key)}</button>
+            </td>
+            <td class="py-1.5 text-right text-gray-500">${r.count}</td>
+            <td class="py-1.5 text-right font-medium">${esc(money(r.total, cur))}</td>
+        </tr>`).join('') + `
+        <tr class="border-t border-gray-200">
+            <td class="py-1.5 font-semibold">Total collected</td><td></td>
+            <td class="py-1.5 text-right font-semibold">${esc(money(s.total_collected, cur))}</td>
+        </tr>` + (s.pending_count ? `
+        <tr><td colspan="3" class="pt-2">
+            <span class="text-xs text-amber-800">${s.pending_count} payment(s) totalling
+            ${esc(money(s.pending_total, cur))} still to be checked — not counted above.</span>
+        </td></tr>` : '');
+
+    const note = $('methodFilterNote');
+    if (METHOD_FILTER) {
+        note.innerHTML = `Showing only people who paid by <strong>${esc(METHOD_LABELS[METHOD_FILTER] || METHOD_FILTER)}</strong>. <button id="clearMethod" class="underline font-medium">Show everyone</button>`;
+        note.classList.remove('hidden');
+        $('clearMethod').addEventListener('click', () => { METHOD_FILTER = ''; load(); });
+    } else {
+        note.classList.add('hidden');
+    }
+
+    document.querySelectorAll('.methodPick').forEach(b =>
+        b.addEventListener('click', () => {
+            METHOD_FILTER = METHOD_FILTER === b.dataset.key ? '' : b.dataset.key;
+            load();
+        }));
+
+    $('methodBox').classList.remove('hidden');
 }
 
 // ── Payments waiting to be checked ───────────────────────────────────────────
