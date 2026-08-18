@@ -53,6 +53,7 @@
         </div>
 
         <!-- How to pay. Only what this event actually offers is shown. -->
+        <div id="pay"></div>
         <div id="payBox" class="hidden mt-6 rounded-xl border border-gray-200 p-4">
             <h2 class="text-sm font-semibold text-gray-900">Pay for this event</h2>
             <p id="payOwing" class="text-sm text-gray-600 mt-1"></p>
@@ -221,6 +222,13 @@ function renderPaymentOptions(reg) {
 
     $('payOwing').textContent = `${money(owing, EVENT.currency)} still to pay.`;
     $('payBox').classList.remove('hidden');
+
+    // Arriving from the dashboard's "Pay now" should land on the options,
+    // not at the top of a long page with a poster on it. Deferred because
+    // the box is only in the document as of this call.
+    if (window.location.hash === '#pay') {
+        requestAnimationFrame(() => $('payBox').scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    }
 
     if (methods.includes('YOCO')) {
         $('payCard').classList.remove('hidden');
