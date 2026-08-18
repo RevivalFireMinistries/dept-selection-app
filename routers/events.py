@@ -385,15 +385,19 @@ def registry_csv(event_id: str, request: Request = None, db: Session = Depends(g
                     headers={"Content-Disposition": disposition})
 
 
-def _registration_url(request: Request, event_id: str) -> str:
+def _registration_url(request: Request, event_id: str, db: Session) -> str:
     """The public link people scan or tap to register.
 
     Built from the incoming request so it's correct on localhost, on a
     Railway domain, and behind a custom domain — without another env var to
     keep in step.
     """
-    base = str(request.base_url).rstrip("/")
-    return f"{base}/events/{event_id}"
+    from routers.payments import _absolute_base
+
+    # Same reasoning as the checkout URLs: this ends up in a QR code and a
+    # WhatsApp message, so it must be the public address rather than
+    # whatever origin the request happened to arrive on.
+    return f"{_absolute_base(request, db)}/events/{event_id}"
 
 
 @api_router.get("/{event_id}/share")
@@ -402,7 +406,7 @@ def share_links(event_id: str, request: Request = None, db: Session = Depends(ge
     message, and the QR image URL."""
     member = _member(request, db)
     data = _unwrap(events_client.get_event(event_id, _external_id(member)))
-    url = _registration_url(request, event_id)
+    url = _registration_url(request, event_id, db)
 
     # The dates the event RUNS on, not the registration window. Sharing
     # "1 August to 20 September" for a three-day camp is how this read
@@ -436,7 +440,8 @@ def share_links(event_id: str, request: Request = None, db: Session = Depends(ge
 
 
 @api_router.get("/{event_id}/qr.png")
-def qr_code(event_id: str, request: Request = None, download: bool = False):
+def qr_code(event_id: str, request: Request = None, download: bool = False,
+            db: Session = Depends(get_db)):
     """QR code for the registration link, as a PNG.
 
     Rendered server-side rather than with a JS library so the file can be
@@ -447,7 +452,7 @@ def qr_code(event_id: str, request: Request = None, download: bool = False):
 
     import qrcode
 
-    url = _registration_url(request, event_id)
+    url = _registration_url(request, event_id, db)
     img = qrcode.make(url, box_size=10, border=2)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -518,6 +523,11 @@ def start_card_payment(event_id: str, payload: dict = Body(default={}),
         requested = outstanding
     amount = min(max(requested, 1.0), outstanding)
     amount_cents = int(round(amount * 100))
+    if amount_cents < 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Card payments start at R1.00 — please pay the balance another way.",
+        )
 
     secret_key = yoco.get_setting(db, "yoco_secret_key")
     if not secret_key:
@@ -526,19 +536,37 @@ def start_card_payment(event_id: str, payload: dict = Body(default={}),
             detail="Card payments aren't set up yet — please use the bank details shown.",
         )
 
-    base = str(request.base_url).rstrip("/")
+    # Yoco has to be able to reach these, and behind Railway's proxy
+    # request.base_url is the INTERNAL origin — http://…:8080 — which Yoco
+    # rejects. _absolute_base prefers the admin-configured portal_base_url
+    # and otherwise rebuilds from the x-forwarded-* headers, which is why
+    # the giving flow has always worked where this did not.
+    from routers.payments import _absolute_base
+
+    base = _absolute_base(request, db)
     try:
         checkout = yoco.create_checkout(
             secret_key=secret_key,
             amount_cents=amount_cents,
-            success_url=f"{base}/events/{event_id}?paid=1",
+            # Shaped to match the giving checkout, which has always worked:
+            # plain paths with no query string, and camelCase metadata keys.
+            # This call differed from that one in exactly those two ways and
+            # got a 400 back. Which of the two Yoco actually objected to is
+            # unconfirmed — their docs were not reachable to check — so both
+            # were brought into line rather than guessing at one.
+            success_url=f"{base}/events/{event_id}",
             cancel_url=f"{base}/events/{event_id}",
-            failure_url=f"{base}/events/{event_id}?failed=1",
-            metadata={"kind": "event", "event_id": event_id,
-                      "registration_id": reg["id"], "member_id": ext},
+            failure_url=f"{base}/events/{event_id}",
+            metadata={
+                "kind": "event",
+                "eventId": event_id,
+                "registrationId": reg["id"],
+                "externalMemberId": ext,
+            },
         )
     except yoco.YocoError as e:
-        logger.warning("[events] Yoco checkout failed: %s", e)
+        logger.warning("[events] Yoco checkout failed (base=%s, amount=%s): %s",
+                       base, amount_cents, e)
         raise HTTPException(status_code=502, detail="Could not start the card payment")
 
     # Recorded before the redirect so the webhook has something to match

@@ -132,7 +132,20 @@ def create_checkout(
         payload = {}
 
     if status >= 400:
-        msg = payload.get("detail") or payload.get("title") or f"HTTP {status}"
+        # Yoco's 4xx bodies are not one shape: some carry `detail`, some
+        # `title`, some a `message`, some a list of per-field errors. Falling
+        # back to "HTTP 400" threw away the only useful part of the response,
+        # so include the raw body when nothing recognised is present.
+        msg = (
+            payload.get("detail")
+            or payload.get("title")
+            or payload.get("message")
+            or payload.get("errorMessage")
+        )
+        if not msg and payload.get("errors"):
+            msg = json.dumps(payload["errors"])[:300]
+        if not msg:
+            msg = f"HTTP {status}: {raw[:300] or 'empty response'}"
         raise YocoError(f"Yoco rejected the checkout: {msg}")
 
     checkout_id = payload.get("id")
