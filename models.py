@@ -51,6 +51,10 @@ class Member(Base):
     is_active = Column(Boolean, nullable=False, server_default="true")
     reset_token = Column(String, nullable=True)
     reset_token_expires = Column(DateTime(timezone=True), nullable=True)
+    # Set when an admin resets someone to a temporary password. Checked
+    # AFTER authentication, whichever way they authenticated, so it holds
+    # whether single sign-on is on or off.
+    must_change_password = Column(Boolean, nullable=False, server_default="false")
     # Email verification (set after the user clicks the link in their welcome
     # email). null email_verified_at = unverified — portal shows a banner
     # nudging them to verify, but doesn't block login.

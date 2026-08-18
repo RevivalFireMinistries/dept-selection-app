@@ -465,6 +465,19 @@ def run_migrations():
                     ), {"event_type": event_type})
                     conn.commit()
                     print(f"Migration: Added notification config for {event_type}")
+    # Migration: admin-forced password change. Defaults false, so nobody
+    # already signed in is suddenly asked to pick a new password.
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE members ADD COLUMN IF NOT EXISTS "
+                "must_change_password BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            conn.commit()
+        print("Migration: Added must_change_password to members")
+    except Exception as e:
+        print(f"Migration note (must_change_password): {e}")
+
     # Migration: event fees paid by card. Nullable, so existing giving
     # transactions are untouched and the columns simply stay empty for them.
     try:

@@ -666,6 +666,28 @@ def login_member(
     if not member.is_active:
         raise HTTPException(status_code=403, detail="Your account is pending admin approval. You will be notified once approved.")
 
+    # An admin reset them to a temporary password. They have proved they
+    # hold it — now make them replace it before they get a session.
+    #
+    # Deliberately checked here, after BOTH sign-in paths have run, so it
+    # applies whether they authenticated centrally or against the local
+    # hash. Putting it inside either branch would let single sign-on being
+    # on or off decide whether a forced change actually happens.
+    if member.must_change_password:
+        token = secrets.token_urlsafe(32)
+        member.reset_token = token
+        member.reset_token_expires = datetime.utcnow() + timedelta(hours=2)
+        db.commit()
+        return JSONResponse(status_code=200, content={
+            # Same shape the first-time-login branch returns, so the sign-in
+            # page's existing redirect handles it with no new UI.
+            "needs_password": True,
+            "token": token,
+            "has_email": bool(member.email and member.email.strip()),
+            "full_name": member.full_name,
+            "reason": "reset_by_admin",
+        })
+
     # Create response with session cookie
     from routers.pages import _sign_member_session, MEMBER_COOKIE_NAME, SESSION_MAX_AGE
     token = _sign_member_session(member.id)
@@ -987,6 +1009,131 @@ def portal_invite_member(
     }
 
 
+def _find_member_for_admin(db: Session, data: dict):
+    """Locate a member from what church-manager knows about them.
+
+    Central id first because it is unambiguous, then phone, then email —
+    the same order used everywhere else in this stack.
+    """
+    external_id = (data.get("external_member_id") or "").strip() or None
+    phone = (data.get("phone") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+
+    if external_id:
+        found = db.query(Member).filter(Member.external_member_id == external_id).first()
+        if found:
+            return found
+    if phone:
+        wanted = re.sub(r"\D", "", phone)[-9:]
+        if wanted:
+            for candidate in db.query(Member).all():
+                if re.sub(r"\D", "", candidate.phone or "")[-9:] == wanted:
+                    return candidate
+    if email:
+        return db.query(Member).filter(func.lower(Member.email) == email).first()
+    return None
+
+
+@router.post("/portal/admin/reset-link")
+def portal_admin_reset_link(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Issue a password-reset link for a member who is stuck.
+
+    Returns the LINK as well as emailing it. That is the point: when mail
+    delivery is broken — or the member's address is wrong, which is often
+    exactly why they're stuck — an admin who cannot see the link has no way
+    to help them. With it, they can read it out or send it over WhatsApp.
+
+    Works the same whether single sign-on is on or off: the reset page
+    writes the local hash and pushes the same password centrally, so the
+    member ends up with one working credential either way.
+    """
+    _require_portal_invite_key(request)
+
+    member = _find_member_for_admin(db, data)
+    if not member:
+        raise HTTPException(status_code=404, detail="No portal account found for that member")
+
+    token = secrets.token_urlsafe(32)
+    member.reset_token = token
+    member.reset_token_expires = datetime.utcnow() + timedelta(hours=int(data.get("hours") or 24))
+    db.commit()
+
+    base = _portal_base_url(request)
+    link = f"{base}/reset-password?token={token}"
+
+    emailed, email_error = False, None
+    if data.get("send_email", True) and (member.email or "").strip():
+        ok, err = _send_portal_invite_email(request, member, token,
+                                            has_password=bool(member.password_hash))
+        emailed, email_error = ok, err
+    elif data.get("send_email", True):
+        email_error = "No email address on file"
+
+    return {
+        "member_id": member.id,
+        "full_name": member.full_name,
+        "email": (member.email or "").strip() or None,
+        "reset_url": link,
+        "expires_at": member.reset_token_expires.isoformat(),
+        "emailed": emailed,
+        "email_error": email_error,
+    }
+
+
+@router.post("/portal/admin/reset-to-phone")
+def portal_admin_reset_to_phone(
+    request: Request,
+    data: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Set a member's password to their phone number, for one use only.
+
+    For the member on the phone right now who cannot receive email. They
+    sign in with their own number and are made to choose a real password
+    before they get a session — the reset page already refuses a password
+    equal to their phone number, so they cannot simply keep this one.
+
+    The temporary password is written BOTH locally and to the identity
+    provider, so it works with single sign-on on or off. If the provider
+    is unreachable the local hash still stands, which is the same
+    fallback every other password write in this app relies on.
+    """
+    _require_portal_invite_key(request)
+
+    member = _find_member_for_admin(db, data)
+    if not member:
+        raise HTTPException(status_code=404, detail="No portal account found for that member")
+
+    digits = re.sub(r"\D", "", member.phone or "")
+    if len(digits) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="That member has no usable phone number to reset to.",
+        )
+
+    member.password_hash = _hash_password(digits)
+    member.must_change_password = True
+    # Any outstanding reset link is void — two ways in at once is one more
+    # than anyone needs.
+    member.reset_token = None
+    member.reset_token_expires = None
+    db.commit()
+
+    pushed = _push_credential_to_sso(member, digits)
+
+    return {
+        "member_id": member.id,
+        "full_name": member.full_name,
+        "temporary_password": digits,
+        "must_change_password": True,
+        "pushed_to_sso": pushed,
+    }
+
+
 @router.get("/portal/invite/info")
 def portal_invite_info(
     token: str,
@@ -1187,6 +1334,8 @@ def reset_password(
     member.password_hash = _hash_password(new_password)
     member.reset_token = None
     member.reset_token_expires = None
+    # They have chosen their own password, so the obligation is discharged.
+    member.must_change_password = False
 
     # Allow updating email if provided (for members who didn't have one)
     new_email = (data.get("email") or "").strip()
