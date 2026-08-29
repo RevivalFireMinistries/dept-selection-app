@@ -168,3 +168,39 @@ def test_the_manager_and_other_fields_change_together(client, db, program, make_
     stored = db.query(ServiceProgram).filter(ServiceProgram.id == p.id).first()
     assert stored.created_by_member_id == incoming.id
     assert len(json.loads(stored.program_items)) == 2
+
+
+def test_the_exact_payload_the_form_sends(client, db, program, make_member):
+    """The admin editor posts all ten fields on every save, not just the one
+    that changed. Testing a trimmed payload would prove the endpoint works
+    without proving the form does.
+
+    Shape taken from buildProgramPayload() in templates/admin/programs.html.
+    """
+    from models import ServiceProgram
+
+    p_, _ = program
+    incoming = make_member(full_name="Pastor Russel Mupfumira")
+
+    r = client.put(f"/api/admin/programs/{p_.id}", json={
+        "title": "SUNDAY SERVICE",
+        "service_date": str(p_.service_date),
+        "location_type": "onsite",
+        "program_items": [
+            {"time": "09:30", "item": "1st Prayer"},
+            {"time": "09:40", "item": "Praise"},
+            {"time": "09:55", "item": "Announcements & bible reading"},
+        ],
+        "participants": [],
+        "admin_announcements": [],
+        "pastors_announcements": [],
+        "prayer_points": [],
+        "template_id": None,
+        "created_by_member_id": incoming.id,
+    })
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    stored = db.query(ServiceProgram).filter(ServiceProgram.id == p_.id).first()
+    assert stored.created_by_member_id == incoming.id
+    assert len(json.loads(stored.program_items)) == 3
