@@ -6882,6 +6882,17 @@ def update_program(program_id: int, data: ServiceProgramUpdate, request: Request
     if data.template_id is not None:
         program.template_id = data.template_id
 
+    # Reassigning who runs the service. Tested with model_fields_set rather
+    # than "is not None" so clearing it — handing the service back to nobody
+    # in particular — is distinguishable from not sending the field at all.
+    if "created_by_member_id" in data.model_fields_set:
+        new_manager_id = data.created_by_member_id
+        if new_manager_id is not None:
+            manager = db.query(Member).filter(Member.id == new_manager_id).first()
+            if not manager:
+                raise HTTPException(status_code=404, detail="Service manager not found")
+        program.created_by_member_id = new_manager_id
+
     db.commit()
     db.refresh(program)
 

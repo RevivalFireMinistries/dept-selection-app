@@ -464,6 +464,10 @@ class ServiceProgramUpdate(BaseModel):
     pastors_announcements: Optional[List[str]] = None
     prayer_points: Optional[List[Any]] = None  # List of {text, linked_activity} dicts or plain strings
     template_id: Optional[int] = None  # Allow re-linking to a template
+    # Who is running the service. Both editors have always sent this; it was
+    # missing here, so Pydantic dropped it and the change never reached the
+    # update — the field appeared editable and silently didn't save.
+    created_by_member_id: Optional[int] = None
 
 class ServiceProgramResponse(BaseModel):
     id: int
