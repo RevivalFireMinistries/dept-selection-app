@@ -165,6 +165,17 @@
                     Clear filters
                 </button>
             </div>
+
+            <!-- Export scope. Deliberately apart from the filters and stated
+                 in plain numbers: the gap between what is on screen and what
+                 lands in the file is exactly the thing that gets missed. -->
+            <div class="mt-2 pt-2 border-t border-gray-100 flex flex-wrap items-center gap-2">
+                <label class="flex items-center gap-2 text-xs text-gray-600">
+                    <input id="fUnpaid" type="checkbox" class="rounded">
+                    Include people who haven&rsquo;t paid
+                </label>
+                <span id="exportCount" class="text-xs text-gray-400"></span>
+            </div>
         </div>
 
         <div id="rows" class="mt-3 space-y-2"></div>
@@ -663,6 +674,24 @@ function visibleRows() {
     });
 }
 
+// A report is normally read to reconcile money, so it covers people who have
+// actually paid something. Everyone else is on screen for chasing, not for
+// the bank — but they are one tick away when the report IS the chase list.
+// If the filters are deliberately hunting for people who have paid nothing,
+// that wins: an empty file is no answer to a question you just asked.
+function exportRows() {
+    const rows = visibleRows();
+    if ($('fUnpaid').checked || $('fBalance').value === 'nothing') return rows;
+    return rows.filter(r => Number(r.amount_paid || 0) > 0);
+}
+
+function nothingToExport() {
+    return ($('fUnpaid').checked || $('fBalance').value === 'nothing')
+        ? 'Nothing to export — no one matches those filters.'
+        : 'Nothing to export — nobody matching those filters has paid yet. '
+          + 'Tick the box to include people who have not paid.';
+}
+
 function populateFilterOptions() {
     // Only offer values that exist in this registry. A dropdown full of
     // options that match nobody is worse than a shorter one.
@@ -696,6 +725,14 @@ function updateFilterCount() {
         ? `${shown.length} of ${total} · ${money(paid, cur)} paid · ${money(owing, cur)} owing`
         : `${total} registered · ${money(paid, cur)} paid · ${money(owing, cur)} owing`;
     $('clearFilters').classList.toggle('hidden', !anyFilterSet());
+
+    const unpaidWanted = $('fBalance').value === 'nothing';
+    $('fUnpaid').disabled = unpaidWanted;
+    const n = exportRows().length;
+    $('exportCount').textContent = unpaidWanted
+        ? '· the filters are already asking for them'
+        : `· CSV and PDF cover ${n} ${n === 1 ? 'person' : 'people'}`
+          + (n === shown.length ? '' : ` of the ${shown.length} shown`);
 }
 
 function applyFilters() {
@@ -711,9 +748,13 @@ FILTER_IDS.forEach(id => {
     const el = $(id);
     el.addEventListener(id === 'filter' ? 'input' : 'change', applyFilters);
 });
+// Not a filter — it changes nothing on screen — but the count beside it
+// has to keep up.
+$('fUnpaid').addEventListener('change', updateFilterCount);
 
 $('clearFilters').addEventListener('click', () => {
     FILTER_IDS.forEach(id => { $(id).value = ''; });
+    $('fUnpaid').checked = false;
     applyFilters();
 });
 
@@ -730,6 +771,9 @@ function filterLabel() {
     if (f.type) bits.push(f.type === 'guest' ? 'guests only' : 'members only');
     if (f.flag === 'pending') bits.push('with a payment to check');
     if (f.flag === 'removed') bits.push('removed from the registry');
+    if (!$('fUnpaid').checked && f.balance !== 'nothing') {
+        bits.push('paid in part or in full');
+    }
     return bits.join(', ');
 }
 
@@ -750,7 +794,8 @@ function csvCell(v) {
 
 $('csvBtn').addEventListener('click', () => {
     const cur = DATA.event.currency;
-    const rows = visibleRows();
+    const rows = exportRows();
+    if (!rows.length) { alert(nothingToExport()); return; }
     const lines = [
         ['Name', 'Phone', 'Email', 'Type', 'Registered by', 'Status',
          'Payment method', 'Paid', 'Owing', 'Payments'].map(csvCell).join(','),
@@ -776,6 +821,14 @@ $('csvBtn').addEventListener('click', () => {
         ].map(csvCell).join(','));
     });
 
+    // The PDF says which filter produced it; the CSV has to as well, or
+    // a paid-only export gets read as the whole registry.
+    const total = (DATA.registrations || []).filter(r => !r.removed).length;
+    const label = filterLabel();
+    lines.push('');
+    lines.push(csvCell(`${rows.length} of ${total} registrations`
+        + (label ? ` \u00b7 ${label}` : ' \u00b7 no filters')));
+
     const name = (DATA.event.title || 'event').replace(/[^A-Za-z0-9]+/g, '-').toLowerCase();
     const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
     const a = document.createElement('a');
@@ -786,12 +839,14 @@ $('csvBtn').addEventListener('click', () => {
 });
 
 $('pdfBtn').addEventListener('click', async () => {
+    const covered = exportRows();
+    if (!covered.length) { alert(nothingToExport()); return; }
     const btn = $('pdfBtn');
     btn.disabled = true;
     const was = btn.textContent;
     btn.textContent = 'Building…';
     try {
-        const rows = visibleRows().map(r => ({
+        const rows = covered.map(r => ({
             full_name: r.full_name,
             registered_by: r.registered_by,
             methods_label: methodsLabel(r),
@@ -805,7 +860,9 @@ $('pdfBtn').addEventListener('click', async () => {
             body: JSON.stringify({
                 rows,
                 filter_label: filterLabel(),
-                total_rows: (DATA.registrations || []).filter(r => !r.removed).length,
+                total_rows: (DATA.registrations || []).filter(r => !r.removed
+                    && ($('fUnpaid').checked || $('fBalance').value === 'nothing'
+                        || Number(r.amount_paid || 0) > 0)).length,
             }),
         });
         if (!res.ok) throw new Error('Could not build the PDF');
