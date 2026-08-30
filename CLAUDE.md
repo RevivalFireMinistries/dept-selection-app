@@ -106,6 +106,50 @@ A mobile-friendly web app for church members to select departments they want to 
 3. **Public API**: `GET /api/programs/today` returns only **onsite** programs for today
 4. **Poster Requests**: Members submit design requests; design team acknowledges/completes
 
+### Events (camps, conferences)
+
+Events are **owned by church-manager**, not this app. The portal renders the
+member-facing pages and proxies to church-manager, injecting the member's
+identity server-side from its own signed session cookie — the browser never
+chooses whose registration it is acting on.
+
+- **Two sets of dates.** `start_date`/`end_date` are the REGISTRATION WINDOW
+  (when it appears on the portal). `event_start_date`/`event_end_date` are
+  when it actually runs, and are what members are shown. `runs_from`/`runs_to`
+  resolve the two, falling back to the window for older events.
+- **Payment methods per event**: YOCO, EFT, CASH, CARD_AT_DESK. Configured
+  ONLY in church-manager (event → Poster & settings → Edit) — deliberately
+  admin-only; bank details are a finance decision.
+- **Pending money counts for nothing.** A Yoco card payment lands CONFIRMED
+  (the gateway settled it). An EFT proof-of-payment lands PENDING and moves
+  nothing until an event manager confirms it against the bank.
+- **`amount_paid` is DERIVED**, summed from confirmed unreversed payments —
+  never incremented. Amendments made incremental arithmetic unsafe.
+- **Amendments** (`PATCH /api/events/payments/{id}`, admin/pastor only, not
+  INFO_DESK): correct amount/method/reference. A reason is required, before
+  and after go to the audit log, and the row is never deleted — clearing sets
+  it to 0 so the evidence survives.
+- **Reconciliation**: `event_stats` returns `by_method` plus `pending_total`.
+  The portal manage page filters client-side and exports CSV (with methods)
+  and PDF (reportlab) of exactly what is on screen.
+- **Daily digest** at 05:30 replaces per-registration emails to managers —
+  who registered, who registered them, the day's money by method, and where
+  the event stands. Members still get an immediate confirmation. Money
+  notifications stay immediate. Preview: `GET /api/events/{id}/digest/preview`.
+
+### Single sign-on (built, NOT enabled in production)
+
+rfm-database is the identity provider: RS256 signing with JWKS, Redis-backed
+shared sessions, credentials imported with bcrypt hashes intact. `SSO_ENABLED`
+defaults to False and both token types are accepted throughout, so turning it
+on signs nobody out and rollback is a config change.
+
+The portal CREATES a member row for an identity it hasn't seen (it is for
+members); church-manager REFUSES one (it is staff-only). Identity is central,
+authorisation stays local.
+
+Procedure: `rfm-database/docs/SSO_MIGRATION_RUNBOOK.md`.
+
 ### Notifications
 - Email via SMTP or Resend (configurable per event type)
 - Events: member approved/rejected, results published, appeal submitted/resolved, meeting CRUD, poster requests, program participant added
@@ -114,9 +158,37 @@ A mobile-friendly web app for church members to select departments they want to 
 ## Testing Requirements
 - Every new feature must have unit tests before marking complete
 - Integration tests required for all API endpoints
-- Test coverage must not drop below 80%
 - Run tests before considering any task done
 - Tests must be green — never leave failing tests
+
+### Running them
+
+```bash
+# Portal — needs the rfm-postgres container up; builds its own test database
+./.venv/Scripts/python.exe -m pytest tests/ -q
+
+# church-manager — runs in its container, tests are not in the image
+cd ../rfm-manager && docker compose run --rm   -v "$PWD/backend/tests:/app/tests" -v "$PWD/backend/app:/app/app"   backend python -m pytest tests/ -q
+
+# rfm-database
+cd ../rfm-database && docker compose exec app python -m pytest tests/ -q
+```
+
+Coverage is well short of 80% in the portal (~25%): the suites cover auth,
+events and payments closely, but `routers/api.py` — roughly 10,000 lines
+carrying most of the app — is largely untested. Stated plainly in
+`tests/README.md` rather than left looking compliant.
+
+### Two traps worth knowing
+
+1. **Pydantic silently drops undeclared fields.** A field missing from a
+   schema is discarded before the endpoint sees it: the request succeeds and
+   nothing saves. This has bitten twice — `EventWithStats` (stats vanished)
+   and `ServiceProgramUpdate` (the service manager wouldn't persist). When a
+   field "doesn't save", check the schema declares it before anything else.
+2. **Templates carry real JavaScript.** Syntax-check it rather than eyeballing:
+   extract the `<script>` block and run `node --check`. A broken escape once
+   left the whole page dead with only a console error to show for it.
 
 ## Database Schema
 
