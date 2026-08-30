@@ -137,10 +137,12 @@ chooses whose registration it is acting on.
   people: REGISTRATIONS (who came in, who put them on the list) and
   PAYMENTS (who paid, how, reference, what is still to be checked). Both
   name every person and close with where the event stands. Neither is sent
-  if it would be empty. Members still get immediate confirmations and
-  receipts — only the manager-facing mail is batched. The cost: a proof of
-  payment uploaded at 09:00 is not flagged until 07:00 the next day.
-  Amendments stay immediate (rare, corrective, admin oversight).
+  if it would be empty. Three things stay IMMEDIATE: members' own
+  confirmations and receipts; a **proof of payment landing** (the one
+  manager email that asks for work rather than reporting a fact — until
+  someone finds it on the bank statement the money counts for nothing);
+  and amendments (rare, corrective, admin oversight). Card payments are
+  batched — Yoco has settled them, there is nothing to decide.
   Preview both: `GET /api/events/{id}/digest/preview?day=YYYY-MM-DD`.
 
 ### Single sign-on (built, NOT enabled in production)
