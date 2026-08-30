@@ -132,10 +132,16 @@ chooses whose registration it is acting on.
 - **Reconciliation**: `event_stats` returns `by_method` plus `pending_total`.
   The portal manage page filters client-side and exports CSV (with methods)
   and PDF (reportlab) of exactly what is on screen.
-- **Daily digest** at 05:30 replaces per-registration emails to managers —
-  who registered, who registered them, the day's money by method, and where
-  the event stands. Members still get an immediate confirmation. Money
-  notifications stay immediate. Preview: `GET /api/events/{id}/digest/preview`.
+- **Daily digests** at 07:00 SAST replace every per-capture email to
+  managers. Two per live event, split because they are read by different
+  people: REGISTRATIONS (who came in, who put them on the list) and
+  PAYMENTS (who paid, how, reference, what is still to be checked). Both
+  name every person and close with where the event stands. Neither is sent
+  if it would be empty. Members still get immediate confirmations and
+  receipts — only the manager-facing mail is batched. The cost: a proof of
+  payment uploaded at 09:00 is not flagged until 07:00 the next day.
+  Amendments stay immediate (rare, corrective, admin oversight).
+  Preview both: `GET /api/events/{id}/digest/preview?day=YYYY-MM-DD`.
 
 ### Single sign-on (built, NOT enabled in production)
 
