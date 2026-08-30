@@ -17,7 +17,8 @@
         <div class="flex gap-2 mt-4">
             <button id="addBtn" class="flex-1 bg-blue-600 text-white text-sm font-medium py-2.5 rounded-lg hover:bg-blue-700">+ Add person</button>
             <button id="shareBtn" class="flex-1 bg-emerald-600 text-white text-sm font-medium py-2.5 rounded-lg hover:bg-emerald-700">Share</button>
-            <a id="csvBtn" class="flex-1 text-center bg-white border border-gray-300 text-gray-700 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50">CSV</a>
+            <button id="csvBtn" class="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50">CSV</button>
+            <button id="pdfBtn" class="flex-1 bg-white border border-gray-300 text-gray-700 text-sm font-medium py-2.5 rounded-lg hover:bg-gray-50">PDF</button>
         </div>
 
         <!-- Share the registration link -->
@@ -119,8 +120,52 @@
             <div id="pendingRows" class="mt-3 space-y-2"></div>
         </div>
 
-        <input id="filter" type="search" placeholder="Filter the registry…"
-               class="w-full mt-4 px-3 py-2 border border-gray-300 rounded-lg text-sm">
+        <!-- Filters. All client-side: the registry is loaded once and
+             narrowed in the page, so changing a filter never costs a round
+             trip and never loses your place. -->
+        <div class="mt-4 bg-white rounded-xl border border-gray-200 p-3">
+            <input id="filter" type="search" placeholder="Search name, phone or email…"
+                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+
+            <div class="grid grid-cols-2 gap-2 mt-2">
+                <select id="fStatus" class="px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Any status</option>
+                    <option value="INTENT_TO_ATTEND">Intent to attend</option>
+                    <option value="PARTIALLY_PAID">Part-paid</option>
+                    <option value="FULLY_PAID">Paid in full</option>
+                    <option value="CANCELLED">Cancelled</option>
+                </select>
+                <select id="fMethod" class="px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Any payment method</option>
+                </select>
+                <select id="fBalance" class="px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Paid or owing</option>
+                    <option value="owing">Still owing</option>
+                    <option value="settled">Nothing owing</option>
+                    <option value="nothing">Paid nothing yet</option>
+                </select>
+                <select id="fWho" class="px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Anyone who registered them</option>
+                </select>
+                <select id="fType" class="px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Members and guests</option>
+                    <option value="member">Members only</option>
+                    <option value="guest">Guests only</option>
+                </select>
+                <select id="fFlag" class="px-2 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">No extra filter</option>
+                    <option value="pending">Has a payment to check</option>
+                    <option value="removed">Removed from the registry</option>
+                </select>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 mt-2">
+                <p id="filterCount" class="text-xs text-gray-500"></p>
+                <button id="clearFilters" class="hidden text-xs font-medium text-blue-600 hover:underline">
+                    Clear filters
+                </button>
+            </div>
+        </div>
 
         <div id="rows" class="mt-3 space-y-2"></div>
     </div>
@@ -197,13 +242,14 @@ function render() {
     // The dates the event RUNS on, not the registration window.
     const from = ev.runs_from || ev.start_date, to = ev.runs_to || ev.end_date;
     $('sub').textContent = (from === to ? from : `${from} – ${to}`) + (ev.venue ? ` · ${ev.venue}` : '');
-    $('csvBtn').href = `/api/events/${EVENT_ID}/registry.csv`;
     $('stats').innerHTML =
         statCard('Registered', s.attending_count) +
         statCard('Paid in full', s.fully_paid_count) +
         statCard('Collected', money(s.total_collected, ev.currency)) +
         statCard('Outstanding', money(s.total_outstanding, ev.currency));
-    $('rows').innerHTML = DATA.registrations.map(row).join('');
+    populateFilterOptions();
+    $('rows').innerHTML = visibleRows().map(row).join('');
+    updateFilterCount();
 
     document.querySelectorAll('.pay').forEach(b => b.addEventListener('click', () => takePayment(b.dataset.id, b.dataset.name, b.dataset.bal)));
     document.querySelectorAll('.rm').forEach(b => b.addEventListener('click', () => removePerson(b.dataset.id, b.dataset.name)));
@@ -211,8 +257,9 @@ function render() {
 
 async function load() {
     try {
-        const qs = METHOD_FILTER ? `?method=${encodeURIComponent(METHOD_FILTER)}` : '';
-        const res = await fetch(`/api/events/${EVENT_ID}/registry${qs}`);
+        // Everything, removed included: the filters do the narrowing in
+        // the page, so the data has to be here to narrow.
+        const res = await fetch(`/api/events/${EVENT_ID}/registry?include_removed=true`);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || 'Could not load the registry');
@@ -243,7 +290,6 @@ const METHOD_LABELS = {
     UNSPECIFIED: 'Not specified',
 };
 
-let METHOD_FILTER = '';
 
 function renderMethods() {
     const s = DATA.stats, cur = DATA.event.currency;
@@ -256,10 +302,11 @@ function renderMethods() {
         return;
     }
 
+    const CURRENT = $('fMethod') ? $('fMethod').value : '';
     $('methodRows').innerHTML = rows.map(r => `
         <tr class="border-b border-gray-50">
             <td class="py-1.5">
-                <button class="methodPick text-left ${METHOD_FILTER === r.key ? 'font-semibold text-blue-700' : 'text-gray-900'}"
+                <button class="methodPick text-left ${CURRENT === r.key ? 'font-semibold text-blue-700' : 'text-gray-900'}"
                         data-key="${esc(r.key)}">${esc(METHOD_LABELS[r.key] || r.key)}</button>
             </td>
             <td class="py-1.5 text-right text-gray-500">${r.count}</td>
@@ -275,18 +322,27 @@ function renderMethods() {
         </td></tr>` : '');
 
     const note = $('methodFilterNote');
+    const METHOD_FILTER = $('fMethod') ? $('fMethod').value : '';
     if (METHOD_FILTER) {
         note.innerHTML = `Showing only people who paid by <strong>${esc(METHOD_LABELS[METHOD_FILTER] || METHOD_FILTER)}</strong>. <button id="clearMethod" class="underline font-medium">Show everyone</button>`;
         note.classList.remove('hidden');
-        $('clearMethod').addEventListener('click', () => { METHOD_FILTER = ''; load(); });
+        $('clearMethod').addEventListener('click', () => {
+            $('fMethod').value = '';
+            applyFilters();
+            renderMethods();
+        });
     } else {
         note.classList.add('hidden');
     }
 
     document.querySelectorAll('.methodPick').forEach(b =>
         b.addEventListener('click', () => {
-            METHOD_FILTER = METHOD_FILTER === b.dataset.key ? '' : b.dataset.key;
-            load();
+            // Drives the same dropdown rather than refetching, so tapping a
+            // total and choosing the method from the list agree.
+            const el = $('fMethod');
+            el.value = el.value === b.dataset.key ? '' : b.dataset.key;
+            applyFilters();
+            renderMethods();
         }));
 
     $('methodBox').classList.remove('hidden');
@@ -390,7 +446,23 @@ async function takePayment(id, name, balance) {
     if (input === null) return;
     const amount = parseFloat(input);
     if (!amount || amount <= 0) { alert('Enter an amount greater than zero.'); return; }
-    const method = prompt('Method (cash / eft / card):', 'cash') || null;
+    // A fixed set, not free text. The old prompt accepted anything typed,
+    // which is how "YOCCO" became its own line in the reconciliation totals
+    // alongside the real Yoco one — a typo turning into a payment method.
+    const CHOICES = [
+        ['1', 'CASH', 'Cash'],
+        ['2', 'EFT', 'EFT'],
+        ['3', 'CARD_AT_DESK', 'Card at the desk'],
+        ['4', 'YOCO', 'Card (Yoco)'],
+    ];
+    const pick = prompt(
+        'How was it paid?' + String.fromCharCode(10)
+        + CHOICES.map(c => `${c[0]}. ${c[2]}`).join(String.fromCharCode(10)),
+        '1');
+    if (pick === null) return;
+    const chosen = CHOICES.find(c => c[0] === String(pick).trim());
+    if (!chosen) { alert('Pick one of the numbers listed.'); return; }
+    const method = chosen[1];
     try {
         const res = await fetch(`/api/events/${EVENT_ID}/registry/${id}/payment`, {
             method: 'POST',
@@ -539,11 +611,213 @@ $('noteSave').addEventListener('click', async () => {
     }
 });
 
-$('filter').addEventListener('input', () => {
-    const q = $('filter').value.trim().toLowerCase();
-    document.querySelectorAll('#rows > div').forEach(el => {
-        el.style.display = !q || el.dataset.name.includes(q) ? '' : 'none';
+// ── Filters ──────────────────────────────────────────────────────────────────
+//
+// Everything here works on the registry already in memory. Nothing refetches,
+// so changing a filter is instant and never loses your scroll position — and
+// the CSV and PDF exports below use the same filtered set, which is what
+// makes an export match the screen it was taken from.
+
+const FILTER_IDS = ['filter', 'fStatus', 'fMethod', 'fBalance', 'fWho', 'fType', 'fFlag'];
+
+function filterState() {
+    return {
+        q: ($('filter').value || '').trim().toLowerCase(),
+        status: $('fStatus').value,
+        method: $('fMethod').value,
+        balance: $('fBalance').value,
+        who: $('fWho').value,
+        type: $('fType').value,
+        flag: $('fFlag').value,
+    };
+}
+
+function anyFilterSet() {
+    return Object.values(filterState()).some(Boolean);
+}
+
+function visibleRows() {
+    const f = filterState();
+    return (DATA.registrations || []).filter(r => {
+        // Removed people are hidden unless asked for. They are still in the
+        // data so the filter can surface them without a refetch.
+        if (f.flag === 'removed') { if (!r.removed) return false; }
+        else if (r.removed) return false;
+
+        if (f.q) {
+            const hay = [r.full_name, r.phone, r.email].join(' ').toLowerCase();
+            if (!hay.includes(f.q)) return false;
+        }
+        if (f.status && r.status !== f.status) return false;
+        if (f.method && !(r.methods || []).includes(f.method)) return false;
+        if (f.who && r.registered_by !== f.who) return false;
+        if (f.type === 'guest' && !r.is_guest) return false;
+        if (f.type === 'member' && r.is_guest) return false;
+        if (f.flag === 'pending' && !r.has_pending) return false;
+
+        const paid = Number(r.amount_paid || 0), owing = Number(r.balance || 0);
+        if (f.balance === 'owing' && owing <= 0) return false;
+        if (f.balance === 'settled' && owing > 0) return false;
+        if (f.balance === 'nothing' && paid > 0) return false;
+        return true;
     });
+}
+
+function populateFilterOptions() {
+    // Only offer values that exist in this registry. A dropdown full of
+    // options that match nobody is worse than a shorter one.
+    const methods = new Set(), who = new Set();
+    (DATA.registrations || []).forEach(r => {
+        (r.methods || []).forEach(m => methods.add(m));
+        if (r.registered_by) who.add(r.registered_by);
+    });
+
+    const fill = (el, values, label) => {
+        const current = el.value;
+        el.innerHTML = `<option value="">${label}</option>` +
+            [...values].sort().map(v =>
+                `<option value="${esc(v)}">${esc(METHOD_LABELS[v] || v)}</option>`).join('');
+        if ([...values].includes(current)) el.value = current;
+    };
+    fill($('fMethod'), methods, 'Any payment method');
+    fill($('fWho'), who, 'Anyone who registered them');
+}
+
+function updateFilterCount() {
+    const shown = visibleRows();
+    const total = (DATA.registrations || []).filter(r => !r.removed).length;
+    const paid = shown.reduce((a, r) => a + Number(r.amount_paid || 0), 0);
+    const owing = shown.reduce((a, r) => a + Number(r.balance || 0), 0);
+    const cur = DATA.event.currency;
+
+    // Totals for the filtered set, not the whole event — the number you
+    // want when you have narrowed to one payment method.
+    $('filterCount').textContent = anyFilterSet()
+        ? `${shown.length} of ${total} · ${money(paid, cur)} paid · ${money(owing, cur)} owing`
+        : `${total} registered · ${money(paid, cur)} paid · ${money(owing, cur)} owing`;
+    $('clearFilters').classList.toggle('hidden', !anyFilterSet());
+}
+
+function applyFilters() {
+    $('rows').innerHTML = visibleRows().map(row).join('');
+    updateFilterCount();
+    document.querySelectorAll('.pay').forEach(b =>
+        b.addEventListener('click', () => takePayment(b.dataset.id, b.dataset.name, b.dataset.bal)));
+    document.querySelectorAll('.rm').forEach(b =>
+        b.addEventListener('click', () => removePerson(b.dataset.id, b.dataset.name)));
+}
+
+FILTER_IDS.forEach(id => {
+    const el = $(id);
+    el.addEventListener(id === 'filter' ? 'input' : 'change', applyFilters);
+});
+
+$('clearFilters').addEventListener('click', () => {
+    FILTER_IDS.forEach(id => { $(id).value = ''; });
+    applyFilters();
+});
+
+function filterLabel() {
+    const f = filterState();
+    const bits = [];
+    if (f.q) bits.push(`matching "${f.q}"`);
+    if (f.status) bits.push(STATUS_LABELS[f.status] || f.status);
+    if (f.method) bits.push(`paid by ${METHOD_LABELS[f.method] || f.method}`);
+    if (f.balance === 'owing') bits.push('still owing');
+    if (f.balance === 'settled') bits.push('nothing owing');
+    if (f.balance === 'nothing') bits.push('paid nothing yet');
+    if (f.who) bits.push(`registered by ${f.who}`);
+    if (f.type) bits.push(f.type === 'guest' ? 'guests only' : 'members only');
+    if (f.flag === 'pending') bits.push('with a payment to check');
+    if (f.flag === 'removed') bits.push('removed from the registry');
+    return bits.join(', ');
+}
+
+// ── Exports ──────────────────────────────────────────────────────────────────
+//
+// Both export exactly what the filters are showing. An export that quietly
+// returns the whole registry gets mistaken for the filtered one.
+
+function methodsLabel(r) {
+    const shown = (r.methods || []).map(m => METHOD_LABELS[m] || m);
+    return shown.length ? shown.join(' + ') : '';
+}
+
+function csvCell(v) {
+    const t = String(v == null ? '' : v);
+    return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+$('csvBtn').addEventListener('click', () => {
+    const cur = DATA.event.currency;
+    const rows = visibleRows();
+    const lines = [
+        ['Name', 'Phone', 'Email', 'Type', 'Registered by', 'Status',
+         'Payment method', 'Paid', 'Owing', 'Payments'].map(csvCell).join(','),
+    ];
+    rows.forEach(r => {
+        // Each payment spelled out, so a line in the CSV can be matched to a
+        // line on a bank statement.
+        const detail = (r.payments || [])
+            .map(p => `${METHOD_LABELS[p.method] || p.method} ${Number(p.amount).toFixed(2)}`
+                      + (p.state === 'PENDING' ? ' (to check)' : ''))
+            .join('; ');
+        lines.push([
+            r.full_name, r.phone || '', r.email || '',
+            r.is_guest ? 'Guest' : 'Member', r.registered_by || '',
+            STATUS_LABELS[r.status] || r.status,
+            methodsLabel(r),
+            Number(r.amount_paid || 0).toFixed(2),
+            Number(r.balance || 0).toFixed(2),
+            detail,
+        ].map(csvCell).join(','));
+    });
+
+    const name = (DATA.event.title || 'event').replace(/[^A-Za-z0-9]+/g, '-').toLowerCase();
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${name}-registry-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+});
+
+$('pdfBtn').addEventListener('click', async () => {
+    const btn = $('pdfBtn');
+    btn.disabled = true;
+    const was = btn.textContent;
+    btn.textContent = 'Building…';
+    try {
+        const rows = visibleRows().map(r => ({
+            full_name: r.full_name,
+            registered_by: r.registered_by,
+            methods_label: methodsLabel(r),
+            amount_paid: r.amount_paid,
+            balance: r.balance,
+            status_label: STATUS_LABELS[r.status] || r.status,
+        }));
+        const res = await fetch(`/api/events/${EVENT_ID}/registry.pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                rows,
+                filter_label: filterLabel(),
+                total_rows: (DATA.registrations || []).filter(r => !r.removed).length,
+            }),
+        });
+        if (!res.ok) throw new Error('Could not build the PDF');
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(DATA.event.title || 'event').replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}-registry.pdf`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    } catch (e) {
+        alert(e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = was;
+    }
 });
 
 // ── Add person ────────────────────────────────────────────────────────────────

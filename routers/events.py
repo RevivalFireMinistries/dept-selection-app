@@ -20,6 +20,8 @@ typing a duplicate record.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+import re
 import urllib.parse
 import urllib.request
 from typing import Optional
@@ -664,3 +666,115 @@ def reject_payment(event_id: str, payment_id: str, payload: dict = Body(default=
     return _unwrap(events_client.reject_payment(
         event_id, payment_id, member_id=ext, manager_name=member.full_name,
         reason=(payload.get("reason") or "").strip() or None))
+
+
+@api_router.post("/{event_id}/registry.pdf")
+def registry_pdf(event_id: str, payload: dict = Body(...),
+                 request: Request = None, db: Session = Depends(get_db)):
+    """Render the registry the manager is looking at, as a PDF.
+
+    The rows are POSTed rather than re-queried because the filters live in
+    the page. Re-applying them here would mean two implementations of
+    "which people count", and the day they drift the printed report stops
+    matching the screen it was printed from — which is the one thing a
+    report must never do.
+
+    Nothing is trusted from the body beyond formatting: the caller is
+    verified as a manager of this event, and the totals are recomputed from
+    the rows rather than read from the request.
+    """
+    import io
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    member, ext = _require_manager_identity(request, db)
+    data = _unwrap(events_client.get_event(event_id, ext))
+
+    rows = payload.get("rows") or []
+    label = (payload.get("filter_label") or "").strip()
+    currency = data.get("currency") or "ZAR"
+
+    def money(v):
+        return f"{currency} {float(v or 0):,.2f}"
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=14 * mm, rightMargin=14 * mm,
+        topMargin=14 * mm, bottomMargin=14 * mm,
+        title=f"{data.get('title', 'Event')} — registry",
+    )
+    styles = getSampleStyleSheet()
+    small = ParagraphStyle("small", parent=styles["Normal"], fontSize=8, leading=10)
+    story = [
+        Paragraph(f"<b>{data.get('title', 'Event')}</b>", styles["Title"]),
+    ]
+
+    when = data.get("runs_from") or data.get("start_date")
+    to = data.get("runs_to") or data.get("end_date")
+    subtitle = when if when == to else f"{when} – {to}"
+    if data.get("venue"):
+        subtitle += f" · {data['venue']}"
+    story += [Paragraph(subtitle, small), Spacer(1, 4)]
+
+    # Say what this report covers. A filtered export that doesn't announce
+    # its filter gets mistaken for the whole registry.
+    story += [Paragraph(
+        f"{len(rows)} of {payload.get('total_rows', len(rows))} registrations"
+        + (f" · {label}" if label else " · no filters"),
+        small,
+    ), Spacer(1, 8)]
+
+    header = ["Name", "Registered by", "Method", "Paid", "Owing", "Status"]
+    table_rows = [header]
+    paid_sum = owing_sum = 0.0
+    for r in rows:
+        paid_sum += float(r.get("amount_paid") or 0)
+        owing_sum += float(r.get("balance") or 0)
+        table_rows.append([
+            Paragraph(str(r.get("full_name") or ""), small),
+            Paragraph(str(r.get("registered_by") or ""), small),
+            Paragraph(str(r.get("methods_label") or "—"), small),
+            money(r.get("amount_paid")),
+            money(r.get("balance")),
+            Paragraph(str(r.get("status_label") or r.get("status") or ""), small),
+        ])
+    table_rows.append(["", "", "Total", money(paid_sum), money(owing_sum), ""])
+
+    table = Table(table_rows, repeatRows=1,
+                  colWidths=[45 * mm, 32 * mm, 28 * mm, 24 * mm, 24 * mm, 29 * mm])
+    table.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F3F4F6")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("LINEABOVE", (0, -1), (-1, -1), 0.6, colors.HexColor("#9CA3AF")),
+        ("ALIGN", (3, 0), (4, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2),
+         [colors.white, colors.HexColor("#FAFAFA")]),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(table)
+
+    story += [Spacer(1, 10), Paragraph(
+        f"Printed by {member.full_name} · "
+        f"{datetime.now().strftime('%d %b %Y %H:%M')}", small)]
+
+    doc.build(story)
+    buf.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d")
+    name = re.sub(r"[^A-Za-z0-9]+", "-", data.get("title", "event")).strip("-").lower()
+    return Response(
+        content=buf.read(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{name}-registry-{stamp}.pdf"'},
+    )
