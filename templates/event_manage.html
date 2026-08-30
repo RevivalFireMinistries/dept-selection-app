@@ -758,7 +758,10 @@ $('csvBtn').addEventListener('click', () => {
     rows.forEach(r => {
         // Each payment spelled out, so a line in the CSV can be matched to a
         // line on a bank statement.
+        // Cleared amendments sit at zero. They are kept on the record, but
+        // they moved no money, so they are not a line to reconcile.
         const detail = (r.payments || [])
+            .filter(p => Number(p.amount) > 0)
             .map(p => `${METHOD_LABELS[p.method] || p.method} ${Number(p.amount).toFixed(2)}`
                       + (p.state === 'PENDING' ? ' (to check)' : ''))
             .join('; ');
