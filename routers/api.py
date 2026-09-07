@@ -10766,7 +10766,15 @@ def admin_sso_export_identities(
     import urllib.error as _urlerr
     import urllib.request as _urlreq
 
-    base = (os.environ.get("SSO_INTERNAL_URL") or os.environ.get("RFM_API_URL") or "").rstrip("/")
+    # Report the address BEFORE using it. Two runs of this were lost to a
+    # stale variable, with an error that named the failure but not the host
+    # it failed to reach — so there was no way to tell a wrong value from a
+    # deploy that had not landed.
+    internal = os.environ.get("SSO_INTERNAL_URL")
+    base = (internal or os.environ.get("RFM_API_URL") or "").rstrip("/")
+    summary["provider"] = base or None
+    summary["provider_from"] = "SSO_INTERNAL_URL" if internal else "RFM_API_URL"
+
     api_key = os.environ.get("RFM_API_KEY") or ""
     if not base or not api_key:
         summary["error"] = "RFM_API_URL / RFM_API_KEY are not configured"
