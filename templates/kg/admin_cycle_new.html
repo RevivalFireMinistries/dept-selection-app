@@ -92,8 +92,12 @@
     </section>
 
     <!-- Topics -->
-    <section class="bg-white border border-gray-200 rounded-lg p-5">
+    <section id="classPlanning" class="bg-white border border-gray-200 rounded-lg p-5">
       <h2 class="text-sm font-semibold text-gray-900">Topics</h2>
+      <p id="examOnlyNote" hidden
+         class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+        Not needed for an exam-only cycle — no classes will be scheduled.
+      </p>
       <p class="text-xs text-gray-500 mt-1">
         Topics come from the course book — uncheck any you're not covering in this cycle.
       </p>
@@ -142,6 +146,27 @@
     <!-- Policy -->
     <section class="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
       <h2 class="text-sm font-semibold text-gray-900">Completion policy</h2>
+      {# The classes already happened. This cycle exists so those people can
+         be examined and certified — no schedule, no attendance. #}
+      <label class="flex items-start gap-3 mb-4 rounded-lg border border-gray-200 p-3 cursor-pointer">
+        <input type="checkbox" name="exam_only" value="1" class="mt-1 rounded"
+               onchange="const off = this.checked;
+                         const topics = document.getElementById('classPlanning');
+                         topics.classList.toggle('opacity-40', off);
+                         topics.querySelectorAll('input[name=module_ids]')
+                               .forEach(function (c) { c.disabled = off; });
+                         document.getElementById('minAtt').disabled = off;
+                         document.getElementById('examOnlyNote').hidden = !off;">
+        <span>
+          <span class="text-sm font-medium text-gray-900">Exam only — the classes already happened</span>
+          <span class="block text-xs text-gray-500 mt-0.5">
+            For a group who did the course elsewhere and just need to sit the exam.
+            No class schedule is created, and attendance won't hold up their
+            certificate. Milestones and the exam still apply.
+          </span>
+        </span>
+      </label>
+
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
           <label class="text-xs uppercase text-gray-500">Pass mark %</label>
@@ -150,8 +175,8 @@
         </div>
         <div>
           <label class="text-xs uppercase text-gray-500">Min attendance %</label>
-          <input type="number" name="min_attendance_percent" value="80" min="0" max="100"
-                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2">
+          <input type="number" id="minAtt" name="min_attendance_percent" value="80" min="0" max="100"
+                 class="mt-1 block w-full rounded border-gray-300 text-sm px-3 py-2 disabled:bg-gray-100">
         </div>
         <div>
           <label class="text-xs uppercase text-gray-500">Exam time (min)</label>

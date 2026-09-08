@@ -1757,6 +1757,9 @@ async def admin_kg_cycle_create(
         "milestones": milestones,
         "pass_mark_percent": int(form.get("pass_mark_percent") or 50),
         "min_attendance_percent": int(form.get("min_attendance_percent") or 80),
+        # Exam-only: the classes already happened somewhere else, so no
+        # sessions are generated and attendance stops gating completion.
+        "exam_only": bool(form.get("exam_only")),
         "max_exam_attempts": int(form.get("max_exam_attempts") or 0),
         "exam_time_limit_minutes": int(form.get("exam_time_limit_minutes") or 50),
     }
