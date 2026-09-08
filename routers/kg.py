@@ -781,16 +781,21 @@ async def desk_kg_attendance_page(
     if not selected_class and classes:
         selected_class = classes[0]
 
-    return templates.TemplateResponse(
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
         request, "kg/desk_attendance.html",
         {
             "cycle": cycle_r.data if cycle_r.ok else None,
             "classes": classes,
             "selected_class": selected_class,
             "enrollments": enrollments,
+            "flash": flash,
             "error": (cycle_r.error if not cycle_r.ok else None),
         },
     )
+    if had_flash:
+        _clear_flash(response)
+    return response
 
 
 @router.post("/desk/kg/cycle/{cycle_id}/attendance")
@@ -826,6 +831,108 @@ async def desk_kg_attendance_submit(
         url=f"/desk/kg/cycle/{cycle_id}/attendance?class_id={class_id}&saved=1",
         status_code=303,
     )
+
+
+@router.post("/desk/kg/cycle/{cycle_id}/attendance/backfill")
+async def desk_kg_attendance_backfill(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Record attendance for every session at once.
+
+    For a cycle that ran offline: the classes genuinely happened, they
+    were just never marked here. Rather than waive attendance — which
+    would leave a certificate saying someone attended when nothing says
+    they did — the register is filled in retrospectively, and the
+    completion rule then applies exactly as it does to a cycle run in
+    the system.
+
+    The status is chosen by the caller (PRESENT for a full course,
+    EXCUSED where someone genuinely missed sessions), and anyone whose
+    attendance is already recorded is left alone unless `overwrite` is
+    set: the point is to fill gaps, not to overwrite a register somebody
+    kept properly.
+
+    Marking is an upsert per (session, enrollment), so re-running this
+    changes nothing the second time.
+    """
+    redirect = _require_desk(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
+    form = await request.form()
+    status = (form.get("status") or "PRESENT").strip().upper()
+    if status not in ("PRESENT", "LATE", "ABSENT", "EXCUSED"):
+        status = "PRESENT"
+    overwrite = bool(form.get("overwrite"))
+
+    classes_r = kg.list_classes(cycle_id, db=db)
+    classes = classes_r.data if classes_r.ok else []
+    if isinstance(classes, dict):
+        classes = classes.get("data") or []
+
+    enrol_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
+    enrollments = enrol_r.data if enrol_r.ok else []
+    if isinstance(enrollments, dict):
+        enrollments = enrollments.get("data") or []
+    # Only people actually on the course — a withdrawal should not be
+    # marked present for classes they were not part of.
+    enrollment_ids = [
+        e["id"] for e in enrollments
+        if e.get("id") and e.get("status") not in ("WITHDRAWN", "EXEMPTED")
+    ]
+
+    if not classes or not enrollment_ids:
+        return _flash_redirect(
+            f"/desk/kg/cycle/{cycle_id}/attendance",
+            "Nothing to record — this cycle has no sessions or nobody enrolled.",
+        )
+
+    # Which (member, session) pairs are already on the register. Asked
+    # per enrollment because that is the only listing KG exposes, and a
+    # cycle is people-sized. Skipped entirely when overwriting.
+    already: set[tuple[str, str]] = set()
+    if not overwrite:
+        for eid in enrollment_ids:
+            r = kg.list_attendance_by_enrollment(eid, db=db)
+            if not r.ok:
+                continue
+            rows = (
+                r.data if isinstance(r.data, list)
+                else (r.data or {}).get("data") or []
+            )
+            for row in rows:
+                sid = row.get("class_session_id")
+                if sid:
+                    already.add((eid, sid))
+
+    marked = 0
+    skipped = 0
+    for c in classes:
+        class_id = c.get("id")
+        if not class_id:
+            continue
+        entries = [
+            {"enrollment_id": eid, "status": status, "method": "MANUAL"}
+            for eid in enrollment_ids if (eid, class_id) not in already
+        ]
+        skipped += len(enrollment_ids) - len(entries)
+        if entries:
+            r = kg.bulk_mark_attendance(
+                class_session_id=class_id, entries=entries, db=db,
+            )
+            if r.ok:
+                marked += len(entries)
+
+    note = (
+        f"Recorded {status.lower()} for {marked} "
+        f"{'entry' if marked == 1 else 'entries'} across {len(classes)} "
+        f"{'session' if len(classes) == 1 else 'sessions'}."
+    )
+    if skipped:
+        note += f" Left {skipped} already-marked alone."
+    return _flash_redirect(f"/desk/kg/cycle/{cycle_id}/attendance", note)
 
 
 @router.get("/desk/kg/cycle/{cycle_id}/onsite-exam", response_class=HTMLResponse)

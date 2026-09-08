@@ -19,6 +19,12 @@
       <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">Saved.</div>
     {% endif %}
 
+    {% if flash %}
+      <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-sm">
+        {{ flash }}
+      </div>
+    {% endif %}
+
     <!-- Class picker -->
     <div class="bg-white rounded-lg shadow-sm p-4">
       <label class="block text-xs uppercase tracking-[0.18em] text-gray-500 mb-2">Class</label>
@@ -32,6 +38,39 @@
         {% endfor %}
       </div>
     </div>
+
+    <!-- A cycle that ran outside the system: the classes happened, they
+         were just never marked here. Fill the register in retrospectively
+         rather than waiving attendance, so a certificate still rests on a
+         record of them having attended. -->
+    <details class="bg-white rounded-lg shadow-sm p-4">
+      <summary class="text-sm font-medium text-gray-900 cursor-pointer">
+        This course ran offline — record the whole register
+      </summary>
+      <form method="post" action="/desk/kg/cycle/{{ cycle.id if cycle else '' }}/attendance/backfill"
+            class="mt-3 space-y-3"
+            onsubmit="return confirm('Mark every enrolled member for all {{ classes|length }} session(s)? Anyone already marked is left as they are.');">
+        <p class="text-xs text-gray-500">
+          Marks every enrolled member for all
+          {{ classes|length }} session{{ '' if classes|length == 1 else 's' }} at once.
+          Anyone already on the register stays exactly as they are, so a
+          partly-kept register is safe. Individual marks can be corrected
+          afterwards from the class list above.
+        </p>
+        <div class="flex flex-wrap items-center gap-3">
+          <select name="status" class="rounded border-gray-300 text-sm px-3 py-2">
+            <option value="PRESENT">Present</option>
+            <option value="LATE">Late</option>
+            <option value="EXCUSED">Excused</option>
+            <option value="ABSENT">Absent</option>
+          </select>
+          <button type="submit"
+                  class="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:opacity-90">
+            Record the register
+          </button>
+        </div>
+      </form>
+    </details>
 
     {% if selected_class %}
     <form method="post" class="bg-white rounded-lg shadow-sm overflow-hidden">
