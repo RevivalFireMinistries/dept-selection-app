@@ -619,6 +619,33 @@ def update_cycle(cycle_id: str, fields: dict, *, db=None) -> ApiResult:
     return _request("PATCH", f"/api/v1/cycles/{cycle_id}", db=db, body=fields)
 
 
+def close_cycle(cycle_id: str, *, db=None) -> ApiResult:
+    """Finish a cycle. CLOSED keeps everything readable for reports and
+    drops it out of the lists filtered on ACTIVE. Reversible — reopening
+    is the same call with ACTIVE."""
+    return _request(
+        "PATCH", f"/api/v1/cycles/{cycle_id}", db=db, body={"status": "CLOSED"},
+    )
+
+
+def reopen_cycle(cycle_id: str, *, db=None) -> ApiResult:
+    """Undo a close. Someone always closes one a week early."""
+    return _request(
+        "PATCH", f"/api/v1/cycles/{cycle_id}", db=db, body={"status": "ACTIVE"},
+    )
+
+
+def delete_cycle(cycle_id: str, *, db=None) -> ApiResult:
+    """Delete a cycle outright.
+
+    KG refuses this once any attendance or exam attempt exists — the
+    cascade would take the register, the results and the certificates
+    with it. The refusal comes back as the error message, which is
+    written to be shown to the person who clicked.
+    """
+    return _request("DELETE", f"/api/v1/cycles/{cycle_id}", db=db)
+
+
 def list_cycle_milestones(cycle_id: str, *, db=None) -> ApiResult:
     """The milestones attached to this cycle (with mandatory flag)."""
     return _request("GET", f"/api/v1/milestones/cycles/{cycle_id}", db=db)

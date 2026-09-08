@@ -1089,13 +1089,20 @@ async def admin_kg_cycles_list(
             data = r.data
             cycles = data.get("data") if isinstance(data, dict) else (data or [])
 
-    return templates.TemplateResponse(
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
         request, "kg/admin_cycles_list.html",
         {
             "cycles": cycles,
             "status_filter": status,
+            # Deleting a cycle lands here, and the confirmation had
+            # nowhere to appear.
+            "flash": flash,
         },
     )
+    if had_flash:
+        _clear_flash(response)
+    return response
 
 
 @router.get("/admin/kg/people", response_class=HTMLResponse)
@@ -1564,12 +1571,19 @@ def _flash_verify(token: Optional[str]) -> Optional[str]:
 
 
 def _set_flash(response, message: str) -> None:
-    """Stash a one-shot message on the response cookie."""
+    """Stash a one-shot message on the response cookie.
+
+    path="/" matters. Without it a cookie defaults to the DIRECTORY of
+    the request that set it, so a flash set on
+    /admin/kg/cycles/<id>/delete was never sent to /admin/kg/cycles — the
+    message vanished on exactly the redirects that go somewhere else,
+    which is most of the ones worth reading.
+    """
     import urllib.parse
     encoded = urllib.parse.quote(message)[:500]  # cap to keep cookies small
     response.set_cookie(
         key=_FLASH_COOKIE, value=_flash_sign(encoded),
-        max_age=_FLASH_MAX_AGE, httponly=True, samesite="lax",
+        max_age=_FLASH_MAX_AGE, httponly=True, samesite="lax", path="/",
     )
 
 
@@ -1587,7 +1601,9 @@ def _consume_flash(request: Request) -> tuple[Optional[str], bool]:
 
 
 def _clear_flash(response) -> None:
-    response.delete_cookie(_FLASH_COOKIE)
+    # Must match the path it was set with, or the delete misses it and
+    # the message repeats on the next page.
+    response.delete_cookie(_FLASH_COOKIE, path="/")
 
 
 def _flash_redirect(url: str, message: Optional[str] = None) -> RedirectResponse:
@@ -2087,6 +2103,65 @@ async def admin_kg_class_delete(
         return redirect
     kg.delete_class_session(class_id, db=db)
     return _flash_redirect(f"/admin/kg/cycles/{cycle_id}", "Class removed.")
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/close")
+async def admin_kg_cycle_close(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Finish a cycle, or reopen one that was finished early.
+
+    CLOSED is not deletion: everything stays readable for reports, the
+    certificates stand, and the cycle drops out of the lists filtered on
+    ACTIVE. Reversible, because somebody always closes one a week early.
+    """
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    reopen = bool(form.get("reopen"))
+    r = kg.reopen_cycle(cycle_id, db=db) if reopen else kg.close_cycle(cycle_id, db=db)
+    if not r.ok:
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}",
+            r.error or ("Could not reopen the cycle." if reopen
+                        else "Could not close the cycle."),
+        )
+    return _flash_redirect(
+        f"/admin/kg/cycles/{cycle_id}",
+        "Cycle reopened." if reopen else
+        "Cycle closed. It stays available under Reports.",
+    )
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/delete")
+async def admin_kg_cycle_delete(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Delete a cycle that never got going.
+
+    KG refuses once any attendance or exam attempt exists, because the
+    cascade would take the register, the results and the certificates
+    with it. Its refusal is written for a person, so it is shown as-is
+    rather than replaced with something vaguer.
+    """
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    r = kg.delete_cycle(cycle_id, db=db)
+    if not r.ok:
+        # Land back on the cycle, which is where the Close button is.
+        return _flash_redirect(
+            f"/admin/kg/cycles/{cycle_id}",
+            r.error or "Could not delete this cycle.",
+        )
+    return _flash_redirect("/admin/kg/cycles", "Cycle deleted.")
 
 
 @router.post("/admin/kg/cycles/{cycle_id}/classes/add")

@@ -22,10 +22,44 @@
         {% if cycle.end_date %} · Ends {{ cycle.end_date }}{% endif %}
       </p>
     </div>
-    <a href="/admin/kg/cycles/{{ cycle.id }}/edit"
-       class="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap">
-      Edit cycle
-    </a>
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="/admin/kg/cycles/{{ cycle.id }}/edit"
+         class="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap">
+        Edit cycle
+      </a>
+
+      {# Closing is the normal end of a cycle: nothing is lost, it just
+         stops appearing in the active lists. Reopening is the same
+         button, because someone always closes one a week early. #}
+      {% if cycle.status == 'CLOSED' %}
+        <form method="post" action="/admin/kg/cycles/{{ cycle.id }}/close">
+          <input type="hidden" name="reopen" value="1">
+          <button type="submit"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap">
+            Reopen cycle
+          </button>
+        </form>
+      {% else %}
+        <form method="post" action="/admin/kg/cycles/{{ cycle.id }}/close"
+              onsubmit="return confirm('Close {{ cycle.name }}? Nothing is deleted — it stays available under Reports and stops showing in the active lists. You can reopen it.');">
+          <button type="submit"
+                  class="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap">
+            Close cycle
+          </button>
+        </form>
+      {% endif %}
+
+      {# Deleting is for a cycle set up by mistake. KG refuses once any
+         attendance or exam attempt exists and says why, so the button
+         stays here rather than being hidden on a guess about state. #}
+      <form method="post" action="/admin/kg/cycles/{{ cycle.id }}/delete"
+            onsubmit="return confirm('Delete {{ cycle.name }} permanently?\n\nThis is only possible while nothing has been recorded against it. Once a register has been marked or an exam sat, close the cycle instead.');">
+        <button type="submit"
+                class="text-xs px-3 py-1.5 rounded bg-white border border-red-200 text-red-700 hover:bg-red-50 whitespace-nowrap">
+          Delete
+        </button>
+      </form>
+    </div>
   </div>
 
   <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
