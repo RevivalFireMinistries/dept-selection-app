@@ -104,12 +104,19 @@ def is_configured(db=None) -> bool:
 @dataclass
 class ApiResult:
     """Wraps every response so callers don't have to handle exceptions.
-    `ok` means the call succeeded; `data` holds the unwrapped envelope payload."""
+    `ok` means the call succeeded; `data` holds the unwrapped envelope
+    payload and `meta` whatever sat beside it (pagination totals)."""
     ok: bool
     data: Any = None
     status: int = 0
     error: Optional[str] = None
     disabled: bool = False  # True when the kill switch is off
+    # The envelope's `meta` — pagination totals, mostly. Kept beside the
+    # data rather than inside it: unwrapping used to drop it entirely, so
+    # every caller reading `r.data["meta"]` silently got nothing. On a
+    # LIST response `data` is a list, so `.get("meta")` could not even
+    # raise — the count just stayed 0 and the page looked empty of news.
+    meta: Optional[dict] = None
 
     @classmethod
     def disabled_result(cls) -> "ApiResult":
@@ -178,9 +185,14 @@ def _request(
             payload = None
 
     if 200 <= status < 300:
-        # API uses {"data": ..., "meta": ...}; unwrap if present
+        # API uses {"data": ..., "meta": ...}; unwrap if present, keeping
+        # `meta` on the result so pagination totals survive the unwrap.
         if isinstance(payload, dict) and "data" in payload:
-            return ApiResult(ok=True, data=payload["data"], status=status)
+            meta = payload.get("meta")
+            return ApiResult(
+                ok=True, data=payload["data"], status=status,
+                meta=meta if isinstance(meta, dict) else None,
+            )
         return ApiResult(ok=True, data=payload, status=status)
 
     # Error

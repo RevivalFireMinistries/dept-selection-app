@@ -2320,7 +2320,7 @@ async def admin_kg_legacy_page(request: Request, db: Session = Depends(get_db)):
             members = r.data
         elif isinstance(r.data, dict):
             members = r.data.get("data") or []
-            meta = r.data.get("meta") or {}
+            meta = r.meta or {}
 
     flash, had_flash = _consume_flash(request)
     response = templates.TemplateResponse(
@@ -2462,7 +2462,7 @@ async def admin_kg_cycle_invite_page(
             members = members_r.data
         elif isinstance(members_r.data, dict):
             members = members_r.data.get("data") or []
-            meta = members_r.data.get("meta") or {}
+            meta = members_r.meta or {}
 
     # Already-enrolled set for this cycle so we can disable those rows.
     enr_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
@@ -2670,8 +2670,8 @@ async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
     for key, statuses in counts_query:
         if statuses is None:
             r = rfm.search_members(assembly_id=asm_id, page=1, size=1, db=db)
-            if r.ok and isinstance(r.data, dict):
-                stats[key] = r.data.get("meta", {}).get("total", 0)
+            if r.ok:
+                stats[key] = (r.meta or {}).get("total", 0)
             continue
         bucket_total = 0
         for s in statuses:
@@ -2683,8 +2683,8 @@ async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
                     "page": 1, "size": 1,
                 },
             )
-            if r.ok and isinstance(r.data, dict):
-                bucket_total += r.data.get("meta", {}).get("total", 0)
+            if r.ok:
+                bucket_total += (r.meta or {}).get("total", 0)
         stats[key] = bucket_total
 
     # Tab-specific data
@@ -2803,7 +2803,7 @@ async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
                 people = r.data
             elif isinstance(r.data, dict):
                 people = r.data.get("data") or []
-                people_meta = r.data.get("meta") or {}
+                people_meta = r.meta or {}
 
         # Multi-status buckets: filter client-side. Less efficient but
         # honest — the totals on the stat cards are still right because
@@ -2844,7 +2844,7 @@ async def admin_kg_dashboard(request: Request, db: Session = Depends(get_db)):
         elif attempts_r.ok and isinstance(attempts_r.data, dict):
             # Some envelopes come pre-unwrapped to data, others as full envelope.
             results = attempts_r.data.get("data") or []
-            results_meta = attempts_r.data.get("meta") or {}
+            results_meta = attempts_r.meta or {}
 
         # Decorate results with member names + cycle names for display —
         # one lookup each, cached in dicts so we don't hammer rfm-db.

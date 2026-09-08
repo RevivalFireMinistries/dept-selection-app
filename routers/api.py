@@ -9344,7 +9344,7 @@ def admin_hc_members(hc_id: int, request: Request, db: Session = Depends(get_db)
         members.extend([_hc_member_dict(m) for m in items])
         if not isinstance(r.data, dict):
             break
-        meta = r.data.get("meta") or {}
+        meta = r.meta or {}
         if len(items) < 100 or page >= int(meta.get("pages") or 1):
             break
         page += 1
@@ -9449,7 +9449,7 @@ def admin_hc_membership_stats(request: Request, db: Session = Depends(get_db)):
         )
         count = 0
         if r.ok and isinstance(r.data, dict):
-            count = int(((r.data.get("meta") or {}).get("total")) or 0)
+            count = int(((r.meta or {}).get("total")) or 0)
         members_with_hc += count
         per_hc.append({"id": hc.id, "name": hc.name, "count": count})
     per_hc.sort(key=lambda x: x["count"], reverse=True)
