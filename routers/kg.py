@@ -213,6 +213,8 @@ async def portal_kg_cycle(
     # most recent attempt id so the cycle page can link to the detailed
     # results view. Best-effort — the page renders fine without it.
     latest_attempt_id: str | None = None
+    exam_passed = False
+    exam_percent: int | None = None
     if my_enrollment and my_enrollment.get("status") in (
         "EXAM_READY", "FAILED", "COMPLETED",
     ):
@@ -227,6 +229,20 @@ async def portal_kg_cycle(
             )
             if attempts:
                 latest_attempt_id = attempts[0].get("id")
+                # A pass is a fact about the ATTEMPT, not the enrollment.
+                # The enrollment stays EXAM_READY while milestones are
+                # outstanding, which read to the member as though they had
+                # never sat the exam at all.
+                exam_passed = bool(attempts[0].get("passed"))
+                exam_percent = attempts[0].get("percent")
+
+    # What still stands between a passing member and their certificate.
+    # Only MANDATORY milestones block it; optional ones are guidance.
+    outstanding_milestones = [
+        (m.get("milestone") or {}).get("name") or "Milestone"
+        for m in (cycle_milestones or [])
+        if m.get("is_mandatory") and m.get("milestone_id") not in achieved_ids
+    ]
 
     # Gate the "Take the exam" button on exam_available_at — admins can
     # schedule the opening for a future moment without flipping any
@@ -280,6 +296,9 @@ async def portal_kg_cycle(
             "exam_id": exam_id,
             "exam_is_open": exam_is_open,
             "latest_attempt_id": latest_attempt_id,
+            "exam_passed": exam_passed,
+            "exam_percent": exam_percent,
+            "outstanding_milestones": outstanding_milestones,
             "error": (None if cycle_r.ok else cycle_r.error),
         },
     )

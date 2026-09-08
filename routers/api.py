@@ -550,10 +550,17 @@ def login_member(
     # log in straight away.
     if not member and _rfm.is_enabled(db) and _rfm.is_configured(db):
         try:
-            r = _rfm.search_members(phone=normalized, db=db)
+            # Search on the national significant number — the last nine
+            # digits, no leading 0 and no +27. rfm-database stores phones
+            # canonically as +27XXXXXXXXX and the search is a substring
+            # ILIKE, so looking up the local "0XX…" form matched NOTHING:
+            # this whole fallback never once fired, and every member who
+            # existed only in the directory was told "no account found".
+            # The nine digits are a substring of both forms.
+            target_last9 = normalized[-9:] if len(normalized) >= 9 else normalized
+            r = _rfm.search_members(phone=target_last9, db=db)
             if r.ok:
                 items = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
-                target_last9 = normalized[-9:] if len(normalized) >= 9 else normalized
                 match = None
                 for c in items:
                     c_phone_raw = (c.get("phone") or "").strip()
@@ -585,8 +592,7 @@ def login_member(
                     db.refresh(new_member)
                     member = new_member
         except Exception:
-            # Central lookup failed — fall through to the original 401 below
-            pass
+            logger.exception("[login] central lookup failed for %s", normalized)
 
     if not member:
         raise HTTPException(status_code=401, detail="No account found with this phone number")
