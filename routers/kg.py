@@ -1410,21 +1410,16 @@ async def admin_kg_reports_exports_download(
 # FACILITATOR (Info Desk) — milestone marking
 # ---------------------------------------------------------------------------
 
-@router.get("/desk/kg/cycle/{cycle_id}/milestones", response_class=HTMLResponse)
-async def desk_kg_milestones_page(
-    cycle_id: str, request: Request, db: Session = Depends(get_db),
-):
-    redirect = _require_desk(request, db)
-    if redirect:
-        return redirect
-    if not kg.is_enabled(db):
-        return _kg_disabled_page(request, audience="facilitator")
+def _milestone_grid(cycle_id: str, db: Session) -> dict:
+    """Everything the milestone grid needs, for whichever page renders it.
 
+    Shared so the facilitator's screen and the admin's cannot drift into
+    disagreeing about who has been baptised.
+    """
     cycle_r = kg.get_cycle(cycle_id, db=db)
     cm_r = kg.list_cycle_milestones(cycle_id, db=db)
     enr_r = kg.list_enrollments_for_cycle(cycle_id, db=db)
 
-    cycle = cycle_r.data if cycle_r.ok else None
     cycle_milestones = cm_r.data if cm_r.ok else []
     if isinstance(cycle_milestones, dict):
         cycle_milestones = cycle_milestones.get("data") or []
@@ -1446,16 +1441,117 @@ async def desk_kg_milestones_page(
             for row in rows:
                 achieved[(e["id"], row["milestone_id"])] = True
 
+    # Who is still short, and of what. Computed once here because both
+    # the grid and the exams list want it, and "which milestones are
+    # missing" is the question a blocked certificate actually raises.
+    for e in enrollments:
+        e["_outstanding"] = [
+            (cm.get("milestone") or {}).get("name") or "Milestone"
+            for cm in cycle_milestones
+            if cm.get("is_mandatory")
+            and not achieved.get((e["id"], cm.get("milestone_id")))
+        ]
+
+    return {
+        "cycle": cycle_r.data if cycle_r.ok else None,
+        "cycle_milestones": cycle_milestones,
+        "enrollments": enrollments,
+        "achieved": achieved,
+        "error": cycle_r.error if not cycle_r.ok else None,
+    }
+
+
+@router.get("/desk/kg/cycle/{cycle_id}/milestones", response_class=HTMLResponse)
+async def desk_kg_milestones_page(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    redirect = _require_desk(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request, audience="facilitator")
+
     return templates.TemplateResponse(
-        request, "kg/desk_milestones.html",
-        {
-            "cycle": cycle,
-            "cycle_milestones": cycle_milestones,
-            "enrollments": enrollments,
-            "achieved": achieved,
-            "error": cycle_r.error if not cycle_r.ok else None,
-        },
+        request, "kg/desk_milestones.html", _milestone_grid(cycle_id, db),
     )
+
+
+@router.get("/admin/kg/cycles/{cycle_id}/milestones", response_class=HTMLResponse)
+async def admin_kg_cycle_milestones(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """The same grid, without leaving the admin.
+
+    It used to live only under the facilitator's Class desk, so an admin
+    following "these milestones are not recorded" was thrown into a
+    different section with different navigation and no way back to what
+    they were doing. Same data, same marking, admin chrome.
+    """
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    ctx = _milestone_grid(cycle_id, db)
+    ctx["back"] = (request.query_params.get("back") or "").strip()
+    flash, had_flash = _consume_flash(request)
+    ctx["flash"] = flash
+    response = templates.TemplateResponse(
+        request, "kg/admin_cycle_milestones.html", ctx,
+    )
+    if had_flash:
+        _clear_flash(response)
+    return response
+
+
+@router.post("/admin/kg/cycles/{cycle_id}/milestones")
+async def admin_kg_cycle_milestones_mark(
+    cycle_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Toggle one (enrollment, milestone) from the admin grid."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    enrollment_id = (form.get("enrollment_id") or "").strip()
+    milestone_id = (form.get("milestone_id") or "").strip()
+    action = (form.get("action") or "achieve").lower()
+    back = (form.get("back") or "").strip()
+    here = f"/admin/kg/cycles/{cycle_id}/milestones"
+    if back:
+        here += f"?back={back}"
+
+    if not enrollment_id or not milestone_id:
+        return RedirectResponse(url=here, status_code=303)
+
+    if action == "revoke":
+        kg.revoke_milestone(
+            enrollment_id=enrollment_id, milestone_id=milestone_id, db=db,
+        )
+        return _flash_redirect(here, "Milestone removed.")
+
+    # The name goes with it — this may be the milestone that completes
+    # them, and a certificate cannot issue without a name to print.
+    name = _enrollment_member_name(enrollment_id, cycle_id, db)
+    kg.mark_milestone_achieved(
+        enrollment_id=enrollment_id, milestone_id=milestone_id,
+        member_full_name=name, db=db,
+    )
+
+    # Say so if that was the one that finished them off.
+    note = "Milestone recorded."
+    cert = kg.get_certificate_meta(enrollment_id, db=db)
+    if cert.ok and isinstance(cert.data, dict) and cert.data.get("certificate_number"):
+        note = (
+            f"Milestone recorded — that completed "
+            f"{name or 'them'}. Certificate "
+            f"{cert.data['certificate_number']} issued."
+        )
+    return _flash_redirect(here, note)
 
 
 @router.post("/desk/kg/cycle/{cycle_id}/milestones")
@@ -2542,6 +2638,10 @@ EXAM_FILTERS = [
     ("in_progress", "In progress"),
     ("pending", "Awaiting marking"),
     ("invited", "Invited, not started"),
+    # Not a bucket — an overlay on the passed ones. These are the people
+    # who have done the hard part and whose certificate is waiting on a
+    # tick somebody has to make.
+    ("missing_milestones", "Missing milestones"),
 ]
 
 
@@ -2656,13 +2756,39 @@ async def admin_kg_exams(request: Request, db: Session = Depends(get_db)):
     for r in rows:
         r["member_name"] = names.get(r.get("external_member_id"), "")
         r["bucket"] = _exam_row_bucket(r)
+        r["missing_milestones"] = []
+
+    # Only for people who passed: a milestone outstanding is what stands
+    # between them and a certificate, and it is the one blocker nothing
+    # else on this page would show. Asked per cycle rather than per row,
+    # because the grid comes back whole.
+    blocked_cycles = {r.get("cycle_id") for r in rows if r["bucket"] == "passed"}
+    outstanding_by_enrollment: dict[str, list] = {}
+    for cid in blocked_cycles:
+        if not cid:
+            continue
+        try:
+            grid = _milestone_grid(cid, db)
+        except Exception:
+            continue
+        for e in grid.get("enrollments") or []:
+            outstanding_by_enrollment[e["id"]] = e.get("_outstanding") or []
+    for r in rows:
+        if r["bucket"] == "passed":
+            r["missing_milestones"] = outstanding_by_enrollment.get(
+                r.get("enrollment_id"), [],
+            )
 
     counts = {key: 0 for key, _ in EXAM_FILTERS}
     for r in rows:
         counts[r["bucket"]] = counts.get(r["bucket"], 0) + 1
+        if r["missing_milestones"]:
+            counts["missing_milestones"] += 1
     counts[""] = len(rows)
 
-    if which:
+    if which == "missing_milestones":
+        rows = [r for r in rows if r["missing_milestones"]]
+    elif which:
         rows = [r for r in rows if r["bucket"] == which]
     if search:
         rows = [r for r in rows if search in (r.get("member_name") or "").lower()]

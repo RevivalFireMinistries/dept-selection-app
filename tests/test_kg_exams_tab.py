@@ -47,8 +47,13 @@ def test_an_invite_is_bucketed_on_kind_not_status():
     assert kg_routes._exam_row_bucket({"kind": "invite", "status": "GRADED"}) == "invited"
 
 
-def test_every_chip_has_a_bucket_that_can_reach_it():
-    """A filter that can never match anything is worse than no filter."""
+def test_every_bucket_chip_can_be_reached():
+    """A filter that can never match anything is worse than no filter.
+
+    "missing_milestones" is excluded on purpose: it overlays the passed
+    rows rather than being a bucket of its own, because someone blocked
+    on a milestone HAS passed — that is the whole point of them.
+    """
     reachable = {
         kg_routes._exam_row_bucket(r) for r in [
             _row(kind="invite"), _row(status="IN_PROGRESS"), _row(status="SUBMITTED"),
@@ -56,7 +61,7 @@ def test_every_chip_has_a_bucket_that_can_reach_it():
         ]
     }
     chips = {key for key, _ in kg_routes.EXAM_FILTERS if key}
-    assert chips == reachable
+    assert chips - {"missing_milestones"} == reachable
 
 
 # ── The client calls KG correctly ──────────────────────────────────────────
@@ -133,7 +138,7 @@ def test_every_row_offers_a_way_to_record_milestones():
     Naming them without saying where to record them is a dead end."""
     env = kg_routes.templates.env
     source = env.loader.get_source(env, "kg/admin_exams.html")[0]
-    assert "/desk/kg/cycle/{{ r.cycle_id }}/milestones" in source
+    assert "/admin/kg/cycles/{{ r.cycle_id }}/milestones" in source
 
 
 def test_the_refusal_points_at_where_to_record_them():
@@ -159,3 +164,70 @@ def test_the_name_lookup_never_blocks_the_milestone(monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("directory down")),
     )
     assert kg_routes._enrollment_member_name("e1", "c1", None) is None
+
+
+# ── Milestones belong in the admin, not the facilitator's desk ─────────────
+
+def test_the_exams_row_links_to_the_admin_grid_not_the_desk():
+    """Following "these milestones are not recorded" used to throw an
+    admin into the Class desk — different section, different navigation,
+    no way back to what they were doing."""
+    env = kg_routes.templates.env
+    source = env.loader.get_source(env, "kg/admin_exams.html")[0]
+    assert "/admin/kg/cycles/{{ r.cycle_id }}/milestones" in source
+    assert "/desk/kg/cycle/{{ r.cycle_id }}/milestones" not in source
+
+
+def test_both_milestone_screens_read_the_same_data():
+    """Two grids that could disagree about who has been baptised is a
+    worse problem than one in the wrong place."""
+    for handler in ["desk_kg_milestones_page", "admin_kg_cycle_milestones"]:
+        src = inspect.getsource(getattr(kg_routes, handler))
+        assert "_milestone_grid(cycle_id, db)" in src
+
+
+def test_the_admin_grid_is_behind_the_manager_check():
+    src = inspect.getsource(kg_routes.admin_kg_cycle_milestones)
+    assert "_require_kg_manage(request, db)" in src
+
+
+def test_marking_from_the_admin_grid_also_sends_the_name():
+    src = inspect.getsource(kg_routes.admin_kg_cycle_milestones_mark)
+    assert "_enrollment_member_name(" in src
+    assert "member_full_name=name" in src
+
+
+def test_it_says_when_a_milestone_completed_someone():
+    """Recording the last one issues a certificate. Doing that silently
+    is how people end up pressing Issue certificate to find out."""
+    src = inspect.getsource(kg_routes.admin_kg_cycle_milestones_mark)
+    assert "that completed" in src
+    assert "get_certificate_meta" in src
+
+
+# ── Who is a certificate waiting on? ───────────────────────────────────────
+
+def test_outstanding_milestones_are_worked_out_per_member():
+    src = inspect.getsource(kg_routes._milestone_grid)
+    assert '_outstanding' in src
+    assert 'cm.get("is_mandatory")' in src, "optional milestones must not block"
+
+
+def test_missing_milestones_is_a_chip():
+    keys = [k for k, _ in kg_routes.EXAM_FILTERS]
+    assert "missing_milestones" in keys
+
+
+def test_the_chip_overlays_the_passed_rows_rather_than_replacing_a_bucket():
+    """Someone blocked on a milestone HAS passed — that is the whole
+    point of them. The chip filters on the field, not the bucket."""
+    src = inspect.getsource(kg_routes.admin_kg_exams)
+    assert 'if which == "missing_milestones"' in src
+    assert 'r["missing_milestones"]' in src
+
+
+def test_only_passed_rows_are_checked_for_outstanding_milestones():
+    """Milestones do not block anything for someone who has not passed,
+    and the lookup costs a round trip per cycle."""
+    src = inspect.getsource(kg_routes.admin_kg_exams)
+    assert 'r["bucket"] == "passed"' in src

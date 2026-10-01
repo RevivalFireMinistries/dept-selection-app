@@ -120,6 +120,12 @@
               {% if r.mode == "ONSITE" %}
                 <span class="ml-1 text-[11px] text-gray-400">written on paper</span>
               {% endif %}
+              {# The one blocker nothing else on this page would show. #}
+              {% if r.missing_milestones %}
+                <div class="mt-1 text-[11px] text-amber-800">
+                  Waiting on: {{ r.missing_milestones | join(", ") }}
+                </div>
+              {% endif %}
             </td>
             <td class="px-4 py-3">
               <div class="flex flex-wrap items-center justify-end gap-2">
@@ -132,7 +138,7 @@
                    refusal names them — so the way to record them belongs
                    on the same row, not three screens away. #}
                 {% if r.cycle_id %}
-                  <a href="/desk/kg/cycle/{{ r.cycle_id }}/milestones"
+                  <a href="/admin/kg/cycles/{{ r.cycle_id }}/milestones?back={{ request.url.path }}"
                      class="text-xs font-medium text-gray-600 hover:underline whitespace-nowrap"
                      title="Record salvation, baptism and the infilling for this cycle">
                     Milestones

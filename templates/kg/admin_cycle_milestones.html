@@ -1,0 +1,101 @@
+{% extends "admin/base.html" %}
+{% set active_section = "cycles" %}
+{% block title %}Milestones · {{ cycle.name if cycle else "Cycle" }}{% endblock %}
+{% block admin_content %}
+{# The same grid the Class desk shows, in admin chrome. An admin who
+   follows "these milestones are not recorded" should not land in a
+   different section with different navigation and no way back. #}
+<div class="px-3 sm:px-6 lg:px-8 py-4">
+
+  <div class="flex items-baseline justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-xl sm:text-2xl font-bold text-gray-900">
+        {{ cycle.name if cycle else "Cycle" }} · Milestones
+      </h1>
+      <p class="text-xs sm:text-sm text-gray-500 mt-0.5">
+        Tap a cell to record or undo. Recording the last mandatory one
+        completes the member and issues their certificate.
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      {% if back %}
+        <a href="{{ back }}" class="text-xs font-medium text-blue-600 hover:underline">&larr; Back to exams</a>
+      {% endif %}
+      <a href="/admin/kg/cycles/{{ cycle.id if cycle else '' }}"
+         class="text-xs px-3 py-1.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 whitespace-nowrap">
+        Cycle
+      </a>
+    </div>
+  </div>
+
+  {% include "kg/_admin_subnav.html" %}
+
+  {% if flash %}
+    <div class="mb-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-3 text-sm">{{ flash }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="mb-3 bg-red-50 border border-red-200 text-red-800 rounded p-3 text-sm">{{ error }}</div>
+  {% endif %}
+
+  {% if not cycle_milestones %}
+    <div class="bg-white border border-gray-200 rounded-lg p-6 text-center text-sm text-gray-500">
+      This cycle has no milestones attached.
+    </div>
+  {% else %}
+  <div class="bg-white border border-gray-200 rounded-lg overflow-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr class="text-left text-xs uppercase text-gray-500">
+          <th class="px-4 py-3 sticky left-0 bg-gray-50">Member</th>
+          {% for cm in cycle_milestones %}
+            <th class="px-4 py-3 text-center">
+              <div class="font-semibold text-gray-700 normal-case">{{ cm.milestone.name }}</div>
+              <div class="mt-0.5 text-[10px] {% if cm.is_mandatory %}text-amber-700{% else %}text-gray-400{% endif %}">
+                {% if cm.is_mandatory %}MANDATORY{% else %}optional{% endif %}
+              </div>
+            </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for e in enrollments %}
+          {% set outstanding = e._outstanding %}
+          <tr class="{% if outstanding %}bg-amber-50/40{% endif %}">
+            <td class="px-4 py-3 sticky left-0 {% if outstanding %}bg-amber-50{% else %}bg-white{% endif %} text-sm text-gray-900 whitespace-nowrap">
+              {{ e._member_name or (e.external_member_id[:8] + "…") }}
+              <div class="text-[10px] text-gray-400 uppercase tracking-wide">{{ e.status }}</div>
+            </td>
+            {% for cm in cycle_milestones %}
+              {% set done = achieved.get((e.id, cm.milestone_id)) %}
+              <td class="px-4 py-3 text-center">
+                <form method="post" class="inline">
+                  <input type="hidden" name="enrollment_id" value="{{ e.id }}">
+                  <input type="hidden" name="milestone_id" value="{{ cm.milestone_id }}">
+                  <input type="hidden" name="action" value="{% if done %}revoke{% else %}achieve{% endif %}">
+                  <input type="hidden" name="back" value="{{ back }}">
+                  <button type="submit"
+                    title="{% if done %}Recorded — tap to undo{% else %}Tap to record{% endif %}"
+                    class="inline-flex items-center justify-center w-10 h-10 rounded-full
+                           {% if done %}bg-emerald-100 text-emerald-700 hover:bg-emerald-200{% else %}bg-gray-100 text-gray-400 hover:bg-gray-200{% endif %}">
+                    {% if done %}✓{% else %}—{% endif %}
+                  </button>
+                </form>
+              </td>
+            {% endfor %}
+          </tr>
+        {% else %}
+          <tr><td colspan="{{ cycle_milestones|length + 1 }}" class="px-4 py-6 text-center text-gray-500">
+            Nobody enrolled yet.
+          </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="mt-3 text-xs text-gray-400">
+    Shaded rows still have a mandatory milestone outstanding — those are
+    the people whose certificates are waiting on this screen.
+  </p>
+  {% endif %}
+
+</div>
+{% endblock %}
