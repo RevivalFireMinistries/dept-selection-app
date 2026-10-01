@@ -688,8 +688,17 @@ def mark_milestone_achieved(
     achieved_at: str | None = None,
     notes: str | None = None,
     recorded_by_external_member_id: str | None = None,
+    member_full_name: str | None = None,
     db=None,
 ) -> ApiResult:
+    """Record a milestone.
+
+    `member_full_name` matters more than it looks: marking the last
+    mandatory milestone is what triggers completion, and a certificate
+    cannot be issued without a name to print on it. Omit it and the
+    member is marked COMPLETED with no certificate — done, but with
+    nothing to show for it.
+    """
     return _request(
         "POST",
         f"/api/v1/milestones/enrollments/{enrollment_id}/{milestone_id}/achieve",
@@ -698,6 +707,7 @@ def mark_milestone_achieved(
             "achieved_at": achieved_at,
             "notes": notes,
             "recorded_by_external_member_id": recorded_by_external_member_id,
+            "member_full_name": member_full_name,
         },
     )
 

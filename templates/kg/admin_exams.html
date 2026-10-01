@@ -128,6 +128,17 @@
                      class="text-xs font-medium text-blue-600 hover:underline whitespace-nowrap">View</a>
                 {% endif %}
 
+                {# Milestones are what hold up most certificates, and the
+                   refusal names them — so the way to record them belongs
+                   on the same row, not three screens away. #}
+                {% if r.cycle_id %}
+                  <a href="/desk/kg/cycle/{{ r.cycle_id }}/milestones"
+                     class="text-xs font-medium text-gray-600 hover:underline whitespace-nowrap"
+                     title="Record salvation, baptism and the infilling for this cycle">
+                    Milestones
+                  </a>
+                {% endif %}
+
                 {% if r.bucket == "in_progress" %}
                   <form method="post" action="/admin/kg/exams/attempts/{{ r.id }}/cancel"
                         onsubmit="return confirm('Cancel this sitting for {{ r.member_name }}?\n\nOnly do this if it was opened and never written — it gives them their attempt back.');">

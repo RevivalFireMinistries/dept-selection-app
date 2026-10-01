@@ -1484,12 +1484,41 @@ async def desk_kg_milestones_mark(
             enrollment_id=enrollment_id, milestone_id=milestone_id, db=db,
         )
     else:
+        # Send the name. This may be the milestone that completes them,
+        # and the certificate cannot issue without a name to print —
+        # without it they would be marked COMPLETED with nothing to show
+        # for it, which is the silent half of the problem.
         kg.mark_milestone_achieved(
-            enrollment_id=enrollment_id, milestone_id=milestone_id, db=db,
+            enrollment_id=enrollment_id, milestone_id=milestone_id,
+            member_full_name=_enrollment_member_name(enrollment_id, cycle_id, db),
+            db=db,
         )
     return RedirectResponse(
         url=f"/desk/kg/cycle/{cycle_id}/milestones", status_code=303,
     )
+
+
+def _enrollment_member_name(
+    enrollment_id: str, cycle_id: str, db: Session,
+) -> str | None:
+    """The directory name behind an enrollment, or None.
+
+    Kingdom Gateway stores member ids, never names, so anything that
+    prints a person has to resolve it here. Best-effort: a milestone
+    should still record if the lookup fails.
+    """
+    try:
+        r = kg.list_enrollments_for_cycle(cycle_id, db=db)
+        if not r.ok:
+            return None
+        rows = r.data if isinstance(r.data, list) else (r.data or {}).get("data") or []
+        match = next((e for e in rows if e.get("id") == enrollment_id), None)
+        if not match:
+            return None
+        names = _member_name_map(db, [match.get("external_member_id")])
+        return names.get(match.get("external_member_id")) or None
+    except Exception:
+        return None
 
 
 # ===========================================================================
@@ -2737,9 +2766,13 @@ async def admin_kg_exam_certificate(
             back, f"Certificate {data.get('certificate_number')} issued for {name}.",
         )
     reasons = data.get("reasons") or ["they do not qualify yet"]
-    return _flash_redirect(
-        back, f"No certificate for {name} — " + "; ".join(reasons) + ".",
-    )
+    note = f"No certificate for {name} — " + "; ".join(reasons) + "."
+    # Milestones hold up most certificates, and naming them without
+    # saying where to record them is a dead end. The Milestones link on
+    # the row goes to the same place.
+    if any("milestone" in str(r).lower() for r in reasons):
+        note += " Use the Milestones link on their row to record them."
+    return _flash_redirect(back, note)
 
 
 @router.get("/admin/kg/legacy", response_class=HTMLResponse)

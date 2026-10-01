@@ -124,3 +124,38 @@ def test_refusals_from_kg_are_shown_as_they_came():
     for handler in ["admin_kg_exam_cancel", "admin_kg_exam_revoke"]:
         src = inspect.getsource(getattr(kg_routes, handler))
         assert "r.error or" in src
+
+
+# ── Recording the milestones that hold up a certificate ────────────────────
+
+def test_every_row_offers_a_way_to_record_milestones():
+    """Milestones hold up most certificates and the refusal names them.
+    Naming them without saying where to record them is a dead end."""
+    env = kg_routes.templates.env
+    source = env.loader.get_source(env, "kg/admin_exams.html")[0]
+    assert "/desk/kg/cycle/{{ r.cycle_id }}/milestones" in source
+
+
+def test_the_refusal_points_at_where_to_record_them():
+    src = inspect.getsource(kg_routes.admin_kg_exam_certificate)
+    assert "Use the Milestones link on their row" in src
+    assert '"milestone" in str(r).lower()' in src
+
+
+def test_marking_a_milestone_sends_the_member_name():
+    """Marking the last mandatory milestone is what triggers completion,
+    and a certificate cannot issue without a name to print. Without this
+    the member is marked COMPLETED with nothing to show for it — done,
+    silently, with no certificate."""
+    src = inspect.getsource(kg_routes.desk_kg_milestones_mark)
+    assert "member_full_name=_enrollment_member_name(" in src
+
+
+def test_the_name_lookup_never_blocks_the_milestone(monkeypatch):
+    """Best-effort: recording that someone was baptised must not fail
+    because the directory was unreachable."""
+    monkeypatch.setattr(
+        kg, "list_enrollments_for_cycle",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("directory down")),
+    )
+    assert kg_routes._enrollment_member_name("e1", "c1", None) is None
