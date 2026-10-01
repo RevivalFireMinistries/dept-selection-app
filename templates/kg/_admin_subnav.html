@@ -1,11 +1,12 @@
 {# Unified KG admin sub-nav. Pages set `active_section` to one of:
-   home / cycles / people / reports / team / legacy.
+   home / cycles / exams / people / reports / team / legacy.
    Mobile: horizontal scroll; desktop: inline pills. #}
 <nav class="-mx-3 sm:mx-0 mt-3 mb-4 overflow-x-auto" aria-label="KG admin sections">
   <ul class="inline-flex gap-1 px-3 sm:px-0 text-sm font-medium">
     {% set sections = [
       ("home",    "/admin/kg",                "Home"),
       ("cycles",  "/admin/kg/cycles",         "Cycles"),
+      ("exams",   "/admin/kg/exams",          "Exams"),
       ("people",  "/admin/kg/dashboard?tab=people",  "People"),
       ("reports", "/admin/kg/reports/cycles", "Reports"),
       ("team",    "/admin/kg/team",           "Team"),

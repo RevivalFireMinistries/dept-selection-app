@@ -2498,6 +2498,250 @@ async def admin_kg_cycle_detail(
 # ADMIN — legacy completions (mark members who finished KG before this system)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# ADMIN — exams: one place for every sitting and every outstanding invite
+# ---------------------------------------------------------------------------
+
+#: What the filter chips mean, in the order they are shown. Each maps to
+#: a predicate over the rows the page has already loaded, because the
+#: statuses people think in ("passed", "in progress") do not line up one
+#: to one with the attempt statuses KG stores.
+EXAM_FILTERS = [
+    ("", "All"),
+    ("passed", "Passed"),
+    ("failed", "Failed"),
+    ("in_progress", "In progress"),
+    ("pending", "Awaiting marking"),
+    ("invited", "Invited, not started"),
+]
+
+
+def _exam_row_bucket(row: dict) -> str:
+    """Which chip a row belongs under."""
+    if row.get("kind") == "invite":
+        return "invited"
+    status = (row.get("status") or "").upper()
+    if status == "IN_PROGRESS":
+        return "in_progress"
+    if status == "SUBMITTED":
+        return "pending"
+    if row.get("passed") is True:
+        return "passed"
+    if row.get("passed") is False:
+        return "failed"
+    return "pending"
+
+
+@router.get("/admin/kg/exams", response_class=HTMLResponse)
+async def admin_kg_exams(request: Request, db: Session = Depends(get_db)):
+    """Every sitting in the assembly, plus the invitations nobody has
+    acted on yet.
+
+    Those two live in different tables, but to the team they are one
+    question — "where is everybody up to?" — so they are shown together
+    and the filter chips work across both. The invitations are the half
+    that has no home anywhere else: an attempt at least appears under
+    Reports, while someone invited three weeks ago who never opened the
+    email is invisible until you go looking cycle by cycle.
+    """
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    asm_id, asm_err = _resolve_portal_assembly(request, db)
+    if not asm_id:
+        return _flash_redirect("/admin/kg", asm_err or "No assembly resolved.")
+
+    which = (request.query_params.get("filter") or "").strip().lower()
+    cycle_id = (request.query_params.get("cycle_id") or "").strip()
+    search = (request.query_params.get("q") or "").strip().lower()
+
+    # Cycles, for the dropdown and to name each row's intake.
+    cycles_r = kg._request(
+        "GET", "/api/v1/cycles", db=db,
+        params={"assembly_id": asm_id, "size": 100},
+    )
+    cycles = cycles_r.data if cycles_r.ok else []
+    if isinstance(cycles, dict):
+        cycles = cycles.get("data") or []
+    cycle_names = {c.get("id"): c.get("name") for c in cycles}
+
+    rows: list[dict] = []
+
+    # 1. Attempts.
+    att_params = {"assembly_id": asm_id, "size": 200}
+    if cycle_id:
+        att_params["cycle_id"] = cycle_id
+    att_r = kg._request("GET", "/api/v1/exam-attempts", db=db, params=att_params)
+    attempts = att_r.data if att_r.ok else []
+    if isinstance(attempts, dict):
+        attempts = attempts.get("data") or []
+    for a in attempts:
+        # Cancelled sittings are noise here — they exist so the record is
+        # honest, not so they clutter the list someone works from.
+        if (a.get("status") or "").upper() == "ABANDONED":
+            continue
+        rows.append({
+            "kind": "attempt",
+            "id": a.get("id") or a.get("attempt_id"),
+            "enrollment_id": a.get("enrollment_id"),
+            "external_member_id": a.get("external_member_id"),
+            "cycle_id": a.get("cycle_id"),
+            "cycle_name": cycle_names.get(a.get("cycle_id"), ""),
+            "status": a.get("status"),
+            "mode": a.get("mode"),
+            "percent": a.get("percent"),
+            "passed": a.get("passed"),
+            "when": a.get("submitted_at") or a.get("started_at"),
+        })
+
+    # 2. Invitations nobody has acted on.
+    for c in cycles:
+        if cycle_id and c.get("id") != cycle_id:
+            continue
+        enr_r = kg.list_enrollments_for_cycle(c.get("id"), db=db)
+        enrollments = enr_r.data if enr_r.ok else []
+        if isinstance(enrollments, dict):
+            enrollments = enrollments.get("data") or []
+        for e in enrollments:
+            if (e.get("status") or "").upper() != "INVITED":
+                continue
+            rows.append({
+                "kind": "invite",
+                "id": e.get("id"),
+                "enrollment_id": e.get("id"),
+                "external_member_id": e.get("external_member_id"),
+                "cycle_id": c.get("id"),
+                "cycle_name": c.get("name"),
+                "status": "INVITED",
+                "mode": None,
+                "percent": None,
+                "passed": None,
+                "when": e.get("invited_at") or e.get("created_at"),
+            })
+
+    # Names come from the directory — KG holds ids, not people.
+    names = _member_name_map(db, (r.get("external_member_id") for r in rows))
+    for r in rows:
+        r["member_name"] = names.get(r.get("external_member_id"), "")
+        r["bucket"] = _exam_row_bucket(r)
+
+    counts = {key: 0 for key, _ in EXAM_FILTERS}
+    for r in rows:
+        counts[r["bucket"]] = counts.get(r["bucket"], 0) + 1
+    counts[""] = len(rows)
+
+    if which:
+        rows = [r for r in rows if r["bucket"] == which]
+    if search:
+        rows = [r for r in rows if search in (r.get("member_name") or "").lower()]
+
+    rows.sort(key=lambda r: (r.get("when") or ""), reverse=True)
+
+    flash, had_flash = _consume_flash(request)
+    response = templates.TemplateResponse(
+        request, "kg/admin_exams.html",
+        {
+            "rows": rows,
+            "cycles": cycles,
+            "filters": EXAM_FILTERS,
+            "counts": counts,
+            "active_filter": which,
+            "cycle_id": cycle_id,
+            "search": request.query_params.get("q") or "",
+            "flash": flash,
+            "error": (cycles_r.error if not cycles_r.ok else None),
+        },
+    )
+    if had_flash:
+        _clear_flash(response)
+    return response
+
+
+def _exams_back(request: Request) -> str:
+    """Return to the same filter the action was fired from."""
+    qs = (request.query_params.get("back") or "").strip()
+    return qs if qs.startswith("/admin/kg/exams") else "/admin/kg/exams"
+
+
+@router.post("/admin/kg/exams/attempts/{attempt_id}/cancel")
+async def admin_kg_exam_cancel(
+    attempt_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Cancel a sitting that was opened and never written."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    r = kg.abandon_attempt(attempt_id, db=db)
+    back = (form.get("back") or "/admin/kg/exams")
+    if not r.ok:
+        return _flash_redirect(back, r.error or "Could not cancel that sitting.")
+    return _flash_redirect(back, "Sitting cancelled. Their attempt is given back.")
+
+
+@router.post("/admin/kg/exams/invites/{enrollment_id}/revoke")
+async def admin_kg_exam_revoke(
+    enrollment_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Withdraw an invitation that should not have gone out."""
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    r = kg.revoke_invite(enrollment_id, db=db)
+    back = (form.get("back") or "/admin/kg/exams")
+    if not r.ok:
+        return _flash_redirect(back, r.error or "Could not withdraw that invitation.")
+    return _flash_redirect(back, "Invitation withdrawn. The emailed link no longer works.")
+
+
+@router.post("/admin/kg/exams/{enrollment_id}/certificate")
+async def admin_kg_exam_certificate(
+    enrollment_id: str, request: Request, db: Session = Depends(get_db),
+):
+    """Issue the certificate for someone who has earned it.
+
+    KG re-runs the completion rules rather than taking our word for it,
+    and hands back the reasons when they do not qualify — which are
+    shown verbatim, because "nothing happened" is the least useful
+    answer a button can give.
+    """
+    redirect = _require_kg_manage(request, db)
+    if redirect:
+        return redirect
+    if not kg.is_enabled(db):
+        return _kg_disabled_page(request)
+
+    form = await request.form()
+    back = (form.get("back") or "/admin/kg/exams")
+    name = (form.get("member_name") or "").strip()
+    if not name:
+        return _flash_redirect(back, "That member has no name in the directory yet.")
+
+    r = kg.issue_certificate(enrollment_id, name, db=db)
+    if not r.ok:
+        return _flash_redirect(back, r.error or "Could not issue the certificate.")
+
+    data = r.data if isinstance(r.data, dict) else {}
+    if data.get("issued"):
+        return _flash_redirect(
+            back, f"Certificate {data.get('certificate_number')} issued for {name}.",
+        )
+    reasons = data.get("reasons") or ["they do not qualify yet"]
+    return _flash_redirect(
+        back, f"No certificate for {name} — " + "; ".join(reasons) + ".",
+    )
+
+
 @router.get("/admin/kg/legacy", response_class=HTMLResponse)
 async def admin_kg_legacy_page(request: Request, db: Session = Depends(get_db)):
     """Searchable picker for marking members who finished Kingdom Gateway

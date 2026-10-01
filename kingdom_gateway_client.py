@@ -619,6 +619,31 @@ def update_cycle(cycle_id: str, fields: dict, *, db=None) -> ApiResult:
     return _request("PATCH", f"/api/v1/cycles/{cycle_id}", db=db, body=fields)
 
 
+def abandon_attempt(attempt_id: str, *, db=None) -> ApiResult:
+    """Cancel a sitting that was opened and never written. KG refuses
+    once it has been submitted — a written paper stays on the record."""
+    return _request("POST", f"/api/v1/exam-attempts/{attempt_id}/abandon", db=db)
+
+
+def revoke_invite(enrollment_id: str, *, db=None) -> ApiResult:
+    """Withdraw an invitation: retires the emailed link and marks the
+    enrollment WITHDRAWN. KG refuses once they have sat the exam."""
+    return _request("POST", f"/api/v1/invites/revoke/{enrollment_id}", db=db)
+
+
+def issue_certificate(enrollment_id: str, member_full_name: str, *, db=None) -> ApiResult:
+    """Issue the certificate for someone who has earned it.
+
+    Not a bypass — KG re-runs the ordinary completion rules and only
+    issues if they pass. The name is sent because the certificate prints
+    it and KG holds no member names.
+    """
+    return _request(
+        "POST", f"/api/v1/certificates/by-enrollment/{enrollment_id}/issue",
+        db=db, body={"member_full_name": member_full_name},
+    )
+
+
 def close_cycle(cycle_id: str, *, db=None) -> ApiResult:
     """Finish a cycle. CLOSED keeps everything readable for reports and
     drops it out of the lists filtered on ACTIVE. Reversible — reopening
