@@ -271,12 +271,18 @@ async def portal_kg_cycle(
     # exam attached, jump straight into it. If the exam isn't open yet
     # (scheduled future, or no exam at all) we just render the cycle
     # page — the member sees the "scheduled for X" badge there.
+    #
+    # Not for someone who has already passed. The enrollment sits in
+    # EXAM_READY until the milestones are recorded, so status alone says
+    # nothing about whether they have sat it — and an old email, opened
+    # again weeks later, would drop them straight back into the exam.
     want_start = (request.query_params.get("start_exam") or "").strip() in ("1", "true", "yes")
     if (
         want_start
         and exam_is_open
         and exam_id
         and my_enrollment
+        and not exam_passed
         and my_enrollment.get("status") in ("EXAM_READY", "FAILED")
     ):
         return RedirectResponse(
