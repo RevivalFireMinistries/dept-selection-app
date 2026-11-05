@@ -27,11 +27,40 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from dataclasses import dataclass
 from typing import Optional
 import urllib.error
 import urllib.request
+
+
+log = logging.getLogger("yoco")
+
+
+def _mask_key(secret_key: Optional[str]) -> str:
+    """Safe-for-logs rendering of a secret key: shows the public prefix
+    (sk_test_ / sk_live_) and the last 4 chars only — never the full secret."""
+    if not secret_key:
+        return "<none>"
+    s = str(secret_key)
+    # Keep the human-meaningful prefix up to and including the mode marker.
+    prefix = ""
+    for marker in ("sk_live_", "sk_test_", "pk_live_", "pk_test_"):
+        if s.startswith(marker):
+            prefix = marker
+            break
+    tail = s[-4:] if len(s) > 8 else ""
+    return f"{prefix}…{tail} (len={len(s)})"
+
+
+def _key_mode(secret_key: Optional[str]) -> str:
+    s = str(secret_key or "")
+    if s.startswith("sk_live_") or s.startswith("pk_live_"):
+        return "live"
+    if s.startswith("sk_test_") or s.startswith("pk_test_"):
+        return "test"
+    return "unknown"
 
 
 YOCO_CHECKOUTS_URL = "https://payments.yoco.com/api/checkouts"
@@ -83,11 +112,18 @@ def create_checkout(
     failure_url: str,
     metadata: Optional[dict] = None,
     timeout: int = DEFAULT_TIMEOUT,
+    log_ref: Optional[str] = None,
 ) -> CheckoutResult:
-    """POST /api/checkouts. Returns the redirect URL the browser must open."""
+    """POST /api/checkouts. Returns the redirect URL the browser must open.
+
+    `log_ref` is an optional correlation id (stamped by the caller) so these
+    Yoco-side log lines can be tied back to the request that made them."""
+    ref = log_ref or "-"
     if not secret_key:
+        log.error("[yoco %s] create_checkout aborted: missing secret key", ref)
         raise YocoError("Yoco is not configured (missing secret key)")
     if amount_cents <= 0:
+        log.error("[yoco %s] create_checkout aborted: amount_cents=%r (<= 0)", ref, amount_cents)
         raise YocoError("Amount must be greater than zero")
 
     body: dict = {
@@ -102,6 +138,14 @@ def create_checkout(
         # so the webhook can reconcile against a PaymentTransaction row.
         body["metadata"] = {str(k): str(v) for k, v in metadata.items()}
 
+    # Log the full outgoing request (secret key masked). This is the exact
+    # payload Yoco receives — amount, currency, return URLs, metadata.
+    log.info(
+        "[yoco %s] POST %s key=%s mode=%s amount=%s %s body=%s",
+        ref, YOCO_CHECKOUTS_URL, _mask_key(secret_key), _key_mode(secret_key),
+        body["amount"], body["currency"], json.dumps(body),
+    )
+
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         YOCO_CHECKOUTS_URL,
@@ -114,6 +158,7 @@ def create_checkout(
         },
         method="POST",
     )
+    _t0 = time.time()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", errors="ignore")
@@ -121,14 +166,24 @@ def create_checkout(
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="ignore")
         status = e.code
+        # The raw body here carries Yoco's own error detail — log it verbatim.
+        log.warning(
+            "[yoco %s] HTTPError status=%s (%.0fms) response_body=%r",
+            ref, status, (time.time() - _t0) * 1000, raw,
+        )
     except urllib.error.URLError as e:
+        log.error("[yoco %s] URLError reaching Yoco (%.0fms): %r", ref, (time.time() - _t0) * 1000, e.reason)
         raise YocoError(f"Could not reach Yoco: {e.reason}")
     except Exception as e:
+        log.exception("[yoco %s] unexpected error calling Yoco (%.0fms)", ref, (time.time() - _t0) * 1000)
         raise YocoError(f"Yoco request failed: {e}")
+    else:
+        log.info("[yoco %s] HTTP %s (%.0fms) response_body=%r", ref, status, (time.time() - _t0) * 1000, raw)
 
     try:
         payload = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
+        log.warning("[yoco %s] response was not JSON; raw=%r", ref, raw)
         payload = {}
 
     if status >= 400:
@@ -146,12 +201,21 @@ def create_checkout(
             msg = json.dumps(payload["errors"])[:300]
         if not msg:
             msg = f"HTTP {status}: {raw[:300] or 'empty response'}"
+        log.error("[yoco %s] Yoco rejected checkout status=%s detail=%r full_payload=%s",
+                  ref, status, msg, json.dumps(payload) if payload else raw)
         raise YocoError(f"Yoco rejected the checkout: {msg}")
 
     checkout_id = payload.get("id")
     redirect_url = payload.get("redirectUrl")
     if not checkout_id or not redirect_url:
+        log.error("[yoco %s] response missing id/redirectUrl: id=%r redirectUrl=%r payload=%s",
+                  ref, checkout_id, redirect_url, json.dumps(payload))
         raise YocoError("Yoco response missing id or redirectUrl")
+
+    log.info(
+        "[yoco %s] checkout created id=%s status=%s redirect_url=%s",
+        ref, checkout_id, payload.get("status", "created"), redirect_url,
+    )
 
     return CheckoutResult(
         checkout_id=str(checkout_id),
@@ -174,6 +238,7 @@ def _api_call(method: str, url: str, *, secret_key: str, body: Optional[dict] = 
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    log.info("[yoco] %s %s key=%s", method, url, _mask_key(secret_key))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8", errors="ignore")
@@ -181,10 +246,15 @@ def _api_call(method: str, url: str, *, secret_key: str, body: Optional[dict] = 
     except urllib.error.HTTPError as e:
         raw = e.read().decode("utf-8", errors="ignore")
         status = e.code
+        log.warning("[yoco] %s %s -> HTTP %s body=%r", method, url, status, raw)
     except urllib.error.URLError as e:
+        log.error("[yoco] %s %s -> URLError: %r", method, url, e.reason)
         raise YocoError(f"Could not reach Yoco: {e.reason}")
     except Exception as e:
+        log.exception("[yoco] %s %s -> unexpected error", method, url)
         raise YocoError(f"Yoco request failed: {e}")
+    else:
+        log.info("[yoco] %s %s -> HTTP %s", method, url, status)
     try:
         payload = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
@@ -242,19 +312,31 @@ def verify_webhook_signature(
 ) -> bool:
     """Constant-time check matching Yoco's Svix signature scheme."""
     if not (webhook_secret and webhook_id and webhook_timestamp and webhook_signature):
+        log.warning(
+            "[yoco webhook] signature check skipped — missing fields: "
+            "secret=%s id=%s ts=%s sig=%s",
+            bool(webhook_secret), bool(webhook_id), bool(webhook_timestamp), bool(webhook_signature),
+        )
         return False
     try:
         ts = int(webhook_timestamp)
     except (TypeError, ValueError):
+        log.warning("[yoco webhook] bad timestamp header: %r", webhook_timestamp)
         return False
     current = int(time.time()) if now is None else int(now)
     if abs(current - ts) > WEBHOOK_TOLERANCE_SECONDS:
+        log.warning(
+            "[yoco webhook] timestamp outside tolerance: event_ts=%s now=%s drift=%ss (max=%ss)",
+            ts, current, abs(current - ts), WEBHOOK_TOLERANCE_SECONDS,
+        )
         return False
     try:
         secret_bytes = _decode_secret(webhook_secret)
     except Exception:
+        log.exception("[yoco webhook] could not decode webhook secret")
         return False
     if not secret_bytes:
+        log.warning("[yoco webhook] decoded webhook secret is empty")
         return False
     signed = f"{webhook_id}.{webhook_timestamp}.".encode("utf-8") + (body or b"")
     expected = base64.b64encode(
@@ -267,4 +349,5 @@ def verify_webhook_signature(
             continue
         if hmac.compare_digest(expected, sig):
             return True
+    log.warning("[yoco webhook] signature mismatch for webhook-id=%s (no v1 entry matched)", webhook_id)
     return False

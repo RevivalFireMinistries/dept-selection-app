@@ -11,6 +11,8 @@ return pages just trigger UI — they don't change DB state.
 from __future__ import annotations
 
 import json
+import logging
+import uuid
 from datetime import datetime, date
 from typing import Optional
 
@@ -29,8 +31,33 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+log = logging.getLogger("payments")
+
 
 VALID_CATEGORIES = {"TITHE", "OFFERING", "RENT_PARTNERSHIP", "TOUCH_OF_FIRE", "OTHER"}
+
+
+def _new_ref() -> str:
+    """Short correlation id stamped on every log line for one checkout attempt,
+    so a member's whole payment journey can be grepped out of the logs."""
+    return uuid.uuid4().hex[:10]
+
+
+def _client_ip(request: Optional[Request]) -> str:
+    if not request:
+        return "-"
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "-"
+
+
+def _req_ctx(request: Optional[Request]) -> str:
+    """Compact request context string for logs: ip + trimmed user-agent."""
+    if not request:
+        return "ip=- ua=-"
+    ua = (request.headers.get("user-agent") or "-")[:120]
+    return f"ip={_client_ip(request)} ua={ua!r}"
 
 
 def _setting(db: Session, key: str) -> str:
@@ -53,11 +80,27 @@ def _absolute_base(request: Request, db: Session) -> str:
 @router.post("/payments/checkout")
 def create_checkout(payload: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     """Member-authed: build a Yoco hosted checkout for the logged-in member."""
+    ref = _new_ref()
+    # Log the raw inbound payload (no card data ever passes through us — the
+    # amount/category/project are all that's here) plus request context.
+    try:
+        _safe_payload = {k: payload.get(k) for k in
+                         ("amount", "category", "project_id", "pledge_id", "custom_label", "notes")}
+    except Exception:
+        _safe_payload = {"_unparseable": True}
+    log.info("[checkout %s] /payments/checkout START %s payload=%s",
+             ref, _req_ctx(request), json.dumps(_safe_payload, default=str))
+
     from routers.pages import get_current_member
     member = get_current_member(request, db)
     if not member:
+        log.warning("[checkout %s] REJECT 401 not logged in", ref)
         raise HTTPException(status_code=401, detail="Please log in")
+    log.info("[checkout %s] member id=%s name=%r external_id=%s assembly=%s",
+             ref, member.id, member.full_name, member.external_member_id,
+             getattr(member, "external_assembly_id", None))
     if not member.external_member_id:
+        log.warning("[checkout %s] REJECT 400 member id=%s not linked to central DB", ref, member.id)
         raise HTTPException(
             status_code=400,
             detail="Your record isn't linked to the central database yet. Ask an admin to run Member Sync.",
@@ -65,7 +108,10 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
 
     secret_key = _setting(db, "yoco_secret_key")
     if not secret_key:
+        log.error("[checkout %s] REJECT 503 yoco_secret_key not configured", ref)
         raise HTTPException(status_code=503, detail="Online payments aren't configured yet. Please use the bank details below.")
+    log.info("[checkout %s] yoco key mode=%s test_mode_setting=%r",
+             ref, yoco._key_mode(secret_key), _setting(db, "yoco_test_mode") or "true")
 
     # Project + pledge are the new attribution model. Old clients sent
     # only `category` (TITHE/OFFERING/etc.) — we still accept that path
@@ -82,6 +128,7 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
     if not category:
         category = "OTHER"
     if not project_id and category not in VALID_CATEGORIES:
+        log.warning("[checkout %s] REJECT 400 bad category=%r (no project_id)", ref, category)
         raise HTTPException(status_code=400, detail=f"Pick a category: {', '.join(sorted(VALID_CATEGORIES))}")
 
     custom_label = (payload.get("custom_label") or "").strip() or None
@@ -91,17 +138,24 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
     try:
         amount_rand = float(payload.get("amount") or 0)
     except (TypeError, ValueError):
+        log.warning("[checkout %s] amount not a number: %r -> treated as 0", ref, payload.get("amount"))
         amount_rand = 0
     amount_cents = int(round(amount_rand * 100))
+    log.info("[checkout %s] parsed amount_rand=%s -> amount_cents=%s category=%r project_id=%s pledge_id=%s",
+             ref, amount_rand, amount_cents, category, project_id, pledge_id)
     if amount_cents < 100:  # R1 minimum
+        log.warning("[checkout %s] REJECT 400 amount_cents=%s below R1.00 minimum", ref, amount_cents)
         raise HTTPException(status_code=400, detail="Amount must be at least R1.00")
     if amount_cents > 1_000_000 * 100:  # R1,000,000 sanity cap
+        log.warning("[checkout %s] REJECT 400 amount_cents=%s above cap", ref, amount_cents)
         raise HTTPException(status_code=400, detail="Amount is too large; please contact the church office.")
 
     base = _absolute_base(request, db)
     success_url = f"{base}/portal/payment/success"
     cancel_url = f"{base}/portal/payment/cancel"
     failure_url = f"{base}/portal/payment/failure"
+    log.info("[checkout %s] base_url=%s (portal_base_url_setting=%r) return_urls success=%s cancel=%s failure=%s",
+             ref, base, _setting(db, "portal_base_url"), success_url, cancel_url, failure_url)
 
     try:
         result = yoco.create_checkout(
@@ -115,8 +169,11 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
                 "externalMemberId": str(member.external_member_id),
                 "category": category,
             },
+            log_ref=ref,
         )
     except yoco.YocoError as e:
+        log.error("[checkout %s] Yoco checkout FAILED for member id=%s amount_cents=%s: %s",
+                  ref, member.id, amount_cents, e)
         raise HTTPException(status_code=502, detail=str(e))
 
     # CRITICAL: write the pending row BEFORE returning so the webhook can
@@ -138,6 +195,9 @@ def create_checkout(payload: dict = Body(...), request: Request = None, db: Sess
     db.commit()
     db.refresh(txn)
 
+    log.info("[checkout %s] SUCCESS txn_id=%s checkout_id=%s status=%s redirect_url=%s",
+             ref, txn.id, result.checkout_id, result.status, result.redirect_url)
+
     return {
         "checkout_id": result.checkout_id,
         "redirect_url": result.redirect_url,
@@ -155,9 +215,14 @@ def public_give_checkout(payload: dict = Body(...), request: Request = None, db:
     member_id = null and stamped with the guest details in notes/metadata.
     """
     import re as _re
+    ref = _new_ref()
+    log.info("[give %s] /give/checkout START %s payload_keys=%s",
+             ref, _req_ctx(request), sorted((payload or {}).keys()))
     secret_key = _setting(db, "yoco_secret_key")
     if not secret_key:
+        log.error("[give %s] REJECT 503 yoco_secret_key not configured", ref)
         raise HTTPException(status_code=503, detail="Online giving isn't configured yet.")
+    log.info("[give %s] yoco key mode=%s", ref, yoco._key_mode(secret_key))
 
     # Resolve actor: logged-in member > phone-matched member > guest
     from routers.pages import get_current_member
@@ -169,8 +234,10 @@ def public_give_checkout(payload: dict = Body(...), request: Request = None, db:
 
     if not member:
         if not guest_name:
+            log.warning("[give %s] REJECT 400 guest with no name", ref)
             raise HTTPException(status_code=400, detail="Please enter your name to give as a guest.")
         if not guest_phone:
+            log.warning("[give %s] REJECT 400 guest with no phone", ref)
             raise HTTPException(status_code=400, detail="Please enter your phone so we can attribute the gift.")
         target = _re.sub(r"\D", "", guest_phone)[-9:]
         if target and len(target) >= 9:
@@ -178,10 +245,14 @@ def public_give_checkout(payload: dict = Body(...), request: Request = None, db:
                 if _re.sub(r"\D", "", m.phone or "")[-9:] == target:
                     member = m
                     break
+    log.info("[give %s] actor resolved: member_id=%s external_id=%s guest_name=%r guest_phone=%r",
+             ref, getattr(member, "id", None), getattr(member, "external_member_id", None),
+             guest_name or None, guest_phone or None)
 
     # Standard validation (same shape as /payments/checkout)
     category = (payload.get("category") or "").strip().upper()
     if category not in VALID_CATEGORIES:
+        log.warning("[give %s] REJECT 400 bad category=%r", ref, category)
         raise HTTPException(status_code=400, detail=f"Pick a category: {', '.join(sorted(VALID_CATEGORIES))}")
     custom_label = (payload.get("custom_label") or "").strip() or None
     notes = (payload.get("notes") or "").strip() or None
@@ -189,17 +260,22 @@ def public_give_checkout(payload: dict = Body(...), request: Request = None, db:
     try:
         amount_rand = float(payload.get("amount") or 0)
     except (TypeError, ValueError):
+        log.warning("[give %s] amount not a number: %r -> treated as 0", ref, payload.get("amount"))
         amount_rand = 0
     amount_cents = int(round(amount_rand * 100))
+    log.info("[give %s] amount_cents=%s category=%r", ref, amount_cents, category)
     if amount_cents < 100:
+        log.warning("[give %s] REJECT 400 amount_cents=%s below minimum", ref, amount_cents)
         raise HTTPException(status_code=400, detail="Amount must be at least R1.00")
     if amount_cents > 1_000_000 * 100:
+        log.warning("[give %s] REJECT 400 amount_cents=%s above cap", ref, amount_cents)
         raise HTTPException(status_code=400, detail="Amount is too large; please contact the church office.")
 
     base = _absolute_base(request, db)
     success_url = f"{base}/give/success"
     cancel_url = f"{base}/give/cancel"
     failure_url = f"{base}/give/failure"
+    log.info("[give %s] base_url=%s", ref, base)
 
     metadata = {"category": category}
     if member:
@@ -219,8 +295,10 @@ def public_give_checkout(payload: dict = Body(...), request: Request = None, db:
             cancel_url=cancel_url,
             failure_url=failure_url,
             metadata=metadata,
+            log_ref=ref,
         )
     except yoco.YocoError as e:
+        log.error("[give %s] Yoco checkout FAILED amount_cents=%s: %s", ref, amount_cents, e)
         raise HTTPException(status_code=502, detail=str(e))
 
     # Stamp guest details on the local notes so admins can reconcile later
@@ -244,6 +322,9 @@ def public_give_checkout(payload: dict = Body(...), request: Request = None, db:
     db.commit()
     db.refresh(txn)
 
+    log.info("[give %s] SUCCESS txn_id=%s checkout_id=%s matched_member=%s redirect_url=%s",
+             ref, txn.id, result.checkout_id, bool(member), result.redirect_url)
+
     return {
         "checkout_id": result.checkout_id,
         "redirect_url": result.redirect_url,
@@ -265,7 +346,9 @@ def public_give_status(external_reference: str, db: Session = Depends(get_db)):
         PaymentTransaction.external_reference == external_reference
     ).first()
     if not txn:
+        log.info("[give-status] poll for unknown external_reference=%s -> 404", external_reference)
         raise HTTPException(status_code=404, detail="Transaction not found")
+    log.info("[give-status] poll external_reference=%s txn_id=%s status=%s", external_reference, txn.id, txn.status)
     return {
         "status": txn.status,
         "amount_cents": txn.amount_cents,
@@ -287,7 +370,10 @@ def get_transaction_status(txn_id: int, request: Request, db: Session = Depends(
         raise HTTPException(status_code=401, detail="Please log in")
     txn = db.query(PaymentTransaction).filter(PaymentTransaction.id == txn_id).first()
     if not txn or txn.member_id != member.id:
+        log.info("[txn-status] member id=%s poll for txn_id=%s -> 404 (not found/not owner)", member.id, txn_id)
         raise HTTPException(status_code=404, detail="Transaction not found")
+    log.info("[txn-status] member id=%s txn_id=%s status=%s central_push_error=%r",
+             member.id, txn.id, txn.status, txn.central_push_error)
     return {
         "id": txn.id,
         "status": txn.status,
@@ -316,6 +402,9 @@ def _push_event_payment(txn: PaymentTransaction, db: Session) -> None:
 
     try:
         member = db.query(Member).filter(Member.id == txn.member_id).first() if txn.member_id else None
+        log.info("[event-pay] txn_id=%s event_id=%s registration_id=%s amount=%s ref=%s",
+                 txn.id, txn.event_id, txn.event_registration_id,
+                 (txn.amount_cents or 0) / 100.0, txn.external_reference)
         result = events_client.record_gateway_payment(
             str(txn.event_id),
             str(txn.event_registration_id),
@@ -327,6 +416,7 @@ def _push_event_payment(txn: PaymentTransaction, db: Session) -> None:
         if result.ok:
             txn.central_pushed_at = datetime.utcnow()
             txn.central_push_error = None
+            log.info("[event-pay] txn_id=%s recorded OK", txn.id)
         else:
             txn.central_push_error = (result.error or "unknown error")[:500]
             logger.warning("[payments] event payment not recorded: %s", result.error)
@@ -339,14 +429,18 @@ def _push_to_central(txn: PaymentTransaction, db: Session) -> None:
     """Best-effort: record the captured contribution in the central rfm-database.
     Failures are logged on the txn so an admin can retry; webhook still 200s."""
     if txn.central_contribution_id:
+        log.info("[central] txn_id=%s already pushed (contribution_id=%s) — skip", txn.id, txn.central_contribution_id)
         return  # already pushed (idempotency on webhook retries)
     if not _rfm.is_enabled(db) or not _rfm.is_configured(db):
+        log.warning("[central] txn_id=%s central API disabled/unconfigured", txn.id)
         txn.central_push_error = "Central API integration disabled"
         return
 
     member = db.query(Member).filter(Member.id == txn.member_id).first() if txn.member_id else None
     external_member_id = member.external_member_id if member else None
     if not external_member_id:
+        log.warning("[central] txn_id=%s member_id=%s not linked to central DB — cannot push",
+                    txn.id, txn.member_id)
         txn.central_push_error = "Member is not linked to the central database"
         return
 
@@ -377,8 +471,12 @@ def _push_to_central(txn: PaymentTransaction, db: Session) -> None:
     if txn.pledge_id:
         payload["pledge_id"] = txn.pledge_id
 
+    log.info("[central] txn_id=%s POST contribution member=%s amount=%s %s category=%s project_id=%s pledge_id=%s ref=%s",
+             txn.id, external_member_id, payload["amount"], payload["currency"],
+             txn.category, txn.project_id, txn.pledge_id, txn.external_reference)
     r = _rfm.create_contribution(payload, db=db)
     if not r.ok:
+        log.error("[central] txn_id=%s contribution push FAILED: %s", txn.id, r.error)
         txn.central_push_error = (r.error or "Unknown central API error")[:1000]
         return
     txn.central_push_error = None
@@ -387,6 +485,7 @@ def _push_to_central(txn: PaymentTransaction, db: Session) -> None:
         cid = r.data.get("id")
         if cid:
             txn.central_contribution_id = str(cid)
+    log.info("[central] txn_id=%s contribution push OK contribution_id=%s", txn.id, txn.central_contribution_id)
 
 
 # ============ ADMIN: Yoco configuration ============
@@ -549,25 +648,32 @@ def admin_yoco_delete_webhook(sub_id: str, request: Request, db: Session = Depen
 @router.post("/payments/yoco/webhook")
 async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
     """Yoco webhook receiver. Source of truth for payment outcome."""
+    wref = _new_ref()
     body = await request.body()  # MUST be raw bytes — do not call .json() first
+    wid = request.headers.get("webhook-id") or request.headers.get("Webhook-Id")
+    log.info("[webhook %s] RECEIVED %s webhook-id=%s body_len=%s",
+             wref, _req_ctx(request), wid, len(body or b""))
 
     secret = _setting(db, "yoco_webhook_secret")
     if not secret:
         # 503 lets Yoco retry until we configure
+        log.error("[webhook %s] 503 webhook secret not configured", wref)
         raise HTTPException(status_code=503, detail="Webhook secret not configured")
 
     if not yoco.verify_webhook_signature(
         body=body,
-        webhook_id=request.headers.get("webhook-id") or request.headers.get("Webhook-Id"),
+        webhook_id=wid,
         webhook_timestamp=request.headers.get("webhook-timestamp") or request.headers.get("Webhook-Timestamp"),
         webhook_signature=request.headers.get("webhook-signature") or request.headers.get("Webhook-Signature"),
         webhook_secret=secret,
     ):
+        log.warning("[webhook %s] 401 invalid signature (webhook-id=%s)", wref, wid)
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     try:
         event = json.loads(body or b"{}")
     except json.JSONDecodeError:
+        log.warning("[webhook %s] ignored: invalid json body=%r", wref, body[:500])
         return {"status": "ignored", "reason": "invalid json"}
 
     event_type = (event.get("type") or "").strip()
@@ -580,14 +686,20 @@ async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
         or metadata.get("checkout_id")
         or payload.get("checkout_id")
     )
+    log.info("[webhook %s] type=%s checkout_id=%s metadata=%s",
+             wref, event_type, checkout_id, json.dumps(metadata, default=str))
     if not checkout_id:
+        log.warning("[webhook %s] ignored: no checkout id in payload", wref)
         return {"status": "ignored", "reason": "no checkout id"}
 
     txn = db.query(PaymentTransaction).filter(
         PaymentTransaction.external_reference == str(checkout_id)
     ).first()
     if not txn:
+        log.warning("[webhook %s] ignored: no local txn for checkout_id=%s", wref, checkout_id)
         return {"status": "ignored", "reason": "unknown transaction"}
+    log.info("[webhook %s] matched txn_id=%s current_status=%s member_id=%s amount_cents=%s",
+             wref, txn.id, txn.status, txn.member_id, txn.amount_cents)
 
     txn.last_event_type = event_type[:60]
     txn.last_event_at = datetime.utcnow()
@@ -597,9 +709,14 @@ async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
         if txn.event_id:
             # Event fees belong to a registry in church-manager, not to a
             # contribution in rfm-database. Same webhook, different home.
+            log.info("[webhook %s] txn_id=%s -> CAPTURED; event_id=%s pushing to church-manager",
+                     wref, txn.id, txn.event_id)
             _push_event_payment(txn, db)
         else:
+            log.info("[webhook %s] txn_id=%s -> CAPTURED; pushing to central", wref, txn.id)
             _push_to_central(txn, db)
+            log.info("[webhook %s] txn_id=%s central push result: pushed_at=%s contribution_id=%s error=%r",
+                     wref, txn.id, txn.central_pushed_at, txn.central_contribution_id, txn.central_push_error)
         # Notify the giver (best-effort)
         try:
             import push_service
@@ -614,10 +731,15 @@ async def yoco_webhook(request: Request, db: Session = Depends(get_db)):
                     tag=f"payment-{txn.id}",
                 )
         except Exception:
-            pass
+            log.exception("[webhook %s] push notification to member failed (non-fatal)", wref)
     elif event_type == "payment.failed" and txn.status == "pending":
         txn.status = "failed"
-    # Refunds, duplicates, unknown event types — fall through and 200
+        log.warning("[webhook %s] txn_id=%s -> FAILED (payment.failed)", wref, txn.id)
+    else:
+        # Refunds, duplicates, unknown event types — fall through and 200
+        log.info("[webhook %s] no state change: event_type=%s txn_status=%s (fall-through)",
+                 wref, event_type, txn.status)
 
     db.commit()
+    log.info("[webhook %s] DONE txn_id=%s final_status=%s", wref, txn.id, txn.status)
     return {"status": "ok", "transaction_id": txn.id, "txn_status": txn.status}
