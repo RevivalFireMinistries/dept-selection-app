@@ -999,6 +999,44 @@ def run_migrations():
         except Exception as e:
             print(f"Migration note (prayer-request status): {e}")
 
+        # Year-stamped department selections (new selection cycle + service
+        # history). The `department_selections` table itself is created by
+        # create_all() above; here we ensure the campaign Settings exist for
+        # already-seeded deployments and do a ONE-TIME snapshot of the current
+        # live approved assignments as the current selectionYear's history, so
+        # past-year history is visible before the first publish.
+        try:
+            # Clear any aborted-transaction state left by an earlier block on
+            # this shared connection, so this (last) block always runs.
+            conn.rollback()
+            conn.execute(text("""
+                INSERT INTO settings (key, value)
+                SELECT 'selectionCampaignYear', ''
+                WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'selectionCampaignYear')
+            """))
+            conn.execute(text("""
+                INSERT INTO settings (key, value)
+                SELECT 'selectionCampaignOpen', 'false'
+                WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'selectionCampaignOpen')
+            """))
+            # Backfill only while the table is still empty (idempotent — the
+            # NOT EXISTS makes a re-run insert nothing).
+            conn.execute(text("""
+                INSERT INTO department_selections
+                    (year, member_id, department_id, source, status, admin_note, status_changed_at, created_at)
+                SELECT
+                    COALESCE(NULLIF((SELECT value FROM settings WHERE key='selectionYear'), '')::int, 2026),
+                    md.member_id, md.department_id,
+                    COALESCE(md.source, 'member'), 'approved', md.admin_note, md.status_changed_at, md.created_at
+                FROM member_departments md
+                WHERE COALESCE(md.status, 'pending') = 'approved'
+                  AND NOT EXISTS (SELECT 1 FROM department_selections)
+            """))
+            conn.commit()
+            print("Migration: Ensured department_selections campaign settings (+ one-time history backfill)")
+        except Exception as e:
+            print(f"Migration note (department_selections): {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

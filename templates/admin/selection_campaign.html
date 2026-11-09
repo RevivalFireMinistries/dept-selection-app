@@ -1,0 +1,233 @@
+{% extends "admin/base.html" %}
+
+{% block title %}Selection Campaign - Admin{% endblock %}
+
+{% block admin_content %}
+<div class="space-y-6">
+  <div class="flex items-center justify-between flex-wrap gap-2">
+    <h2 class="text-2xl font-bold text-gray-900">Department Selection Campaign</h2>
+    <span id="stateBadge" class="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">Loading…</span>
+  </div>
+
+  <!-- How it works -->
+  <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-sm text-indigo-800">
+    Open a cycle for a new year. Members pick their departments for that year on their dashboard —
+    <strong>their current departments stay exactly as they are</strong> until you review and
+    <strong>publish</strong>. On publish the new year replaces the live assignments (a fresh start),
+    and each past year stays viewable as service history.
+  </div>
+
+  <!-- Campaign controls -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Campaign</h3>
+    <div class="grid sm:grid-cols-3 gap-4 items-end">
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Current live year</label>
+        <div id="liveYear" class="text-2xl font-bold text-gray-900">—</div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Campaign year</label>
+        <input id="campaignYear" type="number" min="2024" max="2100"
+          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </div>
+      <div class="flex gap-2">
+        <button id="openBtn" onclick="setCampaign(true)"
+          class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Open selection</button>
+        <button id="closeBtn" onclick="setCampaign(false)"
+          class="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 hidden">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="bg-white rounded-xl shadow p-4"><p class="text-sm text-gray-500">Members selected</p><p id="pMembers" class="text-2xl font-bold text-gray-900">0</p></div>
+    <div class="bg-white rounded-xl shadow p-4"><p class="text-sm text-gray-500">Approved</p><p id="pApproved" class="text-2xl font-bold text-green-600">0</p></div>
+    <div class="bg-white rounded-xl shadow p-4"><p class="text-sm text-gray-500">Pending</p><p id="pPending" class="text-2xl font-bold text-yellow-600">0</p></div>
+    <div class="bg-white rounded-xl shadow p-4"><p class="text-sm text-gray-500">Rejected</p><p id="pRejected" class="text-2xl font-bold text-rose-600">0</p></div>
+  </div>
+
+  <!-- Per-department -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-3">By department</h3>
+    <div id="byDept" class="divide-y divide-gray-100 text-sm"></div>
+  </div>
+
+  <!-- Review -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-lg font-semibold text-gray-900">Review selections</h3>
+      <button onclick="bulkApprove()" class="px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">Approve all pending</button>
+    </div>
+    <div id="reviewList" class="space-y-3 max-h-[28rem] overflow-y-auto"></div>
+  </div>
+
+  <!-- Publish -->
+  <div class="bg-white rounded-xl shadow p-6 border-2 border-rose-100">
+    <h3 class="text-lg font-semibold text-gray-900 mb-2">Finalize &amp; publish</h3>
+    <p class="text-sm text-gray-600 mb-3">
+      Publishing swaps in the approved selections as the live assignments for <span id="pubYear" class="font-semibold">—</span>.
+      This is a <strong>fresh start</strong>: anyone who didn't make an approved selection is cleared from the live set
+      (their previous year stays in history). Titles (deacon/elder/pastor) and HOD are not affected.
+    </p>
+    <div id="pubPreview" class="text-sm text-gray-700 mb-4"></div>
+    <button onclick="confirmPublish()" class="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700">Finalize &amp; publish</button>
+  </div>
+</div>
+
+<!-- Publish confirm modal -->
+<div id="pubModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-2">Publish this year?</h3>
+    <p id="pubModalMsg" class="text-gray-600 mb-6 text-sm"></p>
+    <div class="flex gap-3">
+      <button onclick="document.getElementById('pubModal').classList.add('hidden')" class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cancel</button>
+      <button onclick="doPublish()" class="flex-1 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700">Publish now</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let STATE = {}, DEPTS = [];
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  DEPTS = await fetch('/api/departments').then(r => r.json()).then(groups => {
+    // /api/departments returns {categories:[{departments:[]}], uncategorized:[]}
+    const out = [];
+    (groups.categories || []).forEach(g => (g.departments || []).forEach(d => out.push({ id: d.id, name: d.name })));
+    (groups.uncategorized || []).forEach(d => out.push({ id: d.id, name: d.name }));
+    return out;
+  }).catch(() => []);
+  await refresh();
+}
+
+async function refresh() {
+  STATE = await fetch('/api/admin/selection/state').then(r => r.json());
+  document.getElementById('liveYear').textContent = STATE.live_year;
+  document.getElementById('pubYear').textContent = STATE.campaign_year || '—';
+  const yr = document.getElementById('campaignYear');
+  if (!yr.value) yr.value = STATE.campaign_year || (STATE.live_year + 1);
+  const badge = document.getElementById('stateBadge');
+  if (STATE.campaign_open) {
+    badge.textContent = 'Open · ' + STATE.campaign_year;
+    badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700';
+    document.getElementById('openBtn').textContent = 'Update year';
+    document.getElementById('closeBtn').classList.remove('hidden');
+  } else {
+    badge.textContent = STATE.campaign_year ? ('Closed · ' + STATE.campaign_year) : 'No campaign';
+    badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600';
+    document.getElementById('openBtn').textContent = 'Open selection';
+    document.getElementById('closeBtn').classList.add('hidden');
+  }
+  await Promise.all([loadProgress(), loadReviews(), loadPubPreview()]);
+}
+
+async function setCampaign(open) {
+  const year = parseInt(document.getElementById('campaignYear').value, 10);
+  if (!year) { alert('Enter a campaign year'); return; }
+  await fetch('/api/admin/selection/campaign', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ year, open })
+  });
+  await refresh();
+}
+
+async function loadProgress() {
+  const p = await fetch('/api/admin/selection/progress').then(r => r.json());
+  document.getElementById('pMembers').textContent = `${p.members_selected} / ${p.total_members}`;
+  document.getElementById('pApproved').textContent = p.approved;
+  document.getElementById('pPending').textContent = p.pending;
+  document.getElementById('pRejected').textContent = p.rejected;
+  const el = document.getElementById('byDept');
+  el.innerHTML = (p.by_department || []).length
+    ? p.by_department.map(d => `
+      <div class="flex items-center justify-between py-2">
+        <span class="text-gray-800">${escapeHtml(d.department_name)}</span>
+        <span class="flex gap-2 text-xs">
+          <span class="px-2 py-0.5 rounded bg-green-100 text-green-700">${d.approved} approved</span>
+          <span class="px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">${d.pending} pending</span>
+        </span>
+      </div>`).join('')
+    : '<p class="text-gray-400 py-2">No selections yet.</p>';
+}
+
+async function loadReviews() {
+  const members = await fetch('/api/admin/selection/reviews').then(r => r.json());
+  const el = document.getElementById('reviewList');
+  if (!members.length) { el.innerHTML = '<p class="text-gray-400">No selections yet.</p>'; return; }
+  const deptOptions = DEPTS.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  el.innerHTML = members.map(m => `
+    <div class="border border-gray-100 rounded-lg p-3">
+      <div class="flex items-center justify-between">
+        <div><p class="font-medium text-gray-900">${escapeHtml(m.full_name)}</p><p class="text-xs text-gray-400">${escapeHtml(m.phone || '')}</p></div>
+      </div>
+      <div class="mt-2 space-y-1">
+        ${m.selections.map(s => `
+          <div class="flex items-center justify-between gap-2 text-sm">
+            <span class="flex items-center gap-2 min-w-0">
+              <span class="truncate text-gray-800">${escapeHtml(s.department_name)}</span>
+              ${s.source === 'admin' ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600">admin</span>' : ''}
+              <span class="text-[10px] px-1.5 py-0.5 rounded ${badgeCls(s.status)}">${s.status}</span>
+            </span>
+            <span class="flex gap-1 flex-shrink-0">
+              <button onclick="setStatus(${s.id},'approved')" class="px-2 py-1 text-xs rounded ${s.status==='approved'?'bg-green-600 text-white':'bg-gray-100 text-gray-600 hover:bg-green-50'}">✓</button>
+              <button onclick="setStatus(${s.id},'rejected')" class="px-2 py-1 text-xs rounded ${s.status==='rejected'?'bg-rose-600 text-white':'bg-gray-100 text-gray-600 hover:bg-rose-50'}">✕</button>
+            </span>
+          </div>`).join('')}
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <select id="assign-${m.id}" class="text-xs border border-gray-200 rounded px-2 py-1 flex-1"><option value="">＋ add department…</option>${deptOptions}</select>
+        <button onclick="assignDept(${m.id})" class="px-2 py-1 text-xs bg-indigo-600 text-white rounded">Add</button>
+      </div>
+    </div>`).join('');
+}
+
+function badgeCls(s){ return s==='approved'?'bg-green-100 text-green-700':(s==='rejected'?'bg-rose-100 text-rose-700':'bg-yellow-100 text-yellow-700'); }
+
+async function setStatus(id, status) {
+  await fetch(`/api/admin/selection/reviews/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+  await Promise.all([loadReviews(), loadProgress(), loadPubPreview()]);
+}
+async function assignDept(memberId) {
+  const sel = document.getElementById('assign-' + memberId);
+  const did = parseInt(sel.value, 10);
+  if (!did) return;
+  await fetch(`/api/admin/selection/members/${memberId}/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ department_id: did }) });
+  await Promise.all([loadReviews(), loadProgress(), loadPubPreview()]);
+}
+async function bulkApprove() {
+  if (!confirm('Approve every pending selection for this campaign year?')) return;
+  await fetch('/api/admin/selection/bulk-approve', { method: 'POST' });
+  await Promise.all([loadReviews(), loadProgress(), loadPubPreview()]);
+}
+
+async function loadPubPreview() {
+  const p = await fetch('/api/admin/selection/publish-preview').then(r => r.json());
+  const el = document.getElementById('pubPreview');
+  if (!p.year) { el.innerHTML = '<span class="text-gray-400">Open a campaign first.</span>'; return; }
+  el.innerHTML = `<strong>${p.approved_assignments}</strong> approved assignment(s) across <strong>${p.members_in}</strong> member(s) will go live for ${p.year}. <span class="text-rose-600"><strong>${p.members_cleared}</strong> member(s) currently serving will be cleared</span> (fresh start).`;
+}
+
+function confirmPublish() {
+  if (!STATE.campaign_year) { alert('No campaign year set.'); return; }
+  const p = document.getElementById('pubPreview').textContent;
+  document.getElementById('pubModalMsg').textContent =
+    `This will make ${STATE.campaign_year} the live year and cannot be partially undone. ${p}`;
+  document.getElementById('pubModal').classList.remove('hidden');
+}
+async function doPublish() {
+  const res = await fetch('/api/admin/selection/publish', { method: 'POST' });
+  document.getElementById('pubModal').classList.add('hidden');
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Publish failed'); return; }
+  const r = await res.json();
+  alert(`Published ${r.year}: ${r.assignments} assignments across ${r.members_in} members; ${r.members_cleared} cleared.`);
+  await refresh();
+}
+
+function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+{% endblock %}

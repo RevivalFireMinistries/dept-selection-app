@@ -131,6 +131,44 @@ class MemberDepartment(Base):
     )
 
 
+class DepartmentSelection(Base):
+    """Year-stamped department selections — the staging area for a new
+    selection cycle AND the per-year service history.
+
+    `member_departments` stays the single LIVE operational set (read by the
+    department roster, autopilot pools, central sync, meetings, etc.). This
+    table is where a new cycle (e.g. 2027) is built and reviewed WITHOUT
+    touching the live set; at publish the approved rows for the campaign year
+    are swapped into `member_departments`, and the outgoing year is snapshotted
+    here so every year's roster stays viewable as history.
+
+    Mirrors MemberDepartment's workflow columns so the review logic/UI is
+    reusable, plus a `year` dimension and a (member, department, year) unique
+    key so multiple cycles coexist.
+    """
+    __tablename__ = "department_selections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False, index=True)
+    member_id = Column(Integer, ForeignKey("members.id", ondelete="CASCADE"), nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    source = Column(String, nullable=True, server_default="member")   # "member" | "admin"
+    status = Column(String, nullable=True, server_default="pending")  # "pending" | "approved" | "rejected"
+    replaced_by_id = Column(Integer, ForeignKey("department_selections.id"), nullable=True)
+    admin_note = Column(String, nullable=True)
+    status_changed_at = Column(DateTime(timezone=True), nullable=True)
+
+    member = relationship("Member")
+    department = relationship("Department")
+    replaced_by = relationship("DepartmentSelection", remote_side=[id], foreign_keys=[replaced_by_id])
+
+    __table_args__ = (
+        UniqueConstraint("member_id", "department_id", "year", name="unique_member_department_year"),
+    )
+
+
 class Appeal(Base):
     __tablename__ = "appeals"
 

@@ -11,7 +11,7 @@ import uuid
 import json
 
 from database import get_db
-from models import Category, Department, Member, MemberDepartment, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer, MemberChangeRequest, Announcement
+from models import Category, Department, Member, MemberDepartment, DepartmentSelection, Settings, Appeal, Meeting, MeetingRSVP, NotificationConfig, NotificationLog, PosterRequest, ServiceProgram, ProgramTemplate, ServiceSchedule, AdminAuditLog, HomeChurch, HomeChurchProgramType, HomeChurchRoster, HomeChurchAttendance, Survey, SurveyQuestion, SurveyResponse, SurveyAnswer, MemberChangeRequest, Announcement
 from schemas import (
     CategoryCreate, CategoryUpdate, CategoryResponse,
     DepartmentCreate, DepartmentUpdate, DepartmentResponse, DepartmentInCategory,
@@ -2192,6 +2192,14 @@ def update_member(member_id: int, data: dict, source: Optional[str] = Query(None
     """Update a member's information and department selections"""
     if source != "desk":
         check_selections_locked(db)
+        # While a new selection cycle is open, members must not edit the LIVE
+        # (current-year) assignments — they pick for the new year on their
+        # dashboard instead. Desk/admin can still edit the live set.
+        _camp = _campaign_state(db)
+        if _camp["open"] and _camp["year"]:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Selection for {_camp['year']} is open — choose your departments for {_camp['year']} on your dashboard. Your current departments stay as they are until results are published.")
 
     member = db.query(Member).filter(Member.id == member_id).first()
 
@@ -3287,6 +3295,472 @@ def unpublish_results(request: Request = None, db: Session = Depends(get_db)):
     db.commit()
 
     return {"success": True}
+
+
+# ============ YEAR-STAMPED DEPARTMENT SELECTION (new cycle + history) ============
+#
+# `member_departments` stays the single LIVE operational set. A new cycle (e.g.
+# 2027) is built and reviewed in `department_selections` WITHOUT touching the
+# live set; on publish, the approved rows for the campaign year are swapped into
+# `member_departments` (and the outgoing year is snapshotted as history).
+
+SELECTION_CAMPAIGN_YEAR_KEY = "selectionCampaignYear"
+SELECTION_CAMPAIGN_OPEN_KEY = "selectionCampaignOpen"
+
+
+def _get_setting_value(db: Session, key: str, default: str = "") -> str:
+    row = db.query(Settings).filter(Settings.key == key).first()
+    return row.value if (row and row.value is not None) else default
+
+
+def _set_setting_value(db: Session, key: str, value: str) -> None:
+    row = db.query(Settings).filter(Settings.key == key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(Settings(key=key, value=value))
+
+
+def _current_live_year(db: Session) -> int:
+    try:
+        return int(_get_setting_value(db, "selectionYear", "2026") or "2026")
+    except (ValueError, TypeError):
+        return 2026
+
+
+def _campaign_state(db: Session) -> dict:
+    open_ = _get_setting_value(db, SELECTION_CAMPAIGN_OPEN_KEY, "false") == "true"
+    try:
+        year = int(_get_setting_value(db, SELECTION_CAMPAIGN_YEAR_KEY, "") or 0) or None
+    except (ValueError, TypeError):
+        year = None
+    return {"open": open_, "year": year}
+
+
+def _validate_department_choice(db: Session, dept_ids: list) -> list:
+    """Shared maxDepartments + per-category validation (mirrors submit_form)."""
+    max_setting = db.query(Settings).filter(Settings.key == "maxDepartments").first()
+    max_departments = int(max_setting.value) if (max_setting and max_setting.value) else 3
+    if len(dept_ids) > max_departments:
+        raise HTTPException(status_code=400, detail=f"You can only select up to {max_departments} departments")
+    depts = db.query(Department).options(joinedload(Department.category)).filter(Department.id.in_(dept_ids)).all()
+    if len(depts) != len(set(dept_ids)):
+        raise HTTPException(status_code=400, detail="One or more selected departments don't exist")
+    category_selections: Dict[int, list] = {}
+    for d in depts:
+        if d.category_id:
+            category_selections.setdefault(d.category_id, []).append(d.id)
+    for category_id, selected in category_selections.items():
+        category = db.query(Category).filter(Category.id == category_id).first()
+        max_allowed = category.max_selections if category else 1
+        if len(selected) > max_allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You can only select up to {max_allowed} department(s) from '{category.name if category else ''}'")
+    return depts
+
+
+def _upsert_selection(db: Session, year: int, member_id: int, department_id: int, *,
+                      source: str, status: str, admin_note: Optional[str] = None) -> DepartmentSelection:
+    """Find-or-create a (member, department, year) selection row (respects the
+    unique constraint) and set its status/source."""
+    row = db.query(DepartmentSelection).filter(
+        DepartmentSelection.member_id == member_id,
+        DepartmentSelection.department_id == department_id,
+        DepartmentSelection.year == year,
+    ).first()
+    if row:
+        row.status = status
+        row.source = source
+        if admin_note is not None:
+            row.admin_note = admin_note
+        row.status_changed_at = datetime.now()
+        return row
+    row = DepartmentSelection(year=year, member_id=member_id, department_id=department_id,
+                              source=source, status=status, admin_note=admin_note,
+                              status_changed_at=datetime.now())
+    db.add(row)
+    db.flush()
+    return row
+
+
+# ---- Member-facing ----
+
+@router.get("/portal/selection")
+def portal_selection(request: Request, db: Session = Depends(get_db)):
+    """The member's own view during a selection cycle: their current (live)
+    departments (read-only) + their draft picks for the campaign year."""
+    member = _require_logged_in_member(request, db)
+    state = _campaign_state(db)
+    live = db.query(MemberDepartment).options(
+        joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).filter(MemberDepartment.member_id == member.id, MemberDepartment.status == "approved").all()
+    current = [{
+        "department_id": md.department_id,
+        "department_name": md.department.name,
+        "category_name": md.department.category.name if md.department.category else None,
+    } for md in live]
+    my_selection = []
+    if state["year"]:
+        rows = db.query(DepartmentSelection).options(
+            joinedload(DepartmentSelection.department).joinedload(Department.category)
+        ).filter(DepartmentSelection.member_id == member.id, DepartmentSelection.year == state["year"]).all()
+        my_selection = [{
+            "id": s.id, "department_id": s.department_id, "department_name": s.department.name,
+            "category_name": s.department.category.name if s.department.category else None,
+            "status": s.status or "pending", "source": s.source or "member", "admin_note": s.admin_note,
+        } for s in rows]
+    return {
+        "campaign_open": state["open"],
+        "year": state["year"],
+        "live_year": _current_live_year(db),
+        "current_departments": current,
+        "my_selection": my_selection,
+        "max_departments": int(_get_setting_value(db, "maxDepartments", "3") or 3),
+    }
+
+
+@router.post("/portal/selection")
+def portal_selection_submit(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Member submits/updates their draft picks for the open campaign year.
+    Writes ONLY to department_selections — the live set is never touched."""
+    member = _require_logged_in_member(request, db)
+    state = _campaign_state(db)
+    if not state["open"] or not state["year"]:
+        raise HTTPException(status_code=400, detail="Department selection isn't open right now.")
+    year = state["year"]
+    try:
+        dept_ids = [int(x) for x in (data.get("selected_departments") or [])]
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid department selection")
+    dept_ids = list(dict.fromkeys(dept_ids))  # dedupe, keep order
+    if not dept_ids:
+        raise HTTPException(status_code=400, detail="Please select at least one department")
+    depts = _validate_department_choice(db, dept_ids)
+
+    existing = db.query(DepartmentSelection).filter(
+        DepartmentSelection.member_id == member.id, DepartmentSelection.year == year).all()
+    existing_map = {s.department_id: s for s in existing}
+    new_set = set(dept_ids)
+    # Remove member-sourced picks that were dropped (keep admin-added rows).
+    for did, s in existing_map.items():
+        if did not in new_set and (s.source or "member") == "member":
+            db.delete(s)
+    # Add newly chosen ones as pending (keep overlaps at their current status).
+    for did in dept_ids:
+        if did not in existing_map:
+            db.add(DepartmentSelection(year=year, member_id=member.id, department_id=did,
+                                       source="member", status="pending"))
+    db.commit()
+    _log_member_action(request, db, member, "submit_year_selection", "member", member.id,
+                       f"Selected {len(dept_ids)} dept(s) for {year}: {', '.join(d.name for d in depts)}")
+    db.commit()
+    return {"success": True, "year": year}
+
+
+@router.get("/portal/selection/history")
+def portal_selection_history(request: Request, db: Session = Depends(get_db)):
+    """The member's approved department service, grouped by year."""
+    member = _require_logged_in_member(request, db)
+    rows = db.query(DepartmentSelection).options(joinedload(DepartmentSelection.department)).filter(
+        DepartmentSelection.member_id == member.id, DepartmentSelection.status == "approved"
+    ).order_by(DepartmentSelection.year.desc()).all()
+    by_year: Dict[int, list] = {}
+    for s in rows:
+        by_year.setdefault(s.year, []).append(s.department.name)
+    history = [{"year": y, "departments": sorted(names)} for y, names in sorted(by_year.items(), reverse=True)]
+    return {"history": history, "live_year": _current_live_year(db)}
+
+
+# ---- Admin: campaign controls, progress, review ----
+
+@router.get("/admin/selection/state")
+def admin_selection_state(request: Request, db: Session = Depends(get_db)):
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    return {
+        "campaign_open": state["open"],
+        "campaign_year": state["year"],
+        "live_year": _current_live_year(db),
+        "published_at": _get_setting_value(db, "publishedAt", ""),
+    }
+
+
+@router.post("/admin/selection/campaign")
+def admin_selection_campaign(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Open/close the selection cycle and set its year."""
+    _require_committee_or_admin(request, db)
+    if data.get("year"):
+        try:
+            _set_setting_value(db, SELECTION_CAMPAIGN_YEAR_KEY, str(int(data["year"])))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="year must be a number")
+    if "open" in data:
+        _set_setting_value(db, SELECTION_CAMPAIGN_OPEN_KEY, "true" if data.get("open") else "false")
+    db.commit()
+    state = _campaign_state(db)
+    _log_admin_action(request, db, "selection_campaign_update", "settings", None,
+                      f"Campaign year={state['year']} open={state['open']}")
+    db.commit()
+    return {"success": True, "campaign_open": state["open"], "campaign_year": state["year"]}
+
+
+@router.get("/admin/selection/progress")
+def admin_selection_progress(request: Request, db: Session = Depends(get_db)):
+    """Who has selected + per-department counts for the campaign year."""
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    total_members = db.query(Member).count()
+    year = state["year"]
+    if not year:
+        return {"year": None, "members_selected": 0, "total_members": total_members,
+                "pending": 0, "approved": 0, "rejected": 0, "by_department": []}
+    rows = db.query(DepartmentSelection).filter(DepartmentSelection.year == year).all()
+    from collections import defaultdict
+    dcount = defaultdict(lambda: {"pending": 0, "approved": 0, "rejected": 0})
+    pending = approved = rejected = 0
+    for r in rows:
+        st = r.status or "pending"
+        if st not in dcount[r.department_id]:
+            st = "pending"
+        dcount[r.department_id][st] += 1
+        if st == "approved":
+            approved += 1
+        elif st == "rejected":
+            rejected += 1
+        else:
+            pending += 1
+    depts = {d.id: d.name for d in db.query(Department).all()}
+    by_department = [{"department_id": did, "department_name": depts.get(did, "?"), **c} for did, c in dcount.items()]
+    by_department.sort(key=lambda x: -(x["approved"] + x["pending"]))
+    return {
+        "year": year,
+        "members_selected": len({r.member_id for r in rows}),
+        "total_members": total_members,
+        "pending": pending, "approved": approved, "rejected": rejected,
+        "by_department": by_department,
+    }
+
+
+@router.get("/admin/selection/reviews")
+def admin_selection_reviews(request: Request, db: Session = Depends(get_db)):
+    """Per-member selections for the campaign year (for approve/reject/replace)."""
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    year = state["year"]
+    if not year:
+        return []
+    rows = db.query(DepartmentSelection).options(
+        joinedload(DepartmentSelection.department).joinedload(Department.category),
+        joinedload(DepartmentSelection.member),
+    ).filter(DepartmentSelection.year == year).all()
+    by_member: Dict[int, dict] = {}
+    for s in rows:
+        m = s.member
+        entry = by_member.setdefault(m.id, {
+            "id": m.id, "full_name": m.full_name, "phone": m.phone, "email": m.email, "selections": []})
+        entry["selections"].append({
+            "id": s.id, "member_id": s.member_id, "department_id": s.department_id,
+            "department_name": s.department.name,
+            "category_name": s.department.category.name if s.department.category else None,
+            "source": s.source or "member", "status": s.status or "pending", "admin_note": s.admin_note,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "status_changed_at": s.status_changed_at.isoformat() if s.status_changed_at else None,
+            "replaced_by_id": s.replaced_by_id,
+        })
+    return list(by_member.values())
+
+
+@router.put("/admin/selection/reviews/{selection_id}")
+def admin_selection_update_status(selection_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Approve/reject a draft selection. Never touches the live set or central."""
+    _require_committee_or_admin(request, db)
+    s = db.query(DepartmentSelection).filter(DepartmentSelection.id == selection_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Selection not found")
+    status = (data.get("status") or "").strip()
+    if status not in ("approved", "rejected", "pending"):
+        raise HTTPException(status_code=400, detail="status must be approved, rejected or pending")
+    s.status = status
+    if "admin_note" in data:
+        s.admin_note = data.get("admin_note")
+    s.status_changed_at = datetime.now()
+    db.commit()
+    _log_admin_action(request, db, "selection_review", "department_selection", s.id,
+                      f"{status} member {s.member_id} dept {s.department_id} year {s.year}")
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/admin/selection/reviews/{selection_id}/replace")
+def admin_selection_replace(selection_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Reject a draft pick and add an admin replacement (approved), linked."""
+    _require_committee_or_admin(request, db)
+    s = db.query(DepartmentSelection).filter(DepartmentSelection.id == selection_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Selection not found")
+    new_dept = db.query(Department).filter(Department.id == data.get("new_department_id")).first()
+    if not new_dept:
+        raise HTTPException(status_code=404, detail="New department not found")
+    orig_name = s.department.name
+    s.status = "rejected"
+    s.admin_note = data.get("admin_note") or f"Replaced with {new_dept.name}"
+    s.status_changed_at = datetime.now()
+    new_s = _upsert_selection(db, s.year, s.member_id, new_dept.id,
+                              source="admin", status="approved", admin_note=f"Replacement for {orig_name}")
+    if new_s.id != s.id:
+        s.replaced_by_id = new_s.id
+    db.commit()
+    _log_admin_action(request, db, "selection_replace", "department_selection", s.id,
+                      f"Replaced dept {s.department_id} with {new_dept.id} for member {s.member_id} year {s.year}")
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/admin/selection/members/{member_id}/assign")
+def admin_selection_assign(member_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Admin adds an approved department to a member's draft for the campaign year."""
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    year = state["year"]
+    if not year:
+        raise HTTPException(status_code=400, detail="No active campaign year")
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    dept = db.query(Department).filter(Department.id == data.get("department_id")).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    _upsert_selection(db, year, member_id, dept.id, source="admin", status="approved", admin_note=data.get("admin_note"))
+    db.commit()
+    _log_admin_action(request, db, "selection_assign", "department_selection", None,
+                      f"Assigned {dept.name} to member {member_id} year {year}")
+    db.commit()
+    return {"success": True}
+
+
+@router.post("/admin/selection/bulk-approve")
+def admin_selection_bulk_approve(request: Request = None, db: Session = Depends(get_db)):
+    """Approve every pending draft selection for the campaign year."""
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    year = state["year"]
+    if not year:
+        raise HTTPException(status_code=400, detail="No active campaign year")
+    count = db.query(DepartmentSelection).filter(
+        DepartmentSelection.year == year,
+        or_(DepartmentSelection.status == "pending", DepartmentSelection.status.is_(None)),
+    ).update({DepartmentSelection.status: "approved", DepartmentSelection.status_changed_at: datetime.now()},
+             synchronize_session="fetch")
+    db.commit()
+    _log_admin_action(request, db, "selection_bulk_approve", "department_selection", None,
+                      f"Bulk-approved {count} selections for {year}")
+    db.commit()
+    return {"approved": count}
+
+
+@router.get("/admin/selection/publish-preview")
+def admin_selection_publish_preview(request: Request, db: Session = Depends(get_db)):
+    """What a publish would do: how many approved assignments move in, how many
+    members currently serving would be cleared (fresh start)."""
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    year = state["year"]
+    if not year:
+        return {"year": None, "approved_assignments": 0, "members_in": 0, "members_cleared": 0}
+    approved = db.query(DepartmentSelection).filter(
+        DepartmentSelection.year == year, DepartmentSelection.status == "approved").all()
+    members_in = {s.member_id for s in approved}
+    live_member_ids = {row[0] for row in db.query(MemberDepartment.member_id).distinct().all()}
+    return {
+        "year": year,
+        "approved_assignments": len(approved),
+        "members_in": len(members_in),
+        "members_cleared": len(live_member_ids - members_in),
+        "outgoing_year": _current_live_year(db),
+    }
+
+
+@router.post("/admin/selection/publish")
+def admin_selection_publish(request: Request = None, db: Session = Depends(get_db)):
+    """Finalize & publish the campaign year: snapshot the outgoing year as
+    history, then REPLACE the live member_departments with the approved campaign
+    selections (fresh start — non-participants are cleared). Titles and HOD are
+    untouched. Idempotent for the same campaign year."""
+    _require_committee_or_admin(request, db)
+    state = _campaign_state(db)
+    campaign_year = state["year"]
+    if not campaign_year:
+        raise HTTPException(status_code=400, detail="No active campaign year to publish")
+    outgoing_year = _current_live_year(db)
+
+    approved = db.query(DepartmentSelection).filter(
+        DepartmentSelection.year == campaign_year, DepartmentSelection.status == "approved").all()
+    if not approved:
+        raise HTTPException(status_code=400,
+                            detail="No approved selections for this year — approve some before publishing.")
+
+    # 1. Snapshot the current LIVE approved roster as the outgoing year's history
+    #    (captures mid-year admin changes). Skipped when re-publishing the same year.
+    if outgoing_year != campaign_year:
+        live_rows = db.query(MemberDepartment).filter(MemberDepartment.status == "approved").all()
+        for md in live_rows:
+            _upsert_selection(db, outgoing_year, md.member_id, md.department_id,
+                              source=md.source or "member", status="approved", admin_note=md.admin_note)
+        db.flush()
+
+    # 2. Who had a live assignment before (so we can re-sync cleared members too).
+    prior_member_ids = {row[0] for row in db.query(MemberDepartment.member_id).distinct().all()}
+
+    # 3. Replace the live set with the approved campaign selections (fresh start).
+    db.query(MemberDepartment).delete(synchronize_session="fetch")
+    new_member_ids = set()
+    now = datetime.now()
+    for s in approved:
+        db.add(MemberDepartment(member_id=s.member_id, department_id=s.department_id,
+                                source=s.source or "member", status="approved",
+                                admin_note=s.admin_note, status_changed_at=now))
+        new_member_ids.add(s.member_id)
+
+    # 4. Advance the live year, close the campaign, stamp publishedAt.
+    _set_setting_value(db, "selectionYear", str(campaign_year))
+    _set_setting_value(db, SELECTION_CAMPAIGN_OPEN_KEY, "false")
+    _set_setting_value(db, "publishedAt", now.isoformat())
+    db.commit()
+
+    # 5. Central sync everyone whose live set changed (new OR cleared) — best-effort.
+    affected = prior_member_ids | new_member_ids
+    synced = 0
+    for mid in affected:
+        try:
+            _sync_member_departments_to_central(mid, db)
+            synced += 1
+        except Exception as e:
+            print(f"[selection publish] central sync failed for member {mid}: {e}")
+
+    _log_admin_action(request, db, "selection_publish", "settings", None,
+                      f"Published {campaign_year}: {len(approved)} assignments across {len(new_member_ids)} members; "
+                      f"snapshotted {outgoing_year}; {len(affected)} central syncs")
+    db.commit()
+    return {
+        "success": True, "year": campaign_year,
+        "assignments": len(approved), "members_in": len(new_member_ids),
+        "members_cleared": len(prior_member_ids - new_member_ids), "central_synced": synced,
+    }
+
+
+@router.get("/admin/members/{member_id}/service-history")
+def admin_member_service_history(member_id: int, request: Request, db: Session = Depends(get_db)):
+    """A member's approved department service, grouped by year (for admin profile)."""
+    _require_committee_or_admin(request, db)
+    rows = db.query(DepartmentSelection).options(joinedload(DepartmentSelection.department)).filter(
+        DepartmentSelection.member_id == member_id, DepartmentSelection.status == "approved"
+    ).order_by(DepartmentSelection.year.desc()).all()
+    by_year: Dict[int, list] = {}
+    for s in rows:
+        by_year.setdefault(s.year, []).append(s.department.name)
+    history = [{"year": y, "departments": sorted(names)} for y, names in sorted(by_year.items(), reverse=True)]
+    return {"member_id": member_id, "history": history, "live_year": _current_live_year(db)}
 
 
 # ============ MEMBER RESULTS ENDPOINT ============

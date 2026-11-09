@@ -776,8 +776,55 @@
 
             <!-- ==================== MY DEPARTMENTS ==================== -->
             <div x-show="tab === 'departments'" class="space-y-4">
+                <!-- New-year selection campaign (shows only while a cycle is open) -->
+                <section x-show="selection.campaign_open" x-cloak class="bg-white rounded-2xl shadow-sm border-2 border-indigo-200 p-5">
+                    <h2 class="text-sm font-bold text-indigo-700 mb-1">Select your departments for <span x-text="selection.year"></span></h2>
+                    <p class="text-[12px] text-gray-500 mb-3">Choose where you'd like to serve next year. <span class="font-medium text-gray-700">Your current departments below stay exactly as they are</span> until results are finalised and published — nothing changes yet. You can edit this until selection closes.</p>
+                    <template x-if="selDepartments">
+                      <div>
+                        <div class="space-y-3 max-h-80 overflow-y-auto pr-1">
+                          <template x-for="cat in (selDepartments.categories || [])" :key="cat.id">
+                            <div x-show="cat.departments && cat.departments.length">
+                              <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1" x-text="cat.name + (cat.maxSelections ? ' · pick up to ' + cat.maxSelections : '')"></div>
+                              <div class="grid grid-cols-1 gap-1.5">
+                                <template x-for="d in cat.departments" :key="d.id">
+                                  <label class="flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer" :class="selPicks.includes(d.id) ? 'bg-indigo-50 border-indigo-300' : 'border-gray-200 hover:bg-gray-50'">
+                                    <input type="checkbox" class="rounded" :checked="selPicks.includes(d.id)" @change="toggleSelPick(d.id)">
+                                    <span class="text-sm text-gray-800" x-text="d.name"></span>
+                                  </label>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="selDepartments.uncategorized && selDepartments.uncategorized.length">
+                            <div>
+                              <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">Other</div>
+                              <div class="grid grid-cols-1 gap-1.5">
+                                <template x-for="d in selDepartments.uncategorized" :key="d.id">
+                                  <label class="flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer" :class="selPicks.includes(d.id) ? 'bg-indigo-50 border-indigo-300' : 'border-gray-200 hover:bg-gray-50'">
+                                    <input type="checkbox" class="rounded" :checked="selPicks.includes(d.id)" @change="toggleSelPick(d.id)">
+                                    <span class="text-sm text-gray-800" x-text="d.name"></span>
+                                  </label>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-2">Up to <span x-text="selection.max_departments"></span> departments · <span x-text="selPicks.length"></span> selected.</p>
+                        <p x-show="selMsg" x-cloak class="text-[12px] mt-2" :class="selMsg.startsWith('Saved') ? 'text-emerald-600' : 'text-rose-600'" x-text="selMsg"></p>
+                        <button @click="submitSelection()" :disabled="selSubmitting"
+                          class="mt-3 w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                          <span x-text="selSubmitting ? 'Saving…' : (selection.my_selection.length ? 'Update my selection' : 'Submit my selection')"></span>
+                        </button>
+                        <template x-if="selection.my_selection.length">
+                          <div class="mt-3 text-[12px] text-gray-500">Your choice so far: <span class="text-gray-700 font-medium" x-text="selection.my_selection.map(s => s.department_name).join(', ')"></span></div>
+                        </template>
+                      </div>
+                    </template>
+                </section>
+
                 <section class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">My departments</h2>
+                    <h2 class="text-[10px] uppercase tracking-[0.2em] font-semibold text-mute mb-3">My departments<span x-show="selection.campaign_open" x-cloak class="normal-case tracking-normal text-gray-400 font-normal"> · currently serving</span></h2>
                     <div x-show="!data.departments.approved.length && !data.departments.pending.length" class="text-sm text-gray-500 italic">You aren't in any departments yet.</div>
                     <div class="space-y-2">
                         <template x-for="d in data.departments.approved" :key="d.id">
@@ -2143,6 +2190,46 @@ function memberPortal() {
         pushPublicKey: null,
         _pushPromptTick: 0,  // bumped to force re-render of shouldShowPushPrompt()
 
+        // Department selection campaign (new year)
+        selection: { loaded: false, campaign_open: false, year: null, live_year: null, current_departments: [], my_selection: [], max_departments: 3 },
+        selDepartments: null,   // {categories:[], uncategorized:[]} lazy-loaded when open
+        selPicks: [],           // dept ids the member is choosing
+        selSubmitting: false,
+        selMsg: '',
+
+        async loadSelection() {
+            try {
+                const r = await fetch('/api/portal/selection');
+                if (!r.ok) return;
+                this.selection = await r.json();
+                this.selection.loaded = true;
+                this.selPicks = (this.selection.my_selection || []).map(s => s.department_id);
+                if (this.selection.campaign_open && !this.selDepartments) {
+                    this.selDepartments = await fetch('/api/departments').then(x => x.json());
+                }
+            } catch (e) { /* card simply doesn't render */ }
+        },
+        toggleSelPick(id) {
+            const i = this.selPicks.indexOf(id);
+            if (i >= 0) this.selPicks.splice(i, 1); else this.selPicks.push(id);
+        },
+        async submitSelection() {
+            this.selMsg = '';
+            if (!this.selPicks.length) { this.selMsg = 'Pick at least one department.'; return; }
+            this.selSubmitting = true;
+            try {
+                const r = await fetch('/api/portal/selection', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ selected_departments: this.selPicks }),
+                });
+                const d = await r.json().catch(() => ({}));
+                if (!r.ok) { this.selMsg = d.detail || 'Could not save your selection.'; this.selSubmitting = false; return; }
+                await this.loadSelection();
+                this.selMsg = 'Saved — your selection for ' + this.selection.year + ' is recorded.';
+            } catch (e) { this.selMsg = 'Could not save your selection.'; }
+            this.selSubmitting = false;
+        },
+
         async init() {
             try {
                 const [meRes, crRes] = await Promise.all([
@@ -2167,6 +2254,8 @@ function memberPortal() {
                 // Events load in the background — the dashboard must never
                 // wait on, or break because of, church-manager.
                 this.loadEvents();
+                // Department-selection campaign (if open) — background, never blocks.
+                this.loadSelection();
             } catch (e) { console.error(e); }
             this.loading = false;
         },

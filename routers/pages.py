@@ -918,6 +918,14 @@ async def admin_publish(request: Request):
     return templates.TemplateResponse("admin/publish.html", {"request": request})
 
 
+@router.get("/admin/selection-campaign")
+async def admin_selection_campaign_page(request: Request):
+    """Admin: run a new year's department-selection cycle (open, review, publish)."""
+    if not is_authenticated(request):
+        return RedirectResponse(url="/admin/login", status_code=302)
+    return templates.TemplateResponse("admin/selection_campaign.html", {"request": request})
+
+
 @router.get("/admin/appeals")
 async def admin_appeals(request: Request):
     """Admin appeals management"""
