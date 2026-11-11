@@ -1617,25 +1617,40 @@ def reject_member(member_id: int, request: Request = None, db: Session = Depends
 # ============ DEPARTMENTS ============
 
 @router.get("/departments")
-def get_departments(db: Session = Depends(get_db)):
-    """Get all departments grouped by category"""
+def get_departments(include_inactive: bool = Query(False), db: Session = Depends(get_db)):
+    """Get all departments grouped by category.
+
+    By default only ACTIVE departments are returned, so dropped departments
+    disappear from every picker (member selection, meetings, posters, …).
+    Admin curation views pass include_inactive=true to see and restore
+    dropped ones.
+    """
     categories = db.query(Category).options(
-        joinedload(Category.departments).joinedload(Department.hod)
+        joinedload(Category.departments).joinedload(Department.hod),
+        joinedload(Category.departments).joinedload(Department.pending_hod),
     ).order_by(Category.name).all()
 
-    uncategorized = db.query(Department).options(
-        joinedload(Department.hod)
-    ).filter(
-        Department.category_id == None
-    ).order_by(Department.name).all()
+    uncat_q = db.query(Department).options(
+        joinedload(Department.hod), joinedload(Department.pending_hod)
+    ).filter(Department.category_id == None)
+    if not include_inactive:
+        uncat_q = uncat_q.filter(Department.is_active == True)  # noqa: E712
+    uncategorized = uncat_q.order_by(Department.name).all()
+
+    def _person(m):
+        return {"id": m.id, "fullName": m.full_name, "phone": m.phone} if m else None
 
     def dept_dict(d):
-        result = {"id": d.id, "name": d.name, "categoryId": d.category_id}
-        if d.hod:
-            result["hod"] = {"id": d.hod.id, "fullName": d.hod.full_name, "phone": d.hod.phone}
-        else:
-            result["hod"] = None
-        return result
+        return {
+            "id": d.id, "name": d.name, "categoryId": d.category_id,
+            "isActive": bool(d.is_active),
+            "hod": _person(d.hod),
+            "pendingHod": _person(d.pending_hod),
+        }
+
+    def _depts_for(cat):
+        depts = cat.departments if include_inactive else [d for d in cat.departments if d.is_active]
+        return [dept_dict(d) for d in sorted(depts, key=lambda x: x.name)]
 
     return {
         "categories": [
@@ -1644,10 +1659,7 @@ def get_departments(db: Session = Depends(get_db)):
                 "name": cat.name,
                 "maxSelections": cat.max_selections,
                 "createdAt": cat.created_at.isoformat() if cat.created_at else None,
-                "departments": [
-                    dept_dict(d)
-                    for d in sorted(cat.departments, key=lambda x: x.name)
-                ]
+                "departments": _depts_for(cat),
             }
             for cat in categories
         ],
@@ -1978,6 +1990,74 @@ def delete_department(id: int = Query(...), request: Request = None, db: Session
         db.commit()
 
     return {"success": True, "api_sync": api_sync}
+
+
+@router.post("/departments/drop")
+def drop_department(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Soft-drop a department: hide it from every picker and from new
+    assignments, but KEEP the row and all year-scoped service history. This is
+    the safe alternative to DELETE, which cascades and erases history."""
+    _require_committee_or_admin(request, db)
+    dept = db.query(Department).filter(Department.id == data.get("id")).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    dept.is_active = False
+    db.commit()
+    _log_admin_action(request, db, "drop_department", "department", dept.id,
+                      f"Dropped department '{dept.name}' (history preserved)")
+    db.commit()
+    return {"success": True, "id": dept.id, "is_active": False}
+
+
+@router.post("/departments/restore")
+def restore_department(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Bring a dropped department back into the active set."""
+    _require_committee_or_admin(request, db)
+    dept = db.query(Department).filter(Department.id == data.get("id")).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    dept.is_active = True
+    db.commit()
+    _log_admin_action(request, db, "restore_department", "department", dept.id,
+                      f"Restored department '{dept.name}'")
+    db.commit()
+    return {"success": True, "id": dept.id, "is_active": True}
+
+
+@router.post("/admin/departments/{department_id}/set-pending-hod")
+def set_department_pending_hod(department_id: int, data: dict = Body(...),
+                               request: Request = None, db: Session = Depends(get_db)):
+    """Stage the INCOMING head of department for the running campaign. Does not
+    touch the current HOD (so their team visibility is undisturbed) — applied
+    at publish."""
+    _require_committee_or_admin(request, db)
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    member = db.query(Member).filter(Member.id == data.get("member_id")).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    dept.pending_hod_member_id = member.id
+    db.commit()
+    _log_admin_action(request, db, "set_pending_hod", "department", dept.id,
+                      f"Staged {member.full_name} as incoming HOD of '{dept.name}'")
+    db.commit()
+    return {"success": True, "department": dept.name, "pending_hod_name": member.full_name}
+
+
+@router.delete("/admin/departments/{department_id}/pending-hod")
+def clear_department_pending_hod(department_id: int, request: Request = None, db: Session = Depends(get_db)):
+    """Clear a staged incoming HOD (the current HOD then stays on at publish)."""
+    _require_committee_or_admin(request, db)
+    dept = db.query(Department).filter(Department.id == department_id).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    dept.pending_hod_member_id = None
+    db.commit()
+    _log_admin_action(request, db, "clear_pending_hod", "department", dept.id,
+                      f"Cleared incoming HOD for '{dept.name}'")
+    db.commit()
+    return {"success": True}
 
 
 # ============ CATEGORIES ============
@@ -3346,6 +3426,10 @@ def _validate_department_choice(db: Session, dept_ids: list) -> list:
     depts = db.query(Department).options(joinedload(Department.category)).filter(Department.id.in_(dept_ids)).all()
     if len(depts) != len(set(dept_ids)):
         raise HTTPException(status_code=400, detail="One or more selected departments don't exist")
+    dropped = [d.name for d in depts if not d.is_active]
+    if dropped:
+        raise HTTPException(status_code=400,
+                            detail=f"These departments are no longer available: {', '.join(dropped)}")
     category_selections: Dict[int, list] = {}
     for d in depts:
         if d.category_id:
@@ -3757,13 +3841,22 @@ def admin_selection_publish(request: Request = None, db: Session = Depends(get_d
                                 admin_note=s.admin_note, status_changed_at=now))
         new_member_ids.add(s.member_id)
 
-    # 4. Advance the live year, close the campaign, stamp publishedAt.
+    # 4. Apply any staged (incoming) HODs now the new year is going live, then
+    #    clear the staging field. Until this point the current HOD stayed on so
+    #    their team visibility was undisturbed through the campaign.
+    hod_changes = 0
+    for dept in db.query(Department).filter(Department.pending_hod_member_id.isnot(None)).all():
+        dept.hod_member_id = dept.pending_hod_member_id
+        dept.pending_hod_member_id = None
+        hod_changes += 1
+
+    # 5. Advance the live year, close the campaign, stamp publishedAt.
     _set_setting_value(db, "selectionYear", str(campaign_year))
     _set_setting_value(db, SELECTION_CAMPAIGN_OPEN_KEY, "false")
     _set_setting_value(db, "publishedAt", now.isoformat())
     db.commit()
 
-    # 5. Central sync everyone whose live set changed (new OR cleared) — best-effort.
+    # 6. Central sync everyone whose live set changed (new OR cleared) — best-effort.
     affected = prior_member_ids | new_member_ids
     synced = 0
     for mid in affected:
@@ -3773,7 +3866,7 @@ def admin_selection_publish(request: Request = None, db: Session = Depends(get_d
         except Exception as e:
             print(f"[selection publish] central sync failed for member {mid}: {e}")
 
-    # 6. Email each member their outcome: what was approved + what was not
+    # 7. Email each member their outcome: what was approved + what was not
     #    approved (including replacements). Best-effort — never breaks publish.
     notified = 0
     try:
@@ -3820,13 +3913,14 @@ def admin_selection_publish(request: Request = None, db: Session = Depends(get_d
 
     _log_admin_action(request, db, "selection_publish", "settings", None,
                       f"Published {campaign_year}: {len(approved)} assignments across {len(new_member_ids)} members; "
-                      f"snapshotted {outgoing_year}; {len(affected)} central syncs; {notified} outcome emails")
+                      f"snapshotted {outgoing_year}; {len(affected)} central syncs; {hod_changes} HOD changes; "
+                      f"{notified} outcome emails")
     db.commit()
     return {
         "success": True, "year": campaign_year,
         "assignments": len(approved), "members_in": len(new_member_ids),
         "members_cleared": len(prior_member_ids - new_member_ids),
-        "central_synced": synced, "members_notified": notified,
+        "central_synced": synced, "hod_changes": hod_changes, "members_notified": notified,
     }
 
 
@@ -4456,6 +4550,34 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
 
     is_elder = _is_elder(hod_member)
 
+    # Campaign context: when a cycle is open, HODs can preview who's selecting
+    # their department for the new year (the draft) alongside their live team.
+    camp = _campaign_state(db)
+    camp_year = camp["year"] if camp["open"] else None
+
+    def _campaign_block(dept_id: int):
+        """Draft selections for a department in the open campaign year."""
+        if not camp_year:
+            return None
+        rows = db.query(DepartmentSelection).options(
+            joinedload(DepartmentSelection.member)
+        ).filter(
+            DepartmentSelection.department_id == dept_id,
+            DepartmentSelection.year == camp_year,
+        ).all()
+        members = []
+        counts = {"pending": 0, "approved": 0, "rejected": 0}
+        for s in rows:
+            st = s.status or "pending"
+            counts[st if st in counts else "pending"] += 1
+            if s.member:
+                members.append({
+                    "id": s.member.id, "full_name": s.member.full_name,
+                    "phone": s.member.phone, "status": st, "source": s.source or "member",
+                })
+        members.sort(key=lambda x: ({"pending": 0, "approved": 1, "rejected": 2}.get(x["status"], 3), x["full_name"]))
+        return {"year": camp_year, "members": members, **counts}
+
     # Always show only departments where member is actual HOD (not all for elders)
     # Elder access to all departments is only for meeting booking
     departments = db.query(Department).options(
@@ -4463,10 +4585,19 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
         joinedload(Department.member_departments).joinedload(MemberDepartment.member)
     ).filter(Department.hod_member_id == hod_member.id).order_by(Department.name).all()
 
-    if not departments:
+    # Departments this member is staged to lead NEXT (incoming HOD) — preview
+    # only, no live team yet. Excludes any they already lead now.
+    current_ids = {d.id for d in departments}
+    incoming = db.query(Department).options(joinedload(Department.category)).filter(
+        Department.pending_hod_member_id == hod_member.id,
+        Department.id.notin_(current_ids) if current_ids else True,
+    ).order_by(Department.name).all() if camp_year else []
+
+    if not departments and not incoming:
         return {
             "hod_name": hod_member.full_name,
             "is_elder": is_elder,
+            "campaign_year": camp_year,
             "role": "pastor" if "pastor" in (hod_member.leadership_roles or []) else ("elder" if is_elder else "hod"),
             "departments": []
         }
@@ -4509,12 +4640,28 @@ def get_hod_departments(phone: str = Query(...), db: Session = Depends(get_db)):
             "total_members": len(members_list),
             "approved_count": approved_count,
             "pending_count": pending_count,
-            "rejected_count": rejected_count
+            "rejected_count": rejected_count,
+            "is_incoming": False,
+            "campaign": _campaign_block(dept.id),
+        })
+
+    # Incoming-HOD departments: campaign draft only (no live team yet).
+    for dept in incoming:
+        dept_views.append({
+            "id": dept.id,
+            "name": dept.name,
+            "category_name": dept.category.name if dept.category else None,
+            "members": [],
+            "total_members": 0,
+            "approved_count": 0, "pending_count": 0, "rejected_count": 0,
+            "is_incoming": True,
+            "campaign": _campaign_block(dept.id),
         })
 
     return {
         "hod_name": hod_member.full_name,
         "is_elder": is_elder,
+        "campaign_year": camp_year,
         "role": "pastor" if "pastor" in (hod_member.leadership_roles or []) else ("elder" if is_elder else "hod"),
         "departments": dept_views
     }

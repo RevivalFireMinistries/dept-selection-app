@@ -22,6 +22,15 @@ class Department(Base):
     name = Column(String, nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     hod_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    # Incoming HOD staged during a selection campaign. Kept separate from
+    # hod_member_id so re-defining a leader doesn't disrupt the CURRENT HOD's
+    # visibility of their team mid-campaign — it's swapped into hod_member_id
+    # at publish, then cleared.
+    pending_hod_member_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    # Soft "drop" flag. A dropped department disappears from every picker and
+    # from new assignments, but the row (and all year-scoped service history in
+    # department_selections) survives — a hard delete would cascade and erase it.
+    is_active = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Link to the central rfm-database department record. Same pattern we use
     # for members — gated by RFM_API_INTEGRATION_ENABLED, populated on first
@@ -31,6 +40,7 @@ class Department(Base):
 
     category = relationship("Category", back_populates="departments")
     hod = relationship("Member", foreign_keys=[hod_member_id])
+    pending_hod = relationship("Member", foreign_keys=[pending_hod_member_id])
     member_departments = relationship("MemberDepartment", back_populates="department", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="department", cascade="all, delete-orphan")
 

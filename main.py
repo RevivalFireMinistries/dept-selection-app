@@ -65,6 +65,23 @@ def run_migrations():
             conn.commit()
             print("Migration: Added hod_member_id column to departments")
 
+        # Department curation for selection campaigns: soft-drop flag + staged
+        # incoming HOD (swapped into hod_member_id at publish). Both additive.
+        # rollback() first: a prior statement in this shared connection may have
+        # left the transaction aborted, which would silently skip this ALTER.
+        try:
+            conn.rollback()
+            conn.execute(text("""
+                ALTER TABLE departments
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
+                ADD COLUMN IF NOT EXISTS pending_hod_member_id INTEGER REFERENCES members(id) ON DELETE SET NULL
+            """))
+            conn.commit()
+            print("Migration: Added is_active and pending_hod_member_id columns to departments")
+        except Exception as e:
+            conn.rollback()
+            print(f"Migration note (departments curation columns): {e}")
+
         # Check if meetings table exists (created by create_all, log for visibility)
         result = conn.execute(text("""
             SELECT table_name FROM information_schema.tables

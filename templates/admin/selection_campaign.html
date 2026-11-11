@@ -17,6 +17,33 @@
     and each past year stays viewable as service history.
   </div>
 
+  <!-- 1 · Define departments -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="text-lg font-semibold text-gray-900">1 · Define departments <span id="defYear" class="text-gray-400 font-normal text-base"></span></h3>
+      <button onclick="toggleDropped()" id="droppedToggle" class="text-xs text-gray-500 hover:text-gray-700 hidden"></button>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">
+      Add, rename or drop departments for the new cycle, and stage each department's incoming leader.
+      <strong>Dropping keeps all past service history</strong> — it just removes the department from members' pickers.
+      Staged leaders take over when you publish; current leaders keep seeing their teams until then.
+    </p>
+
+    <div class="flex flex-wrap gap-2 mb-4">
+      <input id="newDeptName" type="text" placeholder="New department name"
+        class="flex-1 min-w-[12rem] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+        onkeydown="if(event.key==='Enter')addDept()">
+      <select id="newDeptCat" class="px-3 py-2 border border-gray-300 rounded-lg text-sm"><option value="">No category</option></select>
+      <button onclick="addDept()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Add department</button>
+    </div>
+
+    <div id="deptList" class="divide-y divide-gray-100"></div>
+    <div id="droppedWrap" class="hidden mt-4 pt-4 border-t border-gray-100">
+      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Dropped — history preserved</p>
+      <div id="droppedList" class="space-y-1"></div>
+    </div>
+  </div>
+
   <!-- Campaign controls -->
   <div class="bg-white rounded-xl shadow p-6">
     <h3 class="text-lg font-semibold text-gray-900 mb-4">Campaign</h3>
@@ -68,7 +95,8 @@
     <p class="text-sm text-gray-600 mb-3">
       Publishing swaps in the approved selections as the live assignments for <span id="pubYear" class="font-semibold">—</span>.
       This is a <strong>fresh start</strong>: anyone who didn't make an approved selection is cleared from the live set
-      (their previous year stays in history). Titles (deacon/elder/pastor) and HOD are not affected.
+      (their previous year stays in history). Titles (deacon/elder/pastor) are not affected; any
+      staged incoming leaders take over now.
     </p>
     <div id="pubPreview" class="text-sm text-gray-700 mb-4"></div>
     <button onclick="confirmPublish()" class="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700">Finalize &amp; publish</button>
@@ -90,25 +118,153 @@
 
 {% block scripts %}
 <script>
-let STATE = {}, DEPTS = [];
+let STATE = {}, DEPTS = [], MEMBERS = [], DEPT_MAP = {}, SHOW_DROPPED = false;
 
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-  DEPTS = await fetch('/api/departments').then(r => r.json()).then(groups => {
-    // /api/departments returns {categories:[{departments:[]}], uncategorized:[]}
-    const out = [];
-    (groups.categories || []).forEach(g => (g.departments || []).forEach(d => out.push({ id: d.id, name: d.name })));
-    (groups.uncategorized || []).forEach(d => out.push({ id: d.id, name: d.name }));
-    return out;
-  }).catch(() => []);
+  MEMBERS = await fetch('/api/admin/leadership-roles').then(r => r.json())
+    .then(d => (Array.isArray(d) ? d : (d.members || [])).map(m => ({ id: m.id, name: m.full_name, phone: m.phone })))
+    .catch(() => []);
+  await loadDeptAdmin();
   await refresh();
+}
+
+// ── Department curation (include inactive) ──
+async function loadDeptAdmin() {
+  const groups = await fetch('/api/departments?include_inactive=true').then(r => r.json()).catch(() => ({ categories: [], uncategorized: [] }));
+  // Flatten, remembering category name + id per department.
+  const all = [];
+  (groups.categories || []).forEach(g => (g.departments || []).forEach(d =>
+    all.push({ ...d, categoryName: g.name, categoryId: g.id })));
+  (groups.uncategorized || []).forEach(d => all.push({ ...d, categoryName: null, categoryId: null }));
+  DEPT_MAP = {}; all.forEach(d => DEPT_MAP[d.id] = d);
+
+  // DEPTS (active only) feeds the "add department" picker in Review.
+  DEPTS = all.filter(d => d.isActive).map(d => ({ id: d.id, name: d.name }));
+
+  // Category select for "add department".
+  const catSel = document.getElementById('newDeptCat');
+  catSel.innerHTML = '<option value="">No category</option>' +
+    (groups.categories || []).map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('');
+
+  const active = all.filter(d => d.isActive);
+  const dropped = all.filter(d => !d.isActive);
+
+  document.getElementById('deptList').innerHTML = active.length
+    ? active.map(deptRow).join('')
+    : '<p class="text-gray-400 py-3 text-sm">No departments yet — add one above.</p>';
+
+  const dt = document.getElementById('droppedToggle');
+  if (dropped.length) {
+    dt.classList.remove('hidden');
+    dt.textContent = SHOW_DROPPED ? 'Hide dropped' : `Show dropped (${dropped.length})`;
+  } else {
+    dt.classList.add('hidden'); SHOW_DROPPED = false;
+  }
+  document.getElementById('droppedWrap').classList.toggle('hidden', !(SHOW_DROPPED && dropped.length));
+  document.getElementById('droppedList').innerHTML = dropped.map(d => `
+    <div class="flex items-center justify-between py-1 text-sm">
+      <span class="text-gray-500">${escapeHtml(d.name)}</span>
+      <button onclick="restoreDept(${d.id})" class="px-2 py-1 text-xs bg-green-50 text-green-700 rounded hover:bg-green-100">Restore</button>
+    </div>`).join('');
+}
+
+function memberOptions(selectedId) {
+  return MEMBERS.map(m => `<option value="${m.id}" ${m.id === selectedId ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
+}
+
+function deptRow(d) {
+  const hodName = d.hod ? d.hod.fullName : '— none —';
+  const pendingId = d.pendingHod ? d.pendingHod.id : '';
+  return `
+    <div class="py-3">
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <p class="font-medium text-gray-900 truncate">${escapeHtml(d.name)}</p>
+          <p class="text-xs text-gray-400">${escapeHtml(d.categoryName || 'No category')}</p>
+        </div>
+        <div class="flex gap-1 flex-shrink-0">
+          <button onclick="renameDept(${d.id})" class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200">Rename</button>
+          <button onclick="dropDept(${d.id})" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 rounded hover:bg-rose-100">Drop</button>
+        </div>
+      </div>
+      <div class="mt-2 flex items-center flex-wrap gap-x-2 gap-y-1 text-xs">
+        <span class="text-gray-400 uppercase tracking-wide">Leader</span>
+        <span class="text-gray-800 font-medium">${escapeHtml(hodName)}</span>
+        <span class="text-gray-300">→ incoming:</span>
+        <select onchange="setPendingHod(${d.id}, this.value)" class="border border-gray-200 rounded px-2 py-1 text-xs max-w-[12rem]">
+          <option value="">— keep current —</option>
+          ${memberOptions(pendingId)}
+        </select>
+      </div>
+    </div>`;
+}
+
+function toggleDropped() { SHOW_DROPPED = !SHOW_DROPPED; loadDeptAdmin(); }
+
+async function addDept() {
+  const name = document.getElementById('newDeptName').value.trim();
+  if (!name) { alert('Enter a department name'); return; }
+  const catVal = document.getElementById('newDeptCat').value;
+  const res = await fetch('/api/departments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, category_id: catVal ? parseInt(catVal, 10) : null })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not add'); return; }
+  document.getElementById('newDeptName').value = '';
+  await loadDeptAdmin();
+}
+
+async function renameDept(id) {
+  const d = DEPT_MAP[id]; if (!d) return;
+  const name = prompt('Rename department', d.name);
+  if (name === null) return;
+  const trimmed = name.trim(); if (!trimmed || trimmed === d.name) return;
+  const res = await fetch('/api/departments', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name: trimmed, category_id: d.categoryId })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not rename'); return; }
+  await loadDeptAdmin();
+  await Promise.all([loadReviews(), loadProgress()]);
+}
+
+async function dropDept(id) {
+  const d = DEPT_MAP[id]; if (!d) return;
+  if (!confirm(`Drop "${d.name}"? It disappears from members' pickers but all past service history is kept. You can restore it anytime.`)) return;
+  const res = await fetch('/api/departments/drop', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not drop'); return; }
+  await loadDeptAdmin();
+  await Promise.all([loadReviews(), loadProgress()]);
+}
+
+async function restoreDept(id) {
+  await fetch('/api/departments/restore', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id })
+  });
+  await loadDeptAdmin();
+}
+
+async function setPendingHod(deptId, memberIdStr) {
+  const memberId = parseInt(memberIdStr, 10);
+  if (memberId) {
+    await fetch(`/api/admin/departments/${deptId}/set-pending-hod`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ member_id: memberId })
+    });
+  } else {
+    await fetch(`/api/admin/departments/${deptId}/pending-hod`, { method: 'DELETE' });
+  }
+  await loadDeptAdmin();
 }
 
 async function refresh() {
   STATE = await fetch('/api/admin/selection/state').then(r => r.json());
   document.getElementById('liveYear').textContent = STATE.live_year;
   document.getElementById('pubYear').textContent = STATE.campaign_year || '—';
+  document.getElementById('defYear').textContent = STATE.campaign_year ? ('· ' + STATE.campaign_year) : '';
   const yr = document.getElementById('campaignYear');
   if (!yr.value) yr.value = STATE.campaign_year || (STATE.live_year + 1);
   const badge = document.getElementById('stateBadge');
