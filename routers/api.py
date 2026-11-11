@@ -1236,8 +1236,10 @@ def forgot_password(
         # Don't reveal whether the phone exists
         return {"success": True, "message": "If an account exists with this phone number, a reset link has been sent to the registered email."}
 
-    if not member.email:
-        raise HTTPException(status_code=400, detail="No email address on file. Please contact an admin.")
+    if not (member.email or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="No email address on file. Please reach out to an admin to help you reset your password.")
 
     # Generate reset token
     token = secrets.token_urlsafe(32)
