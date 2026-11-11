@@ -3410,12 +3410,15 @@ def portal_selection(request: Request, db: Session = Depends(get_db)):
             "category_name": s.department.category.name if s.department.category else None,
             "status": s.status or "pending", "source": s.source or "member", "admin_note": s.admin_note,
         } for s in rows]
+    is_approved = any(s["status"] == "approved" for s in my_selection)
     return {
         "campaign_open": state["open"],
         "year": state["year"],
         "live_year": _current_live_year(db),
         "current_departments": current,
         "my_selection": my_selection,
+        "is_approved": is_approved,           # locked for free editing once approved
+        "has_selection": len(my_selection) > 0,
         "max_departments": int(_get_setting_value(db, "maxDepartments", "3") or 3),
     }
 
@@ -3429,6 +3432,15 @@ def portal_selection_submit(data: dict = Body(...), request: Request = None, db:
     if not state["open"] or not state["year"]:
         raise HTTPException(status_code=400, detail="Department selection isn't open right now.")
     year = state["year"]
+    # Once a member's selection is approved it's locked — they must "request a
+    # change" (reopen) before editing, so an approval can't be silently undone.
+    already_approved = db.query(DepartmentSelection).filter(
+        DepartmentSelection.member_id == member.id, DepartmentSelection.year == year,
+        DepartmentSelection.status == "approved").count()
+    if already_approved:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Your {year} selection has been approved. Tap “Request a change” to edit it.")
     try:
         dept_ids = [int(x) for x in (data.get("selected_departments") or [])]
     except (ValueError, TypeError):
@@ -3456,6 +3468,29 @@ def portal_selection_submit(data: dict = Body(...), request: Request = None, db:
                        f"Selected {len(dept_ids)} dept(s) for {year}: {', '.join(d.name for d in depts)}")
     db.commit()
     return {"success": True, "year": year}
+
+
+@router.post("/portal/selection/reopen")
+def portal_selection_reopen(request: Request, db: Session = Depends(get_db)):
+    """Member petitions to change an already-approved selection: reopens their
+    approved campaign picks back to pending so they (and the admin) can revise
+    them. Only affects the member's own rows; never touches the live set."""
+    member = _require_logged_in_member(request, db)
+    state = _campaign_state(db)
+    if not state["open"] or not state["year"]:
+        raise HTTPException(status_code=400, detail="Department selection isn't open right now.")
+    rows = db.query(DepartmentSelection).filter(
+        DepartmentSelection.member_id == member.id, DepartmentSelection.year == state["year"],
+        DepartmentSelection.status == "approved").all()
+    for s in rows:
+        s.status = "pending"
+        s.admin_note = ((s.admin_note + " · ") if s.admin_note else "") + "Change requested by member"
+        s.status_changed_at = datetime.now()
+    db.commit()
+    _log_member_action(request, db, member, "reopen_year_selection", "member", member.id,
+                       f"Requested a change to their {state['year']} selection ({len(rows)} reopened)")
+    db.commit()
+    return {"success": True, "reopened": len(rows)}
 
 
 @router.get("/portal/selection/history")
