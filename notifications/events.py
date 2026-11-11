@@ -14,6 +14,7 @@ class EventType(str, Enum):
     MEMBER_REJECTED = "member_rejected"
     DEPARTMENT_ASSIGNED = "department_assigned"
     RESULTS_PUBLISHED = "results_published"
+    SELECTION_FINALIZED = "selection_finalized"
     APPEAL_SUBMITTED = "appeal_submitted"
     APPEAL_RESOLVED = "appeal_resolved"
     MEETING_CREATED = "meeting_created"
@@ -40,6 +41,7 @@ EVENT_LABELS = {
     EventType.MEMBER_REJECTED: "Member Selection Rejected",
     EventType.DEPARTMENT_ASSIGNED: "Department Assigned by Admin",
     EventType.RESULTS_PUBLISHED: "Results Published",
+    EventType.SELECTION_FINALIZED: "Selection Outcome (Approved + Not Approved)",
     EventType.APPEAL_SUBMITTED: "Appeal Submitted",
     EventType.APPEAL_RESOLVED: "Appeal Resolved",
     EventType.MEETING_CREATED: "Meeting Created",
@@ -67,6 +69,7 @@ EVENT_DESCRIPTIONS = {
     EventType.MEMBER_REJECTED: "Sent to member when their department selection is rejected",
     EventType.DEPARTMENT_ASSIGNED: "Sent to member when admin assigns them to a department",
     EventType.RESULTS_PUBLISHED: "Sent to all members when results are published",
+    EventType.SELECTION_FINALIZED: "Sent to each member when the selection campaign is published, summarizing which departments were approved and which were not approved",
     EventType.APPEAL_SUBMITTED: "Sent to admin when a member submits an appeal",
     EventType.APPEAL_RESOLVED: "Sent to member when their appeal is resolved",
     EventType.MEETING_CREATED: "Sent to department members when a new meeting is scheduled",
@@ -94,6 +97,7 @@ EMAIL_SUBJECTS = {
     EventType.MEMBER_REJECTED: "Update on Your Department Selection",
     EventType.DEPARTMENT_ASSIGNED: "You Have Been Assigned to a Department",
     EventType.RESULTS_PUBLISHED: "Department Selection Results Are Now Available",
+    EventType.SELECTION_FINALIZED: "Your {year} Department Serving — Approved & Not Approved",
     EventType.APPEAL_SUBMITTED: "New Appeal Submitted",
     EventType.APPEAL_RESOLVED: "Your Appeal Has Been Resolved",
     EventType.MEETING_CREATED: "Meeting Invite: {title} - Please RSVP",

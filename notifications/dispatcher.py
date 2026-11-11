@@ -243,6 +243,35 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_url=portal_link
         ),
 
+        EventType.SELECTION_FINALIZED: base_template(
+            title="Your Serving Departments",
+            accent_color="#10b981",
+            content=f'''
+                {heading(f"Your {data.get('year', '')} Serving Departments".strip())}
+                {greeting(data.get('recipient_name') or data.get('member_name', 'Member'))}
+                {paragraph(f"The department selection for <strong>{data.get('year', 'the new year')}</strong> has been finalised. Here's where you'll be serving — and the selections that weren't approved this time.")}
+
+                {(section_heading("Approved — you'll be serving in") +
+                    (role_tags(data.get('approved_departments', [])) if data.get('approved_departments')
+                     else paragraph("No departments were approved for you this year. Please speak to a church leader if you'd like to serve.")))}
+
+                {(divider() + section_heading("Not approved this time") +
+                    ''.join(
+                        f'<p style="margin: 0 0 8px 0; color: {TEXT}; font-size: 14px; line-height: 1.5; padding-left: 12px; border-left: 2px solid {BORDER};">'
+                        f'<span style="text-decoration: line-through; color: {TEXT_SECONDARY};">{it.get("name", "")}</span>'
+                        + (f'<br><span style="color: {TEXT_MUTED}; font-size: 13px;">{it.get("note", "")}</span>' if it.get("note") else '')
+                        + '</p>'
+                        for it in data.get('rejected_items', [])
+                    )
+                ) if data.get('rejected_items') else ''}
+
+                {divider()}
+                {paragraph("Open the portal to see your departments in full. If a selection wasn't approved and you'd like to appeal, you can request a change there once appeals are open.")}
+            ''',
+            button_text="View My Departments" if portal_link else None,
+            button_url=portal_link
+        ),
+
         EventType.APPEAL_SUBMITTED: base_template(
             title="New Appeal",
             accent_color="#f59e0b",

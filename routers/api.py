@@ -3773,14 +3773,60 @@ def admin_selection_publish(request: Request = None, db: Session = Depends(get_d
         except Exception as e:
             print(f"[selection publish] central sync failed for member {mid}: {e}")
 
+    # 6. Email each member their outcome: what was approved + what was not
+    #    approved (including replacements). Best-effort — never breaks publish.
+    notified = 0
+    try:
+        from notifications.dispatcher import dispatch_event
+        outcome_rows = db.query(DepartmentSelection).options(
+            joinedload(DepartmentSelection.member),
+            joinedload(DepartmentSelection.department),
+        ).filter(
+            DepartmentSelection.year == campaign_year,
+            DepartmentSelection.status.in_(("approved", "rejected")),
+        ).all()
+        by_member: Dict[int, dict] = {}
+        for s in outcome_rows:
+            if not s.member or not s.department:
+                continue
+            entry = by_member.setdefault(s.member_id, {
+                "member": s.member, "approved": [], "rejected": []})
+            if s.status == "approved":
+                entry["approved"].append(s.department.name)
+            else:
+                entry["rejected"].append({"name": s.department.name, "note": s.admin_note or ""})
+        for mid, entry in by_member.items():
+            member = entry["member"]
+            if not getattr(member, "email", None):
+                continue
+            try:
+                dispatch_event(db, EventType.SELECTION_FINALIZED, {
+                    "year": str(campaign_year),
+                    "member_id": member.id,
+                    "member_name": member.name,
+                    "member_email": member.email,
+                    "member_phone": member.phone,
+                    "approved_departments": sorted(entry["approved"]),
+                    "rejected_items": sorted(entry["rejected"], key=lambda it: it["name"]),
+                }, recipients=[{
+                    "id": member.id, "email": member.email,
+                    "name": member.name, "phone": member.phone,
+                }])
+                notified += 1
+            except Exception as e:
+                print(f"[selection publish] outcome email failed for member {mid}: {e}")
+    except Exception as e:
+        print(f"[selection publish] outcome notification step failed: {e}")
+
     _log_admin_action(request, db, "selection_publish", "settings", None,
                       f"Published {campaign_year}: {len(approved)} assignments across {len(new_member_ids)} members; "
-                      f"snapshotted {outgoing_year}; {len(affected)} central syncs")
+                      f"snapshotted {outgoing_year}; {len(affected)} central syncs; {notified} outcome emails")
     db.commit()
     return {
         "success": True, "year": campaign_year,
         "assignments": len(approved), "members_in": len(new_member_ids),
-        "members_cleared": len(prior_member_ids - new_member_ids), "central_synced": synced,
+        "members_cleared": len(prior_member_ids - new_member_ids),
+        "central_synced": synced, "members_notified": notified,
     }
 
 
