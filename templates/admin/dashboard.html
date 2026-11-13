@@ -103,11 +103,13 @@ const FEATURES = {
     admin_home_churches: {{ features.admin_home_churches | default(true) | tojson }},
     elder_attendance_report: {{ features.elder_attendance_report | default(true) | tojson }},
     prayer_groups: {{ features.prayer_groups | default(true) | tojson }},
+    department_selection: {{ features.department_selection | default(true) | tojson }},
 };
 
 // ============ Widget catalogue ============
 // Each widget: id, feature gate, destination, accent colours, and a glimpse loader.
 const WIDGETS = [
+    { id: 'selection',    feat: 'department_selection',    title: 'Selection Campaign', desc: 'Department sign-ups',   href: '/admin/selection-campaign', emoji: '🗂️', bg: '#e0e7ff', fg: '#4f46e5', load: loadSelectionGlimpse },
     { id: 'programs',     feat: 'admin_programs',          title: 'Programs',           desc: 'Order of service',     href: '/admin/programs',      emoji: '📋', bg: '#dbeafe', fg: '#2563eb', load: loadProgramsGlimpse },
     { id: 'service',      feat: 'admin_programs',          title: 'Service Management', desc: 'Service roster',       href: '/admin/schedules',     emoji: '🗓️', bg: '#ccfbf1', fg: '#0d9488', load: loadServiceGlimpse },
     { id: 'homechurches', feat: 'admin_home_churches',     title: 'Home Churches',      desc: 'Weekly preacher roster', href: '/admin/home-churches', emoji: '🏠', bg: '#ede9fe', fg: '#7c3aed', load: loadHomeChurchGlimpse },
@@ -252,6 +254,24 @@ function stat(num, label, color) {
 // ============ Glimpse loaders (defensive) ============
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function fmtDate(iso) { try { return new Date(iso + 'T00:00:00').toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }); } catch (e) { return iso; } }
+
+async function loadSelectionGlimpse() {
+    try {
+        const p = await fetch('/api/admin/selection/progress').then(r => r.json());
+        if (!p || !p.year) return setGlimpse('selection', '<span class="text-gray-400">No campaign yet — open one to start sign-ups.</span>');
+        let html = `<div class="flex items-baseline gap-4">
+            <div>${stat(`${p.members_selected} / ${p.total_members}`, 'selected', 'text-indigo-600')}</div>
+            <div>${stat(p.approved, 'approved', 'text-emerald-600')}</div></div>`;
+        const status = p.campaign_open ? '<span class="text-green-600 font-medium">Open</span>' : '<span class="text-gray-500">Closed</span>';
+        html += `<div class="mt-2 text-xs text-gray-500">${status} · ${p.year} · ${p.pending} pending`;
+        if (p.admin_only_departments) html += ` · ${p.admin_only_departments} admin-only dept${p.admin_only_departments === 1 ? '' : 's'}`;
+        html += `</div>`;
+        // Top few departments by sign-ups.
+        const top = (p.by_department || []).filter(d => d.joined > 0).slice(0, 3);
+        if (top.length) html += `<div class="mt-1 text-xs text-gray-400 truncate">Top: ${top.map(d => `${escapeHtml(d.department_name)} (${d.joined})`).join(', ')}</div>`;
+        setGlimpse('selection', html);
+    } catch (e) { setGlimpse('selection', glimpseError()); }
+}
 
 async function loadProgramsGlimpse() {
     try {

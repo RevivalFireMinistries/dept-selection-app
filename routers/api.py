@@ -1619,24 +1619,38 @@ def reject_member(member_id: int, request: Request = None, db: Session = Depends
 # ============ DEPARTMENTS ============
 
 @router.get("/departments")
-def get_departments(include_inactive: bool = Query(False), db: Session = Depends(get_db)):
+def get_departments(include_inactive: bool = Query(False), public_only: bool = Query(False),
+                    db: Session = Depends(get_db)):
     """Get all departments grouped by category.
 
     By default only ACTIVE departments are returned, so dropped departments
     disappear from every picker (member selection, meetings, posters, …).
     Admin curation views pass include_inactive=true to see and restore
     dropped ones.
+
+    public_only=true additionally drops admin-assigned-only departments — used
+    by the member self-selection picker so members only see what they may opt
+    into themselves.
     """
     categories = db.query(Category).options(
         joinedload(Category.departments).joinedload(Department.hod),
         joinedload(Category.departments).joinedload(Department.pending_hod),
     ).order_by(Category.name).all()
 
+    def _keep(d):
+        if not include_inactive and not d.is_active:
+            return False
+        if public_only and not d.public_selectable:
+            return False
+        return True
+
     uncat_q = db.query(Department).options(
         joinedload(Department.hod), joinedload(Department.pending_hod)
     ).filter(Department.category_id == None)
     if not include_inactive:
         uncat_q = uncat_q.filter(Department.is_active == True)  # noqa: E712
+    if public_only:
+        uncat_q = uncat_q.filter(Department.public_selectable == True)  # noqa: E712
     uncategorized = uncat_q.order_by(Department.name).all()
 
     def _person(m):
@@ -1646,12 +1660,13 @@ def get_departments(include_inactive: bool = Query(False), db: Session = Depends
         return {
             "id": d.id, "name": d.name, "categoryId": d.category_id,
             "isActive": bool(d.is_active),
+            "publicSelectable": bool(d.public_selectable),
             "hod": _person(d.hod),
             "pendingHod": _person(d.pending_hod),
         }
 
     def _depts_for(cat):
-        depts = cat.departments if include_inactive else [d for d in cat.departments if d.is_active]
+        depts = [d for d in cat.departments if _keep(d)]
         return [dept_dict(d) for d in sorted(depts, key=lambda x: x.name)]
 
     return {
@@ -2024,6 +2039,23 @@ def restore_department(data: dict = Body(...), request: Request = None, db: Sess
                       f"Restored department '{dept.name}'")
     db.commit()
     return {"success": True, "id": dept.id, "is_active": True}
+
+
+@router.post("/departments/set-public")
+def set_department_public(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Flag whether a department is self-selectable by members (public) or
+    assigned only by the admin team. Admin-only departments are hidden from the
+    member picker but admins can still assign members to them."""
+    _require_committee_or_admin(request, db)
+    dept = db.query(Department).filter(Department.id == data.get("id")).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    dept.public_selectable = bool(data.get("public"))
+    db.commit()
+    _log_admin_action(request, db, "set_department_public", "department", dept.id,
+                      f"'{dept.name}' set to {'public self-select' if dept.public_selectable else 'admin-only'}")
+    db.commit()
+    return {"success": True, "id": dept.id, "public_selectable": dept.public_selectable}
 
 
 @router.post("/admin/departments/{department_id}/set-pending-hod")
@@ -3432,6 +3464,10 @@ def _validate_department_choice(db: Session, dept_ids: list) -> list:
     if dropped:
         raise HTTPException(status_code=400,
                             detail=f"These departments are no longer available: {', '.join(dropped)}")
+    admin_only = [d.name for d in depts if not d.public_selectable]
+    if admin_only:
+        raise HTTPException(status_code=400,
+                            detail=f"These departments are assigned by the admin team, not self-selected: {', '.join(admin_only)}")
     category_selections: Dict[int, list] = {}
     for d in depts:
         if d.category_id:
@@ -3651,14 +3687,38 @@ def admin_selection_progress(request: Request, db: Session = Depends(get_db)):
             rejected += 1
         else:
             pending += 1
-    depts = {d.id: d.name for d in db.query(Department).all()}
-    by_department = [{"department_id": did, "department_name": depts.get(did, "?"), **c} for did, c in dcount.items()]
-    by_department.sort(key=lambda x: -(x["approved"] + x["pending"]))
+
+    # Include EVERY active department (even with zero joins so far) plus any
+    # department that has selections, so the stats read as a complete roster.
+    all_depts = db.query(Department).all()
+    dmeta = {d.id: d for d in all_depts}
+    dept_ids = {d.id for d in all_depts if d.is_active} | set(dcount.keys())
+    by_department = []
+    for did in dept_ids:
+        d = dmeta.get(did)
+        c = dcount.get(did, {"pending": 0, "approved": 0, "rejected": 0})
+        joined = c["approved"] + c["pending"] + c["rejected"]
+        by_department.append({
+            "department_id": did,
+            "department_name": d.name if d else "?",
+            "public": bool(d.public_selectable) if d else True,
+            "is_active": bool(d.is_active) if d else False,
+            "joined": joined,
+            **c,
+        })
+    # Most-subscribed first, then name.
+    by_department.sort(key=lambda x: (-(x["joined"]), x["department_name"].lower()))
+
+    public_depts = sum(1 for d in all_depts if d.is_active and d.public_selectable)
+    admin_only_depts = sum(1 for d in all_depts if d.is_active and not d.public_selectable)
     return {
         "year": year,
+        "campaign_open": state["open"],
         "members_selected": len({r.member_id for r in rows}),
         "total_members": total_members,
         "pending": pending, "approved": approved, "rejected": rejected,
+        "public_departments": public_depts,
+        "admin_only_departments": admin_only_depts,
         "by_department": by_department,
     }
 

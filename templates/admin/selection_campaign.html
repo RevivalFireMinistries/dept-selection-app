@@ -185,6 +185,11 @@ function deptRow(d) {
           <p class="text-xs text-gray-400">${escapeHtml(d.categoryName || 'No category')}</p>
         </div>
         <div class="flex gap-1 flex-shrink-0">
+          <button onclick="setPublic(${d.id}, ${d.publicSelectable ? 'false' : 'true'})"
+            title="${d.publicSelectable ? 'Members can self-select this. Click to make it admin-assigned only.' : 'Admins assign this; hidden from members. Click to open it to members.'}"
+            class="px-2 py-1 text-xs rounded ${d.publicSelectable ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}">
+            ${d.publicSelectable ? 'Public' : 'Admin only'}
+          </button>
           <button onclick="renameDept(${d.id})" class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200">Rename</button>
           <button onclick="dropDept(${d.id})" class="px-2 py-1 text-xs bg-rose-50 text-rose-600 rounded hover:bg-rose-100">Drop</button>
         </div>
@@ -248,6 +253,15 @@ async function restoreDept(id) {
   await loadDeptAdmin();
 }
 
+async function setPublic(id, makePublic) {
+  await fetch('/api/departments/set-public', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, public: makePublic })
+  });
+  await loadDeptAdmin();
+  await loadProgress();
+}
+
 async function setPendingHod(deptId, memberIdStr) {
   const memberId = parseInt(memberIdStr, 10);
   if (memberId) {
@@ -301,14 +315,19 @@ async function loadProgress() {
   const el = document.getElementById('byDept');
   el.innerHTML = (p.by_department || []).length
     ? p.by_department.map(d => `
-      <div class="flex items-center justify-between py-2">
-        <span class="text-gray-800">${escapeHtml(d.department_name)}</span>
-        <span class="flex gap-2 text-xs">
+      <div class="flex items-center justify-between py-2 gap-2">
+        <span class="flex items-center gap-2 min-w-0">
+          <span class="text-gray-800 truncate">${escapeHtml(d.department_name)}</span>
+          ${d.public === false ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">admin only</span>' : ''}
+          <span class="text-xs text-gray-400 flex-shrink-0">${d.joined} joined</span>
+        </span>
+        <span class="flex gap-2 text-xs flex-shrink-0">
           <span class="px-2 py-0.5 rounded bg-green-100 text-green-700">${d.approved} approved</span>
           <span class="px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">${d.pending} pending</span>
+          ${d.rejected ? `<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-700">${d.rejected} rejected</span>` : ''}
         </span>
       </div>`).join('')
-    : '<p class="text-gray-400 py-2">No selections yet.</p>';
+    : '<p class="text-gray-400 py-2">No departments yet.</p>';
 }
 
 async function loadReviews() {

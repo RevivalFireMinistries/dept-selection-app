@@ -31,6 +31,10 @@ class Department(Base):
     # from new assignments, but the row (and all year-scoped service history in
     # department_selections) survives — a hard delete would cascade and erase it.
     is_active = Column(Boolean, nullable=False, server_default="true")
+    # Whether members may opt into this department themselves during a campaign.
+    # False = admin-assigned only: hidden from the public picker, but admins can
+    # still assign members to it. Does not affect any other use of the department.
+    public_selectable = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Link to the central rfm-database department record. Same pattern we use
     # for members — gated by RFM_API_INTEGRATION_ENABLED, populated on first

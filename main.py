@@ -74,10 +74,11 @@ def run_migrations():
             conn.execute(text("""
                 ALTER TABLE departments
                 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
-                ADD COLUMN IF NOT EXISTS pending_hod_member_id INTEGER REFERENCES members(id) ON DELETE SET NULL
+                ADD COLUMN IF NOT EXISTS pending_hod_member_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS public_selectable BOOLEAN NOT NULL DEFAULT true
             """))
             conn.commit()
-            print("Migration: Added is_active and pending_hod_member_id columns to departments")
+            print("Migration: Added is_active, pending_hod_member_id, public_selectable columns to departments")
         except Exception as e:
             conn.rollback()
             print(f"Migration note (departments curation columns): {e}")

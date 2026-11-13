@@ -2244,7 +2244,9 @@ function memberPortal() {
                 this.selection.loaded = true;
                 this.selPicks = (this.selection.my_selection || []).map(s => s.department_id);
                 if (this.selection.campaign_open && !this.selDepartments) {
-                    this.selDepartments = await fetch('/api/departments').then(x => x.json());
+                    // public_only: members only see departments they may opt into
+                    // themselves; admin-assigned-only departments are hidden.
+                    this.selDepartments = await fetch('/api/departments?public_only=true').then(x => x.json());
                 }
             } catch (e) { /* card simply doesn't render */ }
         },
