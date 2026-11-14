@@ -6,6 +6,9 @@
 <div class="space-y-6">
     <h2 class="text-2xl font-bold text-gray-900">Search Members</h2>
 
+    <!-- Campaign banner -->
+    <div id="campaignBanner" class="hidden bg-teal-50 border border-teal-200 rounded-xl p-4 text-sm text-teal-800"></div>
+
     <!-- Search Card -->
     <div class="bg-white rounded-xl shadow p-6">
         <p class="text-sm text-gray-600 mb-4">
@@ -97,91 +100,96 @@
 
 {% block scripts %}
 <script>
-let allMembers = [];
+let SEARCH_SOURCE = 'local';
+let CAMPAIGN = { open: false, year: null };
 
-// Load all members on page load for searching
 document.addEventListener('DOMContentLoaded', async function() {
-    loadMembers();
-    // Check if selections are locked
     try {
-        const res = await fetch('/api/settings');
-        const settings = await res.json();
+        const settings = await fetch('/api/settings').then(r => r.json());
         if (settings.resultsPublished === 'true') {
             document.getElementById('newSubmissionLink').classList.add('hidden');
             document.getElementById('lockedNotice').classList.remove('hidden');
         }
+        CAMPAIGN.open = settings.selectionCampaignOpen === 'true';
+        CAMPAIGN.year = settings.selectionCampaignYear || '';
+        if (CAMPAIGN.open && CAMPAIGN.year) {
+            const b = document.getElementById('campaignBanner');
+            b.innerHTML = `Department selection for <strong>${CAMPAIGN.year}</strong> is open — search for a member and record their ${CAMPAIGN.year} departments.`;
+            b.classList.remove('hidden');
+        }
     } catch (e) {}
 });
 
-async function loadMembers() {
-    try {
-        const response = await fetch('/api/members');
-        allMembers = await response.json();
-    } catch (error) {
-        console.error('Failed to load members:', error);
-    }
-}
+function escapeHtml(str) { if (!str) return ''; const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 
-function handleSearchKeyup(event) {
-    if (event.key === 'Enter') {
-        searchMembers();
-    }
-}
+function handleSearchKeyup(event) { if (event.key === 'Enter') searchMembers(); }
 
-function searchMembers() {
-    const query = document.getElementById('searchInput').value.trim().toLowerCase();
-
-    if (!query) {
-        document.getElementById('searchResults').classList.add('hidden');
-        document.getElementById('noResults').classList.add('hidden');
-        return;
-    }
-
-    // Show loading
-    document.getElementById('searchLoading').classList.remove('hidden');
+async function searchMembers() {
+    const query = document.getElementById('searchInput').value.trim();
     document.getElementById('searchResults').classList.add('hidden');
     document.getElementById('noResults').classList.add('hidden');
+    if (query.length < 2) return;
 
-    // Filter members
-    const results = allMembers.filter(member => {
-        const name = (member.fullName || '').toLowerCase();
-        const phone = (member.phone || '').toLowerCase();
-        return name.includes(query) || phone.includes(query);
-    });
-
-    // Hide loading
-    document.getElementById('searchLoading').classList.add('hidden');
-
-    if (results.length === 0) {
+    document.getElementById('searchLoading').classList.remove('hidden');
+    let data;
+    try {
+        data = await fetch('/api/desk/members/search?q=' + encodeURIComponent(query)).then(r => r.json());
+    } catch (e) {
+        document.getElementById('searchLoading').classList.add('hidden');
         document.getElementById('noResults').classList.remove('hidden');
         return;
     }
+    document.getElementById('searchLoading').classList.add('hidden');
+    SEARCH_SOURCE = data.source || 'local';
+    const results = data.results || [];
+    if (results.length === 0) { document.getElementById('noResults').classList.remove('hidden'); return; }
 
-    // Show results
     const container = document.getElementById('resultsContainer');
-    container.innerHTML = results.map(member => `
+    container.innerHTML = results.map((m, i) => {
+        window.__deskResults = window.__deskResults || {};
+        window.__deskResults[i] = m;
+        const linked = m.local_member_id ? '' : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 ml-1">from directory</span>';
+        const actionLabel = CAMPAIGN.open ? `Select ${CAMPAIGN.year} departments` : 'Edit selection';
+        const profileBtn = m.local_member_id
+            ? `<a href="/desk/member/${m.local_member_id}/profile" class="py-2 px-3 bg-gray-200 text-gray-700 text-sm font-medium text-center rounded-lg hover:bg-gray-300">Profile</a>`
+            : '';
+        return `
         <div class="p-4 bg-gray-50 rounded-lg">
-            <div class="flex items-center justify-between mb-3">
-                <div>
-                    <p class="font-medium text-gray-900">${member.fullName}</p>
-                    <p class="text-sm text-gray-500">${member.phone} ${member.email ? '• ' + member.email : ''}</p>
-                    <p class="text-xs text-gray-400 mt-1">${member.departments.length} department(s) selected</p>
-                </div>
+            <div class="mb-3">
+                <p class="font-medium text-gray-900">${escapeHtml(m.full_name)}${linked}</p>
+                <p class="text-sm text-gray-500">${escapeHtml(m.phone || '')}${m.email ? ' • ' + escapeHtml(m.email) : ''}</p>
             </div>
             <div class="flex gap-2">
-                <a href="/desk/member/${member.id}/profile"
+                <button onclick="selectMember(${i}, this)"
                    class="flex-1 py-2 px-3 bg-teal-600 text-white text-sm font-medium text-center rounded-lg hover:bg-teal-700">
-                    View Profile
-                </a>
-                <a href="/desk/member/${member.id}"
-                   class="flex-1 py-2 px-3 bg-gray-200 text-gray-700 text-sm font-medium text-center rounded-lg hover:bg-gray-300">
-                    Edit Selection
-                </a>
+                    ${actionLabel}
+                </button>
+                ${profileBtn}
             </div>
-        </div>
-    `).join('');
-
+        </div>`;
+    }).join('');
+    const src = SEARCH_SOURCE === 'central'
+        ? '<span class="text-xs text-gray-400">Results from the central member database.</span>'
+        : '<span class="text-xs text-gray-400">Results from local records.</span>';
+    container.insertAdjacentHTML('afterbegin', `<div class="mb-2">${src}</div>`);
     document.getElementById('searchResults').classList.remove('hidden');
+}
+
+async function selectMember(idx, btn) {
+    const m = (window.__deskResults || {})[idx];
+    if (!m) return;
+    if (m.local_member_id) { window.location = '/desk/member/' + m.local_member_id; return; }
+    // From the central directory and not yet mirrored locally — resolve first.
+    btn.disabled = true; btn.textContent = 'Opening…';
+    try {
+        const res = await fetch('/api/desk/members/resolve', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ external_member_id: m.external_member_id, phone: m.phone || null })
+        });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.detail || 'Could not open this member'); btn.disabled = false; btn.textContent = 'Try again'; return; }
+        const d = await res.json();
+        window.location = '/desk/member/' + d.member_id;
+    } catch (e) { alert('Could not open this member'); btn.disabled = false; btn.textContent = 'Try again'; }
 }
 </script>
 {% endblock %}

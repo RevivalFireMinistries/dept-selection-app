@@ -37,13 +37,16 @@
             <p class="text-sm text-teal-700">
                 <strong>Editing:</strong> <span id="memberName"></span>
             </p>
-            <p class="text-xs text-teal-600 mt-1">
+            <p class="text-xs text-teal-600 mt-1" id="memberDateWrap">
                 Submitted: <span id="memberDate"></span>
             </p>
         </div>
 
+        <!-- Campaign context (shown only while a selection cycle is open) -->
+        <div id="campaignContext" class="hidden"></div>
+
         <!-- Personal Information -->
-        <div class="bg-white rounded-xl shadow p-6">
+        <div id="personalInfoCard" class="bg-white rounded-xl shadow p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Personal Information</h3>
 
             <div class="space-y-4">
@@ -117,24 +120,34 @@ let uncategorized = [];
 let maxDepartments = 3;
 let selectedDepartments = [];
 let originalMember = null;
+let campaignMode = false;
+let campaignYear = null;
+let isApproved = false;
 
 document.addEventListener('DOMContentLoaded', loadData);
 
+function escHtml(str) { if (!str) return ''; const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+
 async function loadData() {
     try {
-        const [deptRes, settingsRes, memberRes] = await Promise.all([
+        const [deptRes, settingsRes, memberRes, selRes] = await Promise.all([
             fetch('/api/departments').then(r => r.json()),
             fetch('/api/settings').then(r => r.json()),
             fetch(`/api/members/${memberId}`).then(r => {
                 if (!r.ok) throw new Error('Member not found');
                 return r.json();
-            })
+            }),
+            fetch(`/api/desk/selection?member_id=${memberId}`).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
 
         categories = deptRes.categories || [];
         uncategorized = deptRes.uncategorized || [];
         maxDepartments = parseInt(settingsRes.maxDepartments) || 3;
         originalMember = memberRes;
+
+        campaignMode = !!(selRes && selRes.campaign_open && selRes.year);
+        campaignYear = selRes && selRes.year;
+        isApproved = !!(selRes && selRes.is_approved);
 
         // Pre-fill form
         document.getElementById('fullName').value = originalMember.fullName || '';
@@ -143,7 +156,6 @@ async function loadData() {
         document.getElementById('address').value = originalMember.address || '';
         document.getElementById('memberName').textContent = originalMember.fullName;
 
-        // Format date
         if (originalMember.createdAt) {
             const date = new Date(originalMember.createdAt);
             document.getElementById('memberDate').textContent = date.toLocaleDateString('en-ZA', {
@@ -151,8 +163,26 @@ async function loadData() {
             });
         }
 
-        // Pre-select departments
-        selectedDepartments = originalMember.departments.map(d => d.departmentId);
+        if (campaignMode) {
+            // Campaign: pick for the NEW year into the draft. Hide admin-only
+            // departments (members/desk can't self-select those) and pre-fill
+            // from the member's existing draft, not their live assignments.
+            categories = categories
+                .map(c => ({ ...c, departments: (c.departments || []).filter(d => d.publicSelectable !== false) }))
+                .filter(c => c.departments.length);
+            uncategorized = (uncategorized || []).filter(d => d.publicSelectable !== false);
+            selectedDepartments = (selRes.my_selection || []).map(s => s.department_id);
+            renderCampaignContext(selRes);
+            document.querySelector('#submitBtn').textContent = `Save ${campaignYear} selection`;
+            document.getElementById('memberDateWrap').classList.add('hidden');
+            // Contact edits belong in the central directory; campaign mode only
+            // records departments, so hide the personal-info card to avoid
+            // implying those fields save here.
+            document.getElementById('personalInfoCard').classList.add('hidden');
+        } else {
+            // No campaign: edit the live assignments as before.
+            selectedDepartments = originalMember.departments.map(d => d.departmentId);
+        }
 
         updateCounter();
         updateSelectionInfo();
@@ -162,11 +192,43 @@ async function loadData() {
 
         renderDepartments();
         updateSubmitButton();
+
+        if (campaignMode && isApproved) lockApproved();
     } catch (error) {
         console.error('Failed to load data:', error);
         showError('Failed to load member data. The member may have been deleted.');
         document.getElementById('loadingState').classList.add('hidden');
     }
+}
+
+function renderCampaignContext(sel) {
+    const el = document.getElementById('campaignContext');
+    const liveYear = sel.live_year || '';
+    const current = (sel.current_departments || []);
+    const chips = current.length
+        ? current.map(d => `<span class="inline-block px-2 py-0.5 rounded bg-white border border-gray-200 text-xs text-gray-600 mr-1 mb-1">${escHtml(d.department_name)}</span>`).join('')
+        : '<span class="text-xs text-gray-400">None on record.</span>';
+    el.innerHTML = `
+        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-2">
+            <p class="text-sm text-indigo-800"><strong>Selecting ${campaignYear} departments</strong> for ${escHtml(sel.member.full_name)}.
+               Their current departments stay as they are until results are published.</p>
+            <div>
+                <p class="text-[11px] uppercase tracking-wide text-indigo-400 font-semibold mb-1">Currently serving (${liveYear})</p>
+                <div>${chips}</div>
+            </div>
+        </div>`;
+    el.classList.remove('hidden');
+}
+
+function lockApproved() {
+    document.querySelectorAll('#departmentsContainer button').forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'cursor-not-allowed'); });
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true; btn.textContent = 'Already approved';
+    const el = document.getElementById('campaignContext');
+    el.insertAdjacentHTML('beforeend',
+        `<div class="mt-2 bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
+            This member's ${campaignYear} selection is already approved. Ask an admin to reopen it before changing it.
+        </div>`);
 }
 
 function renderDepartments() {
@@ -365,16 +427,27 @@ async function handleUpdate() {
     btn.textContent = 'Saving...';
 
     try {
-        const response = await fetch(`/api/members/${memberId}?source=desk`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                full_name: fullName,
-                email: email,
-                address: address,
-                selected_departments: selectedDepartments
-            })
-        });
+        let response;
+        if (campaignMode) {
+            // Record the member's draft picks for the campaign year — never
+            // touches their live assignments.
+            response = await fetch('/api/desk/selection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ member_id: parseInt(memberId, 10), selected_departments: selectedDepartments })
+            });
+        } else {
+            response = await fetch(`/api/members/${memberId}?source=desk`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    full_name: fullName,
+                    email: email,
+                    address: address,
+                    selected_departments: selectedDepartments
+                })
+            });
+        }
 
         const data = await response.json();
 
@@ -389,7 +462,7 @@ async function handleUpdate() {
         console.error('Update error:', error);
         showError(error.message || 'Failed to update. Please try again.');
         btn.disabled = false;
-        btn.textContent = 'Save Changes';
+        btn.textContent = campaignMode ? `Save ${campaignYear} selection` : 'Save Changes';
     }
 }
 

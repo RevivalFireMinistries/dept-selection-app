@@ -3567,29 +3567,35 @@ def portal_selection_submit(data: dict = Body(...), request: Request = None, db:
         dept_ids = [int(x) for x in (data.get("selected_departments") or [])]
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid department selection")
-    dept_ids = list(dict.fromkeys(dept_ids))  # dedupe, keep order
+    depts = _apply_draft_selection(db, member.id, year, dept_ids)
+    db.commit()
+    _log_member_action(request, db, member, "submit_year_selection", "member", member.id,
+                       f"Selected {len(depts)} dept(s) for {year}: {', '.join(d.name for d in depts)}")
+    db.commit()
+    return {"success": True, "year": year}
+
+
+def _apply_draft_selection(db: Session, member_id: int, year: int, dept_ids: list):
+    """Shared diff for a member's campaign-year draft (used by the member's own
+    submit and the info desk submitting on their behalf): validate, remove
+    dropped member-sourced picks (admin-added rows are kept), add new ones as
+    pending. Returns the validated Department objects. Does NOT commit."""
+    dept_ids = list(dict.fromkeys(int(x) for x in dept_ids))  # dedupe, keep order
     if not dept_ids:
         raise HTTPException(status_code=400, detail="Please select at least one department")
     depts = _validate_department_choice(db, dept_ids)
-
     existing = db.query(DepartmentSelection).filter(
-        DepartmentSelection.member_id == member.id, DepartmentSelection.year == year).all()
+        DepartmentSelection.member_id == member_id, DepartmentSelection.year == year).all()
     existing_map = {s.department_id: s for s in existing}
     new_set = set(dept_ids)
-    # Remove member-sourced picks that were dropped (keep admin-added rows).
     for did, s in existing_map.items():
         if did not in new_set and (s.source or "member") == "member":
             db.delete(s)
-    # Add newly chosen ones as pending (keep overlaps at their current status).
     for did in dept_ids:
         if did not in existing_map:
-            db.add(DepartmentSelection(year=year, member_id=member.id, department_id=did,
+            db.add(DepartmentSelection(year=year, member_id=member_id, department_id=did,
                                        source="member", status="pending"))
-    db.commit()
-    _log_member_action(request, db, member, "submit_year_selection", "member", member.id,
-                       f"Selected {len(dept_ids)} dept(s) for {year}: {', '.join(d.name for d in depts)}")
-    db.commit()
-    return {"success": True, "year": year}
+    return depts
 
 
 @router.post("/portal/selection/reopen")
@@ -3627,6 +3633,179 @@ def portal_selection_history(request: Request, db: Session = Depends(get_db)):
         by_year.setdefault(s.year, []).append(s.department.name)
     history = [{"year": y, "departments": sorted(names)} for y, names in sorted(by_year.items(), reverse=True)]
     return {"history": history, "live_year": _current_live_year(db)}
+
+
+# ---- Info desk: select on a member's behalf (central-first) ----
+
+def _require_desk_or_admin(request: Request, db: Session):
+    """Allow the info desk (desk cookie) OR an admin. Returns the acting admin
+    member when it's an admin, else None (the desk has no member identity)."""
+    from routers.pages import is_desk_authenticated, is_authenticated, get_admin_identity
+    if is_desk_authenticated(request):
+        return None
+    if is_authenticated(request):
+        identity = get_admin_identity(request)
+        if identity and identity.get("member_id"):
+            return db.query(Member).filter(Member.id == identity["member_id"]).first()
+    raise HTTPException(status_code=401, detail="Info desk or admin access required")
+
+
+@router.get("/desk/members/search")
+def desk_members_search(request: Request, q: str = Query(..., min_length=2), db: Session = Depends(get_db)):
+    """Member search for the info desk, CENTRAL-FIRST.
+
+    rfm-database is the source of truth, so when it's enabled we search the
+    central directory and return each person's external_member_id plus the
+    local_member_id if we already mirror them. When central is off/unconfigured
+    (e.g. local dev), we fall back to searching the local members table so the
+    desk still works."""
+    _require_desk_or_admin(request, db)
+    central_on = _rfm.is_enabled(db) and _rfm.is_configured(db)
+    results = []
+    if central_on:
+        tokens = _rfm._significant_name_tokens(q)
+        phone_norm = _rfm.normalise_phone(q)
+        if phone_norm and len(phone_norm) >= 6 and phone_norm not in tokens:
+            tokens.append(phone_norm)
+        if not tokens:
+            tokens = [q.strip()]
+        # Map already-linked externals to local ids in one pass.
+        linked = {m.external_member_id: m.id for m in db.query(Member).filter(
+            Member.external_member_id.isnot(None)).all()}
+        seen = set()
+        for token in tokens:
+            r = _rfm.search_members(search=token, page=1, size=50, db=db)
+            if not r.ok or not r.data:
+                continue
+            items = r.data if isinstance(r.data, list) else (r.data.get("data") or [])
+            for item in items:
+                ext_id = item.get("id")
+                if not ext_id or ext_id in seen:
+                    continue
+                seen.add(ext_id)
+                results.append({
+                    "external_member_id": ext_id,
+                    "local_member_id": linked.get(ext_id),
+                    "full_name": _rfm.fullname_from_member(item),
+                    "phone": _rfm._clean_phone_for_display(item.get("phone")) or item.get("phone") or "",
+                    "email": item.get("email") or "",
+                    "_score": _rfm.name_match_score(q, item),
+                })
+        results.sort(key=lambda r: (-r.get("_score", 0), (r.get("full_name") or "").lower()))
+        return {"source": "central", "query": q, "results": results}
+
+    # Local fallback
+    ql = q.strip().lower()
+    qdigits = re.sub(r"\D", "", q)
+    for m in db.query(Member).all():
+        name = (m.full_name or "").lower()
+        phone_digits = re.sub(r"\D", "", m.phone or "")
+        if ql in name or (qdigits and qdigits in phone_digits):
+            results.append({
+                "external_member_id": m.external_member_id,
+                "local_member_id": m.id,
+                "full_name": m.full_name,
+                "phone": m.phone or "",
+                "email": m.email or "",
+            })
+    results.sort(key=lambda r: (r.get("full_name") or "").lower())
+    return {"source": "local", "query": q, "results": results[:50]}
+
+
+@router.post("/desk/members/resolve")
+def desk_members_resolve(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Find-or-create the LOCAL member row for a central member the desk picked.
+    Returns the local member_id to act on. For the local-fallback case the desk
+    already has a local_member_id and won't call this."""
+    _require_desk_or_admin(request, db)
+    external_id = (data.get("external_member_id") or "").strip()
+    if external_id:
+        existing = db.query(Member).filter(Member.external_member_id == external_id).first()
+        if existing:
+            return {"member_id": existing.id, "created": False}
+        if not (_rfm.is_enabled(db) and _rfm.is_configured(db)):
+            raise HTTPException(status_code=400, detail="Central directory is not available")
+        member = _create_local_member_from_external(db, external_id, data.get("phone"))
+        db.commit()
+        return {"member_id": member.id, "created": True}
+    # No external id — a local member id must be supplied.
+    mid = data.get("member_id")
+    m = db.query(Member).filter(Member.id == mid).first() if mid else None
+    if not m:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {"member_id": m.id, "created": False}
+
+
+def _member_selection_view(db: Session, member: "Member") -> dict:
+    """Campaign-selection view for one member (desk mirror of portal_selection)."""
+    state = _campaign_state(db)
+    live = db.query(MemberDepartment).options(
+        joinedload(MemberDepartment.department).joinedload(Department.category)
+    ).filter(MemberDepartment.member_id == member.id, MemberDepartment.status == "approved").all()
+    current = [{"department_id": md.department_id, "department_name": md.department.name,
+                "category_name": md.department.category.name if md.department.category else None}
+               for md in live]
+    my_selection = []
+    if state["year"]:
+        rows = db.query(DepartmentSelection).options(
+            joinedload(DepartmentSelection.department).joinedload(Department.category)
+        ).filter(DepartmentSelection.member_id == member.id, DepartmentSelection.year == state["year"]).all()
+        my_selection = [{
+            "id": s.id, "department_id": s.department_id, "department_name": s.department.name,
+            "category_name": s.department.category.name if s.department.category else None,
+            "status": s.status or "pending", "source": s.source or "member", "admin_note": s.admin_note,
+        } for s in rows]
+    is_approved = any(s["status"] == "approved" for s in my_selection)
+    return {
+        "campaign_open": state["open"], "year": state["year"], "live_year": _current_live_year(db),
+        "member": {"id": member.id, "full_name": member.full_name, "phone": member.phone},
+        "current_departments": current, "my_selection": my_selection,
+        "is_approved": is_approved, "has_selection": len(my_selection) > 0,
+        "max_departments": int(_get_setting_value(db, "maxDepartments", "3") or 3),
+    }
+
+
+@router.get("/desk/selection")
+def desk_selection_get(request: Request, member_id: int = Query(...), db: Session = Depends(get_db)):
+    """The campaign-selection view for a member, for the info desk."""
+    _require_desk_or_admin(request, db)
+    member = db.query(Member).filter(Member.id == member_id).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return _member_selection_view(db, member)
+
+
+@router.post("/desk/selection")
+def desk_selection_submit(request: Request, data: dict = Body(...), db: Session = Depends(get_db)):
+    """Info desk records a member's campaign-year draft picks on their behalf.
+    Writes ONLY to department_selections — the live set is never touched."""
+    acting = _require_desk_or_admin(request, db)
+    member = db.query(Member).filter(Member.id == data.get("member_id")).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    state = _campaign_state(db)
+    if not state["open"] or not state["year"]:
+        raise HTTPException(status_code=400, detail="Department selection isn't open right now.")
+    year = state["year"]
+    already_approved = db.query(DepartmentSelection).filter(
+        DepartmentSelection.member_id == member.id, DepartmentSelection.year == year,
+        DepartmentSelection.status == "approved").count()
+    if already_approved:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{member.full_name}'s {year} selection is already approved — ask an admin to reopen it to change it.")
+    try:
+        dept_ids = [int(x) for x in (data.get("selected_departments") or [])]
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid department selection")
+    depts = _apply_draft_selection(db, member.id, year, dept_ids)
+    db.commit()
+    who = acting.full_name if acting else "Info desk"
+    _log_admin_action(request, db, "desk_year_selection", "member", member.id,
+                      f"{who} selected {len(depts)} dept(s) for {member.full_name} ({year}): "
+                      f"{', '.join(d.name for d in depts)}")
+    db.commit()
+    return {"success": True, "year": year, "member_id": member.id}
 
 
 # ---- Admin: campaign controls, progress, review ----
