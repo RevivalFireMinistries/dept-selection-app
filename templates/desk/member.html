@@ -267,6 +267,21 @@ function renderDepartments() {
         `;
     }
 
+    // Important notes for the member's current picks — visible confirmation
+    // that staff and member are on the same page (e.g. committee = leadership).
+    const flat = [...categories.flatMap(c => c.departments || []), ...uncategorized];
+    const noted = selectedDepartments.map(id => flat.find(d => d.id === id)).filter(d => d && d.selectionNote);
+    if (noted.length) {
+        html += `
+            <div class="space-y-2 pt-3 border-t border-gray-100">
+                <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Important — please confirm with the member</h4>
+                ${noted.map(d => `
+                    <div class="p-2.5 rounded-lg text-xs ${d.noteSeverity === 'warning' ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-sky-50 border border-sky-200 text-sky-900'}">
+                        <span class="font-semibold">${escHtml(d.name)}:</span> ${escHtml(d.selectionNote)}
+                    </div>`).join('')}
+            </div>`;
+    }
+
     container.innerHTML = html;
 }
 
@@ -307,6 +322,7 @@ function renderDepartmentButton(dept, category) {
             onclick="toggleDepartment(${dept.id}, ${categoryId})"
             class="${className}"
             ${isDisabled ? 'disabled' : ''}>
+            ${dept.selectionNote ? `<span class="absolute top-1 left-1 w-4 h-4 rounded-full ${dept.noteSeverity === 'warning' ? 'bg-amber-400 text-amber-900' : 'bg-sky-400 text-white'} text-[10px] font-bold flex items-center justify-center" title="This department has an important note — see below">i</span>` : ''}
             ${dept.name}
             ${isSelected ? `
                 <svg class="absolute top-1 right-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

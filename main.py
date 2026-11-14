@@ -83,6 +83,22 @@ def run_migrations():
             conn.rollback()
             print(f"Migration note (departments curation columns): {e}")
 
+        # Per-department clarifying note shown when members select it, plus its
+        # severity (info/warning). Additive; rollback() first for the same
+        # aborted-transaction reason as above.
+        try:
+            conn.rollback()
+            conn.execute(text("""
+                ALTER TABLE departments
+                ADD COLUMN IF NOT EXISTS selection_note TEXT,
+                ADD COLUMN IF NOT EXISTS note_severity VARCHAR NOT NULL DEFAULT 'info'
+            """))
+            conn.commit()
+            print("Migration: Added selection_note, note_severity columns to departments")
+        except Exception as e:
+            conn.rollback()
+            print(f"Migration note (departments selection_note columns): {e}")
+
         # Check if meetings table exists (created by create_all, log for visibility)
         result = conn.execute(text("""
             SELECT table_name FROM information_schema.tables

@@ -203,7 +203,51 @@ function deptRow(d) {
           ${memberOptions(pendingId)}
         </select>
       </div>
+      <div class="mt-2">
+        <button onclick="toggleNoteEditor(${d.id})" class="text-xs ${d.selectionNote ? 'text-amber-700 font-medium' : 'text-gray-500'} hover:underline">
+          ${d.selectionNote ? '📝 Edit selection note' : '＋ Add selection note'}
+        </button>
+        ${d.selectionNote ? `<span class="ml-2 text-xs px-2 py-0.5 rounded-full ${d.noteSeverity === 'warning' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}">${escapeHtml(d.selectionNote)}</span>` : ''}
+        <div id="noteEditor_${d.id}" class="hidden mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+          <p class="text-[11px] text-gray-500">Shown to members the moment they tick this department — use it to clear up confusing names (e.g. a committee being a leadership role).</p>
+          <textarea id="noteText_${d.id}" rows="2" maxlength="300" class="w-full px-2 py-1.5 border border-gray-200 rounded text-xs" placeholder="e.g. This is the leadership committee of Couples Ministry — not the same as joining Couples Ministry.">${escapeHtml(d.selectionNote || '')}</textarea>
+          <div class="flex items-center flex-wrap gap-2">
+            <label class="text-xs text-gray-600">Style:</label>
+            <select id="noteSev_${d.id}" class="border border-gray-200 rounded px-2 py-1 text-xs">
+              <option value="info" ${d.noteSeverity !== 'warning' ? 'selected' : ''}>Info (blue)</option>
+              <option value="warning" ${d.noteSeverity === 'warning' ? 'selected' : ''}>Important warning (amber)</option>
+            </select>
+            <button onclick="saveNote(${d.id})" class="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">Save note</button>
+            ${d.selectionNote ? `<button onclick="clearNote(${d.id})" class="px-2.5 py-1 text-xs bg-rose-50 text-rose-600 rounded hover:bg-rose-100">Clear</button>` : ''}
+          </div>
+        </div>
+      </div>
     </div>`;
+}
+
+function toggleNoteEditor(id) {
+  const el = document.getElementById('noteEditor_' + id);
+  if (el) el.classList.toggle('hidden');
+}
+
+async function saveNote(id) {
+  const note = (document.getElementById('noteText_' + id)?.value || '').trim();
+  const severity = document.getElementById('noteSev_' + id)?.value || 'info';
+  const res = await fetch('/api/departments/set-note', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, note, severity })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not save note'); return; }
+  await loadDeptAdmin();
+}
+
+async function clearNote(id) {
+  const res = await fetch('/api/departments/set-note', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, note: '', severity: 'info' })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not clear note'); return; }
+  await loadDeptAdmin();
 }
 
 function toggleDropped() { SHOW_DROPPED = !SHOW_DROPPED; loadDeptAdmin(); }

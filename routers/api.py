@@ -1661,6 +1661,8 @@ def get_departments(include_inactive: bool = Query(False), public_only: bool = Q
             "id": d.id, "name": d.name, "categoryId": d.category_id,
             "isActive": bool(d.is_active),
             "publicSelectable": bool(d.public_selectable),
+            "selectionNote": d.selection_note or "",
+            "noteSeverity": (d.note_severity or "info"),
             "hod": _person(d.hod),
             "pendingHod": _person(d.pending_hod),
         }
@@ -2056,6 +2058,31 @@ def set_department_public(data: dict = Body(...), request: Request = None, db: S
                       f"'{dept.name}' set to {'public self-select' if dept.public_selectable else 'admin-only'}")
     db.commit()
     return {"success": True, "id": dept.id, "public_selectable": dept.public_selectable}
+
+
+@router.post("/departments/set-note")
+def set_department_note(data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
+    """Set (or clear) the clarifying prompt shown to members when they select a
+    department, with its severity. Use for easily-confused departments, e.g.
+    'Couples Ministry Committee' being a leadership role rather than joining
+    Couples Ministry. An empty note clears it."""
+    _require_committee_or_admin(request, db)
+    dept = db.query(Department).filter(Department.id == data.get("id")).first()
+    if not dept:
+        raise HTTPException(status_code=404, detail="Department not found")
+    note = (data.get("note") or "").strip()
+    severity = (data.get("severity") or "info").strip().lower()
+    if severity not in ("info", "warning"):
+        severity = "info"
+    dept.selection_note = note or None
+    dept.note_severity = severity
+    db.commit()
+    _log_admin_action(request, db, "set_department_note", "department", dept.id,
+                      (f"Set selection note ({severity}) on '{dept.name}'" if note
+                       else f"Cleared selection note on '{dept.name}'"))
+    db.commit()
+    return {"success": True, "id": dept.id, "selection_note": dept.selection_note or "",
+            "note_severity": dept.note_severity}
 
 
 @router.post("/admin/departments/{department_id}/set-pending-hod")

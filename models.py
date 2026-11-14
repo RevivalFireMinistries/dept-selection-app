@@ -35,6 +35,12 @@ class Department(Base):
     # False = admin-assigned only: hidden from the public picker, but admins can
     # still assign members to it. Does not affect any other use of the department.
     public_selectable = Column(Boolean, nullable=False, server_default="true")
+    # Clarifying prompt shown to members when they select this department (e.g.
+    # "Couples Ministry Committee is a leadership role on the committee — not the
+    # same as joining Couples Ministry"). note_severity drives the styling:
+    # 'info' (neutral) or 'warning' (prominent, for easily-confused choices).
+    selection_note = Column(Text, nullable=True)
+    note_severity = Column(String, nullable=False, server_default="info")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Link to the central rfm-database department record. Same pattern we use
     # for members — gated by RFM_API_INTEGRATION_ENABLED, populated on first

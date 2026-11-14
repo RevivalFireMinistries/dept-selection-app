@@ -819,16 +819,31 @@
                     <p class="text-xs mb-3" style="color: var(--color-mute);">Choose where you'd like to serve next year. <span class="font-medium" style="color: var(--color-ink);">Your current departments below stay exactly as they are</span> until results are finalised and published. <span x-show="selection.has_selection">You can change this until it's reviewed.</span></p>
                     <template x-if="selDepartments">
                       <div>
+                        <div class="mb-2 p-2.5 rounded-lg text-[11px]" style="background: rgba(0,0,0,0.035); color: var(--color-mute);">
+                          <span class="font-semibold" style="color: var(--color-ink);">How it works:</span>
+                          pick up to <span class="font-semibold" x-text="selection.max_departments"></span> in total. Some groups limit how many you can choose (shown beside each group heading). Tap <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-sky-100 text-sky-700 text-[9px] font-bold align-middle">i</span> to read a department's note before you pick it.
+                        </div>
                         <div class="space-y-3 max-h-80 overflow-y-auto pr-1">
                           <template x-for="cat in (selDepartments.categories || [])" :key="cat.id">
                             <div x-show="cat.departments && cat.departments.length">
                               <div class="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1" style="color: var(--color-mute);" x-text="cat.name + (cat.maxSelections ? ' · pick up to ' + cat.maxSelections : '')"></div>
                               <div class="grid grid-cols-1 gap-1.5">
                                 <template x-for="d in cat.departments" :key="d.id">
-                                  <label class="flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors" :style="selPicks.includes(d.id) ? 'border-color: var(--color-ember); background-color: rgba(184,84,28,0.06);' : 'border-color: var(--color-border);'">
-                                    <input type="checkbox" class="rounded" style="accent-color: var(--color-ember);" :checked="selPicks.includes(d.id)" @change="toggleSelPick(d.id)">
-                                    <span class="text-sm" style="color: var(--color-ink);" x-text="d.name"></span>
-                                  </label>
+                                  <div>
+                                    <label class="flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors" :style="selPicks.includes(d.id) ? 'border-color: var(--color-ember); background-color: rgba(184,84,28,0.06);' : 'border-color: var(--color-border);'">
+                                      <input type="checkbox" class="rounded" style="accent-color: var(--color-ember);" :checked="selPicks.includes(d.id)" @change="toggleSelPick(d.id, $event)">
+                                      <span class="text-sm flex-1" style="color: var(--color-ink);" x-text="d.name"></span>
+                                      <template x-if="d.selectionNote">
+                                        <button type="button" @click.prevent.stop="selNoteOpen[d.id] = !selNoteOpen[d.id]" class="flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold leading-none" :class="d.noteSeverity==='warning' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'" :title="selNoteOpen[d.id] ? 'Hide note' : 'Read important note'">i</button>
+                                      </template>
+                                    </label>
+                                    <template x-if="d.selectionNote && (selPicks.includes(d.id) || selNoteOpen[d.id])">
+                                      <div class="mt-1 mx-1 p-2.5 rounded-lg text-xs flex items-start gap-1.5" :class="d.noteSeverity==='warning' ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-sky-50 border border-sky-200 text-sky-900'">
+                                        <span x-text="d.noteSeverity==='warning' ? '⚠️' : 'ℹ️'"></span>
+                                        <span><span class="font-semibold" x-text="d.noteSeverity==='warning' ? 'Please note — ' : ''"></span><span x-text="d.selectionNote"></span></span>
+                                      </div>
+                                    </template>
+                                  </div>
                                 </template>
                               </div>
                             </div>
@@ -838,17 +853,33 @@
                               <div class="text-[10px] uppercase tracking-[0.15em] font-semibold mb-1" style="color: var(--color-mute);">Departments</div>
                               <div class="grid grid-cols-1 gap-1.5">
                                 <template x-for="d in selDepartments.uncategorized" :key="d.id">
-                                  <label class="flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors" :style="selPicks.includes(d.id) ? 'border-color: var(--color-ember); background-color: rgba(184,84,28,0.06);' : 'border-color: var(--color-border);'">
-                                    <input type="checkbox" class="rounded" style="accent-color: var(--color-ember);" :checked="selPicks.includes(d.id)" @change="toggleSelPick(d.id)">
-                                    <span class="text-sm" style="color: var(--color-ink);" x-text="d.name"></span>
-                                  </label>
+                                  <div>
+                                    <label class="flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors" :style="selPicks.includes(d.id) ? 'border-color: var(--color-ember); background-color: rgba(184,84,28,0.06);' : 'border-color: var(--color-border);'">
+                                      <input type="checkbox" class="rounded" style="accent-color: var(--color-ember);" :checked="selPicks.includes(d.id)" @change="toggleSelPick(d.id, $event)">
+                                      <span class="text-sm flex-1" style="color: var(--color-ink);" x-text="d.name"></span>
+                                      <template x-if="d.selectionNote">
+                                        <button type="button" @click.prevent.stop="selNoteOpen[d.id] = !selNoteOpen[d.id]" class="flex-shrink-0 w-5 h-5 rounded-full text-[11px] font-bold leading-none" :class="d.noteSeverity==='warning' ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'" :title="selNoteOpen[d.id] ? 'Hide note' : 'Read important note'">i</button>
+                                      </template>
+                                    </label>
+                                    <template x-if="d.selectionNote && (selPicks.includes(d.id) || selNoteOpen[d.id])">
+                                      <div class="mt-1 mx-1 p-2.5 rounded-lg text-xs flex items-start gap-1.5" :class="d.noteSeverity==='warning' ? 'bg-amber-50 border border-amber-200 text-amber-900' : 'bg-sky-50 border border-sky-200 text-sky-900'">
+                                        <span x-text="d.noteSeverity==='warning' ? '⚠️' : 'ℹ️'"></span>
+                                        <span><span class="font-semibold" x-text="d.noteSeverity==='warning' ? 'Please note — ' : ''"></span><span x-text="d.selectionNote"></span></span>
+                                      </div>
+                                    </template>
+                                  </div>
                                 </template>
                               </div>
                             </div>
                           </template>
                         </div>
-                        <p class="text-[11px] mt-2" style="color: var(--color-mute);">Up to <span x-text="selection.max_departments"></span> departments · <span x-text="selPicks.length"></span> selected.</p>
-                        <p x-show="selMsg" x-cloak class="text-xs mt-2" :class="selMsg.startsWith('Saved') ? 'text-emerald-700' : 'text-rose-600'" x-text="selMsg"></p>
+                        <div class="mt-2 flex items-center justify-between gap-2">
+                          <p class="text-[11px]" :class="selPicks.length > selection.max_departments ? 'text-rose-600 font-semibold' : 'text-gray-500'">
+                            <span x-text="selPicks.length"></span> of <span x-text="selection.max_departments"></span> departments chosen
+                          </p>
+                          <span x-show="selPicks.length >= selection.max_departments" x-cloak class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium whitespace-nowrap">Limit reached</span>
+                        </div>
+                        <p x-show="selMsg" x-cloak class="text-xs mt-2 px-2.5 py-1.5 rounded-lg" :class="selMsg.startsWith('Saved') ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700 font-medium'" x-text="selMsg"></p>
                         <button @click="submitSelection()" :disabled="selSubmitting"
                           class="mt-3 w-full py-2.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50" style="background-color: var(--color-ink);">
                           <span x-text="selSubmitting ? 'Saving…' : (selection.has_selection ? 'Update my selection' : 'Submit my selection')"></span>
@@ -2233,6 +2264,8 @@ function memberPortal() {
         selection: { loaded: false, campaign_open: false, year: null, live_year: null, current_departments: [], my_selection: [], is_approved: false, has_selection: false, max_departments: 3 },
         selDepartments: null,   // {categories:[], uncategorized:[]} lazy-loaded when open
         selPicks: [],           // dept ids the member is choosing
+        selNoteOpen: {},        // dept id -> note manually expanded
+        selDeptIndex: {},       // dept id -> {categoryId, categoryName, categoryMax}
         selSubmitting: false,
         selMsg: '',
 
@@ -2247,12 +2280,43 @@ function memberPortal() {
                     // public_only: members only see departments they may opt into
                     // themselves; admin-assigned-only departments are hidden.
                     this.selDepartments = await fetch('/api/departments?public_only=true').then(x => x.json());
+                    this.buildSelIndex();
                 }
             } catch (e) { /* card simply doesn't render */ }
         },
-        toggleSelPick(id) {
+        buildSelIndex() {
+            const idx = {};
+            (this.selDepartments?.categories || []).forEach(c =>
+                (c.departments || []).forEach(d => { idx[d.id] = { categoryId: c.id, categoryName: c.name, categoryMax: c.maxSelections || 1 }; }));
+            (this.selDepartments?.uncategorized || []).forEach(d => { idx[d.id] = { categoryId: null }; });
+            this.selDeptIndex = idx;
+        },
+        toggleSelPick(id, ev) {
             const i = this.selPicks.indexOf(id);
-            if (i >= 0) this.selPicks.splice(i, 1); else this.selPicks.push(id);
+            if (i >= 0) { this.selPicks.splice(i, 1); this.selMsg = ''; this._syncPick(id, ev); return; }
+            // Adding — enforce the same limits the server does, but visibly, before submit.
+            const max = this.selection.max_departments || 3;
+            if (this.selPicks.length >= max) {
+                this.selMsg = `You can pick up to ${max} departments in total. Remove one first to choose another.`;
+                this._syncPick(id, ev); return;
+            }
+            const info = this.selDeptIndex[id];
+            if (info && info.categoryId) {
+                const inCat = this.selPicks.filter(p => (this.selDeptIndex[p] || {}).categoryId === info.categoryId).length;
+                if (inCat >= info.categoryMax) {
+                    this.selMsg = `You can only pick ${info.categoryMax} from "${info.categoryName}". Remove your other choice in that group first.`;
+                    this._syncPick(id, ev); return;
+                }
+            }
+            this.selPicks.push(id);
+            this.selMsg = '';
+            this._syncPick(id, ev);
+        },
+        // Keep the native checkbox in step with the model even when a change was
+        // rejected (over the limit) — Alpine won't re-assert :checked on its own
+        // because selPicks didn't change in that case.
+        _syncPick(id, ev) {
+            if (ev && ev.target) ev.target.checked = this.selPicks.includes(id);
         },
         async submitSelection() {
             this.selMsg = '';
