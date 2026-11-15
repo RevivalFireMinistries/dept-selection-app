@@ -64,6 +64,44 @@
     </div>
   </div>
 
+  <!-- 2 · Selection rules -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-1">2 · Selection rules</h3>
+    <p class="text-sm text-gray-500 mb-4">
+      How many departments a member may choose in total, and how choices are capped within a group.
+      These apply to the campaign that's open.
+    </p>
+
+    <div class="flex items-end gap-3 mb-6">
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Max departments in total</label>
+        <input id="maxDeptInput" type="number" min="1" max="20"
+          class="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+      </div>
+      <button onclick="saveMaxDepartments()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Save limit</button>
+    </div>
+
+    <div class="border-t border-gray-100 pt-4">
+      <p class="text-sm font-semibold text-gray-700 mb-1">Categories <span class="font-normal text-gray-400">— cap choices within a group</span></p>
+      <p class="text-[11px] text-gray-500 mb-3">
+        A category groups related departments (e.g. “Music Ministry”) and limits how many of them one member may pick.
+        Put a department into a category from the <strong>category dropdown on its row above</strong>.
+      </p>
+      <div id="catList" class="divide-y divide-gray-100"></div>
+      <div class="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100">
+        <input id="newCatName" type="text" placeholder="New category name"
+          class="flex-1 min-w-[10rem] px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          onkeydown="if(event.key==='Enter')addCategory()">
+        <div class="flex items-center gap-1">
+          <label class="text-xs text-gray-500">max</label>
+          <input id="newCatMax" type="number" min="1" max="20" value="1"
+            class="w-16 px-2 py-2 border border-gray-300 rounded-lg text-sm">
+        </div>
+        <button onclick="addCategory()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700">Add category</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Campaign controls -->
   <div class="bg-white rounded-xl shadow p-6">
     <h3 class="text-lg font-semibold text-gray-900 mb-4">Campaign</h3>
@@ -140,6 +178,7 @@
 <script>
 let STATE = {}, DEPTS = [], MEMBERS = [], DEPT_MAP = {}, SHOW_DROPPED = false;
 let NOTE_DEFAULT_TEMPLATE = '', NOTE_DEFAULT_SEVERITY = 'warning';
+let CATS = [];
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -147,8 +186,101 @@ async function init() {
   MEMBERS = await fetch('/api/admin/leadership-roles').then(r => r.json())
     .then(d => (Array.isArray(d) ? d : (d.members || [])).map(m => ({ id: m.id, name: m.full_name, phone: m.phone })))
     .catch(() => []);
+  await loadRules();
   await loadDeptAdmin();
   await refresh();
+}
+
+// ── Selection rules (max total + categories) ──
+async function loadRules() {
+  const settings = await fetch('/api/settings').then(r => r.json()).catch(() => ({}));
+  const mi = document.getElementById('maxDeptInput');
+  if (mi) mi.value = settings.maxDepartments || '3';
+  CATS = await fetch('/api/categories').then(r => r.json()).catch(() => []);
+  if (!Array.isArray(CATS)) CATS = [];
+  const list = document.getElementById('catList');
+  if (list) list.innerHTML = CATS.length
+    ? CATS.map(catRow).join('')
+    : '<p class="text-gray-400 py-2 text-sm">No categories yet — add one below to cap choices within a group.</p>';
+}
+
+function catRow(c) {
+  const n = (c.departments || []).length;
+  return `
+    <div class="py-2 flex items-center flex-wrap gap-2">
+      <input id="catName_${c.id}" value="${escapeHtml(c.name)}" class="flex-1 min-w-[8rem] px-2 py-1.5 border border-gray-200 rounded text-sm">
+      <div class="flex items-center gap-1">
+        <label class="text-xs text-gray-500">max</label>
+        <input id="catMax_${c.id}" type="number" min="1" max="20" value="${c.maxSelections}" class="w-16 px-2 py-1 border border-gray-200 rounded text-sm">
+      </div>
+      <span class="text-xs text-gray-400">${n} dept${n === 1 ? '' : 's'}</span>
+      <button onclick="saveCategory(${c.id})" class="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">Save</button>
+      <button onclick="deleteCategory(${c.id}, ${n})" class="px-2.5 py-1 text-xs bg-rose-50 text-rose-600 rounded hover:bg-rose-100">Delete</button>
+    </div>`;
+}
+
+async function saveMaxDepartments() {
+  const value = (document.getElementById('maxDeptInput')?.value || '').trim();
+  const n = parseInt(value, 10);
+  if (!n || n < 1) { alert('Enter a max of 1 or more'); return; }
+  const res = await fetch('/api/settings', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'maxDepartments', value: String(n) })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not save'); return; }
+  await loadProgress();
+  alert(`Members may now choose up to ${n} department${n === 1 ? '' : 's'} in total.`);
+}
+
+async function addCategory() {
+  const name = (document.getElementById('newCatName')?.value || '').trim();
+  if (!name) { alert('Enter a category name'); return; }
+  const max = parseInt(document.getElementById('newCatMax')?.value || '1', 10) || 1;
+  const res = await fetch('/api/categories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, max_selections: max })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not add category'); return; }
+  document.getElementById('newCatName').value = '';
+  document.getElementById('newCatMax').value = '1';
+  await loadRules();
+  await loadDeptAdmin();
+}
+
+async function saveCategory(id) {
+  const name = (document.getElementById('catName_' + id)?.value || '').trim();
+  const max = parseInt(document.getElementById('catMax_' + id)?.value || '1', 10) || 1;
+  if (!name) { alert('Category needs a name'); return; }
+  const res = await fetch('/api/categories', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name, max_selections: max })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not save category'); return; }
+  await loadRules();
+  await loadDeptAdmin();
+}
+
+async function deleteCategory(id, deptCount) {
+  const msg = deptCount
+    ? `Delete this category? Its ${deptCount} department${deptCount === 1 ? '' : 's'} stay, but become uncategorised (no group limit). This can't be undone.`
+    : 'Delete this empty category? This can\'t be undone.';
+  if (!confirm(msg)) return;
+  const res = await fetch('/api/categories?id=' + id, { method: 'DELETE' });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not delete'); return; }
+  await loadRules();
+  await loadDeptAdmin();
+}
+
+async function moveDeptCategory(id, catVal) {
+  const d = DEPT_MAP[id]; if (!d) return;
+  const category_id = catVal ? parseInt(catVal, 10) : null;
+  const res = await fetch('/api/departments', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name: d.name, category_id })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not move department'); await loadDeptAdmin(); return; }
+  await loadDeptAdmin();
+  await loadRules();
 }
 
 // ── Department curation (include inactive) ──
@@ -199,6 +331,10 @@ function memberOptions(selectedId) {
   return MEMBERS.map(m => `<option value="${m.id}" ${m.id === selectedId ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('');
 }
 
+function categoryOptions(selectedId) {
+  return CATS.map(c => `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${escapeHtml(c.name)} (max ${c.maxSelections})</option>`).join('');
+}
+
 function deptRow(d) {
   const hodName = d.hod ? d.hod.fullName : '— none —';
   const pendingId = d.pendingHod ? d.pendingHod.id : '';
@@ -207,7 +343,12 @@ function deptRow(d) {
       <div class="flex items-center justify-between gap-2">
         <div class="min-w-0">
           <p class="font-medium text-gray-900 truncate">${escapeHtml(d.name)}</p>
-          <p class="text-xs text-gray-400">${escapeHtml(d.categoryName || 'No category')}</p>
+          <select onchange="moveDeptCategory(${d.id}, this.value)"
+            title="Group this department into a category to cap how many a member can pick from it"
+            class="mt-0.5 text-xs text-gray-500 border border-gray-200 rounded px-1.5 py-0.5 max-w-[12rem]">
+            <option value="" ${d.categoryId ? '' : 'selected'}>No category</option>
+            ${categoryOptions(d.categoryId)}
+          </select>
         </div>
         <div class="flex gap-1 flex-shrink-0">
           <button onclick="setPublic(${d.id}, ${d.publicSelectable ? 'false' : 'true'})"
