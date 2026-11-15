@@ -30,6 +30,34 @@ from schemas import (
 
 router = APIRouter()
 
+# Shared default for the clarifying note members see when they tick a confusing
+# department. Admins flag a department with "use default note" rather than
+# retyping this each time; {department} is filled with the department's name.
+# The wording/severity are overridable in Settings (selectionNoteDefaultTemplate
+# / selectionNoteDefaultSeverity).
+DEFAULT_SELECTION_NOTE_TEMPLATE = (
+    "“{department}” is a leadership / committee position — not the same as "
+    "simply being part of the ministry. Please choose it only if you are taking "
+    "on that role."
+)
+DEFAULT_SELECTION_NOTE_SEVERITY = "warning"
+
+
+def _resolve_selection_note(dept, default_template: str, default_severity: str):
+    """Effective (note_text, severity) for a department's selection prompt.
+
+    A custom selection_note always wins. Otherwise, if use_default_note is set,
+    the shared default is rendered with the department's name. Else no note.
+    """
+    custom = (dept.selection_note or "").strip()
+    if custom:
+        return custom, (dept.note_severity or "info")
+    if bool(getattr(dept, "use_default_note", False)):
+        text = (default_template or DEFAULT_SELECTION_NOTE_TEMPLATE).replace(
+            "{department}", dept.name or "")
+        return text, (default_severity or DEFAULT_SELECTION_NOTE_SEVERITY)
+    return "", "info"
+
 
 def validate_phone(phone: str) -> bool:
     """Validate phone number is exactly 10 digits"""
@@ -1656,13 +1684,23 @@ def get_departments(include_inactive: bool = Query(False), public_only: bool = Q
     def _person(m):
         return {"id": m.id, "fullName": m.full_name, "phone": m.phone} if m else None
 
+    default_template = _get_setting_value(
+        db, "selectionNoteDefaultTemplate", DEFAULT_SELECTION_NOTE_TEMPLATE)
+    default_severity = _get_setting_value(
+        db, "selectionNoteDefaultSeverity", DEFAULT_SELECTION_NOTE_SEVERITY)
+
     def dept_dict(d):
+        note_text, note_sev = _resolve_selection_note(d, default_template, default_severity)
         return {
             "id": d.id, "name": d.name, "categoryId": d.category_id,
             "isActive": bool(d.is_active),
             "publicSelectable": bool(d.public_selectable),
-            "selectionNote": d.selection_note or "",
-            "noteSeverity": (d.note_severity or "info"),
+            # Effective note shown to members (custom text, else the rendered default).
+            "selectionNote": note_text,
+            "noteSeverity": note_sev,
+            # Admin-only state so the editor can show which mode a department is in.
+            "customNote": d.selection_note or "",
+            "useDefaultNote": bool(getattr(d, "use_default_note", False)),
             "hod": _person(d.hod),
             "pendingHod": _person(d.pending_hod),
         }
@@ -1685,7 +1723,12 @@ def get_departments(include_inactive: bool = Query(False), public_only: bool = Q
         "uncategorized": [
             dept_dict(d)
             for d in uncategorized
-        ]
+        ],
+        # Shared default note (editable by admins), surfaced so the campaign
+        # editor can show and tweak the wording every "use default" department
+        # inherits. Members ignore these top-level keys.
+        "noteDefaultTemplate": default_template,
+        "noteDefaultSeverity": default_severity,
     }
 
 
@@ -2074,15 +2117,43 @@ def set_department_note(data: dict = Body(...), request: Request = None, db: Ses
     severity = (data.get("severity") or "info").strip().lower()
     if severity not in ("info", "warning"):
         severity = "info"
+    use_default = bool(data.get("use_default"))
     dept.selection_note = note or None
     dept.note_severity = severity
+    dept.use_default_note = use_default
     db.commit()
-    _log_admin_action(request, db, "set_department_note", "department", dept.id,
-                      (f"Set selection note ({severity}) on '{dept.name}'" if note
-                       else f"Cleared selection note on '{dept.name}'"))
+    if note:
+        detail = f"Set custom selection note ({severity}) on '{dept.name}'"
+    elif use_default:
+        detail = f"Enabled the default selection note on '{dept.name}'"
+    else:
+        detail = f"Cleared selection note on '{dept.name}'"
+    _log_admin_action(request, db, "set_department_note", "department", dept.id, detail)
     db.commit()
     return {"success": True, "id": dept.id, "selection_note": dept.selection_note or "",
-            "note_severity": dept.note_severity}
+            "note_severity": dept.note_severity, "use_default_note": dept.use_default_note}
+
+
+@router.post("/departments/note-default")
+def set_default_selection_note(data: dict = Body(...), request: Request = None,
+                               db: Session = Depends(get_db)):
+    """Edit the shared default note that every 'use default note' department
+    inherits (tailored with its own name via the {department} placeholder) and
+    its severity. One change updates all of them at once."""
+    _require_committee_or_admin(request, db)
+    template = (data.get("template") or "").strip()
+    if not template:
+        template = DEFAULT_SELECTION_NOTE_TEMPLATE
+    severity = (data.get("severity") or DEFAULT_SELECTION_NOTE_SEVERITY).strip().lower()
+    if severity not in ("info", "warning"):
+        severity = DEFAULT_SELECTION_NOTE_SEVERITY
+    _set_setting_value(db, "selectionNoteDefaultTemplate", template)
+    _set_setting_value(db, "selectionNoteDefaultSeverity", severity)
+    db.commit()
+    _log_admin_action(request, db, "set_default_selection_note", "settings", 0,
+                      f"Updated shared default selection note ({severity})")
+    db.commit()
+    return {"success": True, "template": template, "severity": severity}
 
 
 @router.post("/admin/departments/{department_id}/set-pending-hod")

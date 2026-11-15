@@ -99,6 +99,18 @@ def run_migrations():
             conn.rollback()
             print(f"Migration note (departments selection_note columns): {e}")
 
+        try:
+            conn.rollback()
+            conn.execute(text("""
+                ALTER TABLE departments
+                ADD COLUMN IF NOT EXISTS use_default_note BOOLEAN NOT NULL DEFAULT false
+            """))
+            conn.commit()
+            print("Migration: Added use_default_note column to departments")
+        except Exception as e:
+            conn.rollback()
+            print(f"Migration note (departments use_default_note column): {e}")
+
         # Check if meetings table exists (created by create_all, log for visibility)
         result = conn.execute(text("""
             SELECT table_name FROM information_schema.tables

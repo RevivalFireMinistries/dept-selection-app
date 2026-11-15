@@ -41,6 +41,12 @@ class Department(Base):
     # 'info' (neutral) or 'warning' (prominent, for easily-confused choices).
     selection_note = Column(Text, nullable=True)
     note_severity = Column(String, nullable=False, server_default="info")
+    # When True and no custom selection_note is set, the shared default note
+    # (Settings: selectionNoteDefaultTemplate) is shown, tailored with this
+    # department's name. A custom selection_note always overrides it. Lets admins
+    # flag a confusing department (e.g. any "… Committee") without retyping the
+    # same wording each time.
+    use_default_note = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Link to the central rfm-database department record. Same pattern we use
     # for members — gated by RFM_API_INTEGRATION_ENABLED, populated on first

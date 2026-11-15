@@ -37,6 +37,26 @@
       <button onclick="addDept()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Add department</button>
     </div>
 
+    <details class="mb-4 bg-amber-50 border border-amber-200 rounded-lg">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-amber-800">⚙ Standard selection note (shared default)</summary>
+      <div class="px-3 pb-3 space-y-2">
+        <p class="text-[11px] text-amber-700">
+          This wording is reused by every department you set to “use default”. Put <code>{department}</code> where the
+          department's name should appear — each one fills in its own. Editing it here updates them all at once.
+        </p>
+        <textarea id="defaultNoteText" rows="2" maxlength="300"
+          class="w-full px-2 py-1.5 border border-amber-200 rounded text-xs"></textarea>
+        <div class="flex items-center flex-wrap gap-2">
+          <label class="text-xs text-gray-600">Style:</label>
+          <select id="defaultNoteSev" class="border border-amber-200 rounded px-2 py-1 text-xs">
+            <option value="info">Info (blue)</option>
+            <option value="warning">Important warning (amber)</option>
+          </select>
+          <button onclick="saveDefaultNote()" class="px-2.5 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700">Save default</button>
+        </div>
+      </div>
+    </details>
+
     <div id="deptList" class="divide-y divide-gray-100"></div>
     <div id="droppedWrap" class="hidden mt-4 pt-4 border-t border-gray-100">
       <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Dropped — history preserved</p>
@@ -119,6 +139,7 @@
 {% block scripts %}
 <script>
 let STATE = {}, DEPTS = [], MEMBERS = [], DEPT_MAP = {}, SHOW_DROPPED = false;
+let NOTE_DEFAULT_TEMPLATE = '', NOTE_DEFAULT_SEVERITY = 'warning';
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -133,6 +154,10 @@ async function init() {
 // ── Department curation (include inactive) ──
 async function loadDeptAdmin() {
   const groups = await fetch('/api/departments?include_inactive=true').then(r => r.json()).catch(() => ({ categories: [], uncategorized: [] }));
+  NOTE_DEFAULT_TEMPLATE = groups.noteDefaultTemplate || NOTE_DEFAULT_TEMPLATE;
+  NOTE_DEFAULT_SEVERITY = groups.noteDefaultSeverity || NOTE_DEFAULT_SEVERITY;
+  const dnt = document.getElementById('defaultNoteText'); if (dnt) dnt.value = NOTE_DEFAULT_TEMPLATE;
+  const dns = document.getElementById('defaultNoteSev'); if (dns) dns.value = NOTE_DEFAULT_SEVERITY;
   // Flatten, remembering category name + id per department.
   const all = [];
   (groups.categories || []).forEach(g => (g.departments || []).forEach(d =>
@@ -207,17 +232,27 @@ function deptRow(d) {
         <button onclick="toggleNoteEditor(${d.id})" class="text-xs ${d.selectionNote ? 'text-amber-700 font-medium' : 'text-gray-500'} hover:underline">
           ${d.selectionNote ? '📝 Edit selection note' : '＋ Add selection note'}
         </button>
+        ${d.useDefaultNote && !d.customNote ? '<span class="ml-1 text-[10px] uppercase tracking-wide text-amber-700">default</span>' : ''}
         ${d.selectionNote ? `<span class="ml-2 text-xs px-2 py-0.5 rounded-full ${d.noteSeverity === 'warning' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}">${escapeHtml(d.selectionNote)}</span>` : ''}
         <div id="noteEditor_${d.id}" class="hidden mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
           <p class="text-[11px] text-gray-500">Shown to members the moment they tick this department — use it to clear up confusing names (e.g. a committee being a leadership role).</p>
-          <textarea id="noteText_${d.id}" rows="2" maxlength="300" class="w-full px-2 py-1.5 border border-gray-200 rounded text-xs" placeholder="e.g. This is the leadership committee of Couples Ministry — not the same as joining Couples Ministry.">${escapeHtml(d.selectionNote || '')}</textarea>
+          <label class="flex items-start gap-2 text-xs text-gray-700">
+            <input type="checkbox" id="noteDefault_${d.id}" ${d.useDefaultNote ? 'checked' : ''} class="mt-0.5">
+            <span>Use the standard note <span class="text-gray-400">(auto-filled with this department's name)</span>
+              <span class="block mt-1 italic text-gray-500">${escapeHtml((NOTE_DEFAULT_TEMPLATE || '').replace('{department}', d.name))}</span>
+            </span>
+          </label>
+          <div class="pt-1">
+            <label class="text-[11px] text-gray-500 block mb-1">Or write a custom note just for this department (overrides the standard one):</label>
+            <textarea id="noteText_${d.id}" rows="2" maxlength="300" class="w-full px-2 py-1.5 border border-gray-200 rounded text-xs" placeholder="Leave blank to use the standard note above.">${escapeHtml(d.customNote || '')}</textarea>
+          </div>
           <div class="flex items-center flex-wrap gap-2">
-            <label class="text-xs text-gray-600">Style:</label>
+            <label class="text-xs text-gray-600">Custom note style:</label>
             <select id="noteSev_${d.id}" class="border border-gray-200 rounded px-2 py-1 text-xs">
               <option value="info" ${d.noteSeverity !== 'warning' ? 'selected' : ''}>Info (blue)</option>
               <option value="warning" ${d.noteSeverity === 'warning' ? 'selected' : ''}>Important warning (amber)</option>
             </select>
-            <button onclick="saveNote(${d.id})" class="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">Save note</button>
+            <button onclick="saveNote(${d.id})" class="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">Save</button>
             ${d.selectionNote ? `<button onclick="clearNote(${d.id})" class="px-2.5 py-1 text-xs bg-rose-50 text-rose-600 rounded hover:bg-rose-100">Clear</button>` : ''}
           </div>
         </div>
@@ -233,9 +268,10 @@ function toggleNoteEditor(id) {
 async function saveNote(id) {
   const note = (document.getElementById('noteText_' + id)?.value || '').trim();
   const severity = document.getElementById('noteSev_' + id)?.value || 'info';
+  const useDefault = !!document.getElementById('noteDefault_' + id)?.checked;
   const res = await fetch('/api/departments/set-note', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, note, severity })
+    body: JSON.stringify({ id, note, severity, use_default: useDefault })
   });
   if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not save note'); return; }
   await loadDeptAdmin();
@@ -244,10 +280,22 @@ async function saveNote(id) {
 async function clearNote(id) {
   const res = await fetch('/api/departments/set-note', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, note: '', severity: 'info' })
+    body: JSON.stringify({ id, note: '', severity: 'info', use_default: false })
   });
   if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not clear note'); return; }
   await loadDeptAdmin();
+}
+
+async function saveDefaultNote() {
+  const template = (document.getElementById('defaultNoteText')?.value || '').trim();
+  const severity = document.getElementById('defaultNoteSev')?.value || 'warning';
+  const res = await fetch('/api/departments/note-default', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template, severity })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); alert(e.detail || 'Could not save default note'); return; }
+  await loadDeptAdmin();
+  alert('Standard note updated — every department set to “use default” now shows the new wording.');
 }
 
 function toggleDropped() { SHOW_DROPPED = !SHOW_DROPPED; loadDeptAdmin(); }

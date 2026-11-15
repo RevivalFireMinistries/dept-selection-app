@@ -100,3 +100,57 @@ def test_setting_a_note_requires_authentication(client, department):
     r = client.post("/api/departments/set-note",
                     json={"id": department.id, "note": "x", "severity": "info"})
     assert r.status_code in (401, 403)
+
+
+def test_default_note_renders_with_department_name(db, client, department, admin_login):
+    # Enable the shared default note (no custom text) — the API should return it
+    # tailored with the department's own name via the {department} placeholder.
+    r = client.post("/api/departments/set-note",
+                    json={"id": department.id, "note": "", "use_default": True})
+    assert r.status_code == 200, r.text
+    db.refresh(department)
+    assert department.use_default_note is True
+    assert department.selection_note is None  # no custom text stored
+
+    d = _find(client.get("/api/departments?include_inactive=true").json(), department.id)
+    assert d["useDefaultNote"] is True
+    assert d["customNote"] == ""
+    # Effective note is non-empty and carries the department's name.
+    assert d["selectionNote"]
+    assert "Couples Ministry Committee" in d["selectionNote"]
+
+
+def test_custom_note_overrides_the_default(db, client, department, admin_login):
+    custom = "Bespoke wording for this one."
+    r = client.post("/api/departments/set-note",
+                    json={"id": department.id, "note": custom,
+                          "severity": "info", "use_default": True})
+    assert r.status_code == 200, r.text
+    d = _find(client.get("/api/departments?include_inactive=true").json(), department.id)
+    # Custom text wins even though use_default is also on.
+    assert d["selectionNote"] == custom
+    assert d["customNote"] == custom
+    assert d["useDefaultNote"] is True
+
+
+def test_editing_the_default_template_updates_rendered_note(db, client, department, admin_login):
+    client.post("/api/departments/set-note",
+                json={"id": department.id, "note": "", "use_default": True})
+    tmpl = "Heads up: {department} is a committee seat, not the ministry."
+    r = client.post("/api/departments/note-default",
+                    json={"template": tmpl, "severity": "warning"})
+    assert r.status_code == 200, r.text
+
+    groups = client.get("/api/departments?include_inactive=true").json()
+    assert groups["noteDefaultTemplate"] == tmpl
+    assert groups["noteDefaultSeverity"] == "warning"
+    d = _find(groups, department.id)
+    assert d["selectionNote"] == "Heads up: Couples Ministry Committee is a committee seat, not the ministry."
+    assert d["noteSeverity"] == "warning"
+
+
+def test_editing_the_default_template_requires_authentication(client):
+    client.cookies.clear()
+    r = client.post("/api/departments/note-default",
+                    json={"template": "x {department}", "severity": "info"})
+    assert r.status_code in (401, 403)
