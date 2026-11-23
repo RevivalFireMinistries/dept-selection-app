@@ -4049,6 +4049,57 @@ def admin_selection_reviews(request: Request, db: Session = Depends(get_db)):
     return list(by_member.values())
 
 
+@router.get("/admin/selection/member-search")
+def admin_selection_member_search(q: str = Query(...), request: Request = None,
+                                  db: Session = Depends(get_db)):
+    """Search EVERY member by name or phone and return each with their
+    campaign-year selections (an empty list if they haven't selected). Lets an
+    admin pull up anyone — including people who selected nothing — to view and
+    approve/reject or assign a department."""
+    _require_committee_or_admin(request, db)
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"year": _campaign_state(db)["year"], "members": []}
+    year = _campaign_state(db)["year"]
+    like = f"%{q}%"
+    conds = [Member.full_name.ilike(like)]
+    digits = re.sub(r"\D", "", q)
+    if digits:
+        conds.append(Member.phone.ilike(f"%{digits}%"))
+    members = db.query(Member).filter(or_(*conds)).order_by(Member.full_name).limit(25).all()
+    if not members:
+        return {"year": year, "members": []}
+
+    member_ids = [m.id for m in members]
+    sel_by_member: Dict[int, list] = {}
+    if year:
+        rows = db.query(DepartmentSelection).options(
+            joinedload(DepartmentSelection.department).joinedload(Department.category),
+        ).filter(
+            DepartmentSelection.year == year,
+            DepartmentSelection.member_id.in_(member_ids),
+        ).all()
+        for s in rows:
+            sel_by_member.setdefault(s.member_id, []).append({
+                "id": s.id, "member_id": s.member_id, "department_id": s.department_id,
+                "department_name": s.department.name,
+                "category_name": s.department.category.name if s.department.category else None,
+                "source": s.source or "member", "status": s.status or "pending",
+                "admin_note": s.admin_note,
+            })
+
+    order = {"pending": 0, "approved": 1, "rejected": 2}
+    out = []
+    for m in members:
+        sels = sel_by_member.get(m.id, [])
+        sels.sort(key=lambda x: (order.get(x["status"], 3), x["department_name"]))
+        out.append({
+            "id": m.id, "full_name": m.full_name, "phone": m.phone,
+            "email": m.email, "selections": sels,
+        })
+    return {"year": year, "members": out}
+
+
 @router.put("/admin/selection/reviews/{selection_id}")
 def admin_selection_update_status(selection_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     """Approve/reject a draft selection. Never touches the live set or central."""
