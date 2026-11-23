@@ -231,6 +231,30 @@ def _get_default_template(event_type: EventType, data: Dict[str, Any]) -> str:
             button_url=portal_link
         ),
 
+        EventType.HOD_ASSIGNED: base_template(
+            title="Head of Department",
+            accent_color="#4f46e5",
+            content=f'''
+                {heading("You're Leading a Department")}
+                {greeting(data.get('recipient_name') or data.get('member_name', 'Leader'))}
+                {paragraph(
+                    (f"You've been appointed as the <strong>incoming Head of {data.get('department_name', 'a department')}</strong>"
+                     + (f" for <strong>{data.get('year')}</strong>" if data.get('year') else "")
+                     + ". Your appointment takes effect once this year's selections are published — but you can already see everyone joining your department, <strong>including members still pending approval</strong>, in your leadership tools.")
+                    if data.get('incoming') else
+                    (f"You've been appointed as the <strong>Head of {data.get('department_name', 'a department')}</strong>. "
+                     + "You can now see and manage your department's team in your leadership tools.")
+                )}
+                {details_table([
+                    ("Department", data.get('department_name')),
+                    ("Serving year", data.get('year')),
+                    ("Status", "Incoming — effective when results are published" if data.get('incoming') else "Active now"),
+                ])}
+            ''',
+            button_text="Open my leadership tools" if portal_link else None,
+            button_url=portal_link
+        ),
+
         EventType.RESULTS_PUBLISHED: base_template(
             title="Results Published",
             accent_color="#4f46e5",

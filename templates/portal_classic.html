@@ -1688,41 +1688,56 @@ function openHodSheet() {
         rejected: { bg: 'bg-red-50', text: 'text-red-600', label: 'Rejected' }
     };
 
+    const renderPeople = (list) => list.map(m => {
+        const sc = statusColors[m.status] || statusColors.pending;
+        return `
+            <div class="flex items-center justify-between py-2.5 px-3 ${m.status === 'pending' ? 'bg-amber-50/50' : ''}">
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-900 truncate">${m.full_name}</p>
+                    <p class="text-xs text-gray-400">${m.phone || ''}</p>
+                </div>
+                <div class="flex items-center gap-1.5 ml-2">
+                    ${m.source === 'admin' ? '<span class="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Admin</span>' : ''}
+                    <span class="text-[10px] ${sc.bg} ${sc.text} px-2 py-0.5 rounded-full font-medium">${sc.label}</span>
+                </div>
+            </div>`;
+    }).join('');
+
     content.innerHTML = hodData.departments.map(dept => {
-        const membersHtml = dept.members.length > 0
-            ? dept.members.map(m => {
-                const sc = statusColors[m.status] || statusColors.pending;
-                return `
-                    <div class="flex items-center justify-between py-2.5 px-3 ${m.status === 'pending' ? 'bg-amber-50/50' : ''}">
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm font-medium text-gray-900 truncate">${m.full_name}</p>
-                            <p class="text-xs text-gray-400">${m.phone}</p>
-                        </div>
-                        <div class="flex items-center gap-1.5 ml-2">
-                            ${m.source === 'admin' ? '<span class="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Admin</span>' : ''}
-                            <span class="text-[10px] ${sc.bg} ${sc.text} px-2 py-0.5 rounded-full font-medium">${sc.label}</span>
-                        </div>
-                    </div>
-                `;
-            }).join('')
-            : '<p class="text-sm text-gray-400 text-center py-4">No members yet</p>';
+        const camp = dept.campaign;
+        // Draft selections for the open campaign — who's joining, pending included.
+        const campHtml = (camp && camp.members && camp.members.length)
+            ? `
+                <div class="px-3 py-2 bg-indigo-50 border-t border-indigo-100">
+                    <p class="text-[11px] font-semibold text-indigo-700 uppercase tracking-wide">Joining for ${camp.year} · not yet published</p>
+                    <p class="text-[11px] text-indigo-500">${camp.pending} pending${camp.approved ? ' · ' + camp.approved + ' approved' : ''}${camp.rejected ? ' · ' + camp.rejected + ' not approved' : ''}</p>
+                </div>
+                <div class="divide-y divide-gray-100 bg-white">${renderPeople(camp.members)}</div>`
+            : (dept.is_incoming ? '<p class="text-sm text-gray-400 text-center py-4">No one has selected this yet.</p>' : '');
+
+        // Live roster — skipped for an incoming-only department (no live team yet).
+        const liveHtml = dept.is_incoming ? '' :
+            `<div class="divide-y divide-gray-100 bg-white">${dept.members.length ? renderPeople(dept.members) : '<p class="text-sm text-gray-400 text-center py-4">No members yet</p>'}</div>`;
+
+        const headerCounts = dept.is_incoming
+            ? `<span class="text-indigo-600">${camp ? camp.members.length : 0} joining for ${camp ? camp.year : ''}</span>`
+            : `<span class="text-gray-500">${dept.total_members} total</span>
+               <span class="text-green-600">${dept.approved_count} approved</span>
+               ${dept.pending_count > 0 ? `<span class="text-amber-600">${dept.pending_count} pending</span>` : ''}
+               ${(camp && camp.members && camp.members.length) ? `<span class="text-indigo-600">+${camp.members.length} joining ${camp.year}</span>` : ''}`;
 
         return `
             <div class="bg-gray-50 rounded-xl overflow-hidden">
                 <button onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')" class="w-full p-4 flex items-center justify-between text-left">
                     <div>
-                        <h4 class="font-semibold text-gray-900">${dept.name}</h4>
-                        <div class="flex gap-3 mt-1 text-xs">
-                            <span class="text-gray-500">${dept.total_members} total</span>
-                            <span class="text-green-600">${dept.approved_count} approved</span>
-                            ${dept.pending_count > 0 ? `<span class="text-amber-600">${dept.pending_count} pending</span>` : ''}
-                        </div>
+                        <h4 class="font-semibold text-gray-900 flex items-center gap-2">${dept.name}${dept.is_incoming ? '<span class="text-[10px] font-semibold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Incoming</span>' : ''}</h4>
+                        <div class="flex gap-3 mt-1 text-xs flex-wrap">${headerCounts}</div>
                     </div>
                     <svg class="w-5 h-5 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                     </svg>
                 </button>
-                <div class="divide-y divide-gray-100 bg-white">${membersHtml}</div>
+                <div>${liveHtml}${campHtml}</div>
             </div>
         `;
     }).join('');

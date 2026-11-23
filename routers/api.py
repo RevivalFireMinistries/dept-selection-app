@@ -2169,11 +2169,31 @@ def set_department_pending_hod(department_id: int, data: dict = Body(...),
     member = db.query(Member).filter(Member.id == data.get("member_id")).first()
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
+    changed = dept.pending_hod_member_id != member.id
     dept.pending_hod_member_id = member.id
     db.commit()
     _log_admin_action(request, db, "set_pending_hod", "department", dept.id,
                       f"Staged {member.full_name} as incoming HOD of '{dept.name}'")
     db.commit()
+    # Email the new incoming HOD so they know, and can start reviewing their
+    # department's incoming members (pending included) right away. Only on a
+    # genuine change, so re-saving the same person doesn't re-notify.
+    if changed:
+        try:
+            from notifications.dispatcher import dispatch_event
+            from notifications.events import EventType
+            camp = _campaign_state(db)
+            dispatch_event(db, EventType.HOD_ASSIGNED, {
+                "member_id": member.id,
+                "member_name": member.full_name,
+                "member_email": member.email,
+                "department_name": dept.name,
+                "incoming": True,
+                "year": camp.get("year"),
+                "idem_scope": f"pending-hod:{dept.id}:{member.id}",
+            })
+        except Exception as e:
+            print(f"Failed to dispatch HOD_ASSIGNED (pending): {e}")
     return {"success": True, "department": dept.name, "pending_hod_name": member.full_name}
 
 
@@ -4714,11 +4734,27 @@ def set_department_hod(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
 
+    changed = department.hod_member_id != member.id
     department.hod_member_id = member.id
     db.commit()
 
     _log_admin_action(request, db, "set_hod", "department", department_id, f"Set {member.full_name} as HOD of '{department.name}'")
     db.commit()
+
+    if changed:
+        try:
+            from notifications.dispatcher import dispatch_event
+            from notifications.events import EventType
+            dispatch_event(db, EventType.HOD_ASSIGNED, {
+                "member_id": member.id,
+                "member_name": member.full_name,
+                "member_email": member.email,
+                "department_name": department.name,
+                "incoming": False,
+                "idem_scope": f"hod:{department.id}:{member.id}",
+            })
+        except Exception as e:
+            print(f"Failed to dispatch HOD_ASSIGNED: {e}")
 
     return {
         "success": True,
@@ -13925,9 +13961,20 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
     ]
     is_committee = _is_committee_member(db, member)
     hod_departments = [
-        {"id": d.id, "name": d.name}
+        {"id": d.id, "name": d.name, "incoming": False}
         for d in db.query(Department).filter(Department.hod_member_id == member.id).all()
     ]
+    # During an open campaign, a staged INCOMING HOD gets their leadership tools
+    # too, so they can start reviewing who's joining their department (pending
+    # included) before publish. Flagged incoming so the UI can label it.
+    _camp = _campaign_state(db)
+    if _camp.get("open"):
+        _current_hod_ids = {d["id"] for d in hod_departments}
+        for d in db.query(Department).filter(
+            Department.pending_hod_member_id == member.id
+        ).order_by(Department.name).all():
+            if d.id not in _current_hod_ids:
+                hod_departments.append({"id": d.id, "name": d.name, "incoming": True})
 
     central = _portal_central_lookup(member, db)
     kg_facts = _portal_kg_enrollment_facts(member, db)

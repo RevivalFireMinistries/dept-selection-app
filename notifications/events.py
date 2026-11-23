@@ -13,6 +13,7 @@ class EventType(str, Enum):
     MEMBER_APPROVED = "member_approved"
     MEMBER_REJECTED = "member_rejected"
     DEPARTMENT_ASSIGNED = "department_assigned"
+    HOD_ASSIGNED = "hod_assigned"
     RESULTS_PUBLISHED = "results_published"
     SELECTION_FINALIZED = "selection_finalized"
     APPEAL_SUBMITTED = "appeal_submitted"
@@ -40,6 +41,7 @@ EVENT_LABELS = {
     EventType.MEMBER_APPROVED: "Member Selection Approved",
     EventType.MEMBER_REJECTED: "Member Selection Rejected",
     EventType.DEPARTMENT_ASSIGNED: "Department Assigned by Admin",
+    EventType.HOD_ASSIGNED: "Head of Department Appointed",
     EventType.RESULTS_PUBLISHED: "Results Published",
     EventType.SELECTION_FINALIZED: "Selection Outcome (Approved + Not Approved)",
     EventType.APPEAL_SUBMITTED: "Appeal Submitted",
@@ -68,6 +70,7 @@ EVENT_DESCRIPTIONS = {
     EventType.MEMBER_APPROVED: "Sent to member when their department selection is approved",
     EventType.MEMBER_REJECTED: "Sent to member when their department selection is rejected",
     EventType.DEPARTMENT_ASSIGNED: "Sent to member when admin assigns them to a department",
+    EventType.HOD_ASSIGNED: "Sent to a member when they are appointed Head of a department (including an incoming HOD staged during a selection campaign)",
     EventType.RESULTS_PUBLISHED: "Sent to all members when results are published",
     EventType.SELECTION_FINALIZED: "Sent to each member when the selection campaign is published, summarizing which departments were approved and which were not approved",
     EventType.APPEAL_SUBMITTED: "Sent to admin when a member submits an appeal",
@@ -96,6 +99,7 @@ EMAIL_SUBJECTS = {
     EventType.MEMBER_APPROVED: "Your Department Selection Has Been Approved",
     EventType.MEMBER_REJECTED: "Update on Your Department Selection",
     EventType.DEPARTMENT_ASSIGNED: "You Have Been Assigned to a Department",
+    EventType.HOD_ASSIGNED: "You've Been Appointed Head of {department_name}",
     EventType.RESULTS_PUBLISHED: "Department Selection Results Are Now Available",
     EventType.SELECTION_FINALIZED: "Your {year} Department Serving — Approved & Not Approved",
     EventType.APPEAL_SUBMITTED: "New Appeal Submitted",
