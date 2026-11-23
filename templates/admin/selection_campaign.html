@@ -132,10 +132,20 @@
     <div class="bg-white rounded-xl shadow p-4"><p class="text-sm text-gray-500">Rejected</p><p id="pRejected" class="text-2xl font-bold text-rose-600">0</p></div>
   </div>
 
-  <!-- Per-department -->
+  <!-- Per-department drill-down -->
   <div class="bg-white rounded-xl shadow p-6">
-    <h3 class="text-lg font-semibold text-gray-900 mb-3">By department</h3>
-    <div id="byDept" class="divide-y divide-gray-100 text-sm"></div>
+    <div class="flex items-center justify-between gap-3 mb-1">
+      <h3 class="text-lg font-semibold text-gray-900">By department</h3>
+      <div class="flex items-center gap-2">
+        <button onclick="toggleAllDepts(true)" class="text-xs text-gray-500 hover:text-gray-700">Expand all</button>
+        <span class="text-gray-300">·</span>
+        <button onclick="toggleAllDepts(false)" class="text-xs text-gray-500 hover:text-gray-700">Collapse all</button>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500 mb-3">Tap a department to see exactly who chose it and approve or reject them in place.</p>
+    <input id="deptFilter" type="text" placeholder="🔎 Filter departments…" oninput="renderByDept()"
+      class="w-full mb-3 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+    <div id="byDept" class="space-y-1 text-sm"></div>
   </div>
 
   <!-- Review -->
@@ -539,32 +549,100 @@ async function setCampaign(open) {
   await refresh();
 }
 
+let BY_DEPT = [], REVIEW_MEMBERS = [], EXPANDED = new Set();
+
 async function loadProgress() {
   const p = await fetch('/api/admin/selection/progress').then(r => r.json());
   document.getElementById('pMembers').textContent = `${p.members_selected} / ${p.total_members}`;
   document.getElementById('pApproved').textContent = p.approved;
   document.getElementById('pPending').textContent = p.pending;
   document.getElementById('pRejected').textContent = p.rejected;
+  BY_DEPT = p.by_department || [];
+  renderByDept();
+}
+
+// department_id -> [{ selId, memberId, name, phone, status, source }]
+function deptMemberIndex() {
+  const idx = {};
+  (REVIEW_MEMBERS || []).forEach(m => (m.selections || []).forEach(s => {
+    (idx[s.department_id] = idx[s.department_id] || []).push({
+      selId: s.id, memberId: m.id, name: m.full_name, phone: m.phone,
+      status: s.status || 'pending', source: s.source || 'member',
+    });
+  }));
+  const order = { pending: 0, approved: 1, rejected: 2 };
+  Object.values(idx).forEach(list => list.sort((a, b) =>
+    (order[a.status] - order[b.status]) || a.name.localeCompare(b.name)));
+  return idx;
+}
+
+function renderByDept() {
   const el = document.getElementById('byDept');
-  el.innerHTML = (p.by_department || []).length
-    ? p.by_department.map(d => `
-      <div class="flex items-center justify-between py-2 gap-2">
-        <span class="flex items-center gap-2 min-w-0">
-          <span class="text-gray-800 truncate">${escapeHtml(d.department_name)}</span>
-          ${d.public === false ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">admin only</span>' : ''}
-          <span class="text-xs text-gray-400 flex-shrink-0">${d.joined} joined</span>
-        </span>
-        <span class="flex gap-2 text-xs flex-shrink-0">
-          <span class="px-2 py-0.5 rounded bg-green-100 text-green-700">${d.approved} approved</span>
-          <span class="px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">${d.pending} pending</span>
-          ${d.rejected ? `<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-700">${d.rejected} rejected</span>` : ''}
-        </span>
-      </div>`).join('')
-    : '<p class="text-gray-400 py-2">No departments yet.</p>';
+  if (!el) return;
+  const q = (document.getElementById('deptFilter')?.value || '').trim().toLowerCase();
+  const idx = deptMemberIndex();
+  const rows = BY_DEPT.filter(d => !q || d.department_name.toLowerCase().includes(q));
+  if (!rows.length) { el.innerHTML = '<p class="text-gray-400 py-2">No matching departments.</p>'; return; }
+  el.innerHTML = rows.map(d => {
+    const open = EXPANDED.has(d.department_id);
+    const total = d.joined || 0;
+    const pct = total ? Math.round((d.approved / total) * 100) : 0;
+    const people = idx[d.department_id] || [];
+    return `
+      <div class="border border-gray-100 rounded-lg overflow-hidden">
+        <button onclick="toggleDept(${d.department_id})" class="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-gray-50">
+          <span class="flex items-center gap-2 min-w-0">
+            <span class="text-gray-400 transition-transform ${open ? 'rotate-90' : ''}">▸</span>
+            <span class="font-medium text-gray-800 truncate">${escapeHtml(d.department_name)}</span>
+            ${d.public === false ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">admin only</span>' : ''}
+          </span>
+          <span class="flex items-center gap-1.5 text-xs flex-shrink-0">
+            <span class="text-gray-400">${total} joined</span>
+            ${d.approved ? `<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700">${d.approved}✓</span>` : ''}
+            ${d.pending ? `<span class="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">${d.pending}⋯</span>` : ''}
+            ${d.rejected ? `<span class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">${d.rejected}✕</span>` : ''}
+          </span>
+        </button>
+        ${total ? `<div class="h-1 bg-gray-100"><div class="h-1 bg-green-500" style="width:${pct}%"></div></div>` : ''}
+        ${open ? `<div class="px-3 py-2 bg-gray-50 border-t border-gray-100 space-y-1">${renderDeptPeople(people)}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function renderDeptPeople(people) {
+  if (!people.length) return '<p class="text-gray-400 text-xs py-1">No one has chosen this yet.</p>';
+  return people.map(p => `
+    <div class="flex items-center justify-between gap-2 py-1">
+      <span class="flex items-center gap-2 min-w-0">
+        <span class="truncate text-gray-800">${escapeHtml(p.name)}</span>
+        ${p.phone ? `<a href="tel:${escapeHtml(p.phone)}" class="text-[11px] text-gray-400 flex-shrink-0 hover:text-indigo-600">${escapeHtml(p.phone)}</a>` : ''}
+        ${p.source === 'admin' ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600 flex-shrink-0">admin-added</span>' : ''}
+        <span class="text-[10px] px-1.5 py-0.5 rounded ${badgeCls(p.status)} flex-shrink-0">${p.status}</span>
+      </span>
+      <span class="flex gap-1 flex-shrink-0">
+        <button onclick="setStatus(${p.selId},'approved')" title="Approve" class="px-2 py-1 text-xs rounded ${p.status==='approved'?'bg-green-600 text-white':'bg-white border border-gray-200 text-gray-600 hover:bg-green-50'}">✓</button>
+        <button onclick="setStatus(${p.selId},'rejected')" title="Reject" class="px-2 py-1 text-xs rounded ${p.status==='rejected'?'bg-rose-600 text-white':'bg-white border border-gray-200 text-gray-600 hover:bg-rose-50'}">✕</button>
+      </span>
+    </div>`).join('');
+}
+
+function toggleDept(id) {
+  if (EXPANDED.has(id)) EXPANDED.delete(id); else EXPANDED.add(id);
+  renderByDept();
+}
+
+function toggleAllDepts(open) {
+  const q = (document.getElementById('deptFilter')?.value || '').trim().toLowerCase();
+  if (open) BY_DEPT.filter(d => !q || d.department_name.toLowerCase().includes(q))
+    .forEach(d => EXPANDED.add(d.department_id));
+  else EXPANDED.clear();
+  renderByDept();
 }
 
 async function loadReviews() {
   const members = await fetch('/api/admin/selection/reviews').then(r => r.json());
+  REVIEW_MEMBERS = Array.isArray(members) ? members : [];
+  renderByDept();  // member lists feed the By-department drill-down
   const el = document.getElementById('reviewList');
   if (!members.length) { el.innerHTML = '<p class="text-gray-400">No selections yet.</p>'; return; }
   const deptOptions = DEPTS.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
