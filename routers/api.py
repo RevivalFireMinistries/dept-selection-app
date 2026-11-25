@@ -14019,13 +14019,33 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
     # too, so they can start reviewing who's joining their department (pending
     # included) before publish. Flagged incoming so the UI can label it.
     _camp = _campaign_state(db)
-    if _camp.get("open"):
+    _camp_year = _camp["year"] if _camp.get("open") else None
+    if _camp_year:
         _current_hod_ids = {d["id"] for d in hod_departments}
         for d in db.query(Department).filter(
             Department.pending_hod_member_id == member.id
         ).order_by(Department.name).all():
             if d.id not in _current_hod_ids:
                 hod_departments.append({"id": d.id, "name": d.name, "incoming": True})
+
+        # Campaign joiner counts per HOD department (pending included), so the
+        # dashboard can show "N joining for <year>" without a second request.
+        if hod_departments:
+            _dep_ids = [d["id"] for d in hod_departments]
+            _rows = db.query(DepartmentSelection).filter(
+                DepartmentSelection.year == _camp_year,
+                DepartmentSelection.department_id.in_(_dep_ids),
+            ).all()
+            _counts: Dict[int, dict] = {}
+            for s in _rows:
+                c = _counts.setdefault(s.department_id, {"joining": 0, "pending": 0})
+                c["joining"] += 1
+                if (s.status or "pending") == "pending":
+                    c["pending"] += 1
+            for d in hod_departments:
+                c = _counts.get(d["id"], {"joining": 0, "pending": 0})
+                d["joining"] = c["joining"]
+                d["pending"] = c["pending"]
 
     central = _portal_central_lookup(member, db)
     kg_facts = _portal_kg_enrollment_facts(member, db)
@@ -14075,6 +14095,7 @@ def portal_me(request: Request, db: Session = Depends(get_db)):
             "is_hc_committee": is_committee,
             "is_hod": len(hod_departments) > 0,
             "hod_departments": hod_departments,
+            "hod_campaign_year": _camp_year,
             "can_create_surveys": bool(getattr(member, "can_create_surveys", False)),
             "is_elder": _is_elder(member),
             "is_prayer_group_leader": _is_prayer_group_leader(member, db),

@@ -128,3 +128,54 @@ def test_incoming_hod_sees_pending_campaign_joiners(db, client, department,
     assert dept["campaign"]["pending"] == 1
     names = [m["full_name"] for m in dept["campaign"]["members"]]
     assert "Keen Member" in names
+
+
+def test_portal_me_surfaces_incoming_hod_on_dashboard(db, client, department,
+                                                      make_member, settings_value):
+    """The portal dashboard data flags a staged incoming HOD and carries the
+    campaign joiner counts so the 'Leading a department' card can render."""
+    from routers.pages import MEMBER_COOKIE_NAME, _sign_member_session
+    settings_value("selectionCampaignYear", "2031")
+    settings_value("selectionCampaignOpen", "true")
+    hod = make_member(full_name="Dash HOD")
+    joiner = make_member(full_name="Joiner One")
+    department.pending_hod_member_id = hod.id
+    db.add(DepartmentSelection(year=2031, member_id=joiner.id,
+                               department_id=department.id,
+                               status="pending", source="member"))
+    db.commit()
+
+    client.cookies.set(MEMBER_COOKIE_NAME, _sign_member_session(hod.id))
+    try:
+        me = client.get("/api/portal/me").json()
+    finally:
+        client.cookies.clear()
+
+    lead = me["leadership"]
+    assert lead["is_hod"] is True
+    assert lead["hod_campaign_year"] == 2031
+    dep = next((d for d in lead["hod_departments"] if d["id"] == department.id), None)
+    assert dep is not None
+    assert dep["incoming"] is True
+    assert dep["joining"] == 1
+    assert dep["pending"] == 1
+
+
+def test_portal_me_hides_incoming_hod_when_campaign_closed(db, client, department,
+                                                          make_member, settings_value):
+    from routers.pages import MEMBER_COOKIE_NAME, _sign_member_session
+    settings_value("selectionCampaignOpen", "false")
+    hod = make_member(full_name="Closed HOD")
+    department.pending_hod_member_id = hod.id
+    db.commit()
+
+    client.cookies.set(MEMBER_COOKIE_NAME, _sign_member_session(hod.id))
+    try:
+        me = client.get("/api/portal/me").json()
+    finally:
+        client.cookies.clear()
+
+    lead = me["leadership"]
+    # An incoming-only HOD must not surface while the campaign is closed.
+    assert lead["is_hod"] is False
+    assert lead["hod_campaign_year"] is None
