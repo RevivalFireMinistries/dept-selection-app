@@ -4185,7 +4185,7 @@ def admin_selection_export(request: Request = None, db: Session = Depends(get_db
         )
         wsd.append([f"Total who selected: {len(sels)}"])
         wsd.append([])
-        cols = ["Full Name", "Phone", "Email", "Status", "Added by", "Selected on"]
+        cols = ["Full Name", "Phone"]
         wsd.append(cols)
         hdr_row = wsd.max_row
         for c in range(1, len(cols) + 1):
@@ -4196,14 +4196,10 @@ def admin_selection_export(request: Request = None, db: Session = Depends(get_db
                 wsd.append([
                     m.full_name if m else "",
                     m.phone if m else "",
-                    m.email if m else "",
-                    (s.status or "pending").capitalize(),
-                    "Admin" if (s.source or "member") == "admin" else "Member",
-                    s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else "",
                 ])
         else:
             wsd.append(["No selections yet"])
-        for col, width in zip("ABCDEF", (26, 16, 28, 12, 10, 18)):
+        for col, width in zip("AB", (30, 18)):
             wsd.column_dimensions[col].width = width
 
     output = BytesIO()

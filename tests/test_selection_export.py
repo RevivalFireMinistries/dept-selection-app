@@ -76,9 +76,12 @@ def test_export_has_a_sheet_per_department_with_selectors(db, client, two_depart
     assert "Alice Export" in text
     assert "Bob Export" in text
     assert "Total who selected: 2" in text
-    # Bob was admin-added and approved; Alice is a pending member pick.
-    assert "Admin" in text and "Member" in text
-    assert "Approved" in text and "Pending" in text
+    # Phones are listed; the default columns are Full Name + Phone only.
+    assert "0820000001" in text and "0820000002" in text
+    header = [c.value for c in next(
+        r for r in choir_ws.iter_rows() if (r[0].value == "Full Name"))]
+    assert header[:2] == ["Full Name", "Phone"]
+    assert "Email" not in header and "Status" not in header
 
     # An untouched department still gets a sheet, marked empty.
     ush_text = "\n".join(
