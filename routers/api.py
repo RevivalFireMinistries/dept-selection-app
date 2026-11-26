@@ -4100,6 +4100,124 @@ def admin_selection_member_search(q: str = Query(...), request: Request = None,
     return {"year": year, "members": out}
 
 
+@router.get("/admin/selection/export")
+def admin_selection_export(request: Request = None, db: Session = Depends(get_db)):
+    """Download the open campaign as an Excel workbook: a Summary sheet plus one
+    worksheet per department listing everyone who selected it (status + source)."""
+    _require_committee_or_admin(request, db)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from collections import defaultdict
+
+    state = _campaign_state(db)
+    year = state["year"]
+
+    rows = []
+    if year:
+        rows = db.query(DepartmentSelection).options(
+            joinedload(DepartmentSelection.member),
+            joinedload(DepartmentSelection.department).joinedload(Department.category),
+        ).filter(DepartmentSelection.year == year).all()
+
+    by_dept: Dict[int, list] = defaultdict(list)
+    for s in rows:
+        by_dept[s.department_id].append(s)
+
+    # Every active department + any department that has selections, so the book
+    # reads as a complete roster. Alphabetical.
+    all_depts = db.query(Department).options(joinedload(Department.category)).all()
+    dmeta = {d.id: d for d in all_depts}
+    dept_ids = sorted(
+        {d.id for d in all_depts if d.is_active} | set(by_dept.keys()),
+        key=lambda i: (dmeta[i].name.lower() if i in dmeta else ""),
+    )
+
+    status_order = {"pending": 0, "approved": 1, "rejected": 2}
+    wb = Workbook()
+    bold = Font(bold=True)
+
+    # --- Summary sheet ---
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append([f"Campaign {year or '—'} — department selections"])
+    ws["A1"].font = bold
+    ws.append([])
+    summary_headers = ["Department", "Category", "Joined", "Approved", "Pending", "Rejected"]
+    ws.append(summary_headers)
+    for c in range(1, len(summary_headers) + 1):
+        ws.cell(row=3, column=c).font = bold
+    for did in dept_ids:
+        d = dmeta.get(did)
+        sels = by_dept.get(did, [])
+        counts = {"approved": 0, "pending": 0, "rejected": 0}
+        for s in sels:
+            st = s.status or "pending"
+            counts[st if st in counts else "pending"] += 1
+        ws.append([
+            d.name if d else "?",
+            d.category.name if (d and d.category) else "Uncategorized",
+            len(sels), counts["approved"], counts["pending"], counts["rejected"],
+        ])
+    for col, width in zip("ABCDEF", (30, 22, 10, 12, 10, 10)):
+        ws.column_dimensions[col].width = width
+
+    # --- One sheet per department ---
+    used_names = set()
+    for did in dept_ids:
+        d = dmeta.get(did)
+        base = sanitize_sheet_name(d.name if d else f"Dept {did}") or f"Dept {did}"
+        name = base
+        n = 2
+        while name.lower() in used_names:  # keep sheet names unique
+            suffix = f" ({n})"
+            name = base[:31 - len(suffix)] + suffix
+            n += 1
+        used_names.add(name.lower())
+        wsd = wb.create_sheet(name)
+
+        wsd.append([d.name if d else "?"])
+        wsd["A1"].font = bold
+        wsd.append([f"Category: {d.category.name if (d and d.category) else 'Uncategorized'}"])
+        sels = sorted(
+            by_dept.get(did, []),
+            key=lambda s: (status_order.get(s.status or "pending", 3),
+                           (s.member.full_name if s.member else "")),
+        )
+        wsd.append([f"Total who selected: {len(sels)}"])
+        wsd.append([])
+        cols = ["Full Name", "Phone", "Email", "Status", "Added by", "Selected on"]
+        wsd.append(cols)
+        hdr_row = wsd.max_row
+        for c in range(1, len(cols) + 1):
+            wsd.cell(row=hdr_row, column=c).font = bold
+        if sels:
+            for s in sels:
+                m = s.member
+                wsd.append([
+                    m.full_name if m else "",
+                    m.phone if m else "",
+                    m.email if m else "",
+                    (s.status or "pending").capitalize(),
+                    "Admin" if (s.source or "member") == "admin" else "Member",
+                    s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else "",
+                ])
+        else:
+            wsd.append(["No selections yet"])
+        for col, width in zip("ABCDEF", (26, 16, 28, 12, 10, 18)):
+            wsd.column_dimensions[col].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    today = datetime.now().strftime("%Y-%m-%d")
+    filename = f"campaign-{year or 'draft'}-selections-{today}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.put("/admin/selection/reviews/{selection_id}")
 def admin_selection_update_status(selection_id: int, data: dict = Body(...), request: Request = None, db: Session = Depends(get_db)):
     """Approve/reject a draft selection. Never touches the live set or central."""
